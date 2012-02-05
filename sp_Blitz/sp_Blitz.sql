@@ -826,6 +826,42 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
                         ( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
 
+    IF NOT EXISTS ( SELECT * 
+                    FROM    msdb.dbo.sysalerts
+                    WHERE   message_id IN (823, 824, 825))
+         INSERT INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+                )
+                SELECT  30 AS CheckID ,
+                        50 AS Priority ,
+                        'Reliability' AS FindingsGroup ,
+                        'Alerts Configured without Follow Up' AS Finding ,
+                        'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
+                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware feailure. Enabling them can prevent you a lot of heartbreak.' ) AS Details ;
+
+    IF NOT EXISTS ( SELECT * 
+                    FROM    msdb.dbo.sysalerts
+                    WHERE   severity BETWEEN 19 AND 25)
+         INSERT INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+                )
+                SELECT  30 AS CheckID ,
+                        50 AS Priority ,
+                        'Reliability' AS FindingsGroup ,
+                        'Alerts Configured without Follow Up' AS Finding ,
+                        'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
+                        ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details ;
+
     IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysoperators
                     WHERE   enabled = 1 ) 
