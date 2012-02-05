@@ -804,6 +804,27 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'No Alerts Configured' AS Finding ,
                         'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
                         ( 'No SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
+    
+    IF NOT EXISTS ( SELECT  *
+                    FROM    msdb.dbo.sysalerts
+                    WHERE   enabled = 1 
+                            AND COALESCE(has_notification, 0) = 0
+                            AND job_id IS NULL
+                  )
+         INSERT INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+                )
+                SELECT  30 AS CheckID ,
+                        50 AS Priority ,
+                        'Reliability' AS FindingsGroup ,
+                        'Alerts Configured without Follow Up' AS Finding ,
+                        'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
+                        ( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
 
     IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysoperators
