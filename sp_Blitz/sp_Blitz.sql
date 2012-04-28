@@ -1228,7 +1228,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     'http://www.BrentOzar.com/blitz/database-server-collation-mismatch/' AS URL ,
                     ( 'Database ' + d.NAME + ' has collation ' + d.collation_name
 					        + '; Server collation is '
-					        + CONVERT(SYSNAME, SERVERPROPERTY('collation'))) AS Details
+					        + CONVERT(VARCHAR(100), SERVERPROPERTY('collation'))) AS Details
 			    FROM master.sys.databases d
 			    WHERE d.collation_name <> SERVERPROPERTY('collation')
 
