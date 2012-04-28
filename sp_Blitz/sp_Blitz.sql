@@ -11,9 +11,9 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON ;
 /*
-		sp_Blitz v6 - December 26, 2011
+		sp_Blitz v7 - April 30, 2012
 		
-		(C) 2011, Brent Ozar PLF, LLC
+		(C) 2012, Brent Ozar PLF, LLC
 
 To learn more, visit http://www.BrentOzar.com/go/blitz where you can download
 new versions for free, watch training videos on how it works, get more info on
@@ -23,10 +23,35 @@ Known limitations of this version:
  - No support for offline databases. If you can't query some of your databases,
    this script will fail.  That's fairly high on our list of things to improve
    since we like mirroring too.
- - SQL Server 2000 not quite supported (yet, but we're coding it in).
+ - SQL Server 2000 is not supported.
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v7 April 30 2012:
+ - Thomas Rushton http://thelonedba.wordpress.com/ @ThomasRushton added check
+   58 for database collations that don't match the server collation.
+ - Rob Pellicaan caught a bug in check 13: it was only checking for plan guides
+   in the master database rather than all user databases.
+ - Michal Tinthofer http://www.woodler.eu improved check 2 to work across
+   collations and fix a bug in the backup_finish_date check.  (Several people
+   reported this, but Michal contributed the most improvements to this check.)
+ - Chris Fradenburg improved checks 38 and 39 by excluding heaps if they are
+   marked is_ms_shipped, thereby excluding more system stuff.
+ - Jack Whittaker fixed a bug in checkid 1.  When checking for databases
+   without a full backup, we were ignoring the model database, but some shops
+   really do need to back up model because they put stuff in there to be
+   copied into each new database, so let's alert on that too.  Larry Silverman
+   also noticed this bug.
+ - Michael Burgess caught a bug in the untrusted key/constraint checks that
+   were not checking for is_disabled = 0.
+ - Alex Friedman fixed a bug in check 44 which required a running trace.
+ - New check for SQL Agent alerts configured without operator notifications.
+ - Even if @CheckUserDatabaseObjects was set to 0, some user database object
+   checks were being done.
+ - Check 48 for untrusted foreign keys now just returns one line per database
+   that has the issue rather than listing every foreign key individually. For
+   the full list of untrusted keys, run the query in the finding's URL.
 
 Changes in v6 Dec 26 2011:
  - Jonathan Allen @FatherJack suggested tweaking sp_BlitzUpdate's error message
@@ -103,7 +128,7 @@ Explanation of priority levels:
 
     DECLARE @VersionNumber VARCHAR(10) ,
         @StringToExecute NVARCHAR(4000) ;
-    SET @VersionNumber = '6' ;
+    SET @VersionNumber = '7' ;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -123,7 +148,7 @@ Explanation of priority levels:
             FROM    master.sys.databases d
                     LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
                                                             AND b.type = 'D'
-            WHERE   d.database_id NOT IN ( 2, 3 )  /* Bonus points if you know what that means */
+            WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
             GROUP BY d.name
             HAVING  MAX(b.backup_finish_date) <= DATEADD(dd, -7, GETDATE()) ;
 
@@ -143,7 +168,7 @@ Explanation of priority levels:
                     'http://www.BrentOzar.com/blitz/backups-not-performed-recently/' AS URL ,
                     ('Database ' + d.Name + ' never backed up.')  AS Details
             FROM    master.sys.databases d
-            WHERE   d.database_id NOT IN ( 2, 3 )  /* Bonus points if you know what that means */
+            WHERE   d.database_id <> 2 /* Bonus points if you know what that means */
 			AND NOT EXISTS (SELECT * FROM msdb.dbo.backupset b WHERE d.name = b.database_name AND b.type = 'D')
 
     INSERT  INTO #BlitzResults
@@ -154,22 +179,22 @@ Explanation of priority levels:
               URL ,
               Details
             )
-            SELECT  2 AS CheckID ,
-                    1 AS Priority ,
-                    'Backup' AS FindingsGroup ,
-                    'Full Recovery Mode w/o Log Backups' AS Finding ,
-                    'http://www.BrentOzar.com/blitz/full-recovery-mode-without-log-backups/' AS URL ,
-                    ( 'Database ' + d.Name + ' is in ' + d.recovery_model_desc
-                      + ' recovery mode but has not had a log backup in the last week.' ) AS Details
-            FROM    master.sys.databases d
-                    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
-                                                            AND b.type = 'L'
-                                                            AND b.backup_finish_date <= DATEADD(dd,
-                                                              -7, GETDATE())
-            WHERE   d.recovery_model IN ( 1, 2 )
-                    AND b.type IS NULL
-                    AND b.backup_finish_date IS NOT NULL
-                    AND d.database_id NOT IN ( 2, 3 ) ;
+		           SELECT DISTINCT 2 AS CheckID ,
+		                   1 AS Priority ,
+		                   'Backup' AS FindingsGroup ,
+		                   'Full Recovery Mode w/o Log Backups' AS Finding ,
+	                    'http://www.BrentOzar.com/blitz/full-recovery-mode-without-log-backups/' AS URL ,
+							( 'Database ' + (d.Name COLLATE database_default ) + ' is in ' + d.recovery_model_desc
+		                     + ' recovery mode but has not had a log backup in the last week.' ) AS Details
+					FROM    master.sys.databases d
+		           WHERE   d.recovery_model IN ( 1, 2 )
+		                   AND d.database_id NOT IN ( 2, 3 )
+						AND NOT EXISTS (SELECT * FROM msdb.dbo.backupset b WHERE d.name = b.database_name
+								                                                           AND b.type = 'L'
+								                                                           AND b.backup_finish_date <= DATEADD(dd, -7, GETDATE()));
+
+
+
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -347,16 +372,6 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
             FROM    sys.databases
             WHERE   is_auto_shrink_on = 1 ;
 
-
-    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
-        BEGIN
-            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, 
-    ''http://www.BrentOzar.com/blitz/query-plan-guides-enabled/'' AS URL,
-    (''Query plan guides have been set up so that a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM sys.plan_guides WHERE is_disabled = 0'
-            EXECUTE(@StringToExecute)
-        END ;
 
     IF @@VERSION LIKE '%Microsoft SQL Server 2000%' 
         BEGIN
@@ -805,7 +820,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
                         ( 'No SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
     
-    IF NOT EXISTS ( SELECT  *
+    IF EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysalerts
                     WHERE   enabled = 1 
                             AND COALESCE(has_notification, 0) = 0
@@ -819,7 +834,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                   URL ,
                   Details
                 )
-                SELECT  30 AS CheckID ,
+                SELECT  59 AS CheckID ,
                         50 AS Priority ,
                         'Reliability' AS FindingsGroup ,
                         'Alerts Configured without Follow Up' AS Finding ,
@@ -837,10 +852,10 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                   URL ,
                   Details
                 )
-                SELECT  30 AS CheckID ,
+                SELECT  60 AS CheckID ,
                         50 AS Priority ,
                         'Reliability' AS FindingsGroup ,
-                        'Alerts Configured without Follow Up' AS Finding ,
+                        'No Alerts for Corruption' AS Finding ,
                         'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
                         ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware feailure. Enabling them can prevent you a lot of heartbreak.' ) AS Details ;
 
@@ -855,10 +870,10 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                   URL ,
                   Details
                 )
-                SELECT  30 AS CheckID ,
+                SELECT  61 AS CheckID ,
                         50 AS Priority ,
                         'Reliability' AS FindingsGroup ,
-                        'Alerts Configured without Follow Up' AS Finding ,
+                        'No Alerts for Sev 19-25' AS Finding ,
                         'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
                         ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details ;
 
@@ -879,8 +894,6 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'No Operators Configured/Enabled' AS Finding ,
                         'http://www.BrentOzar.com/blitz/configure-sql-server-operators/' AS URL ,
                         ( 'No SQL Server Agent operators (emails) have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
-
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 32, 110, ''Performance'', ''Triggers on Tables'', ''http://www.BrentOzar.com/blitz/table-triggers/'', (''The ? database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0' ;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -1001,10 +1014,6 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
 
     EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 42, 100, ''Performance'', ''Uneven File Growth Settings in One Filegroup'', ''http://www.BrentOzar.com/blitz/file-growth-settings/'', (''The ? database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') FROM [?].sys.database_files WHERE type_desc = ''ROWS'' GROUP BY data_space_id HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1' ;
 
-    IF EXISTS ( SELECT  *
-                FROM    sys.traces
-                WHERE   is_default = 0 ) 
-        BEGIN
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -1023,7 +1032,6 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     FROM    sys.dm_exec_query_optimizer_info
                     WHERE   counter = 'order hint'
                             AND occurrence > 1
-        END
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1184,8 +1192,6 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.databases
             WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01) ;
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 56, 100, ''Performance'', ''Check Constraint Not Trusted'', ''http://www.BrentOzar.com/blitz/foreign-key-trusted/'', (''The check constraint [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0' ;
-
     INSERT  INTO #BlitzResults
             ( CheckID ,
               Priority ,
@@ -1206,20 +1212,51 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
             WHERE   sched.freq_type = 64 ;
 
+
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  58 AS CheckID ,
+                    200 AS Priority ,
+                    'Reliability' AS FindingsGroup ,
+                    'Database Collation Mismatch' AS Finding ,
+                    'http://www.BrentOzar.com/blitz/database-server-collation-mismatch/' AS URL ,
+                    ( 'Database ' + d.NAME + ' has collation ' + d.collation_name
+					        + '; Server collation is '
+					        + CONVERT(SYSNAME, SERVERPROPERTY('collation'))) AS Details
+			    FROM master.sys.databases d
+			    WHERE d.collation_name <> SERVERPROPERTY('collation')
+
+
     IF @CheckUserDatabaseObjects = 1 
         BEGIN
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://www.BrentOzar.com/blitz/heaps-tables-without-primary-key-clustered-index/'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb''' ;
+    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 32, 110, ''Performance'', ''Triggers on Tables'', ''http://www.BrentOzar.com/blitz/table-triggers/'', (''The ? database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0' ;
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://www.BrentOzar.com/blitz/heaps-tables-without-primary-key-clustered-index/'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb''' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://www.BrentOzar.com/blitz/heaps-tables-without-primary-key-clustered-index/'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0' ;
 
-
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://www.BrentOzar.com/blitz/heaps-tables-without-primary-key-clustered-index/'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0' ;
 
             EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 46, 100, ''Performance'', ''Leftover Fake Indexes From Wizards'', ''http://www.BrentOzar.com/blitz/hypothetical-indexes-index-tuning-wizard/'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_hypothetical = 1' ;
 
             EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 47, 100, ''Performance'', ''Indexes Disabled'', ''http://www.BrentOzar.com/blitz/indexes-disabled/'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is disabled.  This index is not actually helping performance and should either be enabled or removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_disabled = 1' ;
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 48, 100, ''Performance'', ''Foreign Key Not Trusted'', ''http://www.BrentOzar.com/blitz/foreign-key-trusted/'', (''The foreign key [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 48, 100, ''Performance'', ''Foreign Keys Not Trusted'', ''http://www.BrentOzar.com/blitz/foreign-key-trusted/'', (''The [?] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0' ;
+
+	    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 56, 100, ''Performance'', ''Check Constraint Not Trusted'', ''http://www.BrentOzar.com/blitz/foreign-key-trusted/'', (''The check constraint [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0' ;
+
+		    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
+	        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+	        BEGIN
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, ''http://www.BrentOzar.com/blitz/query-plan-guides-enabled/'' AS URL, (''Database [?] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM [?].sys.plan_guides WHERE is_disabled = 0'
+	        END ;
+
+
 
         END /* IF @CheckUserDatabaseObjects = 1 */
 
