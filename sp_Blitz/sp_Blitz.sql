@@ -11,7 +11,7 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON ;
 /*
-		sp_Blitz v8 - May 11, 2012
+		sp_Blitz v9 - May 11, 2012
 		
 		(C) 2012, Brent Ozar PLF, LLC
 
@@ -27,6 +27,9 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v9:
+ - Alex Pixley fixed a spelling typo.
 
 Changes in v8 May 10 2012:
  - Switched more-details URLs to be short.  This way they'll render better
@@ -844,7 +847,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts for Corruption' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware feailure. Enabling them can prevent you a lot of heartbreak.' ) AS Details ;
+                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details ;
 
     IF NOT EXISTS ( SELECT * 
                     FROM    msdb.dbo.sysalerts
