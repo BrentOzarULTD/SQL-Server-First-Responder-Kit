@@ -1,17 +1,17 @@
-USE master ;
+USE master;
 GO
 
 IF OBJECT_ID('master.dbo.sp_Blitz') IS NOT NULL 
-    DROP PROC dbo.sp_Blitz ;
+    DROP PROC dbo.sp_Blitz;
 GO
 
 CREATE PROCEDURE dbo.sp_Blitz
-    @CheckUserDatabaseObjects TINYINT = 1,
-	@CheckProcedureCache TINYINT = 0
+    @CheckUserDatabaseObjects TINYINT = 1 ,
+    @CheckProcedureCache TINYINT = 0
 AS 
-    SET NOCOUNT ON ;
+    SET NOCOUNT ON;
 /*
-		sp_Blitz v9 - May 11, 2012
+		sp_Blitz v9 - July 9, 2012
 		
 		(C) 2012, Brent Ozar PLF, LLC
 
@@ -30,6 +30,16 @@ Unknown limitations of this version:
 
 Changes in v9:
  - Alex Pixley fixed a spelling typo.
+ - Steinar Anderson http://www.sqlservice.se fixed a date bug in checkid 2.
+   That bug was reported by several users, but Steinar coded the fix.
+ - Stephen Schissler added a filter for checkid 2 (missing log backups) to look
+   only for databases where source_database_id is null because these are
+   database snapshots, and you can't run transaction log backups on snapshots.
+ - Mark Fleming @markflemingnl added checkid 62 looking for disabled alerts.
+ - Checkid 17 typo changed from "disabled" to "enabled" - the check
+   functionality was right, but it was warning that auto update stats async
+   was "disabled".  Disabled is actually the default, but the check was
+   firing because it had been enabled.  (This one was reported by many.)
 
 Changes in v8 May 10 2012:
  - Switched more-details URLs to be short.  This way they'll render better
@@ -115,7 +125,7 @@ Explanation of priority levels:
 */
 
     IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
-        DROP TABLE #BlitzResults ;
+        DROP TABLE #BlitzResults;
     CREATE TABLE #BlitzResults
         (
           ID INT IDENTITY(1, 1) ,
@@ -125,19 +135,17 @@ Explanation of priority levels:
           Finding VARCHAR(200) ,
           URL VARCHAR(200) ,
           Details NVARCHAR(4000)
-        ) ;
+        );
 
     IF OBJECT_ID('tempdb..#ConfigurationDefaults') IS NOT NULL 
-        DROP TABLE #ConfigurationDefaults ;
+        DROP TABLE #ConfigurationDefaults;
     CREATE TABLE #ConfigurationDefaults
         (
           name NVARCHAR(128) ,
           DefaultValue BIGINT
-        ) ;
+        );
 
-    DECLARE @VersionNumber VARCHAR(10) ,
-        @StringToExecute NVARCHAR(4000) ;
-    SET @VersionNumber = '7' ;
+    DECLARE @StringToExecute NVARCHAR(4000);
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -159,26 +167,30 @@ Explanation of priority levels:
                                                             AND b.type = 'D'
             WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
             GROUP BY d.name
-            HAVING  MAX(b.backup_finish_date) <= DATEADD(dd, -7, GETDATE()) ;
+            HAVING  MAX(b.backup_finish_date) <= DATEADD(dd, -7, GETDATE());
 
 
-	    INSERT  INTO #BlitzResults
-	            ( CheckID ,
-	              Priority ,
-	              FindingsGroup ,
-	              Finding ,
-	              URL ,
-	              Details
-	            )
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+	            
+            )
             SELECT  1 AS CheckID ,
                     1 AS Priority ,
                     'Backup' AS FindingsGroup ,
                     'Backups Not Performed Recently' AS Finding ,
                     'http://BrentOzar.com/go/nobak' AS URL ,
-                    ('Database ' + d.Name + ' never backed up.')  AS Details
+                    ( 'Database ' + d.Name + ' never backed up.' ) AS Details
             FROM    master.sys.databases d
             WHERE   d.database_id <> 2 /* Bonus points if you know what that means */
-			AND NOT EXISTS (SELECT * FROM msdb.dbo.backupset b WHERE d.name = b.database_name AND b.type = 'D')
+                    AND NOT EXISTS ( SELECT *
+                                     FROM   msdb.dbo.backupset b
+                                     WHERE  d.name = b.database_name
+                                            AND b.type = 'D' )
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -188,19 +200,25 @@ Explanation of priority levels:
               URL ,
               Details
             )
-		           SELECT DISTINCT 2 AS CheckID ,
-		                   1 AS Priority ,
-		                   'Backup' AS FindingsGroup ,
-		                   'Full Recovery Mode w/o Log Backups' AS Finding ,
-	                    'http://BrentOzar.com/go/biglogs' AS URL ,
-							( 'Database ' + (d.Name COLLATE database_default ) + ' is in ' + d.recovery_model_desc
-		                     + ' recovery mode but has not had a log backup in the last week.' ) AS Details
-					FROM    master.sys.databases d
-		           WHERE   d.recovery_model IN ( 1, 2 )
-		                   AND d.database_id NOT IN ( 2, 3 )
-						AND NOT EXISTS (SELECT * FROM msdb.dbo.backupset b WHERE d.name = b.database_name
-								                                                           AND b.type = 'L'
-								                                                           AND b.backup_finish_date <= DATEADD(dd, -7, GETDATE()));
+            SELECT DISTINCT
+                    2 AS CheckID ,
+                    1 AS Priority ,
+                    'Backup' AS FindingsGroup ,
+                    'Full Recovery Mode w/o Log Backups' AS Finding ,
+                    'http://BrentOzar.com/go/biglogs' AS URL ,
+                    ( 'Database ' + ( d.Name COLLATE database_default )
+                      + ' is in ' + d.recovery_model_desc
+                      + ' recovery mode but has not had a log backup in the last week.' ) AS Details
+            FROM    master.sys.databases d
+            WHERE   d.recovery_model IN ( 1, 2 )
+                    AND d.database_id NOT IN ( 2, 3 )
+                    AND d.source_database_id IS NULL
+                    AND NOT EXISTS ( SELECT *
+                                     FROM   msdb.dbo.backupset b
+                                     WHERE  d.name = b.database_name
+                                            AND b.type = 'L'
+                                            AND b.backup_finish_date >= DATEADD(dd,
+                                                              -7, GETDATE()) );
 
 
 
@@ -223,7 +241,7 @@ Explanation of priority levels:
                       + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
             FROM    msdb.dbo.backupset bs
             WHERE   bs.backup_start_date <= DATEADD(dd, -60, GETDATE())
-            ORDER BY backup_set_id ASC ;
+            ORDER BY backup_set_id ASC;
 
 
     INSERT  INTO #BlitzResults
@@ -244,7 +262,7 @@ Explanation of priority levels:
             FROM    master.sys.syslogins l
             WHERE   l.sysadmin = 1
                     AND l.name <> SUSER_SNAME(0x01)
-                    AND l.denylogin = 0 ;
+                    AND l.denylogin = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -264,7 +282,7 @@ Explanation of priority levels:
             FROM    master.sys.syslogins l
             WHERE   l.securityadmin = 1
                     AND l.name <> SUSER_SNAME(0x01)
-                    AND l.denylogin = 0 ;
+                    AND l.denylogin = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -284,7 +302,7 @@ Explanation of priority levels:
             FROM    msdb.dbo.sysjobs j
                     LEFT OUTER JOIN sys.syslogins sl ON j.owner_sid = sl.sid
             WHERE   j.enabled = 1
-                    AND sl.name <> SUSER_SNAME(0x01) ;
+                    AND sl.name <> SUSER_SNAME(0x01);
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -303,7 +321,7 @@ Explanation of priority levels:
                       + '].[' + r.SPECIFIC_NAME
                       + '] runs automatically when SQL Server starts up.  Make sure you know exactly what this stored procedure is doing, because it could pose a security risk.' ) AS Details
             FROM    master.INFORMATION_SCHEMA.ROUTINES r
-            WHERE   OBJECTPROPERTY(OBJECT_ID(ROUTINE_NAME), 'ExecIsStartup') = 1 ;
+            WHERE   OBJECTPROPERTY(OBJECT_ID(ROUTINE_NAME), 'ExecIsStartup') = 1;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -313,7 +331,7 @@ SELECT 8 AS CheckID, 150 AS Priority, ''Security'' AS FindingsGroup, ''Server Au
     ''http://BrentOzar.com/go/audits'' AS URL,
     (''SQL Server built-in audit functionality is being used by server audit: '' + [name]) AS Details FROM sys.dm_server_audit_status'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
         BEGIN
@@ -322,7 +340,7 @@ SELECT 9 AS CheckID, 200 AS Priority, ''Surface Area'' AS FindingsGroup, ''Endpo
     ''http://BrentOzar.com/go/endpoints/'' AS URL,
     (''SQL Server endpoints are configured.  These can be used for database mirroring or Service Broker, but if you do not need them, avoid leaving them enabled.  Endpoint name: '' + [name]) AS Details FROM sys.endpoints WHERE type <> 2'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -332,7 +350,7 @@ SELECT 10 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Resou
     ''http://BrentOzar.com/go/rg'' AS URL,
     (''Resource Governor is enabled.  Queries may be throttled.  Make sure you understand how the Classifier Function is configured.'') AS Details FROM sys.resource_governor_configuration WHERE is_enabled = 1'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
@@ -342,7 +360,7 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
     ''http://BrentOzar.com/go/logontriggers/'' AS URL,
     (''Server Trigger ['' + [name] ++ ''] is enabled, so it runs every time someone logs in.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details FROM sys.server_triggers WHERE is_disabled = 0 AND is_ms_shipped = 0'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
 
     INSERT  INTO #BlitzResults
@@ -361,7 +379,7 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
                     ( 'Database [' + [name]
                       + '] has auto-close enabled.  This setting can dramatically decrease performance.' ) AS Details
             FROM    sys.databases
-            WHERE   is_auto_close_on = 1 ;
+            WHERE   is_auto_close_on = 1;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -379,7 +397,7 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
                     ( 'Database [' + [name]
                       + '] has auto-shrink enabled.  This setting can dramatically decrease performance.' ) AS Details
             FROM    sys.databases
-            WHERE   is_auto_shrink_on = 1 ;
+            WHERE   is_auto_shrink_on = 1;
 
 
     IF @@VERSION LIKE '%Microsoft SQL Server 2000%' 
@@ -389,7 +407,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
     ''http://BrentOzar.com/go/torn'' AS URL,
     (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 1'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
         BEGIN
@@ -398,7 +416,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
     ''http://BrentOzar.com/go/torn'' AS URL,
     (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 2'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -416,7 +434,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
                     ( 'Database [' + [name]
                       + '] has auto-create-stats disabled.  SQL Server uses statistics to build better execution plans, and without the ability to automatically create more, performance may suffer.' ) AS Details
             FROM    sys.databases
-            WHERE   is_auto_create_stats_on = 0 ;
+            WHERE   is_auto_create_stats_on = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -434,7 +452,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
                     ( 'Database [' + [name]
                       + '] has auto-update-stats disabled.  SQL Server uses statistics to build better execution plans, and without the ability to automatically update them, performance may suffer.' ) AS Details
             FROM    sys.databases
-            WHERE   is_auto_update_stats_on = 0 ;
+            WHERE   is_auto_update_stats_on = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -450,9 +468,9 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
                     'Stats Updated Asynchronously' AS Finding ,
                     'http://BrentOzar.com/go/asyncstats' AS URL ,
                     ( 'Database [' + [name]
-                      + '] has auto-update-stats-async disabled.  When SQL Server gets a query for a table with out-of-date statistics, it will run the query with the stats it has - while updating stats to make later queries better. The initial run of the query may suffer, though.' ) AS Details
+                      + '] has auto-update-stats-async enabled.  When SQL Server gets a query for a table with out-of-date statistics, it will run the query with the stats it has - while updating stats to make later queries better. The initial run of the query may suffer, though.' ) AS Details
             FROM    sys.databases
-            WHERE   is_auto_update_stats_async_on = 1 ;
+            WHERE   is_auto_update_stats_async_on = 1;
 
 
     INSERT  INTO #BlitzResults
@@ -471,7 +489,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
                     ( 'Database [' + [name]
                       + '] has forced parameterization enabled.  SQL Server will aggressively reuse query execution plans even if the applications do not parameterize their queries.  This can be a performance booster with some programming languages, or it may use universally bad execution plans when better alternatives are available for certain parameters.' ) AS Details
             FROM    sys.databases
-            WHERE   is_parameterization_forced = 1 ;
+            WHERE   is_parameterization_forced = 1;
 
 
     INSERT  INTO #BlitzResults
@@ -493,7 +511,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
             WHERE   is_published = 1
                     OR is_subscribed = 1
                     OR is_merge_published = 1
-                    OR is_distributor = 1 ;
+                    OR is_distributor = 1;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -511,7 +529,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
                     ( 'Database [' + [name]
                       + '] has date correlation enabled.  This is not a default setting, and it has some performance overhead.  It tells SQL Server that date fields in two tables are related, and SQL Server maintains statistics showing that relation.' ) AS Details
             FROM    sys.databases
-            WHERE   is_date_correlation_on = 1 ;
+            WHERE   is_date_correlation_on = 1;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -521,135 +539,135 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     ''http://BrentOzar.com/go/tde'' AS URL,
     (''Database ['' + [name] + ''] has Transparent Data Encryption enabled.  Make absolutely sure you have backed up the certificate and private key, or else you will not be able to restore this database.'') AS Details FROM sys.databases WHERE is_encrypted = 1'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
 /* Compare sp_configure defaults */
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Ad Hoc Distributed Queries', 0 ) ;
+    VALUES  ( 'Ad Hoc Distributed Queries', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'affinity I/O mask', 0 ) ;
+    VALUES  ( 'affinity I/O mask', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'affinity mask', 0 ) ;
+    VALUES  ( 'affinity mask', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Agent XPs', 0 ) ;
+    VALUES  ( 'Agent XPs', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'allow updates', 0 ) ;
+    VALUES  ( 'allow updates', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'awe enabled', 0 ) ;
+    VALUES  ( 'awe enabled', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'blocked process threshold', 0 ) ;
+    VALUES  ( 'blocked process threshold', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'c2 audit mode', 0 ) ;
+    VALUES  ( 'c2 audit mode', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'clr enabled', 0 ) ;
+    VALUES  ( 'clr enabled', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'cost threshold for parallelism', 5 ) ;
+    VALUES  ( 'cost threshold for parallelism', 5 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'cross db ownership chaining', 0 ) ;
+    VALUES  ( 'cross db ownership chaining', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'cursor threshold', -1 ) ;
+    VALUES  ( 'cursor threshold', -1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Database Mail XPs', 0 ) ;
+    VALUES  ( 'Database Mail XPs', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'default full-text language', 1033 ) ;
+    VALUES  ( 'default full-text language', 1033 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'default language', 0 ) ;
+    VALUES  ( 'default language', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'default trace enabled', 1 ) ;
+    VALUES  ( 'default trace enabled', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'disallow results from triggers', 0 ) ;
+    VALUES  ( 'disallow results from triggers', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'fill factor (%);', 0 ) ;
+    VALUES  ( 'fill factor (%);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft crawl bandwidth (max);', 100 ) ;
+    VALUES  ( 'ft crawl bandwidth (max);', 100 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft crawl bandwidth (min);', 0 ) ;
+    VALUES  ( 'ft crawl bandwidth (min);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft notify bandwidth (max);', 100 ) ;
+    VALUES  ( 'ft notify bandwidth (max);', 100 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft notify bandwidth (min);', 0 ) ;
+    VALUES  ( 'ft notify bandwidth (min);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'index create memory (KB);', 0 ) ;
+    VALUES  ( 'index create memory (KB);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'in-doubt xact resolution', 0 ) ;
+    VALUES  ( 'in-doubt xact resolution', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'lightweight pooling', 0 ) ;
+    VALUES  ( 'lightweight pooling', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'locks', 0 ) ;
+    VALUES  ( 'locks', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max degree of parallelism', 0 ) ;
+    VALUES  ( 'max degree of parallelism', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max full-text crawl range', 4 ) ;
+    VALUES  ( 'max full-text crawl range', 4 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max server memory (MB);', 2147483647 ) ;
+    VALUES  ( 'max server memory (MB);', 2147483647 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max text repl size (B);', 65536 ) ;
+    VALUES  ( 'max text repl size (B);', 65536 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max worker threads', 0 ) ;
+    VALUES  ( 'max worker threads', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'media retention', 0 ) ;
+    VALUES  ( 'media retention', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'min memory per query (KB);', 1024 ) ;
+    VALUES  ( 'min memory per query (KB);', 1024 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'min server memory (MB);', 0 ) ;
+    VALUES  ( 'min server memory (MB);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'nested triggers', 1 ) ;
+    VALUES  ( 'nested triggers', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'network packet size (B);', 4096 ) ;
+    VALUES  ( 'network packet size (B);', 4096 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Ole Automation Procedures', 0 ) ;
+    VALUES  ( 'Ole Automation Procedures', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'open objects', 0 ) ;
+    VALUES  ( 'open objects', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'PH timeout (s);', 60 ) ;
+    VALUES  ( 'PH timeout (s);', 60 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'precompute rank', 0 ) ;
+    VALUES  ( 'precompute rank', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'priority boost', 0 ) ;
+    VALUES  ( 'priority boost', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'query governor cost limit', 0 ) ;
+    VALUES  ( 'query governor cost limit', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'query wait (s);', -1 ) ;
+    VALUES  ( 'query wait (s);', -1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'recovery interval (min);', 0 ) ;
+    VALUES  ( 'recovery interval (min);', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote access', 1 ) ;
+    VALUES  ( 'remote access', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote admin connections', 0 ) ;
+    VALUES  ( 'remote admin connections', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote login timeout (s);', 20 ) ;
+    VALUES  ( 'remote login timeout (s);', 20 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote proc trans', 0 ) ;
+    VALUES  ( 'remote proc trans', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote query timeout (s);', 600 ) ;
+    VALUES  ( 'remote query timeout (s);', 600 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Replication XPs', 0 ) ;
+    VALUES  ( 'Replication XPs', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'RPC parameter data validation', 0 ) ;
+    VALUES  ( 'RPC parameter data validation', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'scan for startup procs', 0 ) ;
+    VALUES  ( 'scan for startup procs', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'server trigger recursion', 1 ) ;
+    VALUES  ( 'server trigger recursion', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'set working set size', 0 ) ;
+    VALUES  ( 'set working set size', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'show advanced options', 0 ) ;
+    VALUES  ( 'show advanced options', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'SMO and DMO XPs', 1 ) ;
+    VALUES  ( 'SMO and DMO XPs', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'SQL Mail XPs', 0 ) ;
+    VALUES  ( 'SQL Mail XPs', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'transform noise words', 0 ) ;
+    VALUES  ( 'transform noise words', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'two digit year cutoff', 2049 ) ;
+    VALUES  ( 'two digit year cutoff', 2049 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'user connections', 0 ) ;
+    VALUES  ( 'user connections', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'user options', 0 ) ;
+    VALUES  ( 'user options', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'Web Assistant Procedures', 0 ) ;
+    VALUES  ( 'Web Assistant Procedures', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'xp_cmdshell', 0 ) ;
+    VALUES  ( 'xp_cmdshell', 0 );
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -670,7 +688,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + CAST(cr.value_in_use AS VARCHAR(100)) + '.' ) AS Details
             FROM    #ConfigurationDefaults cd
                     INNER JOIN sys.configurations cr ON cd.name = cr.name
-            WHERE   cd.DefaultValue <> cr.value_in_use ;
+            WHERE   cd.DefaultValue <> cr.value_in_use;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -690,7 +708,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + ' database has a file on the C drive.  Putting system databases on the C drive runs the risk of crashing the server when it runs out of space.' ) AS Details
             FROM    sys.master_files
             WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
-                    AND DB_NAME(database_id) IN ( 'master', 'model', 'msdb' ) ;
+                    AND DB_NAME(database_id) IN ( 'master', 'model', 'msdb' );
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -709,7 +727,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     ( 'The tempdb database has files on the C drive.  TempDB frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' ) AS Details
             FROM    sys.master_files
             WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
-                    AND DB_NAME(database_id) = 'tempdb' ;
+                    AND DB_NAME(database_id) = 'tempdb';
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -730,7 +748,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.master_files
             WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
                     AND DB_NAME(database_id) NOT IN ( 'master', 'model',
-                                                      'msdb', 'tempdb' ) ;
+                                                      'msdb', 'tempdb' );
 
 
     INSERT  INTO #BlitzResults
@@ -751,7 +769,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + CAST(create_date AS VARCHAR(20))
                       + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
             FROM    master.sys.tables
-            WHERE   is_ms_shipped = 0 ;
+            WHERE   is_ms_shipped = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -771,7 +789,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + CAST(create_date AS VARCHAR(20))
                       + '. Tables in the msdb database may not be restored in the event of a disaster.' ) AS Details
             FROM    msdb.sys.tables
-            WHERE   is_ms_shipped = 0 ;
+            WHERE   is_ms_shipped = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -791,7 +809,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + CAST(create_date AS VARCHAR(20))
                       + '. Tables in the model database are automatically copied into all new databases.' ) AS Details
             FROM    model.sys.tables
-            WHERE   is_ms_shipped = 0 ;
+            WHERE   is_ms_shipped = 0;
 
     IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysalerts ) 
@@ -808,15 +826,14 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts Configured' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'No SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
+                        ( 'No SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
     
     IF EXISTS ( SELECT  *
-                    FROM    msdb.dbo.sysalerts
-                    WHERE   enabled = 1 
-                            AND COALESCE(has_notification, 0) = 0
-                            AND job_id IS NULL
-                  )
-         INSERT INTO #BlitzResults
+                FROM    msdb.dbo.sysalerts
+                WHERE   enabled = 1
+                        AND COALESCE(has_notification, 0) = 0
+                        AND job_id IS NULL ) 
+        INSERT  INTO #BlitzResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -829,12 +846,12 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'Alerts Configured without Follow Up' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
+                        ( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
 
-    IF NOT EXISTS ( SELECT * 
+    IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysalerts
-                    WHERE   message_id IN (823, 824, 825))
-         INSERT INTO #BlitzResults
+                    WHERE   message_id IN ( 823, 824, 825 ) ) 
+        INSERT  INTO #BlitzResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -847,12 +864,12 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts for Corruption' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details ;
+                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details;
 
-    IF NOT EXISTS ( SELECT * 
+    IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysalerts
-                    WHERE   severity BETWEEN 19 AND 25)
-         INSERT INTO #BlitzResults
+                    WHERE   severity BETWEEN 19 AND 25 ) 
+        INSERT  INTO #BlitzResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -865,7 +882,31 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts for Sev 19-25' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details ;
+                        ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details;
+
+						--check for disabled alerts
+    IF EXISTS ( SELECT  name
+                FROM    msdb.dbo.sysalerts
+                WHERE   enabled = 0 ) 
+        INSERT  INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+						
+                )
+                SELECT  62 AS CheckID ,
+                        50 AS Priority ,
+                        'Reliability' AS FindingsGroup ,
+                        'Alerts Disabled' AS Finding ,
+                        'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
+                        ( 'The following Alert is disabled, please review and enable if desired: '
+                          + name ) AS Details
+                FROM    msdb.dbo.sysalerts
+                WHERE   enabled = 0
+
 
     IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysoperators
@@ -883,13 +924,13 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Operators Configured/Enabled' AS Finding ,
                         'http://BrentOzar.com/go/op' AS URL ,
-                        ( 'No SQL Server Agent operators (emails) have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details ;
+                        ( 'No SQL Server Agent operators (emails) have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
         BEGIN
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 33, 200, ''Licensing'', ''Enterprise Edition Features In Use'', ''http://BrentOzar.com/go/ee'', (''The ? database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'') FROM [?].sys.dm_db_persisted_sku_features' ;
-        END ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 33, 200, ''Licensing'', ''Enterprise Edition Features In Use'', ''http://BrentOzar.com/go/ee'', (''The ? database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'') FROM [?].sys.dm_db_persisted_sku_features';
+        END;
 
 
     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
@@ -906,34 +947,35 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.dm_db_mirroring_auto_page_repair
             WHERE   modification_time >= DATEADD(dd, -30, GETDATE()) ;'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
-	IF @CheckProcedureCache = 1
-	BEGIN
-    INSERT  INTO #BlitzResults
-            ( CheckID ,
-              Priority ,
-              FindingsGroup ,
-              Finding ,
-              URL ,
-              Details
-            )
-            SELECT  35 AS CheckID ,
-                    100 AS Priority ,
-                    'Performance' AS FindingsGroup ,
-                    'Single-Use Plans in Procedure Cache' AS Finding ,
-                    'http://BrentOzar.com/go/single' AS URL ,
-                    ( CAST(COUNT(*) AS VARCHAR(10))
-                      + ' query plans are taking up '
-                      + CAST(( SUM(cp.size_in_bytes * 1.0) / 1048576 ) AS VARCHAR(20))
-                      + ' megabytes in the procedure cache. This may be wasted memory if we cache plans for queries that never get called again. This may be a good use case for SQL Server 2008''s Optimize for Ad Hoc or for Forced Parameterization.' ) AS Details
-            FROM    sys.dm_exec_cached_plans AS cp
-                    CROSS APPLY sys.dm_exec_query_plan(cp.plan_handle) AS qp
-            WHERE   cp.usecounts = 1
-                    AND qp.query_plan IS NOT NULL
-                    AND cp.objtype = 'Adhoc'
-            HAVING  COUNT(*) > 1 ;
-	END
+    IF @CheckProcedureCache = 1 
+        BEGIN
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details
+                    )
+                    SELECT  35 AS CheckID ,
+                            100 AS Priority ,
+                            'Performance' AS FindingsGroup ,
+                            'Single-Use Plans in Procedure Cache' AS Finding ,
+                            'http://BrentOzar.com/go/single' AS URL ,
+                            ( CAST(COUNT(*) AS VARCHAR(10))
+                              + ' query plans are taking up '
+                              + CAST(( SUM(cp.size_in_bytes * 1.0) / 1048576 ) AS VARCHAR(20))
+                              + ' megabytes in the procedure cache. This may be wasted memory if we cache plans for queries that never get called again. This may be a good use case for SQL Server 2008''s Optimize for Ad Hoc or for Forced Parameterization.' ) AS Details
+                    FROM    sys.dm_exec_cached_plans AS cp
+                            CROSS APPLY sys.dm_exec_query_plan(cp.plan_handle)
+                            AS qp
+                    WHERE   cp.usecounts = 1
+                            AND qp.query_plan IS NOT NULL
+                            AND cp.objtype = 'Adhoc'
+                    HAVING  COUNT(*) > 1;
+        END
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -954,7 +996,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.dm_io_virtual_file_stats(NULL, NULL) AS fs
                     INNER JOIN sys.master_files AS mf ON fs.database_id = mf.database_id
                                                          AND fs.[file_id] = mf.[file_id]
-            WHERE   ( io_stall_read_ms / ( 1.0 + num_of_reads ) ) > 100 ;
+            WHERE   ( io_stall_read_ms / ( 1.0 + num_of_reads ) ) > 100;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -975,7 +1017,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.dm_io_virtual_file_stats(NULL, NULL) AS fs
                     INNER JOIN sys.master_files AS mf ON fs.database_id = mf.database_id
                                                          AND fs.[file_id] = mf.[file_id]
-            WHERE   ( io_stall_write_ms / ( 1.0 + num_of_writes ) ) > 20 ;
+            WHERE   ( io_stall_write_ms / ( 1.0 + num_of_writes ) ) > 20;
 
 
     IF ( SELECT COUNT(*)
@@ -997,31 +1039,32 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       'TempDB Only Has 1 Data File' ,
                       'http://BrentOzar.com/go/tempdb' ,
                       'TempDB is only configured with one data file.  More data files are usually required to alleviate SGAM contention.'
-                    ) ;
-        END ;
+                    );
+        END;
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 41, 100, ''Performance'', ''Multiple Log Files on One Drive'', ''http://BrentOzar.com/go/manylogs'', (''The ? database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'') FROM [?].sys.database_files WHERE type_desc = ''LOG'' AND ''?'' <> ''[tempdb]'' GROUP BY LEFT(physical_name, 1) HAVING COUNT(*) > 1' ;
+    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 41, 100, ''Performance'', ''Multiple Log Files on One Drive'', ''http://BrentOzar.com/go/manylogs'', (''The ? database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'') FROM [?].sys.database_files WHERE type_desc = ''LOG'' AND ''?'' <> ''[tempdb]'' GROUP BY LEFT(physical_name, 1) HAVING COUNT(*) > 1';
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 42, 100, ''Performance'', ''Uneven File Growth Settings in One Filegroup'', ''http://BrentOzar.com/go/grow'', (''The ? database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') FROM [?].sys.database_files WHERE type_desc = ''ROWS'' GROUP BY data_space_id HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1' ;
+    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 42, 100, ''Performance'', ''Uneven File Growth Settings in One Filegroup'', ''http://BrentOzar.com/go/grow'', (''The ? database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') FROM [?].sys.database_files WHERE type_desc = ''ROWS'' GROUP BY data_space_id HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1';
 
-            INSERT  INTO #BlitzResults
-                    ( CheckID ,
-                      Priority ,
-                      FindingsGroup ,
-                      Finding ,
-                      URL ,
-                      Details
-                    )
-                    SELECT  44 AS CheckID ,
-                            110 AS Priority ,
-                            'Performance' AS FindingsGroup ,
-                            'Queries Forcing Order Hints' AS Finding ,
-                            'http://BrentOzar.com/go/hints' AS URL ,
-                            CAST(occurrence AS VARCHAR(10))
-                            + ' instances of order hinting have been recorded since restart.  This means queries are bossing the SQL Server optimizer around, and if they don''t know what they''re doing, this can cause more harm than good.  This can also explain why DBA tuning efforts aren''t working.' AS Details
-                    FROM    sys.dm_exec_query_optimizer_info
-                    WHERE   counter = 'order hint'
-                            AND occurrence > 1
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+                    
+            )
+            SELECT  44 AS CheckID ,
+                    110 AS Priority ,
+                    'Performance' AS FindingsGroup ,
+                    'Queries Forcing Order Hints' AS Finding ,
+                    'http://BrentOzar.com/go/hints' AS URL ,
+                    CAST(occurrence AS VARCHAR(10))
+                    + ' instances of order hinting have been recorded since restart.  This means queries are bossing the SQL Server optimizer around, and if they don''t know what they''re doing, this can cause more harm than good.  This can also explain why DBA tuning efforts aren''t working.' AS Details
+            FROM    sys.dm_exec_query_optimizer_info
+            WHERE   counter = 'order hint'
+                    AND occurrence > 1
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1082,7 +1125,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     INNER JOIN sys.configurations c ON c.name = ''max server memory (MB)''
             WHERE   CAST(m.total_physical_memory_kb AS BIGINT) < ( CAST(c.value_in_use AS BIGINT) * 1024 )'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
 
 
@@ -1104,7 +1147,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    sys.dm_os_sys_memory m
             WHERE   CAST(m.available_physical_memory_kb AS BIGINT) < 262144'
             EXECUTE(@StringToExecute)
-        END ;
+        END;
 
 
     INSERT  INTO #BlitzResults
@@ -1160,7 +1203,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     ( 'Database name: ' + name + '   ' + 'Owner name: '
                       + SUSER_SNAME(owner_sid) ) AS Details
             FROM    sys.databases
-            WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01) ;
+            WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01);
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1180,7 +1223,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    msdb.dbo.sysschedules sched
                     JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
                     JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
-            WHERE   sched.freq_type = 64 ;
+            WHERE   sched.freq_type = 64;
 
 
     INSERT  INTO #BlitzResults
@@ -1196,35 +1239,35 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     'Reliability' AS FindingsGroup ,
                     'Database Collation Mismatch' AS Finding ,
                     'http://BrentOzar.com/go/collate' AS URL ,
-                    ( 'Database ' + d.NAME + ' has collation ' + d.collation_name
-					        + '; Server collation is '
-					        + CONVERT(VARCHAR(100), SERVERPROPERTY('collation'))) AS Details
-			    FROM master.sys.databases d
-			    WHERE d.collation_name <> SERVERPROPERTY('collation')
+                    ( 'Database ' + d.NAME + ' has collation '
+                      + d.collation_name + '; Server collation is '
+                      + CONVERT(VARCHAR(100), SERVERPROPERTY('collation')) ) AS Details
+            FROM    master.sys.databases d
+            WHERE   d.collation_name <> SERVERPROPERTY('collation')
 
 
     IF @CheckUserDatabaseObjects = 1 
         BEGIN
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 32, 110, ''Performance'', ''Triggers on Tables'', ''http://BrentOzar.com/go/trig'', (''The ? database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 32, 110, ''Performance'', ''Triggers on Tables'', ''http://BrentOzar.com/go/trig'', (''The ? database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 46, 100, ''Performance'', ''Leftover Fake Indexes From Wizards'', ''http://BrentOzar.com/go/hypo'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_hypothetical = 1' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 46, 100, ''Performance'', ''Leftover Fake Indexes From Wizards'', ''http://BrentOzar.com/go/hypo'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_hypothetical = 1';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 47, 100, ''Performance'', ''Indexes Disabled'', ''http://BrentOzar.com/go/ixoff'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is disabled.  This index is not actually helping performance and should either be enabled or removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_disabled = 1' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 47, 100, ''Performance'', ''Indexes Disabled'', ''http://BrentOzar.com/go/ixoff'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is disabled.  This index is not actually helping performance and should either be enabled or removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_disabled = 1';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 48, 100, ''Performance'', ''Foreign Keys Not Trusted'', ''http://BrentOzar.com/go/trust'', (''The [?] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 48, 100, ''Performance'', ''Foreign Keys Not Trusted'', ''http://BrentOzar.com/go/trust'', (''The [?] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0';
 
-	    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 56, 100, ''Performance'', ''Check Constraint Not Trusted'', ''http://BrentOzar.com/go/trust'', (''The check constraint [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0' ;
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 56, 100, ''Performance'', ''Check Constraint Not Trusted'', ''http://BrentOzar.com/go/trust'', (''The check constraint [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0';
 
-		    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-	        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
-	        BEGIN
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, ''http://BrentOzar.com/go/guides'' AS URL, (''Database [?] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM [?].sys.plan_guides WHERE is_disabled = 0'
-	        END ;
+            IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
+                AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+                BEGIN
+                    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, ''http://BrentOzar.com/go/guides'' AS URL, (''Database [?] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM [?].sys.plan_guides WHERE is_disabled = 0'
+                END;
 
 
 
@@ -1247,7 +1290,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
               'From Brent Ozar PLF, LLC' ,
               'http://www.BrentOzar.com/blitz/' ,
               'Thanks from the Brent Ozar PLF, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
-            ) ;
+            );
 
     SELECT  [Priority] ,
             [FindingsGroup] ,
@@ -1259,24 +1302,24 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     ORDER BY Priority ,
             FindingsGroup ,
             Finding ,
-            Details ;
+            Details;
   
   
-    DROP TABLE #BlitzResults ;
-    SET NOCOUNT OFF ;
+    DROP TABLE #BlitzResults;
+    SET NOCOUNT OFF;
 GO
 
 IF OBJECT_ID('master.dbo.sp_BlitzUpdate') IS NOT NULL 
-    DROP PROC dbo.sp_BlitzUpdate ;
+    DROP PROC dbo.sp_BlitzUpdate;
 GO
 
 
 CREATE PROCEDURE dbo.sp_BlitzUpdate
 AS 
     SET NOCOUNT ON
-    CREATE TABLE #Scripts ( ScriptDDL VARCHAR(MAX) ) ;
+    CREATE TABLE #Scripts ( ScriptDDL VARCHAR(MAX) );
     DECLARE @ScriptDDL VARCHAR(MAX) ,
-        @ScriptOpenRowset VARCHAR(MAX) ;
+        @ScriptOpenRowset VARCHAR(MAX);
 
 
     IF EXISTS ( SELECT  *
@@ -1304,16 +1347,16 @@ AS
         BEGIN
 
             SET @ScriptOpenRowset = 'INSERT INTO #Scripts SELECT a.ScriptDDL FROM OPENROWSET(''SQLNCLI'', ''Server=publicsql.brentozar.com;UID=ReadOnly;PWD=PainRelief;'',
-     ''SELECT TOP 1 ScriptDDL FROM dbo.Scripts WHERE ScriptName = ''''sp_Blitz'''' ORDER BY ScriptID DESC'') AS a;' ;
-            EXEC(@ScriptOpenRowset) ;
+     ''SELECT TOP 1 ScriptDDL FROM dbo.Scripts WHERE ScriptName = ''''sp_Blitz'''' ORDER BY ScriptID DESC'') AS a;';
+            EXEC(@ScriptOpenRowset);
             SELECT  @ScriptDDL = ScriptDDL
-            FROM    #Scripts ;
+            FROM    #Scripts;
 
 /* Drop the existing Blitz script if it already exists */
             IF OBJECT_ID('master.dbo.sp_Blitz') IS NOT NULL 
-                DROP PROC dbo.sp_Blitz ;
+                DROP PROC dbo.sp_Blitz;
 
-            EXEC(@ScriptDDL) ;
+            EXEC(@ScriptDDL);
 
         END
 
