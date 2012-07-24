@@ -11,9 +11,9 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON;
 /*
-		sp_Blitz v9 - July 9, 2012
-		
-		(C) 2012, Brent Ozar PLF, LLC
+    sp_Blitz v9 - July 9, 2012
+    
+    (C) 2012, Brent Ozar PLF, LLC
 
 To learn more, visit http://www.BrentOzar.com/go/blitz where you can download
 new versions for free, watch training videos on how it works, get more info on
@@ -74,32 +74,32 @@ Changes in v7 April 30 2012:
 
 Changes in v6 Dec 26 2011:
  - Jonathan Allen @FatherJack suggested tweaking sp_BlitzUpdate's error message
-		about Ad Hoc Queries not being enabled so that it also includes
-		instructions on how to disable them again after temporarily enabling
-		it to update sp_Blitz. 
+    about Ad Hoc Queries not being enabled so that it also includes
+    instructions on how to disable them again after temporarily enabling
+    it to update sp_Blitz. 
 
 Changes in v5 Dec 18 2011:
  - John Miner suggested tweaking checkid 48 and 56, the untrusted constraints
-		and keys, to look for is_not_for_replication = 0 too.  This filters out
-		constraints/keys that are only used for replication and don't need to
-		be trusted.
+    and keys, to look for is_not_for_replication = 0 too.  This filters out
+    constraints/keys that are only used for replication and don't need to
+    be trusted.
  - Ned Otter caught a bug in the URL for check 7, startup stored procs.
  - Scott (Anon) recommended using SUSER_SNAME(0x01) instead of 'sa' when
-		checking for job ownership, database ownership, etc.
+    checking for job ownership, database ownership, etc.
  - Martin Schmidt http://www.geniiius.com/blog/ caught a bug in checkid 1 and
-		contributed code to catch databases that had never been backed up.
+    contributed code to catch databases that had never been backed up.
  - Added parameter for @CheckProcedureCache.  When set to 0, we skip the checks
-		that are typically the slowest on servers with lots of memory.  I'm
-		defaulting this to 0 so more users can get results back faster.
+    that are typically the slowest on servers with lots of memory.  I'm
+    defaulting this to 0 so more users can get results back faster.
 
 Changes in v4 Nov 1 2011:
  - Andreas Schubert caught a typo in the explanations for checks 15-17.
  - K. Brian Kelley @kbriankelley added checkid 57 for SQL Agent jobs set to
-   		start automatically on startup.
+      start automatically on startup.
  - Added parameter for @CheckUserDatabaseObjects.  When set to 0, we skip the
-		checks that are typically the slowest on large servers, the user
-		database schema checks for things like triggers, hypothetical
-		indexes, untrusted constraints, etc.
+    checks that are typically the slowest on large servers, the user
+    database schema checks for things like triggers, hypothetical
+    indexes, untrusted constraints, etc.
 
 Changes in v3 Oct 16 2011:
  - David Tolbert caught a bug in checkid 2.  If some backups had failed or
@@ -177,7 +177,7 @@ Explanation of priority levels:
               Finding ,
               URL ,
               Details
-	            
+              
             )
             SELECT  1 AS CheckID ,
                     1 AS Priority ,
@@ -884,7 +884,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'http://BrentOzar.com/go/alert' AS URL ,
                         ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details;
 
-						--check for disabled alerts
+            --check for disabled alerts
     IF EXISTS ( SELECT  name
                 FROM    msdb.dbo.sysalerts
                 WHERE   enabled = 0 ) 
@@ -895,7 +895,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                   Finding ,
                   URL ,
                   Details
-						
+            
                 )
                 SELECT  62 AS CheckID ,
                         50 AS Priority ,
@@ -1244,6 +1244,16 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                       + CONVERT(VARCHAR(100), SERVERPROPERTY('collation')) ) AS Details
             FROM    master.sys.databases d
             WHERE   d.collation_name <> SERVERPROPERTY('collation')
+
+    EXEC sp_msforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+SELECT  DISTINCT 59 AS CheckID, 
+        100 AS Priority, 
+        ''Performance'' AS FindingsGroup, 
+        ''File growth set to percent'', 
+        ''http://brentozar.com/go/percentgrowth'' AS URL,
+        ''The ? database is using percent filegrowth settings. This can lead to out of control filegrowth.''
+FROM    [?].sys.database_files 
+WHERE   is_percent_growth = 1 ';
 
 
     IF @CheckUserDatabaseObjects = 1 
