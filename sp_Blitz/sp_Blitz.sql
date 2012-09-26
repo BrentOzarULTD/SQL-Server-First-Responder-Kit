@@ -11,7 +11,7 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v9 - July 9, 2012
+    sp_Blitz v10 - Sept 26, 2012
     
     (C) 2012, Brent Ozar PLF, LLC
 
@@ -24,9 +24,25 @@ Known limitations of this version:
    this script will fail.  That's fairly high on our list of things to improve
    since we like mirroring too.
  - No support for SQL Server 2000.
+ - If the server has databases in compatibility mode 80, sp_Blitz will fail.
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v10:
+ - Jeremiah Peschka added check 59 for file growths set to a percentage.
+ - Ned Otter added check 62 for old compatibility levels.
+ - Wayne Sheffield improved checks 38 & 39 by excluding more system tables.
+ - Christopher Fradenburg improved check 30 (missing alerts) by making sure
+   that alerts are set up for all of the severity levels involved, not just
+   some of them.
+ - James Siebengartner and others improved check 14 (page verification) by
+   excluding TempDB, which can't be set to checksum in older versions.
+ - Added check 60 for index fill factors <> 0, 100.
+ - Added check 61 for unusual SQL Server editions (not Standard, Enterprise, or
+   Developer)
+ - Added limitations note to point out that compatibility mode 80 won't work.
+ - Fixed a bug where changes in sp_configure weren't always reported.
 
 Changes in v9:
  - Alex Pixley fixed a spelling typo.
@@ -405,7 +421,7 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page Verification Not Optimal'' AS Finding, 
     ''http://BrentOzar.com/go/torn'' AS URL,
-    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 1'
+    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 1 AND name <> ''tempdb'''
             EXECUTE(@StringToExecute)
         END;
 
@@ -414,7 +430,7 @@ SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page V
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page Verification Not Optimal'' AS Finding, 
     ''http://BrentOzar.com/go/torn'' AS URL,
-    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 2'
+    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 2 AND name <> ''tempdb'''
             EXECUTE(@StringToExecute)
         END;
 
@@ -577,17 +593,17 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'disallow results from triggers', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'fill factor (%);', 0 );
+    VALUES  ( 'fill factor (%)', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft crawl bandwidth (max);', 100 );
+    VALUES  ( 'ft crawl bandwidth (max)', 100 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft crawl bandwidth (min);', 0 );
+    VALUES  ( 'ft crawl bandwidth (min)', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft notify bandwidth (max);', 100 );
+    VALUES  ( 'ft notify bandwidth (max)', 100 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'ft notify bandwidth (min);', 0 );
+    VALUES  ( 'ft notify bandwidth (min)', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'index create memory (KB);', 0 );
+    VALUES  ( 'index create memory (KB)', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'in-doubt xact resolution', 0 );
     INSERT  INTO #ConfigurationDefaults
@@ -599,27 +615,27 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'max full-text crawl range', 4 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max server memory (MB);', 2147483647 );
+    VALUES  ( 'max server memory (MB)', 2147483647 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'max text repl size (B);', 65536 );
+    VALUES  ( 'max text repl size (B)', 65536 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'max worker threads', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'media retention', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'min memory per query (KB);', 1024 );
+    VALUES  ( 'min memory per query (KB)', 1024 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'min server memory (MB);', 0 );
+    VALUES  ( 'min server memory (MB)', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'nested triggers', 1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'network packet size (B);', 4096 );
+    VALUES  ( 'network packet size (B)', 4096 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'Ole Automation Procedures', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'open objects', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'PH timeout (s);', 60 );
+    VALUES  ( 'PH timeout (s)', 60 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'precompute rank', 0 );
     INSERT  INTO #ConfigurationDefaults
@@ -627,19 +643,19 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'query governor cost limit', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'query wait (s);', -1 );
+    VALUES  ( 'query wait (s)', -1 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'recovery interval (min);', 0 );
+    VALUES  ( 'recovery interval (min)', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'remote access', 1 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'remote admin connections', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote login timeout (s);', 20 );
+    VALUES  ( 'remote login timeout (s)', 20 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'remote proc trans', 0 );
     INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote query timeout (s);', 600 );
+    VALUES  ( 'remote query timeout (s)', 600 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'Replication XPs', 0 );
     INSERT  INTO #ConfigurationDefaults
@@ -811,8 +827,9 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    model.sys.tables
             WHERE   is_ms_shipped = 0;
 
-    IF NOT EXISTS ( SELECT  *
-                    FROM    msdb.dbo.sysalerts ) 
+    	IF ( SELECT count(*)
+		                    FROM    msdb.dbo.sysalerts
+		                    WHERE   severity BETWEEN 19 AND 25) < 7
         INSERT  INTO #BlitzResults
                 ( CheckID ,
                   Priority ,
@@ -824,9 +841,9 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                 SELECT  30 AS CheckID ,
                         50 AS Priority ,
                         'Reliability' AS FindingsGroup ,
-                        'No Alerts Configured' AS Finding ,
+                        'Not All Alerts Configured' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'No SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
+                        ( 'Not all SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
     
     IF EXISTS ( SELECT  *
                 FROM    msdb.dbo.sysalerts
@@ -1256,14 +1273,52 @@ FROM    [?].sys.database_files
 WHERE   is_percent_growth = 1 ';
 
 
+INSERT  INTO #BlitzResults
+        ( CheckID ,
+          Priority ,
+          FindingsGroup ,
+          Finding ,
+          URL ,
+          Details
+        )
+        SELECT  61 AS CheckID ,
+              100 AS Priority ,
+              'Performance' AS FindingsGroup ,
+              'Unusual SQL Server Edition' AS Finding ,
+              'http://BrentOzar.com/go/workgroup' AS URL ,
+              ( 'This server is using ' + CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) + ', which is capped at low amounts of CPU and memory.' ) AS Details
+      WHERE CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%' AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%' AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
+
+	  INSERT  INTO #BlitzResults
+	          ( CheckID ,
+	            Priority ,
+	            FindingsGroup ,
+	            Finding ,
+	            URL ,
+	            Details
+	          )
+	          SELECT  62 AS CheckID ,
+	                200 AS Priority ,
+	                'Performance' AS FindingsGroup ,
+	                'Old Compatibility Level' AS Finding ,
+	                'http://BrentOzar.com/go/compatlevel' AS URL ,
+	                ( 'Database ' + name + ' is compatibility level ' + CAST(compatibility_level AS VARCHAR(20)) + ', which may cause unwanted results when trying to run queries that have newer T-SQL features.' ) AS Details
+			from sys.databases
+	  where compatibility_level <>
+	     (select  compatibility_level from sys.databases
+	     where name = 'model')
+	  
+	  
+	  
+
     IF @CheckUserDatabaseObjects = 1 
         BEGIN
 
             EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 32, 110, ''Performance'', ''Triggers on Tables'', ''http://BrentOzar.com/go/trig'', (''The ? database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0';
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 38, 110, ''Performance'', ''Active Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that are being actively queried.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 
-            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0';
+            EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT DISTINCT 39, 110, ''Performance'', ''Inactive Tables Without Clustered Indexes'', ''http://BrentOzar.com/go/heaps'', (''The ? database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id INNER JOIN sys.databases sd ON sd.name = ''?'' LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 
             EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults SELECT 46, 100, ''Performance'', ''Leftover Fake Indexes From Wizards'', ''http://BrentOzar.com/go/hypo'', (''The index [?].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'') from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE i.is_hypothetical = 1';
 
@@ -1278,6 +1333,16 @@ WHERE   is_percent_growth = 1 ';
                 BEGIN
                     EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, ''http://BrentOzar.com/go/guides'' AS URL, (''Database [?] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM [?].sys.plan_guides WHERE is_disabled = 0'
                 END;
+
+		    EXEC sp_msforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT  DISTINCT 60 AS CheckID, 
+		        100 AS Priority, 
+		        ''Performance'' AS FindingsGroup, 
+		        ''Fill Factor Changed'', 
+		        ''http://brentozar.com/go/fillfactor'' AS URL,
+		        ''The ? database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
+		FROM    [?].sys.indexes 
+		WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
 
 
 
@@ -1317,58 +1382,4 @@ WHERE   is_percent_growth = 1 ';
   
     DROP TABLE #BlitzResults;
     SET NOCOUNT OFF;
-GO
-
-IF OBJECT_ID('master.dbo.sp_BlitzUpdate') IS NOT NULL 
-    DROP PROC dbo.sp_BlitzUpdate;
-GO
-
-
-CREATE PROCEDURE dbo.sp_BlitzUpdate
-AS 
-    SET NOCOUNT ON
-    CREATE TABLE #Scripts ( ScriptDDL VARCHAR(MAX) );
-    DECLARE @ScriptDDL VARCHAR(MAX) ,
-        @ScriptOpenRowset VARCHAR(MAX);
-
-
-    IF EXISTS ( SELECT  *
-                FROM    sys.configurations
-                WHERE   name = 'Ad Hoc Distributed Queries'
-                        AND value_in_use = 0 ) 
-        BEGIN
-            PRINT 'sp_BlitzUpdate requires Ad Hoc Distributed Queries to be turned on.'
-            PRINT 'For more information, see http://www.BrentOzar.com/blitz/update'
-            PRINT 'If you feel adventurous, you can turn it on by running these commands: '
-            PRINT 'EXECUTE SP_CONFIGURE ''show advanced options'', 1;'
-            PRINT 'RECONFIGURE WITH OVERRIDE;'
-            PRINT 'GO'
-            PRINT 'EXECUTE SP_CONFIGURE ''Ad Hoc Distributed Queries'', ''1'';'
-            PRINT 'RECONFIGURE WITH OVERRIDE;'
-            PRINT 'GO'
-            PRINT 'Then, after you have run sp_BlitzUpdate, you can disable it again with:'
-            PRINT 'EXECUTE SP_CONFIGURE ''Ad Hoc Distributed Queries'', ''0'';'
-            PRINT 'RECONFIGURE WITH OVERRIDE;'
-            PRINT 'GO'
-            PRINT 'Also, keep in mind that RECONFIGURE will dump the plan cache, so you may'
-            PRINT 'want to make these changes during a scheduled maintenance window.'
-        END
-    ELSE 
-        BEGIN
-
-            SET @ScriptOpenRowset = 'INSERT INTO #Scripts SELECT a.ScriptDDL FROM OPENROWSET(''SQLNCLI'', ''Server=publicsql.brentozar.com;UID=ReadOnly;PWD=PainRelief;'',
-     ''SELECT TOP 1 ScriptDDL FROM dbo.Scripts WHERE ScriptName = ''''sp_Blitz'''' ORDER BY ScriptID DESC'') AS a;';
-            EXEC(@ScriptOpenRowset);
-            SELECT  @ScriptDDL = ScriptDDL
-            FROM    #Scripts;
-
-/* Drop the existing Blitz script if it already exists */
-            IF OBJECT_ID('master.dbo.sp_Blitz') IS NOT NULL 
-                DROP PROC dbo.sp_Blitz;
-
-            EXEC(@ScriptDDL);
-
-        END
-
-    SET NOCOUNT OFF
 GO
