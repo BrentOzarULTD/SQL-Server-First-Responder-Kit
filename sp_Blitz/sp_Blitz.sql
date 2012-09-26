@@ -11,7 +11,7 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v10 - Sept 26, 2012
+    sp_Blitz v11 - Sept 26, 2012
     
     (C) 2012, Brent Ozar PLF, LLC
 
@@ -28,6 +28,9 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v11:
+ - Added check for optimize for ad hoc workloads in sys.configurations.
 
 Changes in v10:
  - Jeremiah Peschka added check 59 for file growths set to a percentage.
@@ -635,6 +638,8 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'open objects', 0 );
     INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'optimize for ad hoc workloads', 0 );
+    INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'PH timeout (s)', 60 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'precompute rank', 0 );
@@ -827,7 +832,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    model.sys.tables
             WHERE   is_ms_shipped = 0;
 
-    	IF ( SELECT count(*)
+		IF ( SELECT count(*)
 		                    FROM    msdb.dbo.sysalerts
 		                    WHERE   severity BETWEEN 19 AND 25) < 7
         INSERT  INTO #BlitzResults
