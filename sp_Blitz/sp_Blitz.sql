@@ -7,7 +7,8 @@ GO
 
 CREATE PROCEDURE dbo.sp_Blitz
     @CheckUserDatabaseObjects TINYINT = 1 ,
-    @CheckProcedureCache TINYINT = 0
+    @CheckProcedureCache TINYINT = 0,
+	@OutputType VARCHAR(20) = 'TABLE'
 AS 
     SET NOCOUNT ON;
 /*
@@ -31,6 +32,11 @@ Unknown limitations of this version:
 
 Changes in v11:
  - Added check for optimize for ad hoc workloads in sys.configurations.
+ - Added @OutputType parameter. Choices:
+ 	- 'TABLE' - default of one result set table with all warnings.
+	- 'COUNT' - Sesame Street's favorite character will tell you how many
+				problems sp_Blitz found.  Useful if you want to use a
+				monitoring tool to alert you when something changed.
 
 Changes in v10:
  - Jeremiah Peschka added check 59 for file growths set to a percentage.
@@ -1372,7 +1378,13 @@ INSERT  INTO #BlitzResults
               'Thanks from the Brent Ozar PLF, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
 
-    SELECT  [Priority] ,
+	IF @OutputType = 'COUNT'
+    BEGIN
+	SELECT COUNT(*) AS Warnings FROM #BlitzResults
+	END
+	ELSE
+	BEGIN
+	SELECT  [Priority] ,
             [FindingsGroup] ,
             [Finding] ,
             [URL] ,
@@ -1383,7 +1395,7 @@ INSERT  INTO #BlitzResults
             FindingsGroup ,
             Finding ,
             Details;
-  
+	END
   
     DROP TABLE #BlitzResults;
     SET NOCOUNT OFF;
