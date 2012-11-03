@@ -26,11 +26,11 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 /*
-sp_BlitzIndex v1.1 - October 29, 2012
+sp_BlitzIndex v1.2 - November 2, 2012
     
 (C) 2012, Brent Ozar Unlimited, LLC
 
-To learn more, visit http://www.BrentOzar.com/go/blitzIndex.
+To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
 Known limitations of this version:
  - Only covers Clustered and Nonclustered Indexes. (Doesn't cover spatial, fulltext, columnstore, etc.)
@@ -364,35 +364,33 @@ BEGIN TRY
 		UPDATE	#index_sanity
 		SET		key_column_names = D1.key_column_names
 		FROM	#index_sanity si
-				CROSS APPLY ( SELECT	STUFF( (SELECT	N', ' + c.column_name AS col_definition
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name AS col_definition
 												FROM	#index_columns c
 												WHERE	c.object_id = si.object_id
 														AND c.index_id = si.index_id
 														AND c.is_included_column = 0 /*Just Keys*/
 												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') ,
-												  TYPE).value('.', 'varchar(max)'), 1, 1, '')
+										FOR	  XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 												  ) D1 ( key_column_names )
 
 		RAISERROR (N'Updating #index_sanity.partition_key_column_name',0,1) WITH nowait;
 		UPDATE	#index_sanity
 		SET		partition_key_column_name = D1.partition_key_column_name
 		FROM	#index_sanity si
-				CROSS APPLY ( SELECT	STUFF( (SELECT	N', ' + c.column_name AS col_definition
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name AS col_definition
 												FROM	#index_columns c
 												WHERE	c.object_id = si.object_id
 														AND c.index_id = si.index_id
 														AND c.partition_ordinal <> 0 /*Just Partitioned Keys*/
 												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') ,
-												  TYPE).value('.', 'varchar(max)'), 1, 1, '') ) D1 
+										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1,''))) D1 
 													( partition_key_column_name )
 
 		RAISERROR (N'Updating #index_sanity.key_column_names_with_sort_order',0,1) WITH nowait;
 		UPDATE	#index_sanity
 		SET		key_column_names_with_sort_order = D2.key_column_names_with_sort_order
 		FROM	#index_sanity si
-				CROSS APPLY ( SELECT	STUFF( (SELECT	N', ' + c.column_name + CASE c.is_descending_key
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name + CASE c.is_descending_key
 																				  WHEN 1 THEN N' DESC'
 																				  ELSE N''
 																				END AS col_definition
@@ -401,7 +399,7 @@ BEGIN TRY
 														AND c.index_id = si.index_id
 														AND c.is_included_column = 0 /*Just Keys*/
 												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, '')
+										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 										) D2 ( key_column_names_with_sort_order )
 
 
@@ -409,14 +407,14 @@ BEGIN TRY
 		UPDATE	#index_sanity
 		SET		include_column_names = D3.include_column_names
 		FROM	#index_sanity si
-				CROSS APPLY ( SELECT	STUFF( (SELECT	N', ' + c.column_name
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name
 												FROM	#index_columns c
 												WHERE	c.object_id = si.object_id
 														AND c.index_id = si.index_id
 														AND c.is_included_column = 1 /*Just includes*/
 												ORDER BY c.column_name /*Order doesn't matter in includes, 
 														this is here to make rows easy to compare.*/ 
-										FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, '') 
+										FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 										) D3 ( include_column_names );
 
 		RAISERROR (N'Updating #index_sanity.count_key_columns and count_include_columns',0,1) WITH nowait;
@@ -703,6 +701,7 @@ BEGIN TRY
 				END                  
 					,'Error- NULL in computed column')
 
+
 		RAISERROR (N'Add computed columns to #missing_index to simplify queries.',0,1) WITH nowait;
 		ALTER TABLE #missing_indexes ADD 
 				[index_estimated_impact] AS 
@@ -720,15 +719,17 @@ BEGIN TRY
 						ELSE N''
 					END,
 				[create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
-					+ REPLACE(REPLACE(REPLACE(ISNULL(equality_columns,'') + ISNULL(inequality_columns,''),',','|'),'[',''),']','') +
-					CASE WHEN included_columns IS NOT NULL THEN '_includes' ELSE N'' END + N'] ON ' + 
-					[statement] + N' (' + ISNULL(equality_columns,'')+
-					CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN ', ' ELSE N'' END + 
+					+ REPLACE(REPLACE(REPLACE(REPLACE(ISNULL(equality_columns,N'') 
+					+ ISNULL(inequality_columns,''),',',''),'[',''),']',''),' ','_') +
+					CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' + 
+					[statement] + N' (' + ISNULL(equality_columns,N'')+
+					CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END + 
 					CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
 					') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END,
 				[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
-					N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + ';'
+					N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + N';'
 				;
+
 
 		RAISERROR (N'Populate #index_create_tsql.',0,1) WITH nowait;
 		INSERT #index_create_tsql (index_sanity_id, create_tsql)
@@ -1297,8 +1298,8 @@ BEGIN;
 								missing_index_details AS [definition],
 								index_estimated_impact,
 								sz.index_size_summary,
-								create_tsql,
-								more_info
+								mi.create_tsql,
+								mi.more_info
 				FROM	#missing_indexes mi
 						LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id
 				WHERE magic_benefit_number > 500000
@@ -1313,14 +1314,15 @@ BEGIN;
 		END
 	
 		/*Return results.*/
-		SELECT br.findings_group + CASE WHEN findings_group NOT LIKE N'All done!' THEN N': '  ELSE N'' END + br.finding AS [Finding], 
+		SELECT br.findings_group + 
+			CASE WHEN findings_group NOT LIKE N'All done!' THEN N': '  ELSE N'' END + br.finding AS [Finding], 
 			br.URL, 
 			br.details AS [details: schema.table.index(indexid)], 
 			br.index_definition, 
 			br.index_usage_summary, 
 			br.index_size_summary,
-			COALESCE(sn.more_info,br.more_info,'') AS more_info,
-			COALESCE(ts.create_tsql,br.create_tsql,'') AS create_tsql
+			COALESCE(br.more_info,sn.more_info,'') AS more_info,
+			COALESCE(br.create_tsql,ts.create_tsql,'') AS create_tsql
 		FROM #blitz_index_results br
 		LEFT JOIN #index_sanity sn ON 
 			br.index_sanity_id=sn.index_sanity_id
@@ -1384,8 +1386,11 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		ORDER BY sz.total_reserved_MB DESC;
 	
-		SELECT database_name, SCHEMA_NAME, table_name, magic_benefit_number, missing_index_details, avg_total_user_cost, avg_user_impact, user_seeks, user_scans,
-			unique_compiles, equality_columns, inequality_columns, included_columns, index_estimated_impact, create_tsql, more_info
+		SELECT database_name, SCHEMA_NAME, table_name, 
+			magic_benefit_number, missing_index_details, 
+			avg_total_user_cost, avg_user_impact, user_seeks, user_scans,
+			unique_compiles, equality_columns, inequality_columns, 
+			included_columns, index_estimated_impact, create_tsql, more_info
 		FROM #missing_indexes;
 	END /* End @mode=2 (index detail)*/
 END
