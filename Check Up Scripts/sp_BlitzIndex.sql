@@ -1171,7 +1171,7 @@ BEGIN;
 							N'Self Loathing Indexes' AS findings_group,
 							N'Low Fill Factor' AS finding, 
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-							N'Does fill_factor NEED to be this low? It is:' + CAST(fill_factor AS NVARCHAR(10)) AS details, 
+							N'Fill factor on ' + schema_object_indexid + N' is ' + CAST(fill_factor AS NVARCHAR(10)) + N'%' AS details, 
 							i.index_definition,
 							i.index_usage_summary,
 							sz.index_size_summary
