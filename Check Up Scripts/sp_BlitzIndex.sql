@@ -1376,13 +1376,20 @@ BEGIN;
 		--This supports slicing AND dicing in Excel
 		RAISERROR(N'@mode=2, here''s ALL the details.', 0,1) WITH nowait;
 
-		SELECT  database_name, [schema_name], [object_name], ISNULL(index_name, '') AS index_name, index_id, index_definition,
-				ISNULL(key_column_names_with_sort_order, '') AS key_column_names_with_sort_order, ISNULL(count_key_columns, 0) AS count_key_columns,
-				ISNULL(include_column_names, '') AS include_column_names, count_included_columns, ISNULL(partition_key_column_name, '') AS partition_key_column_name,
-				ISNULL(filter_definition, '') AS filter_definition, is_indexed_view, is_disabled, is_hypothetical, is_padded, fill_factor,
-				is_referenced_by_foreign_key, last_user_seek, last_user_scan, last_user_lookup, last_user_update, reads_per_write, index_usage_summary, more_info,
-				sz.partition_count, sz.total_rows, sz.total_reserved_MB, sz.total_reserved_LOB_MB, sz.total_reserved_row_overflow_MB, sz.index_size_summary
-		FROM    #index_sanity AS i --left join here so we don't lose disabled nc indexes
+		SELECT	database_name, [schema_name], [object_name], ISNULL(index_name, '') AS index_name, index_id,
+				schema_object_indexid, CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
+											ELSE 'NonClustered'
+									   END AS object_type, index_definition,
+				ISNULL(key_column_names_with_sort_order, '') AS key_column_names_with_sort_order,
+				ISNULL(count_key_columns, 0) AS count_key_columns,
+				ISNULL(include_column_names, '') AS include_column_names, count_included_columns,
+				ISNULL(partition_key_column_name, '') AS partition_key_column_name,
+				ISNULL(filter_definition, '') AS filter_definition, is_indexed_view, is_disabled, is_hypothetical,
+				is_padded, fill_factor, is_referenced_by_foreign_key, last_user_seek, last_user_scan, last_user_lookup,
+				last_user_update, total_reads, user_updates, reads_per_write, index_usage_summary, sz.partition_count,
+				sz.total_rows, sz.total_reserved_MB, sz.total_reserved_LOB_MB, sz.total_reserved_row_overflow_MB,
+				sz.index_size_summary, more_info
+		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		ORDER BY sz.total_reserved_MB DESC;
 	
