@@ -157,7 +157,7 @@ BEGIN TRY
 		IF OBJECT_ID('tempdb..#blitz_index_results') IS NOT NULL 
 			DROP TABLE #blitz_index_results;
 		
-		IF object_id('tempdb..#index_create_tsql') IS NOT NULL	
+		IF OBJECT_ID('tempdb..#index_create_tsql') IS NOT NULL	
 			DROP TABLE #index_create_tsql;
 
 		RAISERROR (N'Create temp tables.',0,1) WITH nowait;
@@ -1212,10 +1212,10 @@ BEGIN;
 
 			RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH nowait;
 			WITH	heaps_cte
-					  AS ( SELECT	OBJECT_ID, SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+					  AS ( SELECT	[object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
 									SUM(leaf_delete_count) AS leaf_delete_count
 						   FROM		#index_partition_sanity
-						   GROUP BY	OBJECT_ID
+						   GROUP BY	[object_id]
 						   HAVING	SUM(forwarded_fetch_count) > 0
 									OR SUM(leaf_delete_count) > 0)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
