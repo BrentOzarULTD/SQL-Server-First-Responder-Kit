@@ -1418,3 +1418,7 @@ BEGIN CATCH
 		RETURN;
 	END CATCH;
 GO
+
+--Mark stored procedure as system object
+EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
+GO
