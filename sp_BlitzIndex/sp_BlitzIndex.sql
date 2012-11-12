@@ -57,6 +57,9 @@ Unknown limitations of this version:
 Change log:
 October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in duplicate list.
 	Added 'Aggressive Index' check that detects blocking and lock escalation.
+November 12, 2012 - Changed type to support indexes with very large "magic number" values.
+	Added line to mark sp_BlitzIndex as a system procedure.
+	Added version check to gracefully exit when run against SQL Server 2000.
 */
 
 
@@ -87,10 +90,21 @@ October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in 
 ----------------------------------------
 BEGIN TRY
 	BEGIN
+
+		--Validate SQL Server Verson
+
+		IF (SELECT LEFT(@SQLServerProductVersion,
+			  CHARINDEX('.',@SQLServerProductVersion,0)-1
+			  )) <= 8
+		BEGIN
+			SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2005 and higher. The version of this instance is: ' + @SQLServerProductVersion;
+			RAISERROR(@msg,16,1);
+		END
+    
 		--Validate parameters.
 		IF (@mode NOT IN (0,1,2))
 		BEGIN
-			SET @msg='Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail.'
+			SET @msg=N'Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail.';
 			RAISERROR(@msg,16,1);
 		END
 
