@@ -1294,7 +1294,7 @@ BEGIN;
 								N'High value missing index.' AS finding, 
 								N'http://BrentOzar.com/go/Indexaphobia' AS URL,
 								mi.[statement] + ' estimated benefit: ' + 
-									REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS INT) AS money), 1), '.00', '') AS details,
+									REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
 								missing_index_details AS [definition],
 								index_estimated_impact,
 								sz.index_size_summary,
