@@ -26,7 +26,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 /*
-sp_BlitzIndex v1.21 - November 6, 2012
+sp_BlitzIndex v1.22 - November 12, 2012
     
 (C) 2012, Brent Ozar Unlimited, LLC
 
