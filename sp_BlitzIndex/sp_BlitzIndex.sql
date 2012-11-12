@@ -14,22 +14,18 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@database_name NVARCHAR(256),
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
-
-/*
-Usage example:
-exec master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
-*/
-
-AS 
-
-SET NOCOUNT ON;
-SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-
 /*
 sp_BlitzIndex (TM) v1.22 - November 12, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
-
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
+
+Usage examples:
+	Diagnose:
+		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks';
+	Return detail for a specific table:
+		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Person', @table_name='Person';
+	Return all detail:
+		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
 
 Known limitations of this version:
  - Only covers Clustered and Nonclustered Indexes. (Doesn't cover spatial, fulltext, columnstore, etc.)
@@ -40,34 +36,37 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG:
-October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in duplicate list.
-	Added 'Aggressive Index' check that detects blocking and lock escalation.
-November 12, 2012 - Changed type to support indexes with very large "magic number" values.
-	Added line to mark sp_BlitzIndex as a system procedure.
-	Added version check to gracefully exit when run against SQL Server 2000.
+	October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in duplicate list.
+		Added 'Aggressive Index' check that detects blocking and lock escalation.
+	November 12, 2012 - Changed type to support indexes with very large "magic number" values.
+		Added line to mark sp_BlitzIndex as a system procedure.
+		Added version check to gracefully exit when run against SQL Server 2000.
 */
+AS 
+
+SET NOCOUNT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+DECLARE	@database_id INT;
+DECLARE @object_id INT;
+DECLARE	@dsql NVARCHAR(MAX);
+DECLARE @params NVARCHAR(MAX);
+DECLARE	@msg NVARCHAR(4000);
+DECLARE	@ErrorSeverity INT;
+DECLARE	@ErrorState INT;
+DECLARE	@Rowcount BIGINT;
+DECLARE @SQLServerProductVersion NVARCHAR(128);
+DECLARE @SQLServerEdition INT;
+
+SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
+SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
 
 
-	DECLARE	@database_id INT;
-	DECLARE @object_id INT;
-	DECLARE	@dsql NVARCHAR(MAX);
-	DECLARE @params NVARCHAR(MAX);
-	DECLARE	@msg NVARCHAR(4000);
-	DECLARE	@ErrorSeverity INT;
-	DECLARE	@ErrorState INT;
-	DECLARE	@Rowcount BIGINT;
-	DECLARE @SQLServerProductVersion NVARCHAR(128);
-	DECLARE @SQLServerEdition INT;
-
-	SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
-	SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
-
-
-	SELECT	@database_id = database_id
-	FROM	sys.databases
-	WHERE	[name] = @database_name
-		AND user_access_desc='MULTI_USER'
-		AND state_desc = 'ONLINE';
+SELECT	@database_id = database_id
+FROM	sys.databases
+WHERE	[name] = @database_name
+	AND user_access_desc='MULTI_USER'
+	AND state_desc = 'ONLINE';
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
