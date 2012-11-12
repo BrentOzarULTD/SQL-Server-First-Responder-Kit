@@ -26,8 +26,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 /*
-sp_BlitzIndex v1.22 - November 12, 2012
-    
+sp_BlitzIndex (TM) v1.22 - November 12, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
@@ -37,24 +36,10 @@ Known limitations of this version:
  - Does not include compression status (on the list to be added)
  - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
- - Reports on what is partitioned, but doesn't make architecture recommendations
  - Doesn't analyze aligned vs non-aligned indexes on partitioned tables
-
-Unknown limitations of this version:
- - This is the initial release of the script. Don't trust it to be perfect.
  - Found something? Let us know at help@brentozar.com.
 
---Work tables created:
---#blitz_index_results: summary table for the results of the script
---#index_sanity: one row per index. Key definition, includes, overall index usage.
---#index_partition_sanity: one row per partition. Row count, operational stats.
---#index_sanity_size: rollup table with total size info for all partitions
---#index_columns: worktable used to simplify dynamic sql.
---#missing_indexes: worktable for missing index stats
---#foreign_keys: parent and referenced tables with denormalized KF columns
---#index_create_tsql: worktable used to script out TSQL to recreate an index.
-
-Change log:
+CHANGE LOG:
 October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in duplicate list.
 	Added 'Aggressive Index' check that detects blocking and lock escalation.
 November 12, 2012 - Changed type to support indexes with very large "magic number" values.
