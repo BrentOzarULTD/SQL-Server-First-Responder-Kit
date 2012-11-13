@@ -1157,7 +1157,7 @@ BEGIN;
 								N'No indexes use includes.' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'No indexes use includes.' AS details,
 								N'Entire database.' AS index_definition, 
-								N'N/A' AS secret_columns, 
+								N'' AS secret_columns, 
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary
 
@@ -1172,7 +1172,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'Only ' + CAST(@percent_indexes_with_includes AS NVARCHAR(10)) + '% of indexes have includes.' AS details, 
 								N'Entire database.' AS index_definition, 
-								N'N/A' AS secret_columns,
+								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary;
 
@@ -1199,7 +1199,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'These are NOT always needed-- but do you know when you would use them?' AS details,
 								N'Entire database.' AS index_definition, 
-								N'N/A' AS secret_columns,
+								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary;
 		END;
