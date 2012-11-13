@@ -880,6 +880,17 @@ BEGIN;
 	IF @mode=0 /* DIAGNOSE*/
 	BEGIN;
 		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH nowait;
+
+
+		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH nowait;
+		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
+										index_usage_summary, index_size_summary )
+		VALUES  ( 0 , N'Index tuning info galore' ,   N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+					N'<-- Loads of documentation to decode these disorders.'
+					, N'',N'',N''
+				);
+
+
 		----------------------------------------
 		--Multiple Index Personalities: Check_id 0-10
 		----------------------------------------
@@ -1359,7 +1370,7 @@ BEGIN;
 
 				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 											   index_usage_summary, index_size_summary )
-				VALUES  ( 1000 , N'All done!' ,   N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+				VALUES  ( 1000 , N'All done!' ,   N' Learn how to use this script at:' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
 						  N'Thanks from the Brent Ozar Unlimited, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 						  , N'',N'',N''
 						);
