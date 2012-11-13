@@ -61,7 +61,6 @@ DECLARE @SQLServerEdition INT;
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
 
-
 SELECT	@database_id = database_id
 FROM	sys.databases
 WHERE	[name] = @database_name
@@ -813,7 +812,7 @@ BEGIN
 		SELECT  N'Missing index.' AS finding ,
 				N'http://BrentOzar.com/go/Indexaphobia' AS URL ,
 				mi.[statement] + ' Est Benefit: '
-					+ REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS INT) AS money), 1), '.00', '') AS details,
+					+ REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
 				missing_index_details AS [index_definition] ,
 				index_estimated_impact,
 				create_tsql
