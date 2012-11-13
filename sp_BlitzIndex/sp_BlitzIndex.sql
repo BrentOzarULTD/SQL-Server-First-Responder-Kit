@@ -1,4 +1,3 @@
---To do: add partition key to secret_columns
 SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
