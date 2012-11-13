@@ -1,3 +1,4 @@
+--To do: add partition key to secret_columns
 SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
@@ -15,7 +16,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.23 - November 12, 2012
+sp_BlitzIndex (TM) v1.24 - November 12, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -41,6 +42,9 @@ CHANGE LOG:
 	November 12, 2012 - Changed type to support indexes with very large "magic number" values.
 		Added line to mark sp_BlitzIndex as a system procedure.
 		Added version check to gracefully exit when run against SQL Server 2000.
+	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
+		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
+		a heap, a unique clustered index, or a non-unique clustered index
 */
 AS 
 
@@ -168,6 +172,7 @@ BEGIN TRY
 			  URL VARCHAR(200) NOT NULL,
 			  details NVARCHAR(4000) NOT NULL,
 			  index_definition NVARCHAR(MAX) NOT NULL,
+			  secret_columns NVARCHAR(MAX) NULL,
 			  index_usage_summary NVARCHAR(MAX) NULL,
 			  index_size_summary NVARCHAR(MAX) NULL,
 			  create_tsql NVARCHAR(MAX) NULL,
@@ -206,7 +211,9 @@ BEGIN TRY
 			  last_user_scan DATETIME NULL ,
 			  last_user_lookup DATETIME NULL ,
 			  last_user_update DATETIME NULL ,
-			  is_referenced_by_foreign_key BIT DEFAULT(0)
+			  is_referenced_by_foreign_key BIT DEFAULT(0),
+			  secret_columns NVARCHAR(MAX) NULL,
+			  count_secret_columns INT NULL
 			);	
 
 		CREATE TABLE #index_partition_sanity
@@ -629,6 +636,32 @@ BEGIN TRY
 		[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
 			N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([object_name],'''') + N';'
 
+		RAISERROR (N'Update index_secret on #index_sanity for NC indexes.',0,1) WITH nowait;
+		UPDATE nc 
+		SET secret_columns=
+			CASE nc.is_unique WHEN 1 THEN N'[INCLUDES] ' ELSE N'[KEYS] ' END +
+			CASE tb.index_id WHEN 0 THEN '[RID]' ELSE LTRIM(tb.key_column_names) +
+				/* Uniquifiers only needed on non-unique clustereds-- not heaps */
+				CASE tb.is_unique WHEN 0 THEN ' [UNIQUIFIER]' ELSE N'' END
+			END
+			, count_secret_columns=
+			CASE tb.index_id WHEN 0 THEN 1 ELSE 
+				tb.count_key_columns +
+					CASE tb.is_unique WHEN 0 THEN 1 ELSE 0 END
+			END
+		FROM #index_sanity AS nc
+		JOIN #index_sanity AS tb ON nc.object_id=tb.object_id
+			and tb.index_id in (0,1) 
+		WHERE nc.index_id > 1;
+
+		RAISERROR (N'Update index_secret on #index_sanity for heaps and non-unique clustered.',0,1) WITH nowait;
+		UPDATE tb
+		SET secret_columns=	CASE tb.index_id WHEN 0 THEN '[RID]' ELSE '[UNIQUIFIER]' END
+			, count_secret_columns = 1
+		FROM #index_sanity AS tb
+		WHERE tb.index_id = 0 /*Heaps-- these have the RID */
+			or (tb.index_id=1 and tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
+
 		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH nowait;
 		ALTER TABLE #index_sanity_size ADD 
 			  index_size_summary AS ISNULL(
@@ -789,12 +822,13 @@ BEGIN
 
 	--We do a left join here in case this is a disabled NC.
 	--In that case, it won't have any size info/pages allocated.
-	SELECT schema_object_indexid, 
-		index_definition, 
-		index_usage_summary, 
+	SELECT s.schema_object_indexid, 
+		s.index_definition, 
+		ISNULL(s.secret_columns,N'') AS secret_columns,
+		s.index_usage_summary, 
 		ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
 		ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
-		is_referenced_by_foreign_key,
+		s.is_referenced_by_foreign_key,
 			(SELECT COUNT(*)
 			FROM #foreign_keys fk WHERE fk.parent_object_id=s.OBJECT_ID
 			AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
@@ -857,14 +891,16 @@ BEGIN;
 						   GROUP BY	[object_id], key_column_names
 						   HAVING	COUNT(*) > 1)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	1 AS check_id, 
 								ip.index_sanity_id,
 								'Multiple Index Personalities' AS findings_group,
 								'Duplicate keys.' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
 								ip.schema_object_indexid AS details,
-								ip.index_definition, ip.index_usage_summary,
+								ip.index_definition, 
+								ip.secret_columns, 
+								ip.index_usage_summary,
 								ISNULL(ips.index_size_summary,'N/A') /*Disabled*/
 						FROM	duplicate_indexes di
 								JOIN #index_sanity ip ON di.[object_id] = ip.[object_id]
@@ -879,14 +915,16 @@ BEGIN;
 									COUNT(OBJECT_ID) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
 						   FROM		#index_sanity)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	2 AS check_id, 
 								ip.index_sanity_id,
 								'Multiple Index Personalities' AS findings_group,
 								'Borderline duplicate keys.' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
 								ip.schema_object_indexid AS details, 
-								 ip.index_definition, ip.index_usage_summary,
+								ip.index_definition, 
+								ip.secret_columns,
+								ip.index_usage_summary,
 								ISNULL(ips.index_size_summary,'N/A') /*Disabled*/
 						FROM	#index_sanity AS ip 
 						LEFT JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
@@ -908,7 +946,7 @@ BEGIN;
 		BEGIN;
 		RAISERROR(N'check_id 10: Avg lock wait time > 1 second (row or page)', 0,1) WITH nowait;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										index_usage_summary, index_size_summary )
+										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	10 AS check_id, 
 						i.index_sanity_id,
 						N'Aggressive Indexes' AS findings_group,
@@ -917,6 +955,7 @@ BEGIN;
 						i.schema_object_indexid + N': ' +
 							sz.index_lock_wait_summary AS details, 
 						i.index_definition,
+						i.secret_columns,
 						i.index_usage_summary,
 						sz.index_size_summary
 				FROM	#index_sanity AS i
@@ -926,7 +965,7 @@ BEGIN;
 
 		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH nowait;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										index_usage_summary, index_size_summary )
+										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	11 AS check_id, 
 						i.index_sanity_id,
 						N'Aggressive Indexes' AS findings_group,
@@ -935,6 +974,7 @@ BEGIN;
 						i.schema_object_indexid + N': ' +
 							sz.index_lock_wait_summary AS details, 
 						i.index_definition,
+						i.secret_columns,
 						i.index_usage_summary,
 						sz.index_size_summary
 				FROM	#index_sanity AS i
@@ -943,7 +983,7 @@ BEGIN;
 
 		RAISERROR(N'check_id 12: More than 10 lock escalation attempts', 0,1) WITH nowait;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										index_usage_summary, index_size_summary )
+										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	12 AS check_id, 
 						i.index_sanity_id,
 						N'Aggressive Indexes' AS findings_group,
@@ -952,6 +992,7 @@ BEGIN;
 						i.schema_object_indexid + N': ' +
 							sz.index_lock_wait_summary AS details, 
 						i.index_definition,
+						i.secret_columns,
 						i.index_usage_summary,
 						sz.index_size_summary
 				FROM	#index_sanity AS i
@@ -965,7 +1006,7 @@ BEGIN;
 		BEGIN
 			RAISERROR(N'check_id 20: >=7 NC indexes on any given table. Yes, 7 is an arbitrary number.', 0,1) WITH nowait;
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	20 AS check_id, 
 								MAX(i.index_sanity_id) AS index_sanity_id, 
 								'Index Hoarder' AS findings_group,
@@ -973,6 +1014,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (COUNT(*) AS NVARCHAR(30)) + ' NC indexes on ' + i.schema_object_name AS details,
 								i.schema_object_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + ' indexes)' AS index_definition,
+								'' AS secret_columns,
 								REPLACE(CONVERT(NVARCHAR(30),CAST(SUM(total_reads) AS money), 1), N'.00', N'') + N' reads (ALL); '
 									+ REPLACE(CONVERT(NVARCHAR(30),CAST(SUM(user_updates) AS money), 1), N'.00', N'') + N' writes (ALL); ',
 								REPLACE(CONVERT(NVARCHAR(30),CAST(MAX(total_rows) AS money), 1), N'.00', N'') + N' rows (MAX)'
@@ -1008,7 +1050,7 @@ BEGIN;
 
 			IF @percent_NC_indexes_unused >= 5 
 				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	21 AS check_id, 
 								MAX(i.index_sanity_id) AS index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
@@ -1017,7 +1059,7 @@ BEGIN;
 								CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N'% of NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') are unused. ' +
 								N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
 								i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
-
+								'' AS secret_columns, 
 								CAST(SUM(total_reads) AS NVARCHAR(30)) + N' reads (ALL); '
 									+ CAST(SUM([user_updates]) AS NVARCHAR(30)) + N' writes (ALL)' AS index_usage_summary,
 								
@@ -1037,15 +1079,15 @@ BEGIN;
 
 			RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH nowait;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										   index_usage_summary, index_size_summary )
+										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	22 AS check_id, 
 							i.index_sanity_id,
 							N'Index Hoarder' AS findings_group,
 							N'Unused NC index.' AS finding, 
 							N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-							N'0 reads: '
-							+ i.schema_object_indexid AS details, 
+							N'0 reads: ' + i.schema_object_indexid AS details, 
 							i.index_definition, 
+							i.secret_columns, 
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
@@ -1057,14 +1099,16 @@ BEGIN;
 
 			RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH nowait;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										   index_usage_summary, index_size_summary )
+										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	23 AS check_id, 
 							i.index_sanity_id, 
 							N'Index Hoarder' AS findings_group,
 							N'Borderline: Wide indexes (7 or more columns)' AS finding, 
 							N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 							CAST(count_key_columns + count_included_columns AS NVARCHAR(10)) + ' columns on '
-							+ i.schema_object_indexid AS details, i.index_definition, i.index_usage_summary,
+							+ i.schema_object_indexid AS details, i.index_definition, 
+							i.secret_columns, 
+							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
 							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
@@ -1073,7 +1117,7 @@ BEGIN;
 
 			RAISERROR(N'check_id 24: Clustered indexes with > 1 column.', 0,1) WITH nowait;
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
 								'Index Hoarder' AS findings_group,
@@ -1081,6 +1125,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (i.count_key_columns AS NVARCHAR(10)) + ' columns in clustered index:' + i.schema_object_name AS details,
 								i.index_definition,
+								secret_columns, 
 								i.index_usage_summary,
 								ip.index_size_summary
 						FROM	#index_sanity i
@@ -1105,20 +1150,21 @@ BEGIN;
 
 			IF @number_indexes_with_includes = 0 
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	30 AS check_id, 
 								NULL AS index_sanity_id, 
 								N'Feature-Phobic Indexes' AS findings_group,
 								N'No indexes use includes.' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'No indexes use includes.' AS details,
 								N'Entire database.' AS index_definition, 
+								N'N/A' AS secret_columns, 
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary
 
 			RAISERROR(N'check_id 31: < 3% of indexes have includes', 0,1) WITH nowait;
 			IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	31 AS check_id,
 								NULL AS index_sanity_id, 
 								N'Feature-Phobic Indexes' AS findings_group,
@@ -1126,6 +1172,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'Only ' + CAST(@percent_indexes_with_includes AS NVARCHAR(10)) + '% of indexes have includes.' AS details, 
 								N'Entire database.' AS index_definition, 
+								N'N/A' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary;
 
@@ -1144,7 +1191,7 @@ BEGIN;
 
 			IF @count_filtered_indexes = 0 AND @count_indexed_views=0
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	32 AS check_id, 
 								NULL AS index_sanity_id,
 								N'Feature-Phobic Indexes' AS findings_group,
@@ -1152,6 +1199,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'These are NOT always needed-- but do you know when you would use them?' AS details,
 								N'Entire database.' AS index_definition, 
+								N'N/A' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary;
 		END;
@@ -1162,7 +1210,7 @@ BEGIN;
 
 			RAISERROR(N'check_id 40: Fillfactor less than or equal to 80 percent', 0,1) WITH nowait;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										   index_usage_summary, index_size_summary )
+										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	40 AS check_id, 
 							i.index_sanity_id,
 							N'Self Loathing Indexes' AS findings_group,
@@ -1170,6 +1218,7 @@ BEGIN;
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
 							N'Fill factor on ' + schema_object_indexid + N' is ' + CAST(fill_factor AS NVARCHAR(10)) + N'%' AS details, 
 							i.index_definition,
+							i.secret_columns,
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
@@ -1178,12 +1227,13 @@ BEGIN;
 
 			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH nowait;
 			INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
-										   index_usage_summary, index_size_summary )
+										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	41 AS check_id, 
 							N'Self Loathing Indexes' AS findings_group,
 							N'	' AS finding, 'http://BrentOzar.com/go/SelfLoathing' AS URL,
 							N'Hypothetical Index: ' + schema_object_indexid AS details, 
 							i.index_definition,
+							i.secret_columns,
 							i.index_usage_summary, 
 							sz.index_size_summary
 					FROM	#index_sanity AS i
@@ -1194,7 +1244,7 @@ BEGIN;
 			RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH nowait;
 			--Note: disabled NC indexes will have O rows in #index_sanity_size!
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										   index_usage_summary, index_size_summary )
+										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	42 AS check_id, 
 							index_sanity_id,
 							N'Self Loathing Indexes' AS findings_group,
@@ -1202,6 +1252,7 @@ BEGIN;
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
 							N'Disabled Index:' + schema_object_indexid AS details, 
 							i.index_definition,
+							i.secret_columns,
 							i.index_usage_summary,
 							'DISABLED' AS index_size_summary
 					FROM	#index_sanity AS i
@@ -1216,7 +1267,7 @@ BEGIN;
 						   HAVING	SUM(forwarded_fetch_count) > 0
 									OR SUM(leaf_delete_count) > 0)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	43 AS check_id, 
 								i.index_sanity_id,
 								N'Self Loathing Indexes' AS findings_group,
@@ -1224,7 +1275,10 @@ BEGIN;
 								N'http://BrentOzar.com/go/SelfLoathing' AS URL,
 								CAST(h.forwarded_fetch_count AS NVARCHAR(10)) + ' forwarded fetches, '
 								+ CAST(h.leaf_delete_count AS NVARCHAR(10)) + ' deletes against heap:'
-								+ schema_object_indexid AS details, i.index_definition, i.index_usage_summary,
+								+ schema_object_indexid AS details, 
+								i.index_definition, 
+								i.secret_columns,
+								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#index_sanity i
 								JOIN heaps_cte h ON i.[object_id] = h.[object_id]
@@ -1241,7 +1295,7 @@ BEGIN;
 						   HAVING	SUM(forwarded_fetch_count) > 0
 									OR SUM(leaf_delete_count) > 0)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-											   index_usage_summary, index_size_summary )
+											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	44 AS check_id, 
 								i.index_sanity_id,
 								N'Self Loathing Indexes' AS findings_group,
@@ -1249,6 +1303,7 @@ BEGIN;
 								N'http://BrentOzar.com/go/SelfLoathing' AS URL,
 								N'Should this table be a heap? ' + schema_object_indexid AS details, 
 								i.index_definition, 
+								'N/A' AS secret_columns,
 								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#index_sanity i
@@ -1316,6 +1371,7 @@ BEGIN;
 			br.URL, 
 			br.details AS [details: schema.table.index(indexid)], 
 			br.index_definition, 
+			ISNULL(br.secret_columns,'') AS secret_columns,          
 			br.index_usage_summary, 
 			br.index_size_summary,
 			COALESCE(br.more_info,sn.more_info,'') AS more_info,
@@ -1332,7 +1388,7 @@ BEGIN;
 	ELSE IF @mode=1 /*Summarize*/
 	BEGIN
 	--This mode is to give some overall stats on the database.
-		RAISERROR(N'@mode=1, we are summzarizing.', 0,1) WITH nowait;
+		RAISERROR(N'@mode=1, we are summarizing.', 0,1) WITH nowait;
 
 		SELECT 
 			(COUNT(*)) AS [Number Objects],
@@ -1380,6 +1436,7 @@ BEGIN;
 				ISNULL(key_column_names_with_sort_order, '') AS key_column_names_with_sort_order,
 				ISNULL(count_key_columns, 0) AS count_key_columns,
 				ISNULL(include_column_names, '') AS include_column_names, count_included_columns,
+				ISNULL(secret_columns,'') AS secret_column_names, ISNULL(count_secret_columns,0) AS count_secret_columns,
 				ISNULL(partition_key_column_name, '') AS partition_key_column_name,
 				ISNULL(filter_definition, '') AS filter_definition, is_indexed_view, is_disabled, is_hypothetical,
 				is_padded, fill_factor, is_referenced_by_foreign_key, last_user_seek, last_user_scan, last_user_lookup,
