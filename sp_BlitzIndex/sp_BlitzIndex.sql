@@ -621,7 +621,7 @@ BEGIN TRY
 				ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
 				ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
 				ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
-				ELSE N'' END + CASE WHEN count_key_columns > 0 THEN N'[KEYS] '	+ key_column_names_with_sort_order
+				ELSE N'' END + CASE WHEN count_key_columns > 0 THEN N'[KEYS] '	+ LTRIM(key_column_names_with_sort_order)
 				ELSE N'' END + CASE WHEN count_included_columns > 0 THEN N' [INCLUDES] ' + include_column_names
 				ELSE N'' END + CASE WHEN filter_definition <> N'' THEN N' [FILTER] ' + filter_definition
 				ELSE N'' END ,
@@ -1433,7 +1433,7 @@ BEGIN;
 				schema_object_indexid, CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
 											ELSE 'NonClustered'
 									   END AS object_type, index_definition,
-				ISNULL(key_column_names_with_sort_order, '') AS key_column_names_with_sort_order,
+				ISNULL(LTRIM(key_column_names_with_sort_order), '') AS key_column_names_with_sort_order,
 				ISNULL(count_key_columns, 0) AS count_key_columns,
 				ISNULL(include_column_names, '') AS include_column_names, count_included_columns,
 				ISNULL(secret_columns,'') AS secret_column_names, ISNULL(count_secret_columns,0) AS count_secret_columns,
