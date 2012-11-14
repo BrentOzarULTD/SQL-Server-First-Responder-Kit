@@ -15,7 +15,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.3 - November 13, 2012
+sp_BlitzIndex (TM) v1.31 - November 13, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -43,7 +43,8 @@ CHANGE LOG:
 		Added version check to gracefully exit when run against SQL Server 2000.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
 		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
-		a heap, a unique clustered index, or a non-unique clustered index
+		a heap, a unique clustered index, or a non-unique clustered index.
+		Changed parameter order so @database_name is first. Some people were confused.
 */
 AS 
 
