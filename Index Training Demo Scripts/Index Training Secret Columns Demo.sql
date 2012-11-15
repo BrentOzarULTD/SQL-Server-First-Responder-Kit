@@ -1,24 +1,3 @@
---Stop accidental whole-script executions.
-RAISERROR('Did you mean to run the whole thing?',20,1) WITH LOG;
-GO
-
---------------------------------
---Setup
---Restore the database
---------------------------------
-
-IF DB_ID('tpchscale1') IS NOT NULL
-BEGIN
-	USE master;
-	ALTER DATABASE tpchscale1 SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-END
-GO
-
-RESTORE DATABASE tpchscale1 
-	FROM DISK=N'S:\MSSQL\Backup\tpchscale1_created.bak'
-	WITH REPLACE;
-GO
-
 USE tpchscale1;
 GO
 
@@ -26,12 +5,6 @@ GO
 --CASE 1:
 --NON-UNIQUE CLUSTERED INDEX
 --------------------------------
-
-EXEC sp_helpindex 'lineitem';
-GO
-
---sp_BlitzIndex
-http://BrentOzar.com/BlitzIndex
 
 EXEC dbo.sp_BlitzIndex @database_name='tpchscale1', @schema_name='dbo', @table_name='lineitem';
 GO
@@ -47,39 +20,14 @@ GO
 
 SELECT TOP 10 *
 FROM dbo.lineitem;
-GO
 
 
 --Find the root index page for the clustered index:
---This works in SQL Server 2012 only.
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'),OBJECT_ID('lineitem'),1,NULL,'detailed')
 WHERE page_type=2 /* index page*/
-ORDER BY page_level DESC, next_page_page_id DESC;
-GO
-
-
-
-
---You can do this in previous versions of SQL Server....
---People tend to use one of the following:
-DBCC IND('tpchscale1','lineitem',1)
-GO
-
-SELECT name, [first]
-from sys.sysindexes
-where id=object_id('lineitem')
-and indid=1;
-GO
-
-
-
-
+ORDER BY page_level DESC, next_page_page_id DESC
 
 --Look at the root index page.
 --sp_BlitzIndex said we'd see:
@@ -91,33 +39,20 @@ DBCC PAGE('tpchscale1', 1,242242,3);
 GO
 
 
-
-
 --Look at a data page in the leaf level of the clustered index.
 
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'),OBJECT_ID('lineitem'),1,NULL,'detailed')
 WHERE page_type=1 /* data page*/
 	AND page_level=0 /*leaf*/
 ORDER BY page_level DESC, next_page_page_id DESC;
 GO
 
-
 --Index definition: [CX] [KEYS] l_shipdate	
 --Secret columns: [UNIQUIFIER]
 DBCC TRACEON (3604);
 DBCC PAGE('tpchscale1', 1,248446,3);
 GO
-
-
-
-
-
 
 
 --------------------------------
@@ -127,22 +62,13 @@ GO
 --------------------------------
 
 --Nonclustered Index: dbo.lineitem.l_orderkey_ind (2)
-EXEC dbo.sp_BlitzIndex @database_name='tpchscale1', @schema_name='dbo', @table_name='lineitem';
-GO
 
 --Find the root index page for the non-clustered index
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),2,NULL,'detailed')
 WHERE page_type=2 /* index page*/
 ORDER BY page_level DESC, next_page_page_id DESC;
 GO
-
-
 
 
 --Look at the root index page.
@@ -157,12 +83,7 @@ GO
 
 
 --Now look at a page from the leaf (level=0)
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),2,NULL,'detailed')
 WHERE page_level=0 /* leaf */
 ORDER BY page_level DESC, next_page_page_id DESC;
@@ -176,21 +97,15 @@ DBCC TRACEON (3604);
 DBCC PAGE('tpchscale1', 1,242142,3);
 GO
 
-
-
-
-
 --This is: dbo.lineitem.l_orderkey_ind
---What if I query l_shipdate?
---Can I return the value of the secret column?
 
+
+--What if I move l_shipdate?
+--Can I return the value of the secret column?
 SELECT l_shipdate
 FROM dbo.lineitem
 WHERE l_orderkey=5486433;
 GO
-
-
-
 
 
 --Can I use the secret key column for a seek?
@@ -252,20 +167,13 @@ GO
 
 
 --Nonclustered Index: 
---dbo.lineitem.kl_test_orderkey_linenumber_ind (4)
-
-
+--dbo.lineitem.kl_test_orderkey_linenumber_ind (14)
 
 
 
 --Find the root index page for the non-clustered index.
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
-FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),4,NULL,'detailed')
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
+FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),14,NULL,'detailed')
 WHERE page_type=2 /* index page*/
 ORDER BY page_level DESC, next_page_page_id DESC;
 GO
@@ -279,33 +187,25 @@ GO
 --SECRET COLUMNS: [INCLUDES] l_shipdate [UNIQUIFIER]
 
 DBCC TRACEON (3604);
-DBCC PAGE('tpchscale1', 1,22304,3);
+DBCC PAGE('tpchscale1', 1,72337,3);
 GO
-
 
 
 
 
 --Now look at a page from the leaf (level=0)
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
-FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),4,NULL,'detailed')
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
+FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('lineitem'),14,NULL,'detailed')
 WHERE page_level=0 /* leaf */
 ORDER BY page_level DESC, next_page_page_id DESC;
 GO
-
-
 
 
 --sp_BlitzIndex said we'd see:
 --INDEX DEFINITION: [UNIQUE] [KEYS] l_orderkey, l_linenumber [INCLUDES]  l_quantity		
 --SECRET COLUMNS: [INCLUDES] l_shipdate [UNIQUIFIER]
 DBCC TRACEON (3604);
-DBCC PAGE('tpchscale1', 1,122471,3);
+DBCC PAGE('tpchscale1', 1,101959,3);
 GO
 
 
@@ -357,12 +257,7 @@ GO
 
 
 --Find the root index page for the non-clustered index.
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('supplier'),2,NULL,'detailed')
 WHERE page_type=2 /* index page*/
 ORDER BY page_level DESC, next_page_page_id DESC;
@@ -383,12 +278,7 @@ GO
 
 
 --Now look at a page from the leaf (level=0)
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('supplier'),2,NULL,'detailed')
 WHERE page_level=0 /* leaf */
 ORDER BY page_level DESC, next_page_page_id DESC;
@@ -416,7 +306,7 @@ GO
 
 --------------------------------
 --CASE 5:
---UNIQUE NONCLUSTERED INDEX ON A HEAP
+--HEAP WITH A UNIQUE NONCLUSTERED INDEX
 --------------------------------
 
 --We don't have a heap in this database by default
@@ -441,13 +331,10 @@ GO
 --This NC PK includes the [RID]
 
 
+
+
 --Find the root index page for the non-clustered index.
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('orders'),2,NULL,'detailed')
 WHERE page_type=2 /* index page*/
 ORDER BY page_level DESC, next_page_page_id DESC;
@@ -461,19 +348,14 @@ GO
 --INDEX DEFINITION: [PK] [KEYS] o_orderkey
 --SECRET COLUMNS: [INCLUDES] [RID]
 DBCC TRACEON (3604);
-DBCC PAGE('tpchscale1', 1,122538,3);
+DBCC PAGE('tpchscale1', 1,84882,3);
 GO
 
 
 
 
 --Now look at a page from the leaf (level=0)
-SELECT TOP 10 
-	allocated_page_page_id, 
-	page_type_desc, 
-	page_level, 
-	next_page_page_id, 
-	previous_page_page_id
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
 FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('orders'),2,NULL,'detailed')
 WHERE page_level=0 /* leaf */
 ORDER BY page_level DESC, next_page_page_id DESC;
@@ -484,7 +366,7 @@ GO
 --INDEX DEFINITION: [PK] [KEYS] o_orderkey
 --SECRET COLUMNS: [INCLUDES] [RID]
 DBCC TRACEON (3604);
-DBCC PAGE('tpchscale1', 1,126887,3);
+DBCC PAGE('tpchscale1', 1,89247,3);
 GO
 
 --Each RID is 8 bytes
@@ -494,7 +376,76 @@ GO
 --This is: dbo.supplier.s_nationkey_ind (2)
 SELECT *
 FROM dbo.orders
-WHERE  o_orderkey > 5998114;
+WHERE  o_orderkey = 5998114;
+GO
+
+
+
+--------------------------------
+--CASE 5:
+--HEAP WITH A NON-UNIQUE NONCLUSTERED INDEX
+--------------------------------
+
+--This is not uncommon!
+
+CREATE INDEX [kl_test_orderkey_linenumber_ind] 
+	ON [dbo].[orders] ( o_orderkey) 
+		INCLUDE (o_orderdate, o_orderpriority, o_orderstatus, o_totalprice)
+	WITH (ONLINE=ON, MAXDOP=2);
+GO
+
+--The Orders table: NOW WITH MORE MADNESS
+EXEC dbo.sp_BlitzIndex @database_name='tpchscale1', @schema_name='dbo', @table_name='orders';
+GO
+
+
+
+--Our new index: dbo.orders.kl_test_orderkey_linenumber_ind (7)
+--We specified: [KEYS] o_orderkey [INCLUDES]  o_orderdate, o_orderpriority, o_orderstatus, o_totalprice
+--Secret columns: [KEYS] [RID]
+
+
+
+--Find the root index page for the non-clustered index.
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
+FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('orders'),7,NULL,'detailed')
+WHERE page_type=2 /* index page*/
+ORDER BY page_level DESC, next_page_page_id DESC;
+GO
+
+
+
+
+--Look at the root index page.
+--sp_BlitzIndex said we'd see:
+--We specified: [KEYS] o_orderkey [INCLUDES]  o_orderdate, o_orderpriority, o_orderstatus, o_totalprice
+--Secret columns: [KEYS] [RID]
+DBCC TRACEON (3604);
+DBCC PAGE('tpchscale1', 1,306,3);
+GO
+
+
+
+
+--Now look at a page from the leaf (level=0)
+SELECT TOP 10 allocated_page_page_id, page_type_desc, page_level, next_page_page_id, previous_page_page_id
+FROM sys.dm_db_database_page_allocations(DB_ID('tpchscale1'), OBJECT_ID('orders'),7,NULL,'detailed')
+WHERE page_level=0 /* leaf */
+ORDER BY page_level DESC, next_page_page_id DESC;
+GO
+
+
+--sp_BlitzIndex said we'd see:
+--We specified: [KEYS] o_orderkey [INCLUDES]  o_orderdate, o_orderpriority, o_orderstatus, o_totalprice
+--Secret columns: [KEYS] [RID]
+DBCC TRACEON (3604);
+DBCC PAGE('tpchscale1', 1,100345,3);
+GO
+
+--What about this query?
+SELECT o_comment
+FROM orders 
+WHERE o_orderkey > 2998848;
 GO
 
 
