@@ -1284,8 +1284,8 @@ BEGIN;
 								N'Self Loathing Indexes' AS findings_group,
 								N'Heaps with forwarded records or deletes' AS finding, 
 								N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-								CAST(h.forwarded_fetch_count AS NVARCHAR(10)) + ' forwarded fetches, '
-								+ CAST(h.leaf_delete_count AS NVARCHAR(10)) + ' deletes against heap:'
+								CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + ' forwarded fetches, '
+								+ CAST(h.leaf_delete_count AS NVARCHAR(256)) + ' deletes against heap:'
 								+ schema_object_indexid AS details, 
 								i.index_definition, 
 								i.secret_columns,
