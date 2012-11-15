@@ -224,9 +224,9 @@ BEGIN TRY
 			  [index_id] INT NOT NULL ,
 			  [partition_number] INT NOT NULL ,
 			  row_count BIGINT NOT NULL ,
-			  reserved_MB NUMERIC(10, 2) NOT NULL ,
-			  reserved_LOB_MB NUMERIC(10, 2) NOT NULL ,
-			  reserved_row_overflow_MB NUMERIC(10, 2) NOT NULL ,
+			  reserved_MB NUMERIC(29, 2) NOT NULL ,
+			  reserved_LOB_MB NUMERIC(29, 2) NOT NULL ,
+			  reserved_row_overflow_MB NUMERIC(29, 2) NOT NULL ,
 			  leaf_insert_count BIGINT NULL ,
 			  leaf_delete_count BIGINT NULL ,
 			  leaf_update_count BIGINT NULL ,
@@ -251,9 +251,9 @@ BEGIN TRY
 			  [index_sanity_id] INT NOT NULL ,
 			  partition_count INT NOT NULL ,
 			  total_rows BIGINT NOT NULL ,
-			  total_reserved_MB NUMERIC(10, 2) NOT NULL ,
-			  total_reserved_LOB_MB NUMERIC(10, 2) NOT NULL ,
-			  total_reserved_row_overflow_MB NUMERIC(10, 2) NOT NULL ,
+			  total_reserved_MB NUMERIC(29, 2) NOT NULL ,
+			  total_reserved_LOB_MB NUMERIC(29, 2) NOT NULL ,
+			  total_reserved_row_overflow_MB NUMERIC(29, 2) NOT NULL ,
 			  total_row_lock_count BIGINT NULL ,
 			  total_row_lock_wait_count BIGINT NULL ,
 			  total_row_lock_wait_in_ms BIGINT NULL ,
@@ -284,8 +284,8 @@ BEGIN TRY
 			[table_name] NVARCHAR(256),
 			[statement] NVARCHAR(512) NOT NULL,
 			magic_benefit_number AS (( user_seeks + user_scans ) * avg_total_user_cost * avg_user_impact),
-			avg_total_user_cost NUMERIC(10,1) NOT NULL,
-			avg_user_impact NUMERIC(10,1) NOT NULL,
+			avg_total_user_cost NUMERIC(29,1) NOT NULL,
+			avg_user_impact NUMERIC(29,1) NOT NULL,
 			user_seeks BIGINT NOT NULL,
 			user_scans BIGINT NOT NULL,
 			unique_compiles BIGINT NULL,
@@ -1043,8 +1043,8 @@ BEGIN;
 						ORDER BY i.schema_object_name DESC;
 
 			RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH nowait;
-				DECLARE @percent_NC_indexes_unused NUMERIC(10,1);
-				DECLARE @NC_indexes_unused_reserved_MB NUMERIC(10,1);
+				DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
+				DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
 
 				SELECT	@percent_NC_indexes_unused =( 100.00 * SUM(CASE	WHEN total_reads = 0 THEN 1
 											ELSE 0
@@ -1403,25 +1403,25 @@ BEGIN;
 
 		SELECT 
 			(COUNT(*)) AS [Number Objects],
-			CAST(SUM(sz.total_reserved_MB)/1024. AS numeric(10,1)) AS [All GB],
-			CAST(SUM(sz.total_reserved_LOB_MB)/1024. AS numeric(10,1)) AS [LOB GB],
-			CAST(SUM(sz.total_reserved_row_overflow_MB)/1024. AS numeric(10,1)) AS [Row Overflow GB],
+			CAST(SUM(sz.total_reserved_MB)/1024. AS numeric(29,1)) AS [All GB],
+			CAST(SUM(sz.total_reserved_LOB_MB)/1024. AS numeric(29,1)) AS [LOB GB],
+			CAST(SUM(sz.total_reserved_row_overflow_MB)/1024. AS numeric(29,1)) AS [Row Overflow GB],
 			SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END) AS [Clustered Tables],
-			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [Clustered Tables GB],
+			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Clustered Tables GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
-			CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [NC Indexes GB],
+			CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [NC Indexes GB],
 			CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/ 
-				SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(10,1)) AS [ratio table: NC Indexes],
+				SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) AS [ratio table: NC Indexes],
 			SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
-			CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [Heaps GB],
+			CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Heaps GB],
 			SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
-			CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [Partitioned GB],
+			CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Partitioned GB],
 			SUM(CASE WHEN filter_definition <> '' THEN 1 ELSE 0 END) AS [Filtered Indexes],
 			SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
 			MAX(total_rows) AS [Max Row Count],
-			CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [Max Table GB],
-			CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(10,1)) AS [Max NC Index GB],
+			CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Max Table GB],
+			CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Max NC Index GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],	
