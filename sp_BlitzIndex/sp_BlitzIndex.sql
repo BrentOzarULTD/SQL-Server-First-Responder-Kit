@@ -846,7 +846,7 @@ BEGIN
 		SELECT  N'Missing index.' AS finding ,
 				N'http://BrentOzar.com/go/Indexaphobia' AS URL ,
 				mi.[statement] + ' Est Benefit: '
-					+ REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
+					+ REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
 				missing_index_details AS [index_definition] ,
 				index_estimated_impact,
 				create_tsql
@@ -1071,8 +1071,8 @@ BEGIN;
 								N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
 								i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
 								'' AS secret_columns, 
-								CAST(SUM(total_reads) AS NVARCHAR(30)) + N' reads (ALL); '
-									+ CAST(SUM([user_updates]) AS NVARCHAR(30)) + N' writes (ALL)' AS index_usage_summary,
+								CAST(SUM(total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
+									+ CAST(SUM([user_updates]) AS NVARCHAR(256)) + N' writes (ALL)' AS index_usage_summary,
 								
 								REPLACE(CONVERT(NVARCHAR(30),CAST(MAX([total_rows]) AS money), 1), '.00', '') + N' rows (MAX)'
 									+ CASE WHEN SUM(total_reserved_MB) > 1024 THEN 
@@ -1357,7 +1357,7 @@ BEGIN;
 								N'High value missing index.' AS finding, 
 								N'http://BrentOzar.com/go/Indexaphobia' AS URL,
 								mi.[statement] + ' estimated benefit: ' + 
-									REPLACE(CONVERT(NVARCHAR(30),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
+									REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
 								missing_index_details AS [definition],
 								index_estimated_impact,
 								sz.index_size_summary,
