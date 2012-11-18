@@ -14,7 +14,7 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v12 - Nov 8, 2012
+    sp_Blitz v13 - Nov 18, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -31,6 +31,14 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v13:
+ - Fixed typos in descriptions of checks 60 & 61 thanks to Mark Hions.
+ - Improved check 14 to work with collations thanks to Greg Ackerland.
+ - Improved several of the backup checks to exclude database snapshots and
+   databases that are currently being restored thanks to Greg Ackerland.
+ - Changed Brent Ozar PLF, LLC to Brent Ozar Unlimited. Great catch by
+   Hondo Henriques, @SQLHondo.
 
 Changes in v12:
  - Added plan cache (aka procedure cache) analysis. Examines top resource-using
@@ -253,6 +261,9 @@ Explanation of priority levels:
                     LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
                                                             AND b.type = 'D'
             WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
+					AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+					AND d.is_in_standby = 0 /* Not a log shipping target database */
+					AND d.source_database_id IS NULL /* Excludes database snapshots */
             GROUP BY d.name
             HAVING  MAX(b.backup_finish_date) <= DATEADD(dd, -7, GETDATE());
 
@@ -274,6 +285,9 @@ Explanation of priority levels:
                     ( 'Database ' + d.Name + ' never backed up.' ) AS Details
             FROM    master.sys.databases d
             WHERE   d.database_id <> 2 /* Bonus points if you know what that means */
+				AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+				AND d.is_in_standby = 0 /* Not a log shipping target database */
+				AND d.source_database_id IS NULL /* Excludes database snapshots */
                     AND NOT EXISTS ( SELECT *
                                      FROM   msdb.dbo.backupset b
                                      WHERE  d.name = b.database_name
@@ -300,6 +314,9 @@ Explanation of priority levels:
             WHERE   d.recovery_model IN ( 1, 2 )
                     AND d.database_id NOT IN ( 2, 3 )
                     AND d.source_database_id IS NULL
+					AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+					AND d.is_in_standby = 0 /* Not a log shipping target database */
+					AND d.source_database_id IS NULL /* Excludes database snapshots */
                     AND NOT EXISTS ( SELECT *
                                      FROM   msdb.dbo.backupset b
                                      WHERE  d.name = b.database_name
@@ -492,7 +509,7 @@ SELECT 11 AS CheckID, 100 AS Priority, ''Performance'' AS FindingsGroup, ''Serve
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 SELECT 14 AS CheckID, 50 AS Priority, ''Reliability'' AS FindingsGroup, ''Page Verification Not Optimal'' AS Finding, 
     ''http://BrentOzar.com/go/torn'' AS URL,
-    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details FROM sys.databases WHERE page_verify_option < 1 AND name <> ''tempdb'''
+    (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') COLLATE database_default AS Details FROM sys.databases WHERE page_verify_option < 1 AND name <> ''tempdb'''
             EXECUTE(@StringToExecute)
         END;
 
@@ -954,7 +971,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts for Corruption' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details;
+                        ( 'SQL Server Agent alerts do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details;
 
     IF NOT EXISTS ( SELECT  *
                     FROM    msdb.dbo.sysalerts
@@ -972,7 +989,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         'Reliability' AS FindingsGroup ,
                         'No Alerts for Sev 19-25' AS Finding ,
                         'http://BrentOzar.com/go/alert' AS URL ,
-                        ( 'SQL Server Agent do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details;
+                        ( 'SQL Server Agent alerts do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details;
 
             --check for disabled alerts
     IF EXISTS ( SELECT  name
@@ -1682,9 +1699,9 @@ INSERT  INTO #BlitzResults
     VALUES  ( -1 ,
               255 ,
               'Thanks!' ,
-              'From Brent Ozar PLF, LLC' ,
+              'From Brent Ozar Unlimited' ,
               'http://www.BrentOzar.com/blitz/' ,
-              'Thanks from the Brent Ozar PLF, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+              'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
 
 	IF @OutputType = 'COUNT'
