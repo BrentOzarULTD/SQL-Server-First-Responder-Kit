@@ -8,14 +8,15 @@ GO
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
 	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
 GO
-
+EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
+GO
 ALTER PROCEDURE dbo.sp_BlitzIndex
 	@database_name NVARCHAR(256),
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.31 - November 13, 2012
+sp_BlitzIndex (TM) v1.32 - November 20, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -1485,6 +1486,3 @@ BEGIN CATCH
 	END CATCH;
 GO
 
---Mark stored procedure as system object
-EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
-GO
