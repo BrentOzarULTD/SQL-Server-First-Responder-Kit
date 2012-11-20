@@ -772,21 +772,26 @@ BEGIN TRY
 			CASE index_id WHEN 0 THEN '(HEAP)' 
 			ELSE 
 				CASE WHEN is_primary_key=1 THEN
-					N'ALTER TABLE ' + QUOTENAME([object_name]) + N' ADD PRIMARY KEY ' + 
+					N'ALTER TABLE ' + QUOTENAME([object_name]) + 
+						N' ADD CONSTRAINT [' +
+						index_name + 
+						N'] PRIMARY KEY ' + 
 						CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-						key_column_names_with_sort_order + N' );' 
-				ELSE
+						key_column_names_with_sort_order + N' )' 
+				ELSE /*End PK index CASE */ 
 					N'CREATE ' + 
 					CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
 					CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
 					N' INDEX ['
-					END
 						 + index_name + N'] ON ' + 
 							QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
 							+ N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
-							+ CASE WHEN include_column_names IS NOT NULL THEN N' INCLUDE (' + include_column_names + N')' ELSE N'' END 
-					END +
-						CASE @SQLServerEdition WHEN 3 THEN + N' WITH (ONLINE=ON);' ELSE N'' END
+							+ CASE WHEN include_column_names IS NOT NULL THEN 
+								N' INCLUDE (' + include_column_names + N')' 
+								ELSE N'' 
+							END 
+				END /*End Non-PK index CASE */ +
+				CASE @SQLServerEdition WHEN 3 THEN + N' WITH (ONLINE=ON);' ELSE N';' END
 			END, '[Unknown Error]')
 				AS create_tsql
 		FROM #index_sanity;
@@ -893,7 +898,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Index tuning info galore' ,   N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+		VALUES  ( 0 , N'Index tuning info galore' ,   N'' ,   N'http://BrentOzar.com/BlitzIndex' ,
 					N'<-- Loads of documentation to decode these disorders.'
 					, N'',N'',N''
 				);
