@@ -14,7 +14,7 @@ CREATE PROCEDURE dbo.sp_Blitz
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v13 - Nov 18, 2012
+    sp_Blitz v13 - Nov 20, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -37,8 +37,13 @@ Changes in v13:
  - Improved check 14 to work with collations thanks to Greg Ackerland.
  - Improved several of the backup checks to exclude database snapshots and
    databases that are currently being restored thanks to Greg Ackerland.
+ - Improved wording on check 51 thanks to Stephen Criddle.
+ - Added top line introducing the reader to sp_Blitz and the version number.
  - Changed Brent Ozar PLF, LLC to Brent Ozar Unlimited. Great catch by
    Hondo Henriques, @SQLHondo.
+ - If you've submitted code recently to sp_Blitz, hang in there! We're still
+   building a big new version with lots of new checks. Just fixing bugs in
+   this small release.
 
 Changes in v12:
  - Added plan cache (aka procedure cache) analysis. Examines top resource-using
@@ -1217,10 +1222,10 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     ''Performance'' AS FindingsGroup ,
                     ''Memory Dangerously Low'' AS Finding ,
                     ''http://BrentOzar.com/go/max'' AS URL ,
-                    ''Only ''
+                    ''Although available memory is ''
                     + CAST(( CAST(m.available_physical_memory_kb AS BIGINT)
                              / 1024 ) AS VARCHAR(20))
-                    + '' megabytes, but the server only has ''
+                    + '' megabytes, only ''
                     + CAST(( CAST(m.total_physical_memory_kb AS BIGINT) / 1024 ) AS VARCHAR(20))
                     + ''megabytes of memory are free.  As the server runs out of memory, there is danger of swapping to disk, which will kill performance.'' AS Details
             FROM    sys.dm_os_sys_memory m
@@ -1703,6 +1708,24 @@ INSERT  INTO #BlitzResults
               'http://www.BrentOzar.com/blitz/' ,
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
+
+		    INSERT  INTO #BlitzResults
+		            ( CheckID ,
+		              Priority ,
+		              FindingsGroup ,
+		              Finding ,
+		              URL ,
+		              Details
+		            )
+		    VALUES  ( -1 ,
+		              0 ,
+		              'sp_Blitz v13 Nov 20 2012' ,
+		              'From Brent Ozar Unlimited' ,
+		              'http://www.BrentOzar.com/blitz/' ,
+		              'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+		            );
+
+
 
 	IF @OutputType = 'COUNT'
     BEGIN
