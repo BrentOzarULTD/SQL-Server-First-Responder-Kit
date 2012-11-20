@@ -46,6 +46,9 @@ CHANGE LOG:
 		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
 		a heap, a unique clustered index, or a non-unique clustered index.
 		Changed parameter order so @database_name is first. Some people were confused.
+	November 20, 2012 - Changed columns returned with @mode=2 so they are more narrow and better suited to
+		persisting data in a table. @mode=2 now only returns usage information. Added @mode=3 to return
+		missing index data detail only.
 */
 AS 
 
@@ -162,7 +165,7 @@ BEGIN TRY
 		IF OBJECT_ID('tempdb..#index_create_tsql') IS NOT NULL	
 			DROP TABLE #index_create_tsql;
 
-		RAISERROR (N'Create temp tables.',0,1) WITH nowait;
+		RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
 		CREATE TABLE #blitz_index_results
 			(
 			  blitz_result_id INT IDENTITY PRIMARY KEY,
@@ -324,7 +327,7 @@ BEGIN TRY
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 			
-		RAISERROR (N'Inserting data into #index_columns',0,1) WITH nowait;
+		RAISERROR (N'Inserting data into #index_columns',0,1) WITH NOWAIT;
 		INSERT	#index_columns ( object_id, index_id, key_ordinal, partition_ordinal,
 			column_name, is_included_column, is_descending_key )
 				EXEC sp_executesql @dsql;
@@ -358,14 +361,14 @@ BEGIN TRY
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 
-		RAISERROR (N'Inserting data into #index_sanity',0,1) WITH nowait;
+		RAISERROR (N'Inserting data into #index_sanity',0,1) WITH NOWAIT;
 		INSERT	#index_sanity ( [database_id], [object_id], index_id, [database_name], [schema_name], [object_name],
 								index_name, is_indexed_view, is_unique, is_primary_key, is_disabled, is_hypothetical,
 								is_padded, fill_factor, filter_definition, user_seeks, user_scans, user_lookups,
 								user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update )
 				EXEC sp_executesql @dsql;
 
-		RAISERROR (N'Updating #index_sanity.key_column_names',0,1) WITH nowait;
+		RAISERROR (N'Updating #index_sanity.key_column_names',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		key_column_names = D1.key_column_names
 		FROM	#index_sanity si
@@ -378,7 +381,7 @@ BEGIN TRY
 										FOR	  XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 												  ) D1 ( key_column_names )
 
-		RAISERROR (N'Updating #index_sanity.partition_key_column_name',0,1) WITH nowait;
+		RAISERROR (N'Updating #index_sanity.partition_key_column_name',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		partition_key_column_name = D1.partition_key_column_name
 		FROM	#index_sanity si
@@ -391,7 +394,7 @@ BEGIN TRY
 										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1,''))) D1 
 													( partition_key_column_name )
 
-		RAISERROR (N'Updating #index_sanity.key_column_names_with_sort_order',0,1) WITH nowait;
+		RAISERROR (N'Updating #index_sanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		key_column_names_with_sort_order = D2.key_column_names_with_sort_order
 		FROM	#index_sanity si
@@ -408,7 +411,7 @@ BEGIN TRY
 										) D2 ( key_column_names_with_sort_order )
 
 
-		RAISERROR (N'Updating #index_sanity.include_column_names',0,1) WITH nowait;
+		RAISERROR (N'Updating #index_sanity.include_column_names',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		include_column_names = D3.include_column_names
 		FROM	#index_sanity si
@@ -422,7 +425,7 @@ BEGIN TRY
 										FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 										) D3 ( include_column_names );
 
-		RAISERROR (N'Updating #index_sanity.count_key_columns and count_include_columns',0,1) WITH nowait;
+		RAISERROR (N'Updating #index_sanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		count_included_columns = D4.count_included_columns,
 				count_key_columns = D4.count_key_columns
@@ -465,7 +468,7 @@ BEGIN TRY
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 
-		RAISERROR (N'Inserting data into #index_partition_sanity',0,1) WITH nowait;
+		RAISERROR (N'Inserting data into #index_partition_sanity',0,1) WITH NOWAIT;
 		INSERT	#index_partition_sanity ( [object_id], index_id, partition_number, row_count, reserved_MB,
 										  reserved_LOB_MB, reserved_row_overflow_MB, leaf_insert_count,
 										  leaf_delete_count, leaf_update_count, forwarded_fetch_count,
@@ -476,14 +479,14 @@ BEGIN TRY
 										  index_lock_promotion_count )
 				EXEC sp_executesql @dsql;
 
-		RAISERROR (N'Updating index_sanity_id on #index_partition_sanity',0,1) WITH nowait;
+		RAISERROR (N'Updating index_sanity_id on #index_partition_sanity',0,1) WITH NOWAIT;
 		UPDATE	#index_partition_sanity
 		SET		index_sanity_id = i.index_sanity_id
 		FROM	#index_partition_sanity ps
 				JOIN #index_sanity i ON ps.[object_id] = i.[object_id]
 										AND ps.index_id = i.index_id
 
-		RAISERROR (N'Inserting data into #index_sanity_size',0,1) WITH nowait;
+		RAISERROR (N'Inserting data into #index_sanity_size',0,1) WITH NOWAIT;
 		INSERT	#index_sanity_size ( [index_sanity_id], partition_count, total_rows, total_reserved_MB,
 									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_row_lock_count,
 									 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
@@ -511,14 +514,14 @@ BEGIN TRY
 				ORDER BY index_sanity_id 
 		OPTION	( RECOMPILE );
 		
-		RAISERROR (N'Adding UQ index on #index_sanity (object_id,index_id)',0,1) WITH nowait;
+		RAISERROR (N'Adding UQ index on #index_sanity (object_id,index_id)',0,1) WITH NOWAIT;
 		CREATE UNIQUE INDEX uq_object_id_index_id ON #index_sanity (object_id,index_id);
 
-		RAISERROR (N'Adding UQ index on #index_partition_sanity (index_sanity_id)',0,1) WITH nowait;
+		RAISERROR (N'Adding UQ index on #index_partition_sanity (index_sanity_id)',0,1) WITH NOWAIT;
 		CREATE UNIQUE INDEX uq_index_sanity_id ON #index_partition_sanity (index_sanity_id, partition_number);
 
 
-		RAISERROR (N'Inserting data into #missing_indexes',0,1) WITH nowait;
+		RAISERROR (N'Inserting data into #missing_indexes',0,1) WITH NOWAIT;
 		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	id.object_id, ' + QUOTENAME(@database_name,'''') + N', sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
 						gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
@@ -585,12 +588,12 @@ BEGIN TRY
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #foreign_keys',0,1) WITH nowait;
+        RAISERROR (N'Inserting data into #foreign_keys',0,1) WITH NOWAIT;
         INSERT  #foreign_keys ( foreign_key_name, parent_object_id,parent_object_name, referenced_object_id, referenced_object_name,
                                 is_disabled, is_not_trusted, is_not_for_replication, parent_fk_columns, referenced_fk_columns )
                 EXEC sp_executesql @dsql;
 
-        RAISERROR (N'Updating #index_sanity.referenced_by_foreign_key',0,1) WITH nowait;
+        RAISERROR (N'Updating #index_sanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
 		UPDATE #index_sanity
 			SET is_referenced_by_foreign_key=1
 		FROM #index_sanity s
@@ -598,7 +601,7 @@ BEGIN TRY
 			s.OBJECT_ID=fk.referenced_object_id
 			AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns
 
-		RAISERROR (N'Add computed columns to #index_sanity to simplify queries.',0,1) WITH nowait;
+		RAISERROR (N'Add computed columns to #index_sanity to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity ADD 
 		[schema_object_name] AS [schema_name] + '.' + [object_name] ,
 		[schema_object_indexid] AS [schema_name] + '.' + [object_name]
@@ -637,7 +640,7 @@ BEGIN TRY
 		[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
 			N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([object_name],'''') + N';'
 
-		RAISERROR (N'Update index_secret on #index_sanity for NC indexes.',0,1) WITH nowait;
+		RAISERROR (N'Update index_secret on #index_sanity for NC indexes.',0,1) WITH NOWAIT;
 		UPDATE nc 
 		SET secret_columns=
 			CASE nc.is_unique WHEN 1 THEN N'[INCLUDES] ' ELSE N'[KEYS] ' END +
@@ -655,7 +658,7 @@ BEGIN TRY
 			and tb.index_id in (0,1) 
 		WHERE nc.index_id > 1;
 
-		RAISERROR (N'Update index_secret on #index_sanity for heaps and non-unique clustered.',0,1) WITH nowait;
+		RAISERROR (N'Update index_secret on #index_sanity for heaps and non-unique clustered.',0,1) WITH NOWAIT;
 		UPDATE tb
 		SET secret_columns=	CASE tb.index_id WHEN 0 THEN '[RID]' ELSE '[UNIQUIFIER]' END
 			, count_secret_columns = 1
@@ -663,7 +666,7 @@ BEGIN TRY
 		WHERE tb.index_id = 0 /*Heaps-- these have the RID */
 			or (tb.index_id=1 and tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
-		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH nowait;
+		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity_size ADD 
 			  index_size_summary AS ISNULL(
 				CASE WHEN partition_count > 1
@@ -733,7 +736,7 @@ BEGIN TRY
 					,'Error- NULL in computed column')
 
 
-		RAISERROR (N'Add computed columns to #missing_index to simplify queries.',0,1) WITH nowait;
+		RAISERROR (N'Add computed columns to #missing_index to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #missing_indexes ADD 
 				[index_estimated_impact] AS 
 					CAST(user_seeks + user_scans AS NVARCHAR(30)) + N' use' 
@@ -762,7 +765,7 @@ BEGIN TRY
 				;
 
 
-		RAISERROR (N'Populate #index_create_tsql.',0,1) WITH nowait;
+		RAISERROR (N'Populate #index_create_tsql.',0,1) WITH NOWAIT;
 		INSERT #index_create_tsql (index_sanity_id, create_tsql)
 		SELECT
 			index_sanity_id,
@@ -790,7 +793,7 @@ BEGIN TRY
 	END
 END TRY
 BEGIN CATCH
-		RAISERROR (N'Failure populating temp tables.', 0,1) WITH nowait;
+		RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
 
 		IF @dsql IS NOT NULL
 		BEGIN
@@ -819,7 +822,7 @@ BEGIN TRY
 ----------------------------------------
 IF @table_name IS NOT NULL
 BEGIN
-	RAISERROR(N'@table_name specified, giving detail only on that table.', 0,1) WITH nowait;
+	RAISERROR(N'@table_name specified, giving detail only on that table.', 0,1) WITH NOWAIT;
 
 	--We do a left join here in case this is a disabled NC.
 	--In that case, it won't have any size info/pages allocated.
@@ -880,10 +883,10 @@ ELSE
 BEGIN;
 	IF @mode=0 /* DIAGNOSE*/
 	BEGIN;
-		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH nowait;
+		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH NOWAIT;
 
 
-		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH nowait;
+		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
 		VALUES  ( 0 , N'Index tuning info galore' ,   N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
@@ -896,7 +899,7 @@ BEGIN;
 		--Multiple Index Personalities: Check_id 0-10
 		----------------------------------------
 		BEGIN;
-		RAISERROR('check_id 1: Duplicate keys', 0,1) WITH nowait;
+		RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
 			WITH	duplicate_indexes
 					  AS ( SELECT	[object_id], key_column_names
 						   FROM		#index_sanity
@@ -921,7 +924,7 @@ BEGIN;
 						ORDER BY ip.object_id, ip.key_column_names_with_sort_order	
 				OPTION	( RECOMPILE );
 
-		RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH nowait;
+		RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
 			WITH	borderline_duplicate_indexes
 					  AS ( SELECT DISTINCT [object_id], first_key_column_name, key_column_names,
 									COUNT(OBJECT_ID) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
@@ -956,7 +959,7 @@ BEGIN;
 		--Aggressive Indexes: Check_id 10-19
 		----------------------------------------
 		BEGIN;
-		RAISERROR(N'check_id 10: Avg lock wait time > 1 second (row or page)', 0,1) WITH nowait;
+		RAISERROR(N'check_id 10: Avg lock wait time > 1 second (row or page)', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	10 AS check_id, 
@@ -975,7 +978,7 @@ BEGIN;
 				WHERE	avg_row_lock_wait_in_ms > 1000 OR avg_page_lock_wait_in_ms > 1000;
 
 
-		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH nowait;
+		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	11 AS check_id, 
@@ -993,7 +996,7 @@ BEGIN;
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 
-		RAISERROR(N'check_id 12: More than 10 lock escalation attempts', 0,1) WITH nowait;
+		RAISERROR(N'check_id 12: More than 10 lock escalation attempts', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	12 AS check_id, 
@@ -1016,7 +1019,7 @@ BEGIN;
 		--Index Hoarder: Check_id 20-29
 		----------------------------------------
 		BEGIN
-			RAISERROR(N'check_id 20: >=7 NC indexes on any given table. Yes, 7 is an arbitrary number.', 0,1) WITH nowait;
+			RAISERROR(N'check_id 20: >=7 NC indexes on any given table. Yes, 7 is an arbitrary number.', 0,1) WITH NOWAIT;
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	20 AS check_id, 
@@ -1043,7 +1046,7 @@ BEGIN;
 						HAVING	COUNT(*) >= 7
 						ORDER BY i.schema_object_name DESC;
 
-			RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH nowait;
+			RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH NOWAIT;
 				DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
 				DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
 
@@ -1089,7 +1092,7 @@ BEGIN;
 						GROUP BY i.database_name 
 				OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH nowait;
+			RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	22 AS check_id, 
@@ -1109,7 +1112,7 @@ BEGIN;
 					ORDER BY i.schema_object_indexid
 					OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH nowait;
+			RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	23 AS check_id, 
@@ -1127,7 +1130,7 @@ BEGIN;
 					WHERE	( count_key_columns + count_included_columns ) >= 7
 					OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 24: Clustered indexes with > 1 column.', 0,1) WITH nowait;
+			RAISERROR(N'check_id 24: Clustered indexes with > 1 column.', 0,1) WITH NOWAIT;
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	24 AS check_id, 
@@ -1150,7 +1153,7 @@ BEGIN;
 		--Feature-Phobic Indexes: Check_id 30-39
 		---------------------------------------- 
 		BEGIN
-			RAISERROR(N'check_id 30: No indexes with includes', 0,1) WITH nowait;
+			RAISERROR(N'check_id 30: No indexes with includes', 0,1) WITH NOWAIT;
 
 			DECLARE	@number_indexes_with_includes INT;
 			DECLARE	@percent_indexes_with_includes NUMERIC(10, 1);
@@ -1173,7 +1176,7 @@ BEGIN;
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary
 
-			RAISERROR(N'check_id 31: < 3% of indexes have includes', 0,1) WITH nowait;
+			RAISERROR(N'check_id 31: < 3% of indexes have includes', 0,1) WITH NOWAIT;
 			IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
@@ -1188,7 +1191,7 @@ BEGIN;
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary;
 
-			RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH nowait;
+			RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 			DECLARE @count_filtered_indexes INT;
 			DECLARE @count_indexed_views INT;
 
@@ -1220,7 +1223,7 @@ BEGIN;
 		----------------------------------------
 		BEGIN
 
-			RAISERROR(N'check_id 40: Fillfactor less than or equal to 80 percent', 0,1) WITH nowait;
+			RAISERROR(N'check_id 40: Fillfactor less than or equal to 80 percent', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	40 AS check_id, 
@@ -1237,7 +1240,7 @@ BEGIN;
 							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	fill_factor BETWEEN 1 AND 80;
 
-			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH nowait;
+			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	41 AS check_id, 
@@ -1253,7 +1256,7 @@ BEGIN;
 					WHERE	is_hypothetical = 1;
 
 
-			RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH nowait;
+			RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
 			--Note: disabled NC indexes will have O rows in #index_sanity_size!
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
@@ -1270,7 +1273,7 @@ BEGIN;
 					FROM	#index_sanity AS i
 					WHERE	is_disabled = 1;
 
-			RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH nowait;
+			RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
 			WITH	heaps_cte
 					  AS ( SELECT	[object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
 									SUM(leaf_delete_count) AS leaf_delete_count
@@ -1298,7 +1301,7 @@ BEGIN;
 						WHERE	i.index_id = 0 
 				OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 44: Heaps with reads or writes.', 0,1) WITH nowait;
+			RAISERROR(N'check_id 44: Heaps with reads or writes.', 0,1) WITH NOWAIT;
 			WITH	heaps_cte
 					  AS ( SELECT	[object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
 									SUM(leaf_delete_count) AS leaf_delete_count
@@ -1333,7 +1336,7 @@ BEGIN;
 		--Missing indexes with value >= 5 million: : Check_id 50-59
 		----------------------------------------
 		BEGIN
-			RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH nowait;
+			RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
 			WITH	index_size_cte
 					  AS ( SELECT	i.[object_id], 
 									MAX(i.index_sanity_id) AS index_sanity_id,
@@ -1400,7 +1403,7 @@ BEGIN;
 	ELSE IF @mode=1 /*Summarize*/
 	BEGIN
 	--This mode is to give some overall stats on the database.
-		RAISERROR(N'@mode=1, we are summarizing.', 0,1) WITH nowait;
+		RAISERROR(N'@mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
 		SELECT 
 			(COUNT(*)) AS [Number Objects],
@@ -1439,7 +1442,7 @@ BEGIN;
 	BEGIN
 		--This mode just spits out all the detail without filters.
 		--This supports slicing AND dicing in Excel
-		RAISERROR(N'@mode=2, here''s ALL the details.', 0,1) WITH nowait;
+		RAISERROR(N'@mode=2, here''s ALL the details.', 0,1) WITH NOWAIT;
 
 		SELECT	database_name, [schema_name], [object_name], ISNULL(index_name, '') AS index_name, index_id,
 				schema_object_indexid, CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
@@ -1470,7 +1473,7 @@ BEGIN;
 END
 END TRY
 BEGIN CATCH
-		RAISERROR (N'Failure analyzing temp tables.', 0,1) WITH nowait;
+		RAISERROR (N'Failure analyzing temp tables.', 0,1) WITH NOWAIT;
 
 		SELECT	@msg = ERROR_MESSAGE(), @ErrorSeverity = ERROR_SEVERITY(), @ErrorState = ERROR_STATE();
 
