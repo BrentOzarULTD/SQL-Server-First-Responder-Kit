@@ -46,8 +46,7 @@ CHANGE LOG:
 		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
 		a heap, a unique clustered index, or a non-unique clustered index.
 		Changed parameter order so @database_name is first. Some people were confused.
-	November 20, 2012 - Changed columns returned with @mode=2 so they are more narrow and better suited to
-		persisting data in a table. @mode=2 now only returns usage information. Added @mode=3 to return
+	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
 		missing index data detail only.
 */
 AS 
@@ -777,8 +776,10 @@ BEGIN TRY
 						CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
 						key_column_names_with_sort_order + N' );' 
 				ELSE
-					CASE WHEN index_id=1 THEN N'CREATE CLUSTERED INDEX ['
-					ELSE N'CREATE INDEX ['
+					N'CREATE ' + 
+					CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
+					CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+					N' INDEX ['
 					END
 						 + index_name + N'] ON ' + 
 							QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
@@ -843,7 +844,8 @@ BEGIN
 	LEFT JOIN #index_create_tsql ct ON 
 		s.index_sanity_id=ct.index_sanity_id
 	WHERE s.[object_id]=@object_id
-	ORDER BY key_column_names;
+	ORDER BY key_column_names
+	OPTION	( RECOMPILE );
 
 	IF (SELECT TOP 1 [object_id] FROM    #missing_indexes mi) IS NOT NULL
 	BEGIN  
@@ -856,7 +858,8 @@ BEGIN
 				create_tsql
 		FROM    #missing_indexes mi
 		WHERE   [object_id] = @object_id
-		ORDER BY magic_benefit_number DESC;
+		ORDER BY magic_benefit_number DESC
+		OPTION	( RECOMPILE );
 	END       
 	ELSE     
 	SELECT 'No missing indexes.' AS finding;
@@ -871,7 +874,8 @@ BEGIN
 			is_not_trusted,
 			is_not_for_replication
 		FROM #foreign_keys
-		ORDER BY foreign_key;
+		ORDER BY foreign_key
+		OPTION	( RECOMPILE );
 	END
 	ELSE
 	SELECT 'No foreign keys.' AS finding;
@@ -975,7 +979,8 @@ BEGIN;
 						sz.index_size_summary
 				FROM	#index_sanity AS i
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	avg_row_lock_wait_in_ms > 1000 OR avg_page_lock_wait_in_ms > 1000;
+				WHERE	avg_row_lock_wait_in_ms > 1000 OR avg_page_lock_wait_in_ms > 1000
+				OPTION	( RECOMPILE );
 
 
 		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
@@ -995,6 +1000,7 @@ BEGIN;
 				FROM	#index_sanity AS i
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
+				OPTION	( RECOMPILE );
 
 		RAISERROR(N'check_id 12: More than 10 lock escalation attempts', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
@@ -1012,7 +1018,7 @@ BEGIN;
 						sz.index_size_summary
 				FROM	#index_sanity AS i
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	total_index_lock_promotion_attempt_count > 10
+				WHERE	total_index_lock_promotion_attempt_count > 10  OPTION	( RECOMPILE );
 
 		END;
 		---------------------------------------- 
@@ -1147,7 +1153,7 @@ BEGIN;
 								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						WHERE	index_id =1 /* clustered only */
 								AND count_key_columns > 1 /*More than one key column.*/
-						ORDER BY i.schema_object_name DESC;
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 		END
 		 ----------------------------------------
 		--Feature-Phobic Indexes: Check_id 30-39
@@ -1174,7 +1180,7 @@ BEGIN;
 								N'Entire database.' AS index_definition, 
 								N'' AS secret_columns, 
 								N'N/A' AS index_usage_summary, 
-								N'N/A' AS index_size_summary
+								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 31: < 3% of indexes have includes', 0,1) WITH NOWAIT;
 			IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 
@@ -1189,7 +1195,7 @@ BEGIN;
 								N'Entire database.' AS index_definition, 
 								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
-								N'N/A' AS index_size_summary;
+								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 			DECLARE @count_filtered_indexes INT;
@@ -1197,12 +1203,12 @@ BEGIN;
 
 				SELECT	@count_filtered_indexes=COUNT(*)
 				FROM	#index_sanity
-				WHERE	filter_definition <> '';
+				WHERE	filter_definition <> '' OPTION	( RECOMPILE );
 
 				SELECT	@count_indexed_views=COUNT(*)
 				FROM	#index_sanity AS i
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	is_indexed_view = 1;
+				WHERE	is_indexed_view = 1 OPTION	( RECOMPILE );
 
 			IF @count_filtered_indexes = 0 AND @count_indexed_views=0
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
@@ -1216,7 +1222,7 @@ BEGIN;
 								N'Entire database.' AS index_definition, 
 								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
-								N'N/A' AS index_size_summary;
+								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
 		END;
 		 ----------------------------------------
 		--Self Loathing Indexes : Check_id 40-49
@@ -1238,7 +1244,7 @@ BEGIN;
 							sz.index_size_summary
 					FROM	#index_sanity AS i
 							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE	fill_factor BETWEEN 1 AND 80;
+					WHERE	fill_factor BETWEEN 1 AND 80 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
@@ -1253,7 +1259,7 @@ BEGIN;
 							sz.index_size_summary
 					FROM	#index_sanity AS i
 							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE	is_hypothetical = 1;
+					WHERE	is_hypothetical = 1 OPTION	( RECOMPILE );
 
 
 			RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
@@ -1271,7 +1277,7 @@ BEGIN;
 							i.index_usage_summary,
 							'DISABLED' AS index_size_summary
 					FROM	#index_sanity AS i
-					WHERE	is_disabled = 1;
+					WHERE	is_disabled = 1 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
 			WITH	heaps_cte
@@ -1444,32 +1450,69 @@ BEGIN;
 		--This supports slicing AND dicing in Excel
 		RAISERROR(N'@mode=2, here''s ALL the details.', 0,1) WITH NOWAIT;
 
-		SELECT	database_name, [schema_name], [object_name], ISNULL(index_name, '') AS index_name, index_id,
-				schema_object_indexid, CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
-											ELSE 'NonClustered'
-									   END AS object_type, index_definition,
+		SELECT	database_name, 
+				[schema_name], 
+				[object_name], 
+				ISNULL(index_name, '') AS index_name, 
+				index_id,
+				schema_object_indexid, 
+				CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
+					ELSE 'NonClustered'
+					END AS object_type, 
+				index_definition,
 				ISNULL(LTRIM(key_column_names_with_sort_order), '') AS key_column_names_with_sort_order,
 				ISNULL(count_key_columns, 0) AS count_key_columns,
 				ISNULL(include_column_names, '') AS include_column_names, 
 				ISNULL(count_included_columns,0) AS count_included_columns,
-				ISNULL(secret_columns,'') AS secret_column_names, ISNULL(count_secret_columns,0) AS count_secret_columns,
+				ISNULL(secret_columns,'') AS secret_column_names, 
+				ISNULL(count_secret_columns,0) AS count_secret_columns,
 				ISNULL(partition_key_column_name, '') AS partition_key_column_name,
-				ISNULL(filter_definition, '') AS filter_definition, is_indexed_view, is_disabled, is_hypothetical,
-				is_padded, fill_factor, is_referenced_by_foreign_key, last_user_seek, last_user_scan, last_user_lookup,
-				last_user_update, total_reads, user_updates, reads_per_write, index_usage_summary, sz.partition_count,
-				sz.total_rows, sz.total_reserved_MB, sz.total_reserved_LOB_MB, sz.total_reserved_row_overflow_MB,
-				sz.index_size_summary, more_info
+				ISNULL(filter_definition, '') AS filter_definition, 
+				is_indexed_view, 
+				is_disabled, 
+				is_hypothetical,
+				is_padded, 
+				fill_factor, 
+				is_referenced_by_foreign_key, 
+				last_user_seek, 
+				last_user_scan, 
+				last_user_lookup,
+				last_user_update, 
+				total_reads, 
+				user_updates, 
+				reads_per_write, 
+				index_usage_summary, 
+				sz.partition_count,
+				sz.total_rows, 
+				sz.total_reserved_MB, 
+				sz.total_reserved_LOB_MB, 
+				sz.total_reserved_row_overflow_MB,
+				sz.index_size_summary, 
+				more_info
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		ORDER BY sz.total_reserved_MB DESC;
-	
-		SELECT database_name, SCHEMA_NAME, table_name, 
-			magic_benefit_number, missing_index_details, 
-			avg_total_user_cost, avg_user_impact, user_seeks, user_scans,
-			unique_compiles, equality_columns, inequality_columns, 
-			included_columns, index_estimated_impact, create_tsql, more_info
-		FROM #missing_indexes;
 	END /* End @mode=2 (index detail)*/
+	ELSE IF @mode=3 /*Missing index Detail*/
+	BEGIN
+		SELECT database_name, 
+			[schema_name], 
+			table_name, 
+			magic_benefit_number, 
+			missing_index_details, 
+			avg_total_user_cost, 
+			avg_user_impact, 
+			user_seeks, 
+			user_scans,
+			unique_compiles, 
+			equality_columns, 
+			inequality_columns, 
+			included_columns, 
+			index_estimated_impact, 
+			create_tsql, 
+			more_info
+		FROM #missing_indexes;
+	END /* End @mode=3 (index detail)*/
 END
 END TRY
 BEGIN CATCH
