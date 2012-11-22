@@ -16,7 +16,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.32 - November 20, 2012
+sp_BlitzIndex (TM) v1.33 - November 22, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -898,8 +898,8 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Index tuning info galore' ,   N'' ,   N'http://BrentOzar.com/BlitzIndex' ,
-					N'<-- Loads of documentation to decode these disorders.'
+		VALUES  ( 0 , N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
+					N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 					, N'',N'',N''
 				);
 
@@ -1055,7 +1055,7 @@ BEGIN;
 						WHERE	index_id NOT IN ( 0, 1 )
 						GROUP BY schema_object_name
 						HAVING	COUNT(*) >= 7
-						ORDER BY i.schema_object_name DESC;
+						ORDER BY i.schema_object_name DESC  OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH NOWAIT;
 				DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
