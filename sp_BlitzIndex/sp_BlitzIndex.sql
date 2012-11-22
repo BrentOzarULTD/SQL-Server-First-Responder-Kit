@@ -1535,10 +1535,11 @@ BEGIN;
 	END /* End @mode=2 (index detail)*/
 	ELSE IF @mode=3 /*Missing index Detail*/
 	BEGIN
-		SELECT database_name, 
+		SELECT 
+			database_name, 
 			[schema_name], 
 			table_name, 
-			magic_benefit_number, 
+			cast(magic_benefit_number as NVARCHAR(500)) as magic_benefit_number, 
 			missing_index_details, 
 			avg_total_user_cost, 
 			avg_user_impact, 
@@ -1550,8 +1551,19 @@ BEGIN;
 			included_columns, 
 			index_estimated_impact, 
 			create_tsql, 
-			more_info
-		FROM #missing_indexes;
+			more_info,
+			1 as display_order
+		FROM #missing_indexes
+		UNION ALL
+		SELECT 				
+			N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
+			N'From Brent Ozar Unlimited' ,   
+			N'http://BrentOzar.com/BlitzIndex' ,
+			N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+			NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+			NULL,NULL, 0 as display_order
+		ORDER BY display_order ASC, magic_benefit_number DESC
+
 	END /* End @mode=3 (index detail)*/
 END
 END TRY
