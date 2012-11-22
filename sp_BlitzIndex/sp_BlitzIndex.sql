@@ -92,9 +92,9 @@ BEGIN TRY
 		END
     
 		--Validate parameters.
-		IF (@mode NOT IN (0,1,2))
+		IF (@mode NOT IN (0,1,2,3))
 		BEGIN
-			SET @msg=N'Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail.';
+			SET @msg=N'Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail, 3=missing index detail';
 			RAISERROR(@msg,16,1);
 		END
 
@@ -1418,25 +1418,35 @@ BEGIN;
 
 		SELECT 
 			(COUNT(*)) AS [Number Objects],
-			CAST(SUM(sz.total_reserved_MB)/1024. AS numeric(29,1)) AS [All GB],
-			CAST(SUM(sz.total_reserved_LOB_MB)/1024. AS numeric(29,1)) AS [LOB GB],
-			CAST(SUM(sz.total_reserved_row_overflow_MB)/1024. AS numeric(29,1)) AS [Row Overflow GB],
+			CAST(SUM(sz.total_reserved_MB)/
+				1024. AS numeric(29,1)) AS [All GB],
+			CAST(SUM(sz.total_reserved_LOB_MB)/
+				1024. AS numeric(29,1)) AS [LOB GB],
+			CAST(SUM(sz.total_reserved_row_overflow_MB)/
+				1024. AS numeric(29,1)) AS [Row Overflow GB],
 			SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END) AS [Clustered Tables],
-			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Clustered Tables GB],
+			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
+				/1024. AS numeric(29,1)) AS [Clustered Tables GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
-			CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [NC Indexes GB],
-			CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/ 
-				SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) AS [ratio table: NC Indexes],
+			CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+				/1024. AS numeric(29,1)) AS [NC Indexes GB],
+			CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)  > 0 THEN
+				CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+					/ SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) 
+				ELSE 0 END AS [ratio table: NC Indexes],
 			SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
-			CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Heaps GB],
+			CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)
+				/1024. AS numeric(29,1)) AS [Heaps GB],
 			SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
 			CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Partitioned GB],
 			SUM(CASE WHEN filter_definition <> '' THEN 1 ELSE 0 END) AS [Filtered Indexes],
 			SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
 			MAX(total_rows) AS [Max Row Count],
-			CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Max Table GB],
-			CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)/1024. AS numeric(29,1)) AS [Max NC Index GB],
+			CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+				/1024. AS numeric(29,1)) AS [Max Table GB],
+			CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+				/1024. AS numeric(29,1)) AS [Max NC Index GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],	
@@ -1445,7 +1455,8 @@ BEGIN;
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB]	
 		FROM #index_sanity AS i
 		--left join here so we don't lose disabled nc indexes
-		LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id=sz.index_sanity_id;
+		LEFT JOIN #index_sanity_size AS sz 
+			ON i.index_sanity_id=sz.index_sanity_id OPTION (RECOMPILE);
 	   	
 	END /* End @mode=1 (summarize)*/
 
