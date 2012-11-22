@@ -1464,7 +1464,7 @@ BEGIN;
 	BEGIN
 		--This mode just spits out all the detail without filters.
 		--This supports slicing AND dicing in Excel
-		RAISERROR(N'@mode=2, here''s ALL the details.', 0,1) WITH NOWAIT;
+		RAISERROR(N'@mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
 		SELECT	database_name, 
 				[schema_name], 
@@ -1519,7 +1519,6 @@ BEGIN;
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
-		--48 columns
 		SELECT 				
 				N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
 				N'From Brent Ozar Unlimited' ,   
