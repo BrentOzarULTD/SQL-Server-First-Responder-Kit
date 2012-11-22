@@ -2,7 +2,7 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
-USE master;
+--USE master;
 GO
 
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
@@ -894,7 +894,6 @@ BEGIN;
 	BEGIN;
 		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH NOWAIT;
 
-
 		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
@@ -1417,13 +1416,13 @@ BEGIN;
 		RAISERROR(N'@mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
 		SELECT 
-			(COUNT(*)) AS [Number Objects],
-			CAST(SUM(sz.total_reserved_MB)/
-				1024. AS numeric(29,1)) AS [All GB],
-			CAST(SUM(sz.total_reserved_LOB_MB)/
-				1024. AS numeric(29,1)) AS [LOB GB],
-			CAST(SUM(sz.total_reserved_row_overflow_MB)/
-				1024. AS numeric(29,1)) AS [Row Overflow GB],
+			CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
+			CAST(CAST(SUM(sz.total_reserved_MB)/
+				1024. AS numeric(29,1)) AS NVARCHAR(500)) AS [All GB],
+			CAST(CAST(SUM(sz.total_reserved_LOB_MB)/
+				1024. AS numeric(29,1)) AS NVARCHAR(500)) AS [LOB GB],
+			CAST(CAST(SUM(sz.total_reserved_row_overflow_MB)/
+				1024. AS numeric(29,1)) AS NVARCHAR(500)) AS [Row Overflow GB],
 			SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END) AS [Clustered Tables],
 			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
 				/1024. AS numeric(29,1)) AS [Clustered Tables GB],
@@ -1452,11 +1451,23 @@ BEGIN;
 			SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],	
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
-			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB]	
+			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
+			1 as display_order
 		FROM #index_sanity AS i
 		--left join here so we don't lose disabled nc indexes
 		LEFT JOIN #index_sanity_size AS sz 
-			ON i.index_sanity_id=sz.index_sanity_id OPTION (RECOMPILE);
+			ON i.index_sanity_id=sz.index_sanity_id 
+		UNION ALL
+		SELECT 				
+				N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
+				N'From Brent Ozar Unlimited' ,   
+				N'http://BrentOzar.com/BlitzIndex' ,
+				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,0 as display_order
+		ORDER BY display_order ASC
+		OPTION (RECOMPILE);
 	   	
 	END /* End @mode=1 (summarize)*/
 
