@@ -2,7 +2,7 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
---USE master;
+USE master;
 GO
 
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
@@ -1514,10 +1514,25 @@ BEGIN;
 				sz.avg_page_lock_wait_in_ms ,
 				sz.total_index_lock_promotion_attempt_count ,
 				sz.total_index_lock_promotion_count ,
-				more_info
+				more_info,
+				1 as display_order
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-		ORDER BY sz.total_reserved_MB DESC;
+		UNION ALL
+		--48 columns
+		SELECT 				
+				N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
+				N'From Brent Ozar Unlimited' ,   
+				N'http://BrentOzar.com/BlitzIndex' ,
+				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL, NULL, 0 as display_order
+		ORDER BY display_order ASC, total_reserved_MB DESC
+		OPTION (RECOMPILE);
+
 	END /* End @mode=2 (index detail)*/
 	ELSE IF @mode=3 /*Missing index Detail*/
 	BEGIN
