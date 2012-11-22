@@ -832,24 +832,48 @@ BEGIN
 
 	--We do a left join here in case this is a disabled NC.
 	--In that case, it won't have any size info/pages allocated.
-	SELECT s.schema_object_indexid, 
-		s.index_definition, 
-		ISNULL(s.secret_columns,N'') AS secret_columns,
-		s.index_usage_summary, 
-		ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
-		ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
-		s.is_referenced_by_foreign_key,
+	WITH table_mode_cte AS (
+		SELECT 
+			s.schema_object_indexid, 
+			s.key_column_names,
+			s.index_definition, 
+			ISNULL(s.secret_columns,N'') AS secret_columns,
+			s.index_usage_summary, 
+			ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
+			ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
+			s.is_referenced_by_foreign_key,
 			(SELECT COUNT(*)
-			FROM #foreign_keys fk WHERE fk.parent_object_id=s.OBJECT_ID
-			AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
-		ct.create_tsql
-	FROM #index_sanity s
-	LEFT JOIN #index_sanity_size sz ON 
-		s.index_sanity_id=sz.index_sanity_id
-	LEFT JOIN #index_create_tsql ct ON 
-		s.index_sanity_id=ct.index_sanity_id
-	WHERE s.[object_id]=@object_id
-	ORDER BY key_column_names
+				FROM #foreign_keys fk WHERE fk.parent_object_id=s.OBJECT_ID
+				AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
+			ct.create_tsql,
+			1 as display_order
+		FROM #index_sanity s
+		LEFT JOIN #index_sanity_size sz ON 
+			s.index_sanity_id=sz.index_sanity_id
+		LEFT JOIN #index_create_tsql ct ON 
+			s.index_sanity_id=ct.index_sanity_id
+		WHERE s.[object_id]=@object_id
+		UNION ALL
+		SELECT 				
+				N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
+				N'From Brent Ozar Unlimited' ,   
+				N'http://BrentOzar.com/BlitzIndex' ,
+				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				NULL,NULL,NULL,NULL,NULL,NULL,
+				0 as display_order
+	)
+	SELECT 
+			schema_object_indexid, 
+			index_definition, 
+			secret_columns,
+			index_usage_summary, 
+			index_size_summary,
+			index_lock_wait_summary,
+			is_referenced_by_foreign_key,
+			FKs_covered_by_index,
+			create_tsql
+	FROM table_mode_cte
+	ORDER BY display_order ASC, key_column_names ASC
 	OPTION	( RECOMPILE );
 
 	IF (SELECT TOP 1 [object_id] FROM    #missing_indexes mi) IS NOT NULL
@@ -1409,7 +1433,6 @@ BEGIN;
 		ORDER BY [check_id] ASC, blitz_result_id ASC, findings_group;
 
 	END; /* End @mode=0 (diagnose)*/
-
 	ELSE IF @mode=1 /*Summarize*/
 	BEGIN
 	--This mode is to give some overall stats on the database.
@@ -1470,7 +1493,6 @@ BEGIN;
 		OPTION (RECOMPILE);
 	   	
 	END /* End @mode=1 (summarize)*/
-
 	ELSE IF @mode=2 /*Index Detail*/
 	BEGIN
 		--This mode just spits out all the detail without filters.
