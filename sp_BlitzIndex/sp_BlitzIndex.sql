@@ -2,7 +2,7 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
-USE master;
+--USE master;
 GO
 
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
@@ -1504,6 +1504,16 @@ BEGIN;
 				sz.total_reserved_LOB_MB, 
 				sz.total_reserved_row_overflow_MB,
 				sz.index_size_summary, 
+				sz.total_row_lock_count ,
+				sz.total_row_lock_wait_count ,
+				sz.total_row_lock_wait_in_ms ,
+				sz.avg_row_lock_wait_in_ms ,
+				sz.total_page_lock_count ,
+				sz.total_page_lock_wait_count ,
+				sz.total_page_lock_wait_in_ms ,
+				sz.avg_page_lock_wait_in_ms ,
+				sz.total_index_lock_promotion_attempt_count ,
+				sz.total_index_lock_promotion_count ,
 				more_info
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
