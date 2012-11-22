@@ -2,7 +2,7 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
---USE master;
+USE master;
 GO
 
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
