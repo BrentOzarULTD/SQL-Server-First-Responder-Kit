@@ -43,7 +43,6 @@ Changes in v14:
 	 - Added a change to check 25 to check whether tempdb was set to autogrow.  
 	 - Added a change to check 49 to check for linked servers configured with the SA login
  - Typo in check 51 changing free to present thanks to Sabu Varghese
- - Check 71 for out of date statisitics from Jeremy Lowell
  - Check 72 for non-aligned indexes on partitioned tables from Jeremy Lowell
  - Check 73 to determine if a failsafe operator has been configured
  - Check 74 to identify globally enabled traceflags thanks to Chris Fradenburg
@@ -1802,34 +1801,6 @@ IF @@SERVERNAME IS NULL
                     '@@Servername variable is null. Correct by executing "sp_addserver ''<LocalServerName>'', local"' AS Details
 END;
 
-/*Verify that database statistics have been updated within the last two weeks */
-CREATE TABLE #tmptest(
-	last_updated datetime
-)
-EXEC sp_msforeachdb N'USE [?]; insert into #tmptest (last_updated) SELECT last_updated = STATS_DATE(T.[object_id], S.stats_id) 
-FROM    sys.tables T
-JOIN    sys.stats S
-        ON  S.[object_id] = T.[object_id]
-      
-        if (select max(last_updated) from #tmptest) < dateadd(dd, -14, getdate())
-			begin
-			INSERT  INTO #BlitzResults                        
-			( CheckID                          
-			,Priority                          
-			,FindingsGroup                          
-			,Finding                          
-			,URL                          
-			,Details)                  
-			SELECT   top 1   71                              
-			,100                              
-			,''Performance''                              
-			,''Statistics out of date''                              
-			,''http://BrentOzar.com/go/stats ''                              
-			,''Some statisics in ['' + DB_NAME() + ''] have not been updated in over two weeks.''  
-			FROM #tmptest;
-            END                       
-			TRUNCATE TABLE #tmptest;'
-			drop table #tmptest
 
 /*Check for non-aligned indexes in partioned databases*/
 create table #partdb(dbname varchar(100),objectname varchar(200), type_desc varchar(50))
