@@ -7,7 +7,7 @@ GO
 
 CREATE PROCEDURE [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects TINYINT = 1 ,
-    @CheckProcedureCache TINYINT = 1 ,
+    @CheckProcedureCache TINYINT = 0 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputProcedureCache TINYINT = 0 ,
     @CheckProcedureCacheFilter VARCHAR(10) = NULL
@@ -20,33 +20,38 @@ AS
 
 To learn more, visit http://www.BrentOzar.com/blitz where you can download
 new versions for free, watch training videos on how it works, get more info on
-the findings, and more.
+the findings, and more.  To contribute code and see your name in the change
+log, email your improvements & checks to Help@BrentOzar.com.
 
 Known limitations of this version:
  - No support for offline databases. If you can't query some of your databases,
    this script will fail.  That's fairly high on our list of things to improve
    since we like mirroring too.
- - No support for SQL Server 2000.
- - If the server has databases in compatibility mode 80, sp_Blitz will fail.
+ - No support for SQL Server 2000 or compatibility mode 80.
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
 Changes in v14:
- - Shaun Stuart added several changes:
-	 - Added check 68 to check for the last successful DBCC CHECKDB
-	 - Updated check 1 to verify the backup came from the current 
-	 - Added check 70 to verify that @@servername is not null
- - Paul Anderton added check 69 to check for high VLF count
+ - Lori Edwards @LoriEdwards http://sqlservertimes2.com
+     - Did all the coding in this version! She did a killer job of integrating
+	   improvements and suggestions from all kinds of people, including:
+ - Chris Fradenburg @ChrisFradenburg http://www.fradensql.com 
+     - Check 74 to identify globally enabled traceflags
+ - Jeremy Lowell @DataRealized http://datarealized.com added:
+     - Check 72 for non-aligned indexes on partitioned tables
+ - Paul Anderton @Panders69 added check 69 to check for high VLF count
  - Ron van Moorsel added several changes
 	 - Added a change to check 6 to use sys.server_principals instead of syslogins
 	 - Added a change to check 25 to check whether tempdb was set to autogrow.  
 	 - Added a change to check 49 to check for linked servers configured with the SA login
+ - Shaun Stuart @shaunjstu http://shaunjstuart.com added several changes:
+	 - Added check 68 to check for the last successful DBCC CHECKDB
+	 - Updated check 1 to verify the backup came from the current 
+	 - Added check 70 to verify that @@servername is not null
  - Typo in check 51 changing free to present thanks to Sabu Varghese
- - Check 72 for non-aligned indexes on partitioned tables from Jeremy Lowell
  - Check 73 to determine if a failsafe operator has been configured
- - Check 74 to identify globally enabled traceflags thanks to Chris Fradenburg
- - Check 75 to find transaction log files larger than data files suggested by Chris Adkin
+ - Check 75 for transaction log files larger than data files suggested by Chris Adkin
  - Fixed a bunch of bugs for oddball database names (like apostrophes).
 
 Changes in v13:
@@ -2179,3 +2184,13 @@ SELECT a.name from
                  END DESC
     SET NOCOUNT OFF;
 GO
+
+/*
+Sample execution call:
+EXEC [dbo].[sp_Blitz]
+    @CheckUserDatabaseObjects = 1 ,
+    @CheckProcedureCache = 0 ,
+    @OutputType = 'TABLE' ,
+    @OutputProcedureCache = 0 ,
+    @CheckProcedureCacheFilter = NULL
+*/
