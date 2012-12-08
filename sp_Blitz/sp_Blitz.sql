@@ -7,14 +7,14 @@ GO
 
 CREATE PROCEDURE [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects TINYINT = 1 ,
-    @CheckProcedureCache TINYINT = 1,
-	@OutputType VARCHAR(20) = 'TABLE',
-	@OutputProcedureCache TINYINT = 0,
-	@CheckProcedureCacheFilter VARCHAR(10) = NULL
+    @CheckProcedureCache TINYINT = 1 ,
+    @OutputType VARCHAR(20) = 'TABLE' ,
+    @OutputProcedureCache TINYINT = 0 ,
+    @CheckProcedureCacheFilter VARCHAR(10) = NULL
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v14 - December 6, 2012
+    sp_Blitz v14 - December 10, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -200,9 +200,9 @@ Explanation of priority levels:
           FindingsGroup VARCHAR(50) ,
           Finding VARCHAR(200) ,
           URL VARCHAR(200) ,
-          Details NVARCHAR(4000),
-		  QueryPlan [XML] NULL,
-		  QueryPlanFiltered [NVARCHAR] (MAX) NULL
+          Details NVARCHAR(4000) ,
+          QueryPlan [XML] NULL ,
+          QueryPlanFiltered [NVARCHAR](MAX) NULL
         );
 
     IF OBJECT_ID('tempdb..#ConfigurationDefaults') IS NOT NULL 
@@ -213,54 +213,58 @@ Explanation of priority levels:
           DefaultValue BIGINT
         );
 
-	IF @CheckProcedureCache = 1
-	BEGIN
-		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL 
-    		DROP TABLE #dm_exec_query_stats;
-		CREATE TABLE #dm_exec_query_stats
-			(
-			[id] [int] NOT NULL IDENTITY(1, 1),
-			[sql_handle] [varbinary] (64) NOT NULL,
-			[statement_start_offset] [int] NOT NULL,
-			[statement_end_offset] [int] NOT NULL,
-			[plan_generation_num] [bigint] NOT NULL,
-			[plan_handle] [varbinary] (64) NOT NULL,
-			[creation_time] [datetime] NOT NULL,
-			[last_execution_time] [datetime] NOT NULL,
-			[execution_count] [bigint] NOT NULL,
-			[total_worker_time] [bigint] NOT NULL,
-			[last_worker_time] [bigint] NOT NULL,
-			[min_worker_time] [bigint] NOT NULL,
-			[max_worker_time] [bigint] NOT NULL,
-			[total_physical_reads] [bigint] NOT NULL,
-			[last_physical_reads] [bigint] NOT NULL,
-			[min_physical_reads] [bigint] NOT NULL,
-			[max_physical_reads] [bigint] NOT NULL,
-			[total_logical_writes] [bigint] NOT NULL,
-			[last_logical_writes] [bigint] NOT NULL,
-			[min_logical_writes] [bigint] NOT NULL,
-			[max_logical_writes] [bigint] NOT NULL,
-			[total_logical_reads] [bigint] NOT NULL,
-			[last_logical_reads] [bigint] NOT NULL,
-			[min_logical_reads] [bigint] NOT NULL,
-			[max_logical_reads] [bigint] NOT NULL,
-			[total_clr_time] [bigint] NOT NULL,
-			[last_clr_time] [bigint] NOT NULL,
-			[min_clr_time] [bigint] NOT NULL,
-			[max_clr_time] [bigint] NOT NULL,
-			[total_elapsed_time] [bigint] NOT NULL,
-			[last_elapsed_time] [bigint] NOT NULL,
-			[min_elapsed_time] [bigint] NOT NULL,
-			[max_elapsed_time] [bigint] NOT NULL,
-			[query_hash] [binary] (8) NULL,
-			[query_plan_hash] [binary] (8) NULL,
-			[query_plan] [xml] NULL,
-			[query_plan_filtered] [nvarchar] (MAX) NULL,
-			[text] [nvarchar] (max) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
-			[text_filtered] [nvarchar] (max) COLLATE SQL_Latin1_General_CP1_CI_AS NULL
-			)
+    IF @CheckProcedureCache = 1 
+        BEGIN
+            IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL 
+                DROP TABLE #dm_exec_query_stats;
+            CREATE TABLE #dm_exec_query_stats
+                (
+                  [id] [int] NOT NULL
+                             IDENTITY(1, 1) ,
+                  [sql_handle] [varbinary](64) NOT NULL ,
+                  [statement_start_offset] [int] NOT NULL ,
+                  [statement_end_offset] [int] NOT NULL ,
+                  [plan_generation_num] [bigint] NOT NULL ,
+                  [plan_handle] [varbinary](64) NOT NULL ,
+                  [creation_time] [datetime] NOT NULL ,
+                  [last_execution_time] [datetime] NOT NULL ,
+                  [execution_count] [bigint] NOT NULL ,
+                  [total_worker_time] [bigint] NOT NULL ,
+                  [last_worker_time] [bigint] NOT NULL ,
+                  [min_worker_time] [bigint] NOT NULL ,
+                  [max_worker_time] [bigint] NOT NULL ,
+                  [total_physical_reads] [bigint] NOT NULL ,
+                  [last_physical_reads] [bigint] NOT NULL ,
+                  [min_physical_reads] [bigint] NOT NULL ,
+                  [max_physical_reads] [bigint] NOT NULL ,
+                  [total_logical_writes] [bigint] NOT NULL ,
+                  [last_logical_writes] [bigint] NOT NULL ,
+                  [min_logical_writes] [bigint] NOT NULL ,
+                  [max_logical_writes] [bigint] NOT NULL ,
+                  [total_logical_reads] [bigint] NOT NULL ,
+                  [last_logical_reads] [bigint] NOT NULL ,
+                  [min_logical_reads] [bigint] NOT NULL ,
+                  [max_logical_reads] [bigint] NOT NULL ,
+                  [total_clr_time] [bigint] NOT NULL ,
+                  [last_clr_time] [bigint] NOT NULL ,
+                  [min_clr_time] [bigint] NOT NULL ,
+                  [max_clr_time] [bigint] NOT NULL ,
+                  [total_elapsed_time] [bigint] NOT NULL ,
+                  [last_elapsed_time] [bigint] NOT NULL ,
+                  [min_elapsed_time] [bigint] NOT NULL ,
+                  [max_elapsed_time] [bigint] NOT NULL ,
+                  [query_hash] [binary](8) NULL ,
+                  [query_plan_hash] [binary](8) NULL ,
+                  [query_plan] [xml] NULL ,
+                  [query_plan_filtered] [nvarchar](MAX) NULL ,
+                  [text] [nvarchar](MAX) COLLATE SQL_Latin1_General_CP1_CI_AS
+                                         NULL ,
+                  [text_filtered] [nvarchar](MAX)
+                    COLLATE SQL_Latin1_General_CP1_CI_AS
+                    NULL
+                )
 	
-	END
+        END
 
     DECLARE @StringToExecute NVARCHAR(4000);
 
@@ -282,11 +286,11 @@ Explanation of priority levels:
             FROM    master.sys.databases d
                     LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
                                                             AND b.type = 'D'
-															AND b.server_name = @@SERVERNAME /*Backupset ran on current server */
+                                                            AND b.server_name = @@SERVERNAME /*Backupset ran on current server */
             WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
-					AND d.state <> 1 /* Not currently restoring, like log shipping databases */
-					AND d.is_in_standby = 0 /* Not a log shipping target database */
-					AND d.source_database_id IS NULL /* Excludes database snapshots */
+                    AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+                    AND d.is_in_standby = 0 /* Not a log shipping target database */
+                    AND d.source_database_id IS NULL /* Excludes database snapshots */
             GROUP BY d.name
             HAVING  MAX(b.backup_finish_date) <= DATEADD(dd, -7, GETDATE());
 
@@ -308,13 +312,13 @@ Explanation of priority levels:
                     ( 'Database ' + d.Name + ' never backed up.' ) AS Details
             FROM    master.sys.databases d
             WHERE   d.database_id <> 2 /* Bonus points if you know what that means */
-				AND d.state <> 1 /* Not currently restoring, like log shipping databases */
-				AND d.is_in_standby = 0 /* Not a log shipping target database */
-				AND d.source_database_id IS NULL /* Excludes database snapshots */
+                    AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+                    AND d.is_in_standby = 0 /* Not a log shipping target database */
+                    AND d.source_database_id IS NULL /* Excludes database snapshots */
                     AND NOT EXISTS ( SELECT *
                                      FROM   msdb.dbo.backupset b
                                      WHERE  d.name = b.database_name
-                                            AND b.type = 'D' 
+                                            AND b.type = 'D'
                                             AND b.server_name = @@SERVERNAME /*Backupset ran on current server */)
 
     INSERT  INTO #BlitzResults
@@ -338,9 +342,9 @@ Explanation of priority levels:
             WHERE   d.recovery_model IN ( 1, 2 )
                     AND d.database_id NOT IN ( 2, 3 )
                     AND d.source_database_id IS NULL
-					AND d.state <> 1 /* Not currently restoring, like log shipping databases */
-					AND d.is_in_standby = 0 /* Not a log shipping target database */
-					AND d.source_database_id IS NULL /* Excludes database snapshots */
+                    AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+                    AND d.is_in_standby = 0 /* Not a log shipping target database */
+                    AND d.source_database_id IS NULL /* Excludes database snapshots */
                     AND NOT EXISTS ( SELECT *
                                      FROM   msdb.dbo.backupset b
                                      WHERE  d.name = b.database_name
@@ -854,7 +858,10 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     'Performance' AS FindingsGroup ,
                     'TempDB on C Drive' AS Finding ,
                     'http://BrentOzar.com/go/drivec' AS URL ,
-                    CASE WHEN growth > 0 THEN ( 'The tempdb database has files on the C drive.  TempDB frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' )                          ELSE ( 'The tempdb database has files on the C drive.  TempDB is not set to Autogrow, hopefully it is big enough.  C is also often much slower than other drives, so performance may be suffering.' )                          END AS Details
+                    CASE WHEN growth > 0
+                         THEN ( 'The tempdb database has files on the C drive.  TempDB frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' )
+                         ELSE ( 'The tempdb database has files on the C drive.  TempDB is not set to Autogrow, hopefully it is big enough.  C is also often much slower than other drives, so performance may be suffering.' )
+                    END AS Details
             FROM    sys.master_files
             WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
                     AND DB_NAME(database_id) = 'tempdb';
@@ -942,9 +949,10 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             WHERE   is_ms_shipped = 0;
 
 
-		IF ( SELECT count(*)
-		                    FROM    msdb.dbo.sysalerts
-		                    WHERE   severity BETWEEN 19 AND 25) < 7
+    IF ( SELECT COUNT(*)
+         FROM   msdb.dbo.sysalerts
+         WHERE  severity BETWEEN 19 AND 25
+       ) < 7 
         INSERT  INTO #BlitzResults
                 ( CheckID ,
                   Priority ,
@@ -1033,7 +1041,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                         50 AS Priority ,
                         'Reliability' AS FindingsGroup ,
                         'Alerts Disabled' AS Finding ,
-                        'http://www.BrentOzar.com/blitz/configure-sql-server-alerts/' AS URL ,
+                        'http://www.BrentOzar.com/go/alerts/' AS URL ,
                         ( 'The following Alert is disabled, please review and enable if desired: '
                           + name ) AS Details
                 FROM    msdb.dbo.sysalerts
@@ -1203,7 +1211,15 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     'Informational' AS FindingsGroup ,
                     'Linked Server Configured' AS Finding ,
                     'http://BrentOzar.com/go/link' AS URL ,
-                    + CASE WHEN l.remote_name = 'sa' THEN                     s.data_source + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'                    ELSE                    s.data_source + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'                    END AS Details            FROM    sys.servers s                    INNER JOIN sys.linked_logins l ON s.server_id = l.server_id            WHERE   s.is_linked = 1
+                    +CASE WHEN l.remote_name = 'sa'
+                          THEN s.data_source
+                               + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'
+                          ELSE s.data_source
+                               + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'
+                     END AS Details
+            FROM    sys.servers s
+                    INNER JOIN sys.linked_logins l ON s.server_id = l.server_id
+            WHERE   s.is_linked = 1
 
 
 
@@ -1266,26 +1282,6 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     'This is a node in a cluster.' AS Details
             FROM    sys.dm_os_cluster_nodes
 
-/*
-    INSERT  INTO #BlitzResults
-            ( CheckID ,
-              Priority ,
-              FindingsGroup ,
-              Finding ,
-              URL ,
-              Details
-            )
-            SELECT  54 AS CheckID ,
-                    200 AS Priority ,
-                    'Service Accounts' AS FindingsGroup ,
-                    servicename AS Finding ,
-                    'http://www.BrentOzar.com/blitz/service-account' AS URL ,
-                    'This service is running as [' + service_account
-                    + '].  This affects the server''s ability to copy files to network locations, lock pages in memory, and perform Instant File Initialization.' AS Details
-            FROM    sys.dm_server_services
-*/
-
-/* Thanks to Ali for this check! http://www.alirazeghi.com */
     INSERT  INTO #BlitzResults
             ( CheckID ,
               Priority ,
@@ -1355,40 +1351,48 @@ FROM    [?].sys.database_files
 WHERE   is_percent_growth = 1 ';
 
 
-INSERT  INTO #BlitzResults
-        ( CheckID ,
-          Priority ,
-          FindingsGroup ,
-          Finding ,
-          URL ,
-          Details
-        )
-        SELECT  61 AS CheckID ,
-              100 AS Priority ,
-              'Performance' AS FindingsGroup ,
-              'Unusual SQL Server Edition' AS Finding ,
-              'http://BrentOzar.com/go/workgroup' AS URL ,
-              ( 'This server is using ' + CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) + ', which is capped at low amounts of CPU and memory.' ) AS Details
-      WHERE CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%' AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%' AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  61 AS CheckID ,
+                    100 AS Priority ,
+                    'Performance' AS FindingsGroup ,
+                    'Unusual SQL Server Edition' AS Finding ,
+                    'http://BrentOzar.com/go/workgroup' AS URL ,
+                    ( 'This server is using '
+                      + CAST(SERVERPROPERTY('edition') AS VARCHAR(100))
+                      + ', which is capped at low amounts of CPU and memory.' ) AS Details
+            WHERE   CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
+                    AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
+                    AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
 
-	  INSERT  INTO #BlitzResults
-	          ( CheckID ,
-	            Priority ,
-	            FindingsGroup ,
-	            Finding ,
-	            URL ,
-	            Details
-	          )
-	          SELECT  62 AS CheckID ,
-	                200 AS Priority ,
-	                'Performance' AS FindingsGroup ,
-	                'Old Compatibility Level' AS Finding ,
-	                'http://BrentOzar.com/go/compatlevel' AS URL ,
-	                ( 'Database ' + name + ' is compatibility level ' + CAST(compatibility_level AS VARCHAR(20)) + ', which may cause unwanted results when trying to run queries that have newer T-SQL features.' ) AS Details
-			from sys.databases
-	  where compatibility_level <>
-	     (select  compatibility_level from sys.databases
-	     where name = 'model')
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+	          
+            )
+            SELECT  62 AS CheckID ,
+                    200 AS Priority ,
+                    'Performance' AS FindingsGroup ,
+                    'Old Compatibility Level' AS Finding ,
+                    'http://BrentOzar.com/go/compatlevel' AS URL ,
+                    ( 'Database ' + name + ' is compatibility level '
+                      + CAST(compatibility_level AS VARCHAR(20))
+                      + ', which may cause unwanted results when trying to run queries that have newer T-SQL features.' ) AS Details
+            FROM    sys.databases
+            WHERE   compatibility_level <> ( SELECT compatibility_level
+                                             FROM   sys.databases
+                                             WHERE  name = 'model'
+                                           )
 	  
 	  
 	  
@@ -1416,7 +1420,7 @@ INSERT  INTO #BlitzResults
                     EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT TOP 1 13 AS CheckID, 110 AS Priority, ''Performance'' AS FindingsGroup, ''Plan Guides Enabled'' AS Finding, ''http://BrentOzar.com/go/guides'' AS URL, (''Database ['' + DB_NAME() + ''] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details FROM [?].sys.plan_guides WHERE is_disabled = 0'
                 END;
 
-		    EXEC sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            EXEC sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		SELECT  DISTINCT 60 AS CheckID, 
 		        100 AS Priority, 
 		        ''Performance'' AS FindingsGroup, 
@@ -1431,36 +1435,38 @@ INSERT  INTO #BlitzResults
         END /* IF @CheckUserDatabaseObjects = 1 */
 
 
-	    IF @CheckProcedureCache = 1 
-	        BEGIN
+    IF @CheckProcedureCache = 1 
+        BEGIN
 			
-	            INSERT  INTO #BlitzResults
-	                    ( CheckID ,
-	                      Priority ,
-	                      FindingsGroup ,
-	                      Finding ,
-	                      URL ,
-	                      Details
-	                    )
-	                    SELECT  35 AS CheckID ,
-	                            100 AS Priority ,
-	                            'Performance' AS FindingsGroup ,
-	                            'Single-Use Plans in Procedure Cache' AS Finding ,
-	                            'http://BrentOzar.com/go/single' AS URL ,
-	                            ( CAST(COUNT(*) AS VARCHAR(10))
-	                              + ' query plans are taking up memory in the procedure cache. This may be wasted memory if we cache plans for queries that never get called again. This may be a good use case for SQL Server 2008''s Optimize for Ad Hoc or for Forced Parameterization.' ) AS Details
-	                    FROM    sys.dm_exec_cached_plans AS cp
-	                    WHERE   cp.usecounts = 1
-	                            AND cp.objtype = 'Adhoc'
-	                    HAVING  COUNT(*) > 1;
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details
+	                    
+                    )
+                    SELECT  35 AS CheckID ,
+                            100 AS Priority ,
+                            'Performance' AS FindingsGroup ,
+                            'Single-Use Plans in Procedure Cache' AS Finding ,
+                            'http://BrentOzar.com/go/single' AS URL ,
+                            ( CAST(COUNT(*) AS VARCHAR(10))
+                              + ' query plans are taking up memory in the procedure cache. This may be wasted memory if we cache plans for queries that never get called again. This may be a good use case for SQL Server 2008''s Optimize for Ad Hoc or for Forced Parameterization.' ) AS Details
+                    FROM    sys.dm_exec_cached_plans AS cp
+                    WHERE   cp.usecounts = 1
+                            AND cp.objtype = 'Adhoc'
+                    HAVING  COUNT(*) > 1;
 
 
 				/* Set up the cache tables. Different on 2005 since it doesn't support query_hash, query_plan_hash. */
-			    IF @@VERSION LIKE '%Microsoft SQL Server 2005%' 
-			        BEGIN
-						IF @CheckProcedureCacheFilter = 'CPU' OR @CheckProcedureCacheFilter IS NULL
-						BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
+            IF @@VERSION LIKE '%Microsoft SQL Server 2005%' 
+                BEGIN
+                    IF @CheckProcedureCacheFilter = 'CPU'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_worker_time DESC)
@@ -1469,12 +1475,13 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-			            EXECUTE(@StringToExecute)
-						END
+                            EXECUTE(@StringToExecute)
+                        END
 
-						IF @CheckProcedureCacheFilter = 'Reads' OR @CheckProcedureCacheFilter IS NULL
-						BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
+                    IF @CheckProcedureCacheFilter = 'Reads'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_logical_reads DESC)
@@ -1483,11 +1490,12 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-						END
+                        END
 
-						IF @CheckProcedureCacheFilter = 'ExecCount' OR @CheckProcedureCacheFilter IS NULL
-						BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
+                    IF @CheckProcedureCacheFilter = 'ExecCount'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.execution_count DESC)
@@ -1496,12 +1504,13 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-			            EXECUTE(@StringToExecute)
-						END
+                            EXECUTE(@StringToExecute)
+                        END
 
-						IF @CheckProcedureCacheFilter = 'Duration' OR @CheckProcedureCacheFilter IS NULL
-						BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
+                    IF @CheckProcedureCacheFilter = 'Duration'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_elapsed_time DESC)
@@ -1510,15 +1519,17 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-			            EXECUTE(@StringToExecute)
-						END
+                            EXECUTE(@StringToExecute)
+                        END
 
-			        END;
-			    IF @@VERSION LIKE '%Microsoft SQL Server 2008%' OR @@VERSION LIKE '%Microsoft SQL Server 2012%'
-				BEGIN
-					IF @CheckProcedureCacheFilter = 'CPU' OR @CheckProcedureCacheFilter IS NULL
-					BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
+                END;
+            IF @@VERSION LIKE '%Microsoft SQL Server 2008%'
+                OR @@VERSION LIKE '%Microsoft SQL Server 2012%' 
+                BEGIN
+                    IF @CheckProcedureCacheFilter = 'CPU'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_worker_time DESC)
@@ -1527,12 +1538,13 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-					EXECUTE(@StringToExecute)
-					END
+                            EXECUTE(@StringToExecute)
+                        END
 
-					IF @CheckProcedureCacheFilter = 'Reads' OR @CheckProcedureCacheFilter IS NULL
-					BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
+                    IF @CheckProcedureCacheFilter = 'Reads'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_logical_reads DESC)
@@ -1541,12 +1553,13 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-					EXECUTE(@StringToExecute)
-					END
+                            EXECUTE(@StringToExecute)
+                        END
 	
-					IF @CheckProcedureCacheFilter = 'ExecCount' OR @CheckProcedureCacheFilter IS NULL
-						BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
+                    IF @CheckProcedureCacheFilter = 'ExecCount'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.execution_count DESC)
@@ -1555,12 +1568,13 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-					EXECUTE(@StringToExecute)
-					END
+                            EXECUTE(@StringToExecute)
+                        END
 
-					IF @CheckProcedureCacheFilter = 'Duration' OR @CheckProcedureCacheFilter IS NULL
-					BEGIN
-			            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
+                    IF @CheckProcedureCacheFilter = 'Duration'
+                        OR @CheckProcedureCacheFilter IS NULL 
+                        BEGIN
+                            SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 			            AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
 						FROM sys.dm_exec_query_stats qs
 						ORDER BY qs.total_elapsed_time DESC)
@@ -1569,158 +1583,242 @@ INSERT  INTO #BlitzResults
 						FROM queries qs
 						LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 						WHERE qsCaught.sql_handle IS NULL;'
-					EXECUTE(@StringToExecute)
-					END
+                            EXECUTE(@StringToExecute)
+                        END
 
 					/* Populate the query_plan_filtered field. Only works in 2005SP2+, but we're just doing it in 2008 to be safe. */
-					UPDATE #dm_exec_query_stats
-					SET query_plan_filtered = qp.query_plan
-					FROM #dm_exec_query_stats qs
-					cross apply sys.dm_exec_text_query_plan (qs.plan_handle, qs.statement_start_offset, qs.statement_end_offset) as qp 
+                    UPDATE  #dm_exec_query_stats
+                    SET     query_plan_filtered = qp.query_plan
+                    FROM    #dm_exec_query_stats qs
+                            CROSS APPLY sys.dm_exec_text_query_plan(qs.plan_handle,
+                                                              qs.statement_start_offset,
+                                                              qs.statement_end_offset)
+                            AS qp 
 
-		        END;
+                END;
 
 				/* Populate the additional query_plan, text, and text_filtered fields */
-				UPDATE #dm_exec_query_stats
-				SET query_plan = qp.query_plan,
-				[text] = st.[text],
-				text_filtered = SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
-					WHEN -1 THEN DATALENGTH(st.text)
-					ELSE qs.statement_end_offset
-					END - qs.statement_start_offset ) / 2 ) + 1)
-				FROM #dm_exec_query_stats qs
-		        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st 
-		        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
+            UPDATE  #dm_exec_query_stats
+            SET     query_plan = qp.query_plan ,
+                    [text] = st.[text] ,
+                    text_filtered = SUBSTRING(st.text,
+                                              ( qs.statement_start_offset / 2 )
+                                              + 1,
+                                              ( ( CASE qs.statement_end_offset
+                                                    WHEN -1
+                                                    THEN DATALENGTH(st.text)
+                                                    ELSE qs.statement_end_offset
+                                                  END
+                                                  - qs.statement_start_offset )
+                                                / 2 ) + 1)
+            FROM    #dm_exec_query_stats qs
+                    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+                    CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
 
 				/* Dump instances of our own script. We're not trying to tune ourselves. */
-				DELETE #dm_exec_query_stats
-				WHERE text LIKE '%sp_Blitz%' OR text LIKE '%#BlitzResults%'
+            DELETE  #dm_exec_query_stats
+            WHERE   text LIKE '%sp_Blitz%'
+                    OR text LIKE '%#BlitzResults%'
 
 				/* Look for implicit conversions */
-				INSERT INTO #BlitzResults
-						  ( CheckID ,
-							Priority ,
-							FindingsGroup ,
-							Finding ,
-							URL ,
-							Details,
-							QueryPlan,
-							QueryPlanFiltered
-						  )
-						  SELECT 63 AS CheckID ,
-								120 AS Priority ,
-								'Query Plans' AS FindingsGroup ,
-								'Implicit Conversion' AS Finding ,
-								'http://BrentOzar.com/go/implicit' AS URL ,
-								( 'One of the top resource-intensive queries is comparing two fields that are not the same datatype.' ) AS Details,
-								qs.query_plan, qs.query_plan_filtered
-						FROM #dm_exec_query_stats qs
-						WHERE COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%CONVERT_IMPLICIT%'
-						AND COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE  '%PhysicalOp="Index Scan"%'
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details ,
+                      QueryPlan ,
+                      QueryPlanFiltered
+						  
+                    )
+                    SELECT  63 AS CheckID ,
+                            120 AS Priority ,
+                            'Query Plans' AS FindingsGroup ,
+                            'Implicit Conversion' AS Finding ,
+                            'http://BrentOzar.com/go/implicit' AS URL ,
+                            ( 'One of the top resource-intensive queries is comparing two fields that are not the same datatype.' ) AS Details ,
+                            qs.query_plan ,
+                            qs.query_plan_filtered
+                    FROM    #dm_exec_query_stats qs
+                    WHERE   COALESCE(qs.query_plan_filtered,
+                                     CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%CONVERT_IMPLICIT%'
+                            AND COALESCE(qs.query_plan_filtered,
+                                         CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%PhysicalOp="Index Scan"%'
 
-						INSERT INTO #BlitzResults
-								  ( CheckID ,
-									Priority ,
-									FindingsGroup ,
-									Finding ,
-									URL ,
-									Details,
-									QueryPlan,
-									QueryPlanFiltered
-								  )
-								  SELECT 63 AS CheckID ,
-										120 AS Priority ,
-										'Query Plans' AS FindingsGroup ,
-										'Implicit Conversion Affecting Cardinality' AS Finding ,
-										'http://BrentOzar.com/go/implicit' AS URL ,
-										( 'One of the top resource-intensive queries has an implicit conversion that is affecting cardinality estimation.' ) AS Details,
-										qs.query_plan, qs.query_plan_filtered
-								FROM #dm_exec_query_stats qs
-								WHERE COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<PlanAffectingConvert ConvertIssue="Cardinality Estimate" Expression="CONVERT_IMPLICIT%'
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details ,
+                      QueryPlan ,
+                      QueryPlanFiltered
+								  
+                    )
+                    SELECT  63 AS CheckID ,
+                            120 AS Priority ,
+                            'Query Plans' AS FindingsGroup ,
+                            'Implicit Conversion Affecting Cardinality' AS Finding ,
+                            'http://BrentOzar.com/go/implicit' AS URL ,
+                            ( 'One of the top resource-intensive queries has an implicit conversion that is affecting cardinality estimation.' ) AS Details ,
+                            qs.query_plan ,
+                            qs.query_plan_filtered
+                    FROM    #dm_exec_query_stats qs
+                    WHERE   COALESCE(qs.query_plan_filtered,
+                                     CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<PlanAffectingConvert ConvertIssue="Cardinality Estimate" Expression="CONVERT_IMPLICIT%'
 
 
 				/* Look for missing indexes */
-				INSERT INTO #BlitzResults
-						  ( CheckID ,
-							Priority ,
-							FindingsGroup ,
-							Finding ,
-							URL ,
-							Details,
-							QueryPlan,
-							QueryPlanFiltered
-						  )
-						  SELECT  65 AS CheckID ,
-								120 AS Priority ,
-								'Query Plans' AS FindingsGroup ,
-								'Missing Index' AS Finding ,
-								'http://BrentOzar.com/go/missingindex' AS URL ,
-								( 'One of the top resource-intensive queries may be dramatically improved by adding an index.' ) AS Details,
-								qs.query_plan, qs.query_plan_filtered
-						FROM #dm_exec_query_stats qs
-						WHERE COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%MissingIndexGroup%'
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details ,
+                      QueryPlan ,
+                      QueryPlanFiltered
+						  
+                    )
+                    SELECT  65 AS CheckID ,
+                            120 AS Priority ,
+                            'Query Plans' AS FindingsGroup ,
+                            'Missing Index' AS Finding ,
+                            'http://BrentOzar.com/go/missingindex' AS URL ,
+                            ( 'One of the top resource-intensive queries may be dramatically improved by adding an index.' ) AS Details ,
+                            qs.query_plan ,
+                            qs.query_plan_filtered
+                    FROM    #dm_exec_query_stats qs
+                    WHERE   COALESCE(qs.query_plan_filtered,
+                                     CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%MissingIndexGroup%'
 				
 				/* Look for cursors */
-				INSERT INTO #BlitzResults
-						  ( CheckID ,
-							Priority ,
-							FindingsGroup ,
-							Finding ,
-							URL ,
-							Details,
-							QueryPlan,
-							QueryPlanFiltered
-						  )
-						  SELECT  66 AS CheckID ,
-								120 AS Priority ,
-								'Query Plans' AS FindingsGroup ,
-								'Cursor' AS Finding ,
-								'http://BrentOzar.com/go/cursor' AS URL ,
-								( 'One of the top resource-intensive queries is using a cursor.' ) AS Details,
-								qs.query_plan, qs.query_plan_filtered
-						FROM #dm_exec_query_stats qs
-						WHERE COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<StmtCursor%'
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details ,
+                      QueryPlan ,
+                      QueryPlanFiltered
+						  
+                    )
+                    SELECT  66 AS CheckID ,
+                            120 AS Priority ,
+                            'Query Plans' AS FindingsGroup ,
+                            'Cursor' AS Finding ,
+                            'http://BrentOzar.com/go/cursor' AS URL ,
+                            ( 'One of the top resource-intensive queries is using a cursor.' ) AS Details ,
+                            qs.query_plan ,
+                            qs.query_plan_filtered
+                    FROM    #dm_exec_query_stats qs
+                    WHERE   COALESCE(qs.query_plan_filtered,
+                                     CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<StmtCursor%'
 
 
 				/* Look for scalar user-defined functions */
-				INSERT INTO #BlitzResults
-						  ( CheckID ,
-							Priority ,
-							FindingsGroup ,
-							Finding ,
-							URL ,
-							Details,
-							QueryPlan,
-							QueryPlanFiltered
-						  )
-						  SELECT  67 AS CheckID ,
-								120 AS Priority ,
-								'Query Plans' AS FindingsGroup ,
-								'Scalar UDFs' AS Finding ,
-								'http://BrentOzar.com/go/functions' AS URL ,
-								( 'One of the top resource-intensive queries is using a user-defined scalar function that may inhibit parallelism.' ) AS Details,
-								qs.query_plan, qs.query_plan_filtered
-						FROM #dm_exec_query_stats qs
-						WHERE COALESCE(qs.query_plan_filtered, CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<UserDefinedFunction%'
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details ,
+                      QueryPlan ,
+                      QueryPlanFiltered
+						  
+                    )
+                    SELECT  67 AS CheckID ,
+                            120 AS Priority ,
+                            'Query Plans' AS FindingsGroup ,
+                            'Scalar UDFs' AS Finding ,
+                            'http://BrentOzar.com/go/functions' AS URL ,
+                            ( 'One of the top resource-intensive queries is using a user-defined scalar function that may inhibit parallelism.' ) AS Details ,
+                            qs.query_plan ,
+                            qs.query_plan_filtered
+                    FROM    #dm_exec_query_stats qs
+                    WHERE   COALESCE(qs.query_plan_filtered,
+                                     CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<UserDefinedFunction%'
 
-	        END /* IF @CheckProcedureCache = 1 */
+        END /* IF @CheckProcedureCache = 1 */
 
 	/*Check for the last good DBCC CHECKDB date */
-	DECLARE @DBs TABLE               (                Id INT IDENTITY(1, 1)PRIMARY KEY               ,ParentObject VARCHAR(255)               ,Object VARCHAR(255)               ,Field VARCHAR(255)               ,Value VARCHAR(255)               )       INSERT   INTO @DBs                (ParentObject                ,Object                ,Field                ,Value)                EXEC sp_msforeachdb                     N'USE [?]; DBCC DBInfo() With TableResults';WITH    DB1          AS (SELECT    Field                       ,Value                       ,DBID = ROW_NUMBER() OVER (PARTITION BY Field ORDER BY ID)              FROM      @DBs              WHERE     Field = 'dbi_dbname'             ),        DB2          AS (SELECT    Field                       ,Value                       ,DBID = ROW_NUMBER() OVER (PARTITION BY Field ORDER BY ID)              FROM      @DBs              WHERE     Field = 'dbi_dbccLastKnownGood'             )
-            INSERT  INTO #BlitzResults                    (CheckID                    ,Priority                    ,FindingsGroup                    ,Finding                    ,URL                    ,Details)                    SELECT  68 AS CheckID                           ,50 AS PRIORITY                           ,'Reliability' AS FindingsGroup                           ,'Last good DBCC CHECKDB over 2 weeks old' AS Finding                           ,'http://BrentOzar.com/go/checkdb' AS URL                           ,'Database [' + DB1.Value + ']'                             + CASE DB2.Value								WHEN '1900-01-01 00:00:00.000' THEN ' never had a successful DBCC CHECKDB.'								ELSE ' last had a successful DBCC CHECKDB run on ' + DB2.Value + '.'							  END                            + ' This check should be run regularly to catch any database corruption as soon as possible.'                            + ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '                            + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details            FROM    DB1                    INNER JOIN DB2 ON DB1.DBID = DB2.DBID            WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14,                                                          CURRENT_TIMESTAMP)
+    DECLARE @DBs TABLE
+        (
+          Id INT IDENTITY(1, 1)
+                 PRIMARY KEY ,
+          ParentObject VARCHAR(255) ,
+          Object VARCHAR(255) ,
+          Field VARCHAR(255) ,
+          Value VARCHAR(255)
+        )
+    INSERT  INTO @DBs
+            ( ParentObject ,
+              Object ,
+              Field ,
+              Value
+            )
+            EXEC sp_msforeachdb N'USE [?]; DBCC DBInfo() With TableResults';
+
+    WITH    DB1
+              AS ( SELECT   Field ,
+                            Value ,
+                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY ID )
+                   FROM     @DBs
+                   WHERE    Field = 'dbi_dbname'
+                 ),
+            DB2
+              AS ( SELECT   Field ,
+                            Value ,
+                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY ID )
+                   FROM     @DBs
+                   WHERE    Field = 'dbi_dbccLastKnownGood'
+                 )
+        INSERT  INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+                )
+                SELECT  68 AS CheckID ,
+                        50 AS PRIORITY ,
+                        'Reliability' AS FindingsGroup ,
+                        'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
+                        'http://BrentOzar.com/go/checkdb' AS URL ,
+                        'Database [' + DB1.Value + ']'
+                        + CASE DB2.Value
+                            WHEN '1900-01-01 00:00:00.000'
+                            THEN ' never had a successful DBCC CHECKDB.'
+                            ELSE ' last had a successful DBCC CHECKDB run on '
+                                 + DB2.Value + '.'
+                          END
+                        + ' This check should be run regularly to catch any database corruption as soon as possible.'
+                        + ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
+                        + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
+                FROM    DB1
+                        INNER JOIN DB2 ON DB1.DBID = DB2.DBID
+                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14,
+                                                              CURRENT_TIMESTAMP)
 /*Check for high VLF count: this will omit any database snapshots*/
-if @@VERSION like 'Microsoft SQL Server 2012%'
-begin
-	CREATE TABLE #LogInfo2012
-	(    recoveryunitid int,
-	FileID      SMALLINT  , 
-	FileSize    BIGINT  , 
-	StartOffset BIGINT  , 
-	FSeqNo      BIGINT  , 
-	[Status]    TINYINT  , 
-	Parity      TINYINT  , 
-	CreateLSN   NUMERIC(38));
-	EXEC sp_msforeachdb N'USE [?];    
+    IF @@VERSION LIKE 'Microsoft SQL Server 2012%' 
+        BEGIN
+            CREATE TABLE #LogInfo2012
+                (
+                  recoveryunitid INT ,
+                  FileID SMALLINT ,
+                  FileSize BIGINT ,
+                  StartOffset BIGINT ,
+                  FSeqNo BIGINT ,
+                  [Status] TINYINT ,
+                  Parity TINYINT ,
+                  CreateLSN NUMERIC(38)
+                );
+            EXEC sp_msforeachdb N'USE [?];    
 	INSERT INTO #LogInfo2012 
 	EXEC sp_executeSQL N''DBCC LogInfo()'';      
 	IF    @@ROWCOUNT > 50            
@@ -1743,19 +1841,21 @@ begin
 							WHERE source_database_id is not null) ;            
 			END                       
 			TRUNCATE TABLE #LogInfo2012;'
-			DROP TABLE #LogInfo2012;
-	end
-if @@VERSION not like 'Microsoft SQL Server 2012%'
-begin
-	CREATE TABLE #LogInfo
-	(    FileID      SMALLINT  , 
-	FileSize    BIGINT  , 
-	StartOffset BIGINT  , 
-	FSeqNo      BIGINT  , 
-	[Status]    TINYINT  , 
-	Parity      TINYINT  , 
-	CreateLSN   NUMERIC(38));
-	EXEC sp_msforeachdb N'USE [?];    
+            DROP TABLE #LogInfo2012;
+        END
+    IF @@VERSION NOT LIKE 'Microsoft SQL Server 2012%' 
+        BEGIN
+            CREATE TABLE #LogInfo
+                (
+                  FileID SMALLINT ,
+                  FileSize BIGINT ,
+                  StartOffset BIGINT ,
+                  FSeqNo BIGINT ,
+                  [Status] TINYINT ,
+                  Parity TINYINT ,
+                  CreateLSN NUMERIC(38)
+                );
+            EXEC sp_msforeachdb N'USE [?];    
 	INSERT INTO #LogInfo 
 	EXEC sp_executeSQL N''DBCC LogInfo()'';      
 	IF    @@ROWCOUNT > 50            
@@ -1778,33 +1878,38 @@ begin
 							WHERE source_database_id is not null);            
 			END                       
 			TRUNCATE TABLE #LogInfo;'
-			DROP TABLE #LogInfo;
-	end
+            DROP TABLE #LogInfo;
+        END
 	
 /*Verify that the servername is set */
 	
-IF @@SERVERNAME IS NULL
-	BEGIN
-     INSERT  INTO #BlitzResults
-            ( CheckID ,
-              Priority ,
-              FindingsGroup ,
-              Finding ,
-              URL ,
-              Details
-            )
-            SELECT  70 AS CheckID ,
-                    200 AS Priority ,
-                    'Configuration' AS FindingsGroup ,
-                    '@@Servername not set' AS Finding ,
-                    'http://BrentOzar.com/go/servername' AS URL ,
-                    '@@Servername variable is null. Correct by executing "sp_addserver ''<LocalServerName>'', local"' AS Details
-END;
+    IF @@SERVERNAME IS NULL 
+        BEGIN
+            INSERT  INTO #BlitzResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details
+                    )
+                    SELECT  70 AS CheckID ,
+                            200 AS Priority ,
+                            'Configuration' AS FindingsGroup ,
+                            '@@Servername not set' AS Finding ,
+                            'http://BrentOzar.com/go/servername' AS URL ,
+                            '@@Servername variable is null. Correct by executing "sp_addserver ''<LocalServerName>'', local"' AS Details
+        END;
 
 
 /*Check for non-aligned indexes in partioned databases*/
-create table #partdb(dbname varchar(100),objectname varchar(200), type_desc varchar(50))
-EXEC dbo.sp_MSforeachdb 'USE [?]; insert into #partdb(dbname, objectname, type_desc)
+    CREATE TABLE #partdb
+        (
+          dbname VARCHAR(100) ,
+          objectname VARCHAR(200) ,
+          type_desc VARCHAR(50)
+        )
+    EXEC dbo.sp_MSforeachdb 'USE [?]; insert into #partdb(dbname, objectname, type_desc)
 SELECT distinct db_name(database_id) as DBName,o.name Object_Name,
 ds.type_desc
  FROM sys.objects AS o
@@ -1825,123 +1930,142 @@ SELECT a.name from
 		GROUP BY ob.name, ds.type_desc ) a group by a.name having COUNT (*) > 1
 	)'
 	
-		insert into #BlitzResults(
-          CheckID ,
-          Priority,
-          FindingsGroup ,
-          Finding ,
-          URL ,
-          Details)
-         select distinct 72 as CheckId,
-         100 as Priority,
-         'Performance' as FindingsGroup,
-         'The partioned database '+dbname+' may have non-aligned indexes' as Finding,
-         'http://BrentOzar.com/go/partalign' AS URL,
-		 'Having non-aligned indexes on partitioned tables may cause inefficient query plans and CPU pressure' as Details
-			from #partdb 
-			where dbname is not	null
-drop table #partdb
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT DISTINCT
+                    72 AS CheckId ,
+                    100 AS Priority ,
+                    'Performance' AS FindingsGroup ,
+                    'The partioned database ' + dbname
+                    + ' may have non-aligned indexes' AS Finding ,
+                    'http://BrentOzar.com/go/aligned' AS URL ,
+                    'Having non-aligned indexes on partitioned tables may cause inefficient query plans and CPU pressure' AS Details
+            FROM    #partdb
+            WHERE   dbname IS NOT	NULL
+    DROP TABLE #partdb
 
 /*Check to see if a failsafe operator has been configured*/
 
-DECLARE @AlertInfo TABLE (
-      FailSafeOperator NVARCHAR(255),
-      NotificationMethod INT,
-      ForwardingServer NVARCHAR(255),
-      ForwardingSeverity INT,
-      PagerToTemplate NVARCHAR(255),
-      PagerCCTemplate NVARCHAR(255),
-      PagerSubjectTemplate NVARCHAR(255),
-      PagerSendSubjectOnly NVARCHAR(255),
-      ForwardAlways INT
-    )
+    DECLARE @AlertInfo TABLE
+        (
+          FailSafeOperator NVARCHAR(255) ,
+          NotificationMethod INT ,
+          ForwardingServer NVARCHAR(255) ,
+          ForwardingSeverity INT ,
+          PagerToTemplate NVARCHAR(255) ,
+          PagerCCTemplate NVARCHAR(255) ,
+          PagerSubjectTemplate NVARCHAR(255) ,
+          PagerSendSubjectOnly NVARCHAR(255) ,
+          ForwardAlways INT
+        )
 
-INSERT INTO @AlertInfo
-    EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0
-        INSERT  INTO #BlitzResults
-           ( CheckID ,
-             Priority ,
-             FindingsGroup ,
-             Finding ,
-             URL ,
-             Details
-                )
-        SELECT  73 AS CheckID ,
-            50 AS Priority ,
-            'Reliability' AS FindingsGroup ,
-            'No failsafe operator configured' AS Finding ,
-            'http://BrentOzar.com/go/failsafe' AS URL ,
-            ( 'No failsafe operator is configured on this server.  This is a good idea just in-case there are issues with the [msdb] database that prevents alerting.' ) AS Details 
-            from @AlertInfo
-            where FailSafeOperator is null;
+    INSERT  INTO @AlertInfo
+            EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+                
+            )
+            SELECT  73 AS CheckID ,
+                    50 AS Priority ,
+                    'Reliability' AS FindingsGroup ,
+                    'No failsafe operator configured' AS Finding ,
+                    'http://BrentOzar.com/go/failsafe' AS URL ,
+                    ( 'No failsafe operator is configured on this server.  This is a good idea just in-case there are issues with the [msdb] database that prevents alerting.' ) AS Details
+            FROM    @AlertInfo
+            WHERE   FailSafeOperator IS NULL;
 
 /*Identify globally enabled trace flags*/
-      IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
-             DROP TABLE #TraceStatus ;
-       CREATE TABLE #TraceStatus(
-               TraceFlag VARCHAR(10),
-               status BIT,
-               Global BIT,
-               Session BIT
-             ) ;
+    IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL 
+        DROP TABLE #TraceStatus;
+    CREATE TABLE #TraceStatus
+        (
+          TraceFlag VARCHAR(10) ,
+          status BIT ,
+          Global BIT ,
+          Session BIT
+        );
 
-       INSERT INTO #TraceStatus
-       EXEC (' DBCC TRACESTATUS(-1)')
+    INSERT  INTO #TraceStatus
+            EXEC ( ' DBCC TRACESTATUS(-1)'
+                )
 
-       INSERT  INTO #BlitzResults( 
-				CheckID 
-				,Priority 
-				,FindingsGroup 
-				,Finding 
-				,URL
-				,Details)
-       SELECT  74 AS CheckID ,
-               200 AS Priority ,
-               'Global Trace Flag' AS FindingsGroup ,
-               'TraceFlag On' AS Finding ,
-               'http://www.BrentOzar.com/blitz/gtf/' AS URL ,
-               'Trace flag ' + T.TraceFlag + ' is enabled globally.' ASDetails
-               FROM    #TraceStatus T
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  74 AS CheckID ,
+                    200 AS Priority ,
+                    'Global Trace Flag' AS FindingsGroup ,
+                    'TraceFlag On' AS Finding ,
+                    'http://www.BrentOzar.com/go/traceflags/' AS URL ,
+                    'Trace flag ' + T.TraceFlag + ' is enabled globally.' ASDetails
+            FROM    #TraceStatus T
 
 /*Check for transaction log file larger than data file */
 
-       INSERT  INTO #BlitzResults( 
-				CheckID 
-				,Priority 
-				,FindingsGroup 
-				,Finding 
-				,URL
-				,Details)
-         select 75 as CheckId,
-			 50 as Priority,
-			 'Reliability' as FindingsGroup,
-			 'Transaction Log Larger than Data File' as Finding,
-			 'http://BrentOzar.com/go/lgtlog' AS URL,
-			 'The database ['+DB_NAME(a.database_id)+'] has a transaction log file larger than a data file. This may indicate that transaction log backups are not being performed or not performed often enough.' as Details
-FROM sys.master_files a
-where a.type = 1
-and a.Size > (select SUM(b.size) from sys.master_files b 
-				where a.database_id = b.database_id 
-				and b.type = 0)
-and a.database_id in (select database_id from sys.databases where source_database_id is null)
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  75 AS CheckId ,
+                    50 AS Priority ,
+                    'Reliability' AS FindingsGroup ,
+                    'Transaction Log Larger than Data File' AS Finding ,
+                    'http://BrentOzar.com/go/biglog' AS URL ,
+                    'The database [' + DB_NAME(a.database_id)
+                    + '] has a transaction log file larger than a data file. This may indicate that transaction log backups are not being performed or not performed often enough.' AS Details
+            FROM    sys.master_files a
+            WHERE   a.type = 1
+                    AND a.Size > ( SELECT   SUM(b.size)
+                                   FROM     sys.master_files b
+                                   WHERE    a.database_id = b.database_id
+                                            AND b.type = 0
+                                 )
+                    AND a.database_id IN ( SELECT   database_id
+                                           FROM     sys.databases
+                                           WHERE    source_database_id IS NULL )
 
 /*Check for collation conflicts between user databases and tempdb */
-insert into #BlitzResults(
-CheckID ,
-Priority,
-FindingsGroup ,
-Finding ,
-URL ,
-Details)
-select 76 as CheckId,
-50 as Priority,
-'Reliability' as FindingsGroup,
-'Collation for '+name+' different than tempdb collation' as Finding,
-'http://BrentOzar.com/go/tempdbcollate' AS URL,
-'Collation differences between user databases and tempdb can cause conflicts especially when comparing string values' as Details
-FROM sys.databases
-where name not in ('master','model','msdb')
-and collation_name <> (select collation_name from sys.databases where name = 'tempdb')
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  76 AS CheckId ,
+                    50 AS Priority ,
+                    'Reliability' AS FindingsGroup ,
+                    'Collation for ' + name
+                    + ' different than tempdb collation' AS Finding ,
+                    'http://BrentOzar.com/go/collate' AS URL ,
+                    'Collation differences between user databases and tempdb can cause conflicts especially when comparing string values' AS Details
+            FROM    sys.databases
+            WHERE   name NOT IN ( 'master', 'model', 'msdb' )
+                    AND collation_name <> ( SELECT  collation_name
+                                            FROM    sys.databases
+                                            WHERE   name = 'tempdb'
+                                          )
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1959,74 +2083,99 @@ and collation_name <> (select collation_name from sys.databases where name = 'te
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
 
-		    INSERT  INTO #BlitzResults
-		            ( CheckID ,
-		              Priority ,
-		              FindingsGroup ,
-		              Finding ,
-		              URL ,
-		              Details
-		            )
-		    VALUES  ( -1 ,
-		              0 ,
-		              'sp_Blitz v14 Dec 6 2012' ,
-		              'From Brent Ozar Unlimited' ,
-		              'http://www.BrentOzar.com/blitz/' ,
-		              'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
-		            );
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+		            
+            )
+    VALUES  ( -1 ,
+              0 ,
+              'sp_Blitz v14 Dec 10 2012' ,
+              'From Brent Ozar Unlimited' ,
+              'http://www.BrentOzar.com/blitz/' ,
+              'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+		            
+            );
 
 
 
-	IF @OutputType = 'COUNT'
-    BEGIN
-	SELECT COUNT(*) AS Warnings FROM #BlitzResults
-	END
-	ELSE
-	BEGIN
-	SELECT  [Priority] ,
-            [FindingsGroup] ,
-            [Finding] ,
-            [URL] ,
-            [Details] ,
-            [QueryPlan],
-            [QueryPlanFiltered],
-            CheckID
-    FROM    #BlitzResults
-    ORDER BY Priority ,
-            FindingsGroup ,
-            Finding ,
-            Details;
-	END
+    IF @OutputType = 'COUNT' 
+        BEGIN
+            SELECT  COUNT(*) AS Warnings
+            FROM    #BlitzResults
+        END
+    ELSE 
+        BEGIN
+            SELECT  [Priority] ,
+                    [FindingsGroup] ,
+                    [Finding] ,
+                    [URL] ,
+                    [Details] ,
+                    [QueryPlan] ,
+                    [QueryPlanFiltered] ,
+                    CheckID
+            FROM    #BlitzResults
+            ORDER BY Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    Details;
+        END
   
     DROP TABLE #BlitzResults;
 
 
-	IF @OutputProcedureCache = 1
-	SELECT TOP 20 total_worker_time / execution_count AS AvgCPU ,
-        total_worker_time AS TotalCPU ,
-		CAST(ROUND(100.00 * total_worker_time / (SELECT SUM(total_worker_time) FROM sys.dm_exec_query_stats), 2) AS MONEY) AS PercentCPU,
-        total_elapsed_time / execution_count AS AvgDuration ,
-        total_elapsed_time AS TotalDuration ,
-		CAST(ROUND(100.00 * total_elapsed_time / (SELECT SUM(total_elapsed_time) FROM sys.dm_exec_query_stats), 2) AS MONEY) AS PercentDuration,
-        total_logical_reads / execution_count AS AvgReads ,
-        total_logical_reads AS TotalReads ,
-		CAST(ROUND(100.00 * total_logical_reads / (SELECT SUM(total_logical_reads) FROM sys.dm_exec_query_stats), 2) AS MONEY) AS PercentReads,
-        execution_count ,
-		CAST(ROUND(100.00 * execution_count / (SELECT SUM(execution_count) FROM sys.dm_exec_query_stats), 2) AS MONEY) AS PercentExecutions,
-		CASE
-			WHEN DATEDIFF(mi, creation_time, qs.last_execution_time) = 0 THEN 0
-			ELSE CAST((1.00 * execution_count / DATEDIFF(mi, creation_time, qs.last_execution_time)) AS money) 
-		END AS executions_per_minute,
-        qs.creation_time AS plan_creation_time,
-        qs.last_execution_time,
-        text, text_filtered, query_plan, query_plan_filtered, sql_handle, query_hash, plan_handle, query_plan_hash
-    FROM #dm_exec_query_stats qs
-    ORDER BY CASE UPPER(@CheckProcedureCacheFilter)
-		WHEN 'CPU' THEN total_worker_time 
-		WHEN 'READS' THEN total_logical_reads
-		WHEN 'EXECCOUNT' THEN execution_count
-		WHEN 'DURATION' THEN total_elapsed_time
-		ELSE total_worker_time 
-		END DESC
+    IF @OutputProcedureCache = 1 
+        SELECT TOP 20
+                total_worker_time / execution_count AS AvgCPU ,
+                total_worker_time AS TotalCPU ,
+                CAST(ROUND(100.00 * total_worker_time
+                           / ( SELECT   SUM(total_worker_time)
+                               FROM     sys.dm_exec_query_stats
+                             ), 2) AS MONEY) AS PercentCPU ,
+                total_elapsed_time / execution_count AS AvgDuration ,
+                total_elapsed_time AS TotalDuration ,
+                CAST(ROUND(100.00 * total_elapsed_time
+                           / ( SELECT   SUM(total_elapsed_time)
+                               FROM     sys.dm_exec_query_stats
+                             ), 2) AS MONEY) AS PercentDuration ,
+                total_logical_reads / execution_count AS AvgReads ,
+                total_logical_reads AS TotalReads ,
+                CAST(ROUND(100.00 * total_logical_reads
+                           / ( SELECT   SUM(total_logical_reads)
+                               FROM     sys.dm_exec_query_stats
+                             ), 2) AS MONEY) AS PercentReads ,
+                execution_count ,
+                CAST(ROUND(100.00 * execution_count
+                           / ( SELECT   SUM(execution_count)
+                               FROM     sys.dm_exec_query_stats
+                             ), 2) AS MONEY) AS PercentExecutions ,
+                CASE WHEN DATEDIFF(mi, creation_time, qs.last_execution_time) = 0
+                     THEN 0
+                     ELSE CAST(( 1.00 * execution_count / DATEDIFF(mi,
+                                                              creation_time,
+                                                              qs.last_execution_time) ) AS MONEY)
+                END AS executions_per_minute ,
+                qs.creation_time AS plan_creation_time ,
+                qs.last_execution_time ,
+                text ,
+                text_filtered ,
+                query_plan ,
+                query_plan_filtered ,
+                sql_handle ,
+                query_hash ,
+                plan_handle ,
+                query_plan_hash
+        FROM    #dm_exec_query_stats qs
+        ORDER BY CASE UPPER(@CheckProcedureCacheFilter)
+                   WHEN 'CPU' THEN total_worker_time
+                   WHEN 'READS' THEN total_logical_reads
+                   WHEN 'EXECCOUNT' THEN execution_count
+                   WHEN 'DURATION' THEN total_elapsed_time
+                   ELSE total_worker_time
+                 END DESC
     SET NOCOUNT OFF;
 GO
