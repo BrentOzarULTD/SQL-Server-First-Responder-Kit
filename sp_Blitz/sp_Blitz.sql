@@ -37,6 +37,7 @@ Unknown limitations of this version:
 Changes in v15:
  - Mikael Wedham caught bugs in a few checks that reported the wrong database name.
  - Bob Klimes fixed bugs in several checks where v14 broke case sensitivity.
+ - Seth Washeck fixed bugs in the VLF checks so they include the number of VLFs.
 
 Changes in v14:
  - Lori Edwards @LoriEdwards http://sqlservertimes2.com
@@ -1849,7 +1850,7 @@ WHERE   is_percent_growth = 1 ';
 			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''  
 			FROM #LogInfo2012
 			WHERE EXISTS (SELECT name FROM master.sys.databases 
-							WHERE source_database_id is not null) ;            
+							WHERE source_database_id is null) ;            
 			END                       
 			TRUNCATE TABLE #LogInfo2012;'
             DROP TABLE #LogInfo2012;
@@ -1886,7 +1887,7 @@ WHERE   is_percent_growth = 1 ';
 			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''  
 			FROM #LogInfo
 			WHERE EXISTS (SELECT name FROM master.sys.databases 
-							WHERE source_database_id is not null);            
+							WHERE source_database_id is null);            
 			END                       
 			TRUNCATE TABLE #LogInfo;'
             DROP TABLE #LogInfo;
