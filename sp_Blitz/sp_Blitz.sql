@@ -14,7 +14,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v14 - December 10, 2012
+    sp_Blitz v15 - December 10, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -28,9 +28,15 @@ Known limitations of this version:
    this script will fail.  That's fairly high on our list of things to improve
    since we like mirroring too.
  - No support for SQL Server 2000 or compatibility mode 80.
+ - If a database name has a question mark in it, some tests will fail.  Gotta
+   love that unsupported sp_MSforeachdb.
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v15:
+ - Mikael Wedham caught bugs in a few checks that reported the wrong database name.
+ - Bob Klimes fixed bugs in several checks where v14 broke case sensitivity.
 
 Changes in v14:
  - Lori Edwards @LoriEdwards http://sqlservertimes2.com
@@ -1158,9 +1164,9 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
                     );
         END;
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 41, 100, ''Performance'', ''Multiple Log Files on One Drive'', ''http://BrentOzar.com/go/manylogs'', (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'') FROM [?].sys.database_files WHERE type_desc = ''LOG'' AND ''?'' <> ''[tempdb]'' GROUP BY LEFT(physical_name, 1) HAVING COUNT(*) > 1';
+    EXEC dbo.sp_MSforeachdb 'use [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 41, 100, ''Performance'', ''Multiple Log Files on One Drive'', ''http://BrentOzar.com/go/manylogs'', (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'') FROM [?].sys.database_files WHERE type_desc = ''LOG'' AND ''?'' <> ''[tempdb]'' GROUP BY LEFT(physical_name, 1) HAVING COUNT(*) > 1';
 
-    EXEC dbo.sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 42, 100, ''Performance'', ''Uneven File Growth Settings in One Filegroup'', ''http://BrentOzar.com/go/grow'', (''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') FROM [?].sys.database_files WHERE type_desc = ''ROWS'' GROUP BY data_space_id HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1';
+    EXEC dbo.sp_MSforeachdb 'use [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 42, 100, ''Performance'', ''Uneven File Growth Settings in One Filegroup'', ''http://BrentOzar.com/go/grow'', (''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') FROM [?].sys.database_files WHERE type_desc = ''ROWS'' GROUP BY data_space_id HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1';
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1345,7 +1351,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             FROM    master.sys.databases d
             WHERE   d.collation_name <> SERVERPROPERTY('collation')
 
-    EXEC sp_MSforeachdb 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    EXEC sp_MSforeachdb 'use [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 SELECT  DISTINCT 59 AS CheckID, 
         100 AS Priority, 
         ''Performance'' AS FindingsGroup, 
@@ -1766,19 +1772,19 @@ WHERE   is_percent_growth = 1 ';
               Field ,
               Value
             )
-            EXEC sp_msforeachdb N'USE [?]; DBCC DBInfo() With TableResults';
+            EXEC sp_MSforeachdb N'USE [?]; DBCC DBInfo() With TableResults';
 
     WITH    DB1
               AS ( SELECT   Field ,
                             Value ,
-                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY ID )
+                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY Id )
                    FROM     @DBs
                    WHERE    Field = 'dbi_dbname'
                  ),
             DB2
               AS ( SELECT   Field ,
                             Value ,
-                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY ID )
+                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY Id )
                    FROM     @DBs
                    WHERE    Field = 'dbi_dbccLastKnownGood'
                  )
@@ -1823,9 +1829,9 @@ WHERE   is_percent_growth = 1 ';
                   Parity TINYINT ,
                   CreateLSN NUMERIC(38)
                 );
-            EXEC sp_msforeachdb N'USE [?];    
+            EXEC sp_MSforeachdb N'USE [?];    
 	INSERT INTO #LogInfo2012 
-	EXEC sp_executeSQL N''DBCC LogInfo()'';      
+	EXEC sp_executesql N''DBCC LogInfo()'';      
 	IF    @@ROWCOUNT > 50            
 		BEGIN
 			INSERT  INTO #BlitzResults                        
@@ -1860,9 +1866,9 @@ WHERE   is_percent_growth = 1 ';
                   Parity TINYINT ,
                   CreateLSN NUMERIC(38)
                 );
-            EXEC sp_msforeachdb N'USE [?];    
+            EXEC sp_MSforeachdb N'USE [?];    
 	INSERT INTO #LogInfo 
-	EXEC sp_executeSQL N''DBCC LogInfo()'';      
+	EXEC sp_executesql N''DBCC LogInfo()'';      
 	IF    @@ROWCOUNT > 50            
 		BEGIN
 			INSERT  INTO #BlitzResults                        
@@ -1928,10 +1934,10 @@ JOIN sys.data_spaces DS on DS.data_space_id = i.data_space_id
   WHERE  o.type = ''u''
  -- Clustered and Non-Clustered indexes
    AND i.type IN (1, 2) 
-AND O.NAME in 
+AND o.name in 
 	(
 SELECT a.name from 
-    (SELECT OB.NAME, ds.type_desc from sys.objects OB JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
+    (SELECT ob.name, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
 		GROUP BY ob.name, ds.type_desc ) a group by a.name having COUNT (*) > 1
 	)'
 	
@@ -2099,7 +2105,7 @@ SELECT a.name from
             )
     VALUES  ( -1 ,
               0 ,
-              'sp_Blitz v14 Dec 10 2012' ,
+              'sp_Blitz v15 Dec 10 2012' ,
               'From Brent Ozar Unlimited' ,
               'http://www.BrentOzar.com/blitz/' ,
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
