@@ -35,6 +35,9 @@ Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
 Changes in v15:
+ - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
+   SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
+   on the bug, check Connect ID 485869.
  - Mikael Wedham caught bugs in a few checks that reported the wrong database name.
  - Bob Klimes fixed bugs in several checks where v14 broke case sensitivity.
  - Seth Washeck fixed bugs in the VLF checks so they include the number of VLFs.
@@ -1758,51 +1761,47 @@ WHERE   is_percent_growth = 1 ';
         END /* IF @CheckProcedureCache = 1 */
 
 	/*Check for the last good DBCC CHECKDB date */
-    DECLARE @DBs TABLE
+IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL DROP TABLE #DBCCs 
+GO
+    CREATE TABLE #DBCCs 
         (
           Id INT IDENTITY(1, 1)
                  PRIMARY KEY ,
           ParentObject VARCHAR(255) ,
           Object VARCHAR(255) ,
           Field VARCHAR(255) ,
-          Value VARCHAR(255)
+          Value VARCHAR(255) ,
+		  DbName SYSNAME NULL
         )
-    INSERT  INTO @DBs
-            ( ParentObject ,
-              Object ,
-              Field ,
-              Value
-            )
-            EXEC sp_MSforeachdb N'USE [?]; DBCC DBInfo() With TableResults';
+            EXEC sp_MSforeachdb N'USE [?];
+							INSERT #DBCCs(ParentObject, Object, Field, Value)
+							EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+							UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL;';
 
-    WITH    DB1
-              AS ( SELECT   Field ,
-                            Value ,
-                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY Id )
-                   FROM     @DBs
-                   WHERE    Field = 'dbi_dbname'
-                 ),
+
+     WITH    
             DB2
-              AS ( SELECT   Field ,
+              AS ( SELECT   DISTINCT Field ,
                             Value ,
-                            DBID = ROW_NUMBER() OVER ( PARTITION BY Field ORDER BY Id )
-                   FROM     @DBs
+							DbName
+                   FROM     #DBCCs
                    WHERE    Field = 'dbi_dbccLastKnownGood'
                  )
-        INSERT  INTO #BlitzResults
-                ( CheckID ,
-                  Priority ,
-                  FindingsGroup ,
-                  Finding ,
-                  URL ,
-                  Details
-                )
+		         INSERT  INTO #BlitzResults
+		                 ( CheckID ,
+		                   Priority ,
+		                   FindingsGroup ,
+		                   Finding ,
+		                   URL ,
+		                   Details
+		                 )
                 SELECT  68 AS CheckID ,
                         50 AS PRIORITY ,
                         'Reliability' AS FindingsGroup ,
                         'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
                         'http://BrentOzar.com/go/checkdb' AS URL ,
-                        'Database [' + DB1.Value + ']'
+						DB2.Value AS DB2_Value,
+                        'Database [' + DB2.DbName + ']'
                         + CASE DB2.Value
                             WHEN '1900-01-01 00:00:00.000'
                             THEN ' never had a successful DBCC CHECKDB.'
@@ -1812,10 +1811,11 @@ WHERE   is_percent_growth = 1 ';
                         + ' This check should be run regularly to catch any database corruption as soon as possible.'
                         + ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
                         + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
-                FROM    DB1
-                        INNER JOIN DB2 ON DB1.DBID = DB2.DBID
-                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14,
-                                                              CURRENT_TIMESTAMP)
+                FROM   DB2
+                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14, CURRENT_TIMESTAMP)
+
+
+
 /*Check for high VLF count: this will omit any database snapshots*/
     IF @@VERSION LIKE 'Microsoft SQL Server 2012%' 
         BEGIN
@@ -1927,7 +1927,7 @@ ds.type_desc
  FROM sys.objects AS o
       JOIN sys.indexes AS i
   ON o.object_id = i.object_id 
-JOIN sys.data_spaces DS on DS.data_space_id = i.data_space_id
+JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
   LEFT OUTER JOIN 
   sys.dm_db_index_usage_stats AS s    
  ON i.object_id = s.object_id   
