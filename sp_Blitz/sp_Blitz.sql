@@ -14,7 +14,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v15 - December 10, 2012
+    sp_Blitz v16 - December 14, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -24,9 +24,6 @@ the findings, and more.  To contribute code and see your name in the change
 log, email your improvements & checks to Help@BrentOzar.com.
 
 Known limitations of this version:
- - No support for offline databases. If you can't query some of your databases,
-   this script will fail.  That's fairly high on our list of things to improve
-   since we like mirroring too.
  - No support for SQL Server 2000 or compatibility mode 80.
  - If a database name has a question mark in it, some tests will fail.  Gotta
    love that unsupported sp_MSforeachdb.
@@ -34,10 +31,19 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
-Changes in v15:
+Changes in v16:
  - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
    SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
    on the bug, check Connect ID 485869.
+ - Added check 77 for database snapshots.
+ - Added check 78 for stored procedures with WITH RECOMPILE in the source code.
+ - Added check 79 for Agent jobs with SHRINKDATABASE or SHRINKFILE.
+ - Added check 80 for databases with a max file size set.
+ - Tweaked check 75 for large log files so that it only alerts on files > 1GB.
+ - Works with offline and restoring databases. (Just happened to test it in
+   this version and it already worked - must have fixed this earlier.)
+
+Changes in v15:
  - Mikael Wedham caught bugs in a few checks that reported the wrong database name.
  - Bob Klimes fixed bugs in several checks where v14 broke case sensitivity.
  - Seth Washeck fixed bugs in the VLF checks so they include the number of VLFs.
@@ -1221,7 +1227,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
               URL ,
               Details
             )
-            SELECT  49 AS CheckID ,
+            SELECT DISTINCT 49 AS CheckID ,
                     200 AS Priority ,
                     'Informational' AS FindingsGroup ,
                     'Linked Server Configured' AS Finding ,
@@ -1444,6 +1450,8 @@ WHERE   is_percent_growth = 1 ';
 		        ''The ['' + DB_NAME() + ''] database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
 		FROM    [?].sys.indexes 
 		WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
+
+	        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 78, 100, ''Performance'', ''Stored Procedure WITH RECOMPILE'', ''http://BrentOzar.com/go/recompile'', (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
 
 
 
@@ -1761,8 +1769,6 @@ WHERE   is_percent_growth = 1 ';
         END /* IF @CheckProcedureCache = 1 */
 
 	/*Check for the last good DBCC CHECKDB date */
-IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL DROP TABLE #DBCCs 
-GO
     CREATE TABLE #DBCCs 
         (
           Id INT IDENTITY(1, 1)
@@ -1800,7 +1806,6 @@ GO
                         'Reliability' AS FindingsGroup ,
                         'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
                         'http://BrentOzar.com/go/checkdb' AS URL ,
-						DB2.Value AS DB2_Value,
                         'Database [' + DB2.DbName + ']'
                         + CASE DB2.Value
                             WHEN '1900-01-01 00:00:00.000'
@@ -2047,7 +2052,8 @@ SELECT a.name from
                     + '] has a transaction log file larger than a data file. This may indicate that transaction log backups are not being performed or not performed often enough.' AS Details
             FROM    sys.master_files a
             WHERE   a.type = 1
-                    AND a.Size > ( SELECT   SUM(b.size)
+					AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
+                    AND a.size > ( SELECT   SUM(b.size)
                                    FROM     sys.master_files b
                                    WHERE    a.database_id = b.database_id
                                             AND b.type = 0
@@ -2087,6 +2093,43 @@ SELECT a.name from
               URL ,
               Details
             )
+            SELECT  77 AS CheckId ,
+                    50 AS Priority ,
+                    'Reliability' AS FindingsGroup ,
+                    'Database Snapshot Online' AS Finding ,
+                    'http://BrentOzar.com/go/snapshot' AS URL ,
+                    'Database [' + dSnap.[name] + '] is a snapshot of [' + dOriginal.[name] + ']. Make sure you have enough drive space to maintain the snapshot as the original database grows.' AS Details
+			  FROM sys.databases dSnap
+			  INNER JOIN sys.databases dOriginal ON dSnap.source_database_id = dOriginal.database_id
+
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  79 AS CheckId ,
+                    100 AS Priority ,
+                    'Performance' AS FindingsGroup ,
+                    'Shrink Database Job' AS Finding ,
+                    'http://BrentOzar.com/go/autoshrink' AS URL ,
+                    'In the [' + j.[name] + '] job, step [' + step.[step_name] + '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.' AS Details
+			FROM msdb.dbo.sysjobs j 
+			INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id 
+			WHERE step.command LIKE N'%SHRINKDATABASE%' OR step.command LIKE N'%SHRINKFILE%'
+
+    EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1';
+
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
     VALUES  ( -1 ,
               255 ,
               'Thanks!' ,
@@ -2106,7 +2149,7 @@ SELECT a.name from
             )
     VALUES  ( -1 ,
               0 ,
-              'sp_Blitz v15 Dec 10 2012' ,
+              'sp_Blitz v16 Dec 14 2012' ,
               'From Brent Ozar Unlimited' ,
               'http://www.BrentOzar.com/blitz/' ,
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -2196,7 +2239,7 @@ GO
 Sample execution call:
 EXEC [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
-    @CheckProcedureCache = 0 ,
+    @CheckProcedureCache = 1 ,
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL
