@@ -35,6 +35,9 @@ Changes in v16:
  - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
    SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
    on the bug, check Connect ID 485869.
+ - Chris Fradenburg @ChrisFradenburg http://www.fradensql.com:
+   - Check 81 for non-active sp_configure options not yet taking effect.
+   - Improved check 35 to not alert if Optimize for Ad Hoc is already enabled.
  - Added check 77 for database snapshots.
  - Added check 78 for stored procedures with WITH RECOMPILE in the source code.
  - Added check 79 for Agent jobs with SHRINKDATABASE or SHRINKFILE.
@@ -1480,6 +1483,7 @@ WHERE   is_percent_growth = 1 ';
                     FROM    sys.dm_exec_cached_plans AS cp
                     WHERE   cp.usecounts = 1
                             AND cp.objtype = 'Adhoc'
+                            AND EXISTS (SELECT 1 FROM sys.configurations WHERE name = 'optimize for ad hoc workloads' AND value_in_use = 0)
                     HAVING  COUNT(*) > 1;
 
 
@@ -2121,6 +2125,28 @@ SELECT a.name from
 			WHERE step.command LIKE N'%SHRINKDATABASE%' OR step.command LIKE N'%SHRINKFILE%'
 
     EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1';
+
+INSERT  INTO #BlitzResults
+        ( CheckID ,
+            Priority ,
+            FindingsGroup ,
+            Finding ,
+            URL ,
+            Details
+        )
+        SELECT  81 AS CheckID ,
+                200 AS Priority ,
+                'Non-Active Server Config' AS FindingsGroup ,
+                cr.name AS Finding ,
+                'http://www.BrentOzar.com/blitz/sp_configure/' AS URL ,
+                ( 'This sp_configure option isn''t running under its set value.  Its set value is '
+                    + CAST(cr.[Value] AS VARCHAR(100))
+                    + ' and its running value is '
+                    + CAST(cr.value_in_use AS VARCHAR(100)) + '. When someone does a RECONFIGURE or restarts the instance, this setting will start taking effect.' ) AS Details
+        FROM    sys.configurations cr
+        WHERE   cr.value <> cr.value_in_use ;
+
+
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
