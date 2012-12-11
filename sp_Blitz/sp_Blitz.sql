@@ -42,7 +42,9 @@ Changes in v16:
  - Added check 78 for stored procedures with WITH RECOMPILE in the source code.
  - Added check 79 for Agent jobs with SHRINKDATABASE or SHRINKFILE.
  - Added check 80 for databases with a max file size set.
+ - Added checks 83-85 for server descriptions (CPU, memory, services.)
  - Tweaked check 75 for large log files so that it only alerts on files > 1GB.
+ - Changed one of the two check 59's to be check 82. (Doh!)
  - Works with offline and restoring databases. (Just happened to test it in
    this version and it already worked - must have fixed this earlier.)
 
@@ -1365,7 +1367,7 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
             WHERE   d.collation_name <> SERVERPROPERTY('collation')
 
     EXEC sp_MSforeachdb 'use [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-SELECT  DISTINCT 59 AS CheckID, 
+SELECT  DISTINCT 82 AS CheckID, 
         100 AS Priority, 
         ''Performance'' AS FindingsGroup, 
         ''File growth set to percent'', 
@@ -2147,6 +2149,49 @@ INSERT  INTO #BlitzResults
         WHERE   cr.value <> cr.value_in_use ;
 
 
+IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
+            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        SELECT  83 AS CheckID ,
+                250 AS Priority ,
+                ''Server Info'' AS FindingsGroup ,
+                ''Services'' AS Finding ,
+                '''' AS URL ,
+                N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
+                FROM sys.dm_server_services;'
+            EXECUTE(@StringToExecute);
+
+
+IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_sys_info')
+            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        SELECT  84 AS CheckID ,
+                250 AS Priority ,
+                ''Server Info'' AS FindingsGroup ,
+                ''Hardware'' AS Finding ,
+                '''' AS URL ,
+                ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_in_bytes / 1024.0 / 1024 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
+		FROM sys.dm_os_sys_info';
+            EXECUTE(@StringToExecute);
+
+
+INSERT  INTO #BlitzResults
+        ( CheckID ,
+            Priority ,
+            FindingsGroup ,
+            Finding ,
+            URL ,
+            Details
+        )
+        SELECT  85 AS CheckID ,
+                250 AS Priority ,
+                'Server Info' AS FindingsGroup ,
+                'SQL Server Service' AS Finding ,
+                '' AS URL ,
+                N'Version: ' + CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100)) 
+	+ N'. Patch Level: ' + CAST(SERVERPROPERTY ('productlevel') AS NVARCHAR(100)) 
+	+ N'. Edition: ' + CAST(SERVERPROPERTY ('edition') AS VARCHAR(100))
+	+ N'. AlwaysOn Enabled: ' + CAST(COALESCE(SERVERPROPERTY ('IsHadrEnabled'),0) AS VARCHAR(100))
+	+ N'. AlwaysOn Mgr Status: ' + CAST(COALESCE(SERVERPROPERTY ('HadrManagerStatus'),0) AS VARCHAR(100))
+	
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
