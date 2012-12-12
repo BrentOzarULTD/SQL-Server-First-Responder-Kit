@@ -10,7 +10,8 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @CheckProcedureCache TINYINT = 0 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputProcedureCache TINYINT = 0 ,
-    @CheckProcedureCacheFilter VARCHAR(10) = NULL
+    @CheckProcedureCacheFilter VARCHAR(10) = NULL,
+    @Version INT = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
 /*
@@ -38,6 +39,8 @@ Changes in v16:
  - Chris Fradenburg @ChrisFradenburg http://www.fradensql.com:
    - Check 81 for non-active sp_configure options not yet taking effect.
    - Improved check 35 to not alert if Optimize for Ad Hoc is already enabled.
+ - Rob Sullivan @DataChomp http://datachomp.com:
+   - Suggested to add output variable @Version to manage server installations.
  - Added check 77 for database snapshots.
  - Added check 78 for stored procedures with WITH RECOMPILE in the source code.
  - Added check 79 for Agent jobs with SHRINKDATABASE or SHRINKFILE.
@@ -45,6 +48,7 @@ Changes in v16:
  - Added checks 83-85 for server descriptions (CPU, memory, services.)
  - Tweaked check 75 for large log files so that it only alerts on files > 1GB.
  - Changed one of the two check 59's to be check 82. (Doh!)
+ - Added WITH NO_INFOMSGS to the DBCC calls to ease life for automation folks.
  - Works with offline and restoring databases. (Just happened to test it in
    this version and it already worked - must have fixed this earlier.)
 
@@ -1843,7 +1847,7 @@ WHERE   is_percent_growth = 1 ';
                 );
             EXEC sp_MSforeachdb N'USE [?];    
 	INSERT INTO #LogInfo2012 
-	EXEC sp_executesql N''DBCC LogInfo()'';      
+	EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
 	IF    @@ROWCOUNT > 50            
 		BEGIN
 			INSERT  INTO #BlitzResults                        
@@ -1880,7 +1884,7 @@ WHERE   is_percent_growth = 1 ';
                 );
             EXEC sp_MSforeachdb N'USE [?];    
 	INSERT INTO #LogInfo 
-	EXEC sp_executesql N''DBCC LogInfo()'';      
+	EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
 	IF    @@ROWCOUNT > 50            
 		BEGIN
 			INSERT  INTO #BlitzResults                        
@@ -2020,7 +2024,7 @@ SELECT a.name from
         );
 
     INSERT  INTO #TraceStatus
-            EXEC ( ' DBCC TRACESTATUS(-1)'
+            EXEC ( ' DBCC TRACESTATUS(-1) WITH NO_INFOMSGS'
                 )
 
     INSERT  INTO #BlitzResults
@@ -2161,7 +2165,23 @@ IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
             EXECUTE(@StringToExecute);
 
 
-IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_sys_info')
+/* Check 84 - SQL Server 2012 */
+IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_kb')
+BEGIN
+            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        SELECT  84 AS CheckID ,
+                250 AS Priority ,
+                ''Server Info'' AS FindingsGroup ,
+                ''Hardware'' AS Finding ,
+                '''' AS URL ,
+                ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_kb / 1024.0 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
+		FROM sys.dm_os_sys_info';
+            EXECUTE(@StringToExecute);
+END
+
+/* Check 84 - SQL Server 2008 */
+IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_in_bytes')
+BEGIN
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         SELECT  84 AS CheckID ,
                 250 AS Priority ,
@@ -2171,6 +2191,7 @@ IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_sys_info')
                 ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_in_bytes / 1024.0 / 1024 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
 		FROM sys.dm_os_sys_info';
             EXECUTE(@StringToExecute);
+END
 
 
 INSERT  INTO #BlitzResults
@@ -2209,6 +2230,7 @@ INSERT  INTO #BlitzResults
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
 
+	SET @Version = 16;
     INSERT  INTO #BlitzResults
             ( CheckID ,
               Priority ,
@@ -2314,4 +2336,5 @@ EXEC [dbo].[sp_Blitz]
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL
+
 */
