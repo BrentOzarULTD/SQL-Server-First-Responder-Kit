@@ -10,7 +10,8 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @CheckProcedureCache TINYINT = 0 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputProcedureCache TINYINT = 0 ,
-    @CheckProcedureCacheFilter VARCHAR(10) = NULL,
+    @CheckProcedureCacheFilter VARCHAR(10) = NULL ,
+    @CheckServerInfo TINYINT = 0 ,
     @Version INT = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
@@ -24,6 +25,17 @@ new versions for free, watch training videos on how it works, get more info on
 the findings, and more.  To contribute code and see your name in the change
 log, email your improvements & checks to Help@BrentOzar.com.
 
+Explanation of priority levels:
+  1 - Critical risk of data loss.  Fix this ASAP.
+ 10 - Security risk.
+ 20 - Security risk due to unusual configuration, but requires more research.
+ 50 - Reliability risk.
+ 60 - Reliability risk due to unusual configuration, but requires more research.
+100 - Performance risk.
+110 - Performance risk due to unusual configuration, but requires more research.
+200 - Informational.
+250 - Server info. Not warnings, just explaining data about the server.
+
 Known limitations of this version:
  - No support for SQL Server 2000 or compatibility mode 80.
  - If a database name has a question mark in it, some tests will fail.  Gotta
@@ -33,19 +45,25 @@ Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
 Changes in v16:
- - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
-   SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
-   on the bug, check Connect ID 485869.
  - Chris Fradenburg @ChrisFradenburg http://www.fradensql.com:
    - Check 81 for non-active sp_configure options not yet taking effect.
    - Improved check 35 to not alert if Optimize for Ad Hoc is already enabled.
  - Rob Sullivan @DataChomp http://datachomp.com:
    - Suggested to add output variable @Version to manage server installations.
+ - Vadim Mordkovich:
+   - Added check 85 for database users with elevated database roles like
+     db_owner, db_securityadmin, etc.
+ - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
+   SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
+   on the bug, check Connect ID 485869.
  - Added check 77 for database snapshots.
  - Added check 78 for stored procedures with WITH RECOMPILE in the source code.
  - Added check 79 for Agent jobs with SHRINKDATABASE or SHRINKFILE.
  - Added check 80 for databases with a max file size set.
- - Added checks 83-85 for server descriptions (CPU, memory, services.)
+ - Added @CheckServerInfo perameter default 0. Adds additional server inventory
+   data in checks 83-85 for things like CPU, memory, service logins.  None of
+   these are problems, but if you're using sp_Blitz to assess a server you've
+   never seen, you may want to know more about what you're working with. I do.
  - Tweaked check 75 for large log files so that it only alerts on files > 1GB.
  - Changed one of the two check 59's to be check 82. (Doh!)
  - Added WITH NO_INFOMSGS to the DBCC calls to ease life for automation folks.
@@ -206,17 +224,6 @@ Changes in v2 Oct 14 2011:
  - Ali Razeghi http://www.alirazeghi.com added checkid 55 looking for
    databases owned by <> SA.
  - Fixed bugs in checking for SQL Server 2005 (leading % signs)
-
-
-Explanation of priority levels:
-  1 - Critical risk of data loss.  Fix this ASAP.
- 10 - Security risk.
- 20 - Security risk due to unusual configuration, but requires more research.
- 50 - Reliability risk.
- 60 - Reliability risk due to unusual configuration, but requires more research.
-100 - Performance risk.
-110 - Performance risk due to unusual configuration, but requires more research.
-200 - Informational.
 
 */
 
@@ -1236,7 +1243,8 @@ SELECT 21 AS CheckID, 20 AS Priority, ''Encryption'' AS FindingsGroup, ''Databas
               URL ,
               Details
             )
-            SELECT DISTINCT 49 AS CheckID ,
+            SELECT DISTINCT
+                    49 AS CheckID ,
                     200 AS Priority ,
                     'Informational' AS FindingsGroup ,
                     'Linked Server Configured' AS Finding ,
@@ -1460,7 +1468,9 @@ WHERE   is_percent_growth = 1 ';
 		FROM    [?].sys.indexes 
 		WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
 
-	        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 78, 100, ''Performance'', ''Stored Procedure WITH RECOMPILE'', ''http://BrentOzar.com/go/recompile'', (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
+            EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 78, 100, ''Performance'', ''Stored Procedure WITH RECOMPILE'', ''http://BrentOzar.com/go/recompile'', (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
+
+            EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 
 
 
@@ -1489,7 +1499,10 @@ WHERE   is_percent_growth = 1 ';
                     FROM    sys.dm_exec_cached_plans AS cp
                     WHERE   cp.usecounts = 1
                             AND cp.objtype = 'Adhoc'
-                            AND EXISTS (SELECT 1 FROM sys.configurations WHERE name = 'optimize for ad hoc workloads' AND value_in_use = 0)
+                            AND EXISTS ( SELECT 1
+                                         FROM   sys.configurations
+                                         WHERE  name = 'optimize for ad hoc workloads'
+                                                AND value_in_use = 0 )
                     HAVING  COUNT(*) > 1;
 
 
@@ -1779,7 +1792,7 @@ WHERE   is_percent_growth = 1 ';
         END /* IF @CheckProcedureCache = 1 */
 
 	/*Check for the last good DBCC CHECKDB date */
-    CREATE TABLE #DBCCs 
+    CREATE TABLE #DBCCs
         (
           Id INT IDENTITY(1, 1)
                  PRIMARY KEY ,
@@ -1787,30 +1800,31 @@ WHERE   is_percent_growth = 1 ';
           Object VARCHAR(255) ,
           Field VARCHAR(255) ,
           Value VARCHAR(255) ,
-		  DbName SYSNAME NULL
+          DbName SYSNAME NULL
         )
-            EXEC sp_MSforeachdb N'USE [?];
+    EXEC sp_MSforeachdb N'USE [?];
 							INSERT #DBCCs(ParentObject, Object, Field, Value)
 							EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
 							UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL;';
 
 
-     WITH    
-            DB2
-              AS ( SELECT   DISTINCT Field ,
+    WITH    DB2
+              AS ( SELECT   DISTINCT
+                            Field ,
                             Value ,
-							DbName
+                            DbName
                    FROM     #DBCCs
                    WHERE    Field = 'dbi_dbccLastKnownGood'
                  )
-		         INSERT  INTO #BlitzResults
-		                 ( CheckID ,
-		                   Priority ,
-		                   FindingsGroup ,
-		                   Finding ,
-		                   URL ,
-		                   Details
-		                 )
+        INSERT  INTO #BlitzResults
+                ( CheckID ,
+                  Priority ,
+                  FindingsGroup ,
+                  Finding ,
+                  URL ,
+                  Details
+		                 
+                )
                 SELECT  68 AS CheckID ,
                         50 AS PRIORITY ,
                         'Reliability' AS FindingsGroup ,
@@ -1826,8 +1840,9 @@ WHERE   is_percent_growth = 1 ';
                         + ' This check should be run regularly to catch any database corruption as soon as possible.'
                         + ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
                         + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
-                FROM   DB2
-                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14, CURRENT_TIMESTAMP)
+                FROM    DB2
+                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14,
+                                                              CURRENT_TIMESTAMP)
 
 
 
@@ -2062,7 +2077,7 @@ SELECT a.name from
                     + '] has a transaction log file larger than a data file. This may indicate that transaction log backups are not being performed or not performed often enough.' AS Details
             FROM    sys.master_files a
             WHERE   a.type = 1
-					AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
+                    AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
                     AND a.size > ( SELECT   SUM(b.size)
                                    FROM     sys.master_files b
                                    WHERE    a.database_id = b.database_id
@@ -2108,9 +2123,11 @@ SELECT a.name from
                     'Reliability' AS FindingsGroup ,
                     'Database Snapshot Online' AS Finding ,
                     'http://BrentOzar.com/go/snapshot' AS URL ,
-                    'Database [' + dSnap.[name] + '] is a snapshot of [' + dOriginal.[name] + ']. Make sure you have enough drive space to maintain the snapshot as the original database grows.' AS Details
-			  FROM sys.databases dSnap
-			  INNER JOIN sys.databases dOriginal ON dSnap.source_database_id = dOriginal.database_id
+                    'Database [' + dSnap.[name] + '] is a snapshot of ['
+                    + dOriginal.[name]
+                    + ']. Make sure you have enough drive space to maintain the snapshot as the original database grows.' AS Details
+            FROM    sys.databases dSnap
+                    INNER JOIN sys.databases dOriginal ON dSnap.source_database_id = dOriginal.database_id
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -2125,36 +2142,41 @@ SELECT a.name from
                     'Performance' AS FindingsGroup ,
                     'Shrink Database Job' AS Finding ,
                     'http://BrentOzar.com/go/autoshrink' AS URL ,
-                    'In the [' + j.[name] + '] job, step [' + step.[step_name] + '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.' AS Details
-			FROM msdb.dbo.sysjobs j 
-			INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id 
-			WHERE step.command LIKE N'%SHRINKDATABASE%' OR step.command LIKE N'%SHRINKFILE%'
+                    'In the [' + j.[name] + '] job, step [' + step.[step_name]
+                    + '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.' AS Details
+            FROM    msdb.dbo.sysjobs j
+                    INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id
+            WHERE   step.command LIKE N'%SHRINKDATABASE%'
+                    OR step.command LIKE N'%SHRINKFILE%'
 
     EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1';
 
-INSERT  INTO #BlitzResults
-        ( CheckID ,
-            Priority ,
-            FindingsGroup ,
-            Finding ,
-            URL ,
-            Details
-        )
-        SELECT  81 AS CheckID ,
-                200 AS Priority ,
-                'Non-Active Server Config' AS FindingsGroup ,
-                cr.name AS Finding ,
-                'http://www.BrentOzar.com/blitz/sp_configure/' AS URL ,
-                ( 'This sp_configure option isn''t running under its set value.  Its set value is '
-                    + CAST(cr.[Value] AS VARCHAR(100))
-                    + ' and its running value is '
-                    + CAST(cr.value_in_use AS VARCHAR(100)) + '. When someone does a RECONFIGURE or restarts the instance, this setting will start taking effect.' ) AS Details
-        FROM    sys.configurations cr
-        WHERE   cr.value <> cr.value_in_use ;
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  81 AS CheckID ,
+                    200 AS Priority ,
+                    'Non-Active Server Config' AS FindingsGroup ,
+                    cr.name AS Finding ,
+                    'http://www.BrentOzar.com/blitz/sp_configure/' AS URL ,
+                    ( 'This sp_configure option isn''t running under its set value.  Its set value is '
+                      + CAST(cr.[Value] AS VARCHAR(100))
+                      + ' and its running value is '
+                      + CAST(cr.value_in_use AS VARCHAR(100))
+                      + '. When someone does a RECONFIGURE or restarts the instance, this setting will start taking effect.' ) AS Details
+            FROM    sys.configurations cr
+            WHERE   cr.value <> cr.value_in_use;
 
 
-IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
-            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    IF EXISTS ( SELECT  *
+                FROM    sys.all_objects
+                WHERE   name = 'dm_server_services' ) 
+        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         SELECT  83 AS CheckID ,
                 250 AS Priority ,
                 ''Server Info'' AS FindingsGroup ,
@@ -2162,12 +2184,16 @@ IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
                 '''' AS URL ,
                 N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
                 FROM sys.dm_server_services;'
-            EXECUTE(@StringToExecute);
+    EXECUTE(@StringToExecute);
 
 
 /* Check 84 - SQL Server 2012 */
-IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_kb')
-BEGIN
+    IF EXISTS ( SELECT  *
+                FROM    sys.all_objects o
+                        INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+                WHERE   o.name = 'dm_os_sys_info'
+                        AND c.name = 'physical_memory_kb' ) 
+        BEGIN
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         SELECT  84 AS CheckID ,
                 250 AS Priority ,
@@ -2177,11 +2203,15 @@ BEGIN
                 ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_kb / 1024.0 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
 		FROM sys.dm_os_sys_info';
             EXECUTE(@StringToExecute);
-END
+        END
 
 /* Check 84 - SQL Server 2008 */
-IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_in_bytes')
-BEGIN
+    IF EXISTS ( SELECT  *
+                FROM    sys.all_objects o
+                        INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+                WHERE   o.name = 'dm_os_sys_info'
+                        AND c.name = 'physical_memory_in_bytes' ) 
+        BEGIN
             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         SELECT  84 AS CheckID ,
                 250 AS Priority ,
@@ -2191,27 +2221,32 @@ BEGIN
                 ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_in_bytes / 1024.0 / 1024 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
 		FROM sys.dm_os_sys_info';
             EXECUTE(@StringToExecute);
-END
+        END
 
 
-INSERT  INTO #BlitzResults
-        ( CheckID ,
-            Priority ,
-            FindingsGroup ,
-            Finding ,
-            URL ,
-            Details
-        )
-        SELECT  85 AS CheckID ,
-                250 AS Priority ,
-                'Server Info' AS FindingsGroup ,
-                'SQL Server Service' AS Finding ,
-                '' AS URL ,
-                N'Version: ' + CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100)) 
-	+ N'. Patch Level: ' + CAST(SERVERPROPERTY ('productlevel') AS NVARCHAR(100)) 
-	+ N'. Edition: ' + CAST(SERVERPROPERTY ('edition') AS VARCHAR(100))
-	+ N'. AlwaysOn Enabled: ' + CAST(COALESCE(SERVERPROPERTY ('IsHadrEnabled'),0) AS VARCHAR(100))
-	+ N'. AlwaysOn Mgr Status: ' + CAST(COALESCE(SERVERPROPERTY ('HadrManagerStatus'),0) AS VARCHAR(100))
+    INSERT  INTO #BlitzResults
+            ( CheckID ,
+              Priority ,
+              FindingsGroup ,
+              Finding ,
+              URL ,
+              Details
+            )
+            SELECT  85 AS CheckID ,
+                    250 AS Priority ,
+                    'Server Info' AS FindingsGroup ,
+                    'SQL Server Service' AS Finding ,
+                    '' AS URL ,
+                    N'Version: '
+                    + CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100))
+                    + N'. Patch Level: '
+                    + CAST(SERVERPROPERTY('productlevel') AS NVARCHAR(100))
+                    + N'. Edition: '
+                    + CAST(SERVERPROPERTY('edition') AS VARCHAR(100))
+                    + N'. AlwaysOn Enabled: '
+                    + CAST(COALESCE(SERVERPROPERTY('IsHadrEnabled'), 0) AS VARCHAR(100))
+                    + N'. AlwaysOn Mgr Status: '
+                    + CAST(COALESCE(SERVERPROPERTY('HadrManagerStatus'), 0) AS VARCHAR(100))
 	
 
     INSERT  INTO #BlitzResults
@@ -2230,7 +2265,7 @@ INSERT  INTO #BlitzResults
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
             );
 
-	SET @Version = 16;
+    SET @Version = 16;
     INSERT  INTO #BlitzResults
             ( CheckID ,
               Priority ,
@@ -2329,12 +2364,13 @@ INSERT  INTO #BlitzResults
 GO
 
 /*
-Sample execution call:
+Sample execution call with the most common parameters:
 EXEC [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 1 ,
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
-    @CheckProcedureCacheFilter = NULL
+    @CheckProcedureCacheFilter = NULL,
+	@CheckServerInfo = 0
 
 */
