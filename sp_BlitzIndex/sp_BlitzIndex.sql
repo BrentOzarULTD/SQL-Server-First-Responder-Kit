@@ -2,14 +2,13 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
---IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
---	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
---GO
---EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
---GO
---ALTER PROCEDURE dbo.sp_BlitzIndex
-DECLARE
-	@database_name NVARCHAR(256) = 'tpcc22wh',
+IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
+	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
+GO
+EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
+GO
+ALTER PROCEDURE dbo.sp_BlitzIndex
+	@database_name NVARCHAR(256),
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
@@ -43,7 +42,7 @@ CHANGE LOG (last three versions):
 		a heap, a unique clustered index, or a non-unique clustered index.
 		Changed parameter order so @database_name is first. Some people were confused.
 */
---AS 
+AS 
 
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
