@@ -2,13 +2,14 @@ SET STATISTICS IO OFF
 SET STATISTICS TIME OFF;
 GO
 
-IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
-	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
-GO
-EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
-GO
-ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256) = 'AdventureWorks',
+--IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
+--	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
+--GO
+--EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
+--GO
+--ALTER PROCEDURE dbo.sp_BlitzIndex
+DECLARE
+	@database_name NVARCHAR(256) = 'tpcc22wh',
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
@@ -42,7 +43,7 @@ CHANGE LOG (last three versions):
 		a heap, a unique clustered index, or a non-unique clustered index.
 		Changed parameter order so @database_name is first. Some people were confused.
 */
-AS 
+--AS 
 
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -927,6 +928,8 @@ BEGIN;
 			WITH	duplicate_indexes
 					  AS ( SELECT	[object_id], key_column_names
 						   FROM		#index_sanity
+						   WHERE  is_hypothetical = 0
+								AND is_disabled = 0
 						   GROUP BY	[object_id], key_column_names
 						   HAVING	COUNT(*) > 1)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
@@ -952,7 +955,9 @@ BEGIN;
 			WITH	borderline_duplicate_indexes
 					  AS ( SELECT DISTINCT [object_id], first_key_column_name, key_column_names,
 									COUNT([object_id]) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
-						   FROM		#index_sanity)
+						   FROM		#index_sanity
+						   WHERE is_hypothetical=0
+							AND is_disabled=0)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	2 AS check_id, 
@@ -1275,10 +1280,9 @@ BEGIN;
 							N'Hypothetical Index: ' + schema_object_indexid AS details, 
 							i.index_definition,
 							i.secret_columns,
-							i.index_usage_summary, 
-							sz.index_size_summary
+							N'' AS index_usage_summary, 
+							N'' AS index_size_summary
 					FROM	#index_sanity AS i
-							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	is_hypothetical = 1 OPTION	( RECOMPILE );
 
 
