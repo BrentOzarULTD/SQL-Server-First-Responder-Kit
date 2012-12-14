@@ -13,7 +13,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.33 - November 22, 2012
+sp_BlitzIndex (TM) v1.4 - December 14, 2012
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -33,18 +33,14 @@ Known limitations of this version:
  - Doesn't analyze aligned vs non-aligned indexes on partitioned tables
  - Found something? Let us know at help@brentozar.com.
 
-CHANGE LOG:
-	October 29, 2012 - Fixed bug where disabled indexes weren't showing properly in duplicate list.
-		Added 'Aggressive Index' check that detects blocking and lock escalation.
-	November 12, 2012 - Changed type to support indexes with very large "magic number" values.
-		Added line to mark sp_BlitzIndex as a system procedure.
-		Added version check to gracefully exit when run against SQL Server 2000.
+CHANGE LOG (last three versions):
+	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation.
+	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
+		missing index data detail only.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
 		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
 		a heap, a unique clustered index, or a non-unique clustered index.
 		Changed parameter order so @database_name is first. Some people were confused.
-	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
-		missing index data detail only.
 */
 AS 
 
