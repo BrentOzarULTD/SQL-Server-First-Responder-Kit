@@ -35,6 +35,8 @@ Known limitations of this version:
 
 CHANGE LOG (last three versions):
 	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation.
+		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
+		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
 	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
 		missing index data detail only.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
