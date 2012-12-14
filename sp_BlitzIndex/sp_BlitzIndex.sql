@@ -8,7 +8,7 @@ GO
 EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
 ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256),
+	@database_name NVARCHAR(256) = 'AdventureWorks',
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
@@ -114,7 +114,7 @@ BEGIN TRY
 		BEGIN
 			SET @dsql = N'
 					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-					SELECT	@object_id= object_id
+					SELECT	@object_id= OBJECT_ID
 					FROM	' + QUOTENAME(@database_name) + '.sys.objects AS so
 					JOIN	' + QUOTENAME(@database_name) + '.sys.schemas AS sc on 
 						so.schema_id=sc.schema_id
@@ -594,7 +594,7 @@ BEGIN TRY
 			SET is_referenced_by_foreign_key=1
 		FROM #index_sanity s
 		JOIN #foreign_keys fk ON 
-			s.OBJECT_ID=fk.referenced_object_id
+			s.object_id=fk.referenced_object_id
 			AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns
 
 		RAISERROR (N'Add computed columns to #index_sanity to simplify queries.',0,1) WITH NOWAIT;
@@ -661,7 +661,6 @@ BEGIN TRY
 		FROM #index_sanity AS tb
 		WHERE tb.index_id = 0 /*Heaps-- these have the RID */
 			or (tb.index_id=1 and tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
-
 		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity_size ADD 
 			  index_size_summary AS ISNULL(
@@ -674,10 +673,10 @@ BEGIN TRY
 				ELSE 
 					CAST(CAST(total_reserved_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB'
 				END
-				+ CASE WHEN total_reserved_lob_MB > 1024 THEN 
-					N'; ' + CAST(CAST(total_reserved_lob_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB LOB'
-				WHEN total_reserved_lob_MB > 0 THEN
-					N'; ' + CAST(CAST(total_reserved_lob_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB LOB'
+				+ CASE WHEN total_reserved_LOB_MB > 1024 THEN 
+					N'; ' + CAST(CAST(total_reserved_LOB_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB LOB'
+				WHEN total_reserved_LOB_MB > 0 THEN
+					N'; ' + CAST(CAST(total_reserved_LOB_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB LOB'
 				ELSE ''
 				END
 				 + CASE WHEN total_reserved_row_overflow_MB > 1024 THEN
@@ -840,7 +839,7 @@ BEGIN
 			ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
 			s.is_referenced_by_foreign_key,
 			(SELECT COUNT(*)
-				FROM #foreign_keys fk WHERE fk.parent_object_id=s.OBJECT_ID
+				FROM #foreign_keys fk WHERE fk.parent_object_id=s.object_id
 				AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
 			ct.create_tsql,
 			1 as display_order
@@ -956,7 +955,7 @@ BEGIN;
 		RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
 			WITH	borderline_duplicate_indexes
 					  AS ( SELECT DISTINCT [object_id], first_key_column_name, key_column_names,
-									COUNT(OBJECT_ID) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
+									COUNT([object_id]) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
 						   FROM		#index_sanity)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
@@ -973,7 +972,7 @@ BEGIN;
 						FROM	#index_sanity AS ip 
 						LEFT JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
 						WHERE EXISTS (
-							SELECT [object_id]
+							SELECT di.[object_id]
 							FROM borderline_duplicate_indexes AS di
 							WHERE di.[object_id] = ip.[object_id] AND
 								di.first_key_column_name = ip.first_key_column_name AND
