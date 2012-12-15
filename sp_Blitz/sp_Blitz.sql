@@ -16,7 +16,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v16 - December 14, 2012
+    sp_Blitz v17 - December 13, 2012
     
     (C) 2012, Brent Ozar Unlimited
 
@@ -44,6 +44,13 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
+Changes in v17:
+- Steve Wales:
+- Caught dupe checkID's 60, changed one to 87.
+- Added @OutputType = 'CSV' option that strips commas and returns one field per
+  row rather than separate fields of data. Doesn't return the query and query
+  plan fields since those are monsters.
+
 Changes in v16:
  - Chris Fradenburg @ChrisFradenburg http://www.fradensql.com:
    - Check 81 for non-active sp_configure options not yet taking effect.
@@ -51,7 +58,7 @@ Changes in v16:
  - Rob Sullivan @DataChomp http://datachomp.com:
    - Suggested to add output variable @Version to manage server installations.
  - Vadim Mordkovich:
-   - Added check 85 for database users with elevated database roles like
+   - Added check 86 for database users with elevated database roles like
      db_owner, db_securityadmin, etc.
  - Vladimir Vissoultchev rewrote the DBCC CHECKDB check to work around a bug in
    SQL Server 2008 & R2 that report dbi_dbccLastKnownGood twice. For more info
@@ -304,6 +311,9 @@ Changes in v2 Oct 14 2011:
         END
 
     DECLARE @StringToExecute NVARCHAR(4000);
+
+	/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
+	IF @OutputType = 'CSV' SET @CheckProcedureCache = 0;
 
     INSERT  INTO #BlitzResults
             ( CheckID ,
@@ -1459,7 +1469,7 @@ WHERE   is_percent_growth = 1 ';
                 END;
 
             EXEC sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-		SELECT  DISTINCT 60 AS CheckID, 
+		SELECT  DISTINCT 87 AS CheckID, 
 		        100 AS Priority, 
 		        ''Performance'' AS FindingsGroup, 
 		        ''Fill Factor Changed'', 
@@ -2277,7 +2287,7 @@ SELECT a.name from
             )
     VALUES  ( -1 ,
               0 ,
-              'sp_Blitz v16 Dec 14 2012' ,
+              'sp_Blitz v16 Dec 13 2012' ,
               'From Brent Ozar Unlimited' ,
               'http://www.BrentOzar.com/blitz/' ,
               'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -2291,7 +2301,21 @@ SELECT a.name from
             SELECT  COUNT(*) AS Warnings
             FROM    #BlitzResults
         END
-    ELSE 
+    ELSE IF @OutputType = 'CSV'
+		BEGIN
+	SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + ','
+				+ CAST(CheckID AS NVARCHAR(100)) + ','
+				+ REPLACE([FindingsGroup], ',', '') + ','
+                + REPLACE([Finding], ',', '') + ','
+                + [URL] + ',' 
+                + REPLACE([Details], ',', '')
+        FROM    #BlitzResults
+        ORDER BY Priority ,
+                FindingsGroup ,
+                Finding ,
+                Details;
+		END
+	ELSE
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -2367,7 +2391,7 @@ GO
 Sample execution call with the most common parameters:
 EXEC [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
-    @CheckProcedureCache = 1 ,
+    @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
