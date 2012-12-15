@@ -1431,12 +1431,73 @@ BEGIN;
 				WHERE magic_benefit_number > 500000
 				ORDER BY magic_benefit_number DESC;
 
+
+		 ----------------------------------------
+		--Abnormal Psychology : Check_id 60-69
+		----------------------------------------
+			RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	60 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'XML Indexes' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.is_XML = 1 OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 61: NC Columnstore indexes', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	61 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'NC Columnstore indexes' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.is_NC_columnstore = 1 OPTION	( RECOMPILE );
+
+
+			RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	62 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Spatial indexes' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.is_spatial = 1 OPTION	( RECOMPILE );
+
+		 ----------------------------------------
+		--FINISHING UP
+		----------------------------------------
 				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 											   index_usage_summary, index_size_summary )
 				VALUES  ( 1000 , N'All done!' ,   N' Learn how to use this script at:' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
 						  N'Thanks from the Brent Ozar Unlimited, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 						  , N'',N'',N''
 						);
+
+
 		END
 	
 		/*Return results.*/
