@@ -35,7 +35,7 @@ Known limitations of this version:
 
 CHANGE LOG (last three versions):
 	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation.
-		Added support for columnstore, XML, and spatial indexes
+		Added basic support for columnstore, XML, and spatial indexes
 		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
 	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
@@ -1449,7 +1449,7 @@ BEGIN;
 							i.schema_object_indexid AS details, 
 							i.index_definition,
 							i.secret_columns,
-							i.index_usage_summary,
+							N'' AS index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
