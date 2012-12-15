@@ -33,14 +33,14 @@ Usage examples:
 
 Known limitations of this version:
  - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
- - Does not include compression status (on the list to be added)
  - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
  - Doesn't analyze aligned vs non-aligned indexes on partitioned tables
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last three versions):
-	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation.
+	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation
+		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
 		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
@@ -252,7 +252,8 @@ BEGIN TRY
 			  page_lock_wait_count BIGINT NULL ,
 			  page_lock_wait_in_ms BIGINT NULL ,
 			  index_lock_promotion_attempt_count BIGINT NULL ,
-			  index_lock_promotion_count BIGINT NULL
+			  index_lock_promotion_count BIGINT NULL,
+  			  data_compression_desc nvarchar(60) NULL
 			);
 
 		CREATE TABLE #index_sanity_size
@@ -273,7 +274,8 @@ BEGIN TRY
 			  total_page_lock_wait_in_ms BIGINT NULL ,
 			  avg_page_lock_wait_in_ms BIGINT NULL ,
  			  total_index_lock_promotion_attempt_count BIGINT NULL ,
-			  total_index_lock_promotion_count BIGINT NULL
+			  total_index_lock_promotion_count BIGINT NULL ,
+			  data_compression_desc nvarchar(60) NULL
 			);
 
 		CREATE TABLE #index_columns
@@ -462,16 +464,32 @@ BEGIN TRY
 		--NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
 		--This is because of quirks prior to SQL Server 2012 with this DMV.
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-				SELECT	ps.object_id, ps.index_id, ps.partition_number, ps.row_count,
+				SELECT	ps.object_id, 
+						ps.index_id, 
+						ps.partition_number, 
+						ps.row_count,
 						ps.reserved_page_count * 8. / 1024. AS reserved_MB,
 						ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
 						ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
-						os.leaf_insert_count, os.leaf_delete_count, os.leaf_update_count, os.forwarded_fetch_count,
-						os.lob_fetch_in_pages, os.lob_fetch_in_bytes, os.row_overflow_fetch_in_pages,
-						os.row_overflow_fetch_in_bytes, os.row_lock_count, os.row_lock_wait_count,
-						os.row_lock_wait_in_ms, os.page_lock_count, os.page_lock_wait_count, os.page_lock_wait_in_ms,
-						os.index_lock_promotion_attempt_count, os.index_lock_promotion_count
+						os.leaf_insert_count, 
+						os.leaf_delete_count, 
+						os.leaf_update_count, 
+						os.forwarded_fetch_count,
+						os.lob_fetch_in_pages, 
+						os.lob_fetch_in_bytes, 
+						os.row_overflow_fetch_in_pages,
+						os.row_overflow_fetch_in_bytes, 
+						os.row_lock_count, 
+						os.row_lock_wait_count,
+						os.row_lock_wait_in_ms, 
+						os.page_lock_count, 
+						os.page_lock_wait_count, 
+						os.page_lock_wait_in_ms,
+						os.index_lock_promotion_attempt_count, 
+						os.index_lock_promotion_count,
+						par.data_compression_desc
 				FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
+				JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
 				JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
 						   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
 						   AND so.type <> ''TF'' /*Exclude table valued functions*/
@@ -494,7 +512,7 @@ BEGIN TRY
 										  row_overflow_fetch_in_bytes, row_lock_count, row_lock_wait_count,
 										  row_lock_wait_in_ms, page_lock_count, page_lock_wait_count,
 										  page_lock_wait_in_ms, index_lock_promotion_attempt_count,
-										  index_lock_promotion_count )
+										  index_lock_promotion_count, data_compression_desc )
 				EXEC sp_executesql @dsql;
 
 		RAISERROR (N'Updating index_sanity_id on #index_partition_sanity',0,1) WITH NOWAIT;
@@ -510,7 +528,7 @@ BEGIN TRY
 									 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
 									 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
 									 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
-									 total_index_lock_promotion_count )
+									 total_index_lock_promotion_count, data_compression_desc )
 				SELECT	index_sanity_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
 						SUM(reserved_row_overflow_MB), 
 						SUM(row_lock_count), 
@@ -526,18 +544,23 @@ BEGIN TRY
 							SUM(page_lock_wait_in_ms)/(1.*SUM(page_lock_wait_count))
 						ELSE 0 END AS avg_page_lock_wait_in_ms,           
 						SUM(index_lock_promotion_attempt_count),
-						SUM(index_lock_promotion_count)
+						SUM(index_lock_promotion_count),
+						MAX(data_compression_info.data_compression_rollup)
 				FROM	#index_partition_sanity ipp
+				/* individual partitions can have distinct compression settings, just roll them into a list here*/
+				OUTER APPLY (SELECT STUFF((
+					SELECT	N', ' + data_compression_desc
+					FROM	#index_partition_sanity ipp2
+					WHERE ipp.[object_id]=ipp2.[object_id]
+						AND ipp.[index_id]=ipp2.[index_id]
+					ORDER BY ipp2.partition_number
+					FOR	  XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) data_compression_info(data_compression_rollup)
 				GROUP BY index_sanity_id
 				ORDER BY index_sanity_id 
 		OPTION	( RECOMPILE );
-		
+
 		RAISERROR (N'Adding UQ index on #index_sanity (object_id,index_id)',0,1) WITH NOWAIT;
 		CREATE UNIQUE INDEX uq_object_id_index_id ON #index_sanity (object_id,index_id);
-
-		RAISERROR (N'Adding UQ index on #index_partition_sanity (index_sanity_id)',0,1) WITH NOWAIT;
-		CREATE UNIQUE INDEX uq_index_sanity_id ON #index_partition_sanity (index_sanity_id, partition_number);
-
 
 		RAISERROR (N'Inserting data into #missing_indexes',0,1) WITH NOWAIT;
 		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -1647,6 +1670,7 @@ BEGIN;
 				sz.avg_page_lock_wait_in_ms ,
 				sz.total_index_lock_promotion_attempt_count ,
 				sz.total_index_lock_promotion_count ,
+				sz.data_compression_desc,
 				more_info,
 				1 as display_order
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
@@ -1661,7 +1685,7 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL,NULL,NULL, NULL,NULL, NULL, NULL, 0 as display_order
+				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, 0 as display_order
 		ORDER BY display_order ASC, total_reserved_MB DESC
 		OPTION (RECOMPILE);
 
