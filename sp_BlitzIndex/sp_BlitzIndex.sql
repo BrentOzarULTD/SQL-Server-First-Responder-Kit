@@ -26,7 +26,7 @@ Usage examples:
 		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
 
 Known limitations of this version:
- - Only covers Clustered and Nonclustered Indexes. (Doesn't cover spatial, fulltext, columnstore, etc.)
+ - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
  - Does not include compression status (on the list to be added)
  - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
@@ -786,32 +786,35 @@ BEGIN TRY
 			ISNULL (
 			CASE index_id WHEN 0 THEN '(HEAP)' 
 			ELSE 
-				CASE WHEN is_primary_key=1 THEN
-					N'ALTER TABLE ' + QUOTENAME([object_name]) + 
-						N' ADD CONSTRAINT [' +
-						index_name + 
-						N'] PRIMARY KEY ' + 
-						CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-						key_column_names_with_sort_order + N' )' 
-				ELSE /*End PK index CASE */ 
-					N'CREATE ' + 
-					CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
-					CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
-					CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
-					N' INDEX ['
-						 + index_name + N'] ON ' + 
-						QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
-							CASE WHEN is_NC_columnstore=1 THEN 
-								N' (' + ISNULL(include_column_names,'') +  N' )' 
-							ELSE /*End non-colunnstore case */ 
-								N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
-								+ CASE WHEN include_column_names IS NOT NULL THEN 
-									N' INCLUDE (' + include_column_names + N')' 
-									ELSE N'' 
-								END
-							END /*End non-colunnstore case */ 
-				END /*End Non-PK index CASE */ +
-				CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
+				CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
+				ELSE 
+					CASE WHEN is_primary_key=1 THEN
+						N'ALTER TABLE ' + QUOTENAME([object_name]) + 
+							N' ADD CONSTRAINT [' +
+							index_name + 
+							N'] PRIMARY KEY ' + 
+							CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+							key_column_names_with_sort_order + N' )' 
+					ELSE /*End PK index CASE */ 
+						N'CREATE ' + 
+						CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
+						CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+						CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
+						N' INDEX ['
+							 + index_name + N'] ON ' + 
+							QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
+								CASE WHEN is_NC_columnstore=1 THEN 
+									N' (' + ISNULL(include_column_names,'') +  N' )' 
+								ELSE /*End non-colunnstore case */ 
+									N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
+									+ CASE WHEN include_column_names IS NOT NULL THEN 
+										N' INCLUDE (' + include_column_names + N')' 
+										ELSE N'' 
+									END
+								END /*End non-colunnstore case */ 
+						END /*End Non-PK index CASE */ +
+					CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
+  				END /*End non-spatial and non-xml CASE */ 
 			END, '[Unknown Error]')
 				AS create_tsql
 		FROM #index_sanity;
