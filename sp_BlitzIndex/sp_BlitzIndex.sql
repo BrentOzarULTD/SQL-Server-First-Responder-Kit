@@ -8,7 +8,7 @@ GO
 EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
 ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256),
+	@database_name NVARCHAR(256)='AdventureWorks',
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
@@ -183,6 +183,7 @@ BEGIN TRY
 			  [database_id] SMALLINT NOT NULL ,
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
+			  [index_type] TINYINT NOT NULL,
 			  [database_name] NVARCHAR(256) NOT NULL ,
 			  [schema_name] NVARCHAR(256) NOT NULL ,
 			  [object_name] NVARCHAR(256) NOT NULL ,
@@ -197,6 +198,9 @@ BEGIN TRY
 			  is_indexed_view BIT NOT NULL ,
 			  is_unique BIT NOT NULL ,
 			  is_primary_key BIT NOT NULL ,
+			  is_XML BIT NOT NULL,
+			  is_spatial BIT NOT NULL,
+			  is_NC_columnstore BIT NOT NULL,
 			  is_disabled BIT NOT NULL ,
 			  is_hypothetical BIT NOT NULL ,
 			  is_padded BIT NOT NULL ,
@@ -327,12 +331,24 @@ BEGIN TRY
 				EXEC sp_executesql @dsql;
 
 		SET @dsql = N'
-				SELECT	' + CAST(@database_id AS NVARCHAR(10)) + ' AS database_id, so.object_id, si.index_id, 
-						' + QUOTENAME(@database_name, '''') + ' AS database_name, sc.NAME AS [schema_name],
-						so.name AS [object_name], si.name AS [index_name],
+				SELECT	' + CAST(@database_id AS NVARCHAR(10)) + ' AS database_id, 
+						so.object_id, 
+						si.index_id, 
+						si.type,
+						' + QUOTENAME(@database_name, '''') + ' AS database_name, 
+						sc.NAME AS [schema_name],
+						so.name AS [object_name], 
+						si.name AS [index_name],
 						CASE	WHEN so.[type] = CAST(''V'' AS CHAR(2)) THEN 1 ELSE 0 END, 
-						si.is_unique, si.is_primary_key, si.is_disabled,
-							si.is_hypothetical, si.is_padded, si.fill_factor,'
+						si.is_unique, 
+						si.is_primary_key, 
+						CASE when si.type = 3 THEN 1 ELSE 0 END AS is_XML,
+						CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
+						CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
+						si.is_disabled,
+						si.is_hypothetical, 
+						si.is_padded, 
+						si.fill_factor,'
 						+ case when @SQLServerProductVersion not like '9%' THEN '
 						CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
 							 ELSE ''''
@@ -348,7 +364,7 @@ BEGIN TRY
 						LEFT JOIN sys.dm_db_index_usage_stats AS us WITH (NOLOCK) ON si.[object_id] = us.[object_id]
 																	   AND si.index_id = us.index_id
 																	   AND us.database_id = '+ CAST(@database_id AS NVARCHAR(10)) + '
-				WHERE	si.[type] IN ( 0, 1, 2 ) /* Heaps, clustered, nonclustered. */ ' +
+				WHERE	si.[type] IN ( 0, 1, 2, 3, 4, 6 ) /* Heaps, clustered, nonclustered, XML, spatial, NC Columnstore */ ' +
 				CASE WHEN @table_name IS NOT NULL THEN ' and so.name=' + QUOTENAME(@table_name,'''') + ' ' ELSE '' END + 
 		'OPTION	( RECOMPILE );
 		';
@@ -356,10 +372,10 @@ BEGIN TRY
 			RAISERROR('@dsql is null',16,1);
 
 		RAISERROR (N'Inserting data into #index_sanity',0,1) WITH NOWAIT;
-		INSERT	#index_sanity ( [database_id], [object_id], index_id, [database_name], [schema_name], [object_name],
-								index_name, is_indexed_view, is_unique, is_primary_key, is_disabled, is_hypothetical,
-								is_padded, fill_factor, filter_definition, user_seeks, user_scans, user_lookups,
-								user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update )
+		INSERT	#index_sanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
+								index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, 
+								is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
+								user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update )
 				EXEC sp_executesql @dsql;
 
 		RAISERROR (N'Updating #index_sanity.key_column_names',0,1) WITH NOWAIT;
@@ -595,13 +611,14 @@ BEGIN TRY
 			s.object_id=fk.referenced_object_id
 			AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns
 
+
 		RAISERROR (N'Add computed columns to #index_sanity to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity ADD 
-		[schema_object_name] AS [schema_name] + '.' + [object_name] ,
+		[schema_object_name] AS [schema_name] + '.' + [object_name]  ,
 		[schema_object_indexid] AS [schema_name] + '.' + [object_name]
 			+ CASE WHEN [index_name] IS NOT NULL THEN '.' + index_name
 			ELSE ''
-			END + ' (' + CAST(index_id AS NVARCHAR(4)) + ')' ,
+			END + ' (' + CAST(index_id AS NVARCHAR(20)) + ')' ,
 		first_key_column_name AS CASE	WHEN count_key_columns > 1
 			THEN LEFT(key_column_names, CHARINDEX(',', key_column_names, 0) - 1)
 			ELSE key_column_names
@@ -616,6 +633,9 @@ BEGIN TRY
 				WHEN 1 THEN N'[CX] '
 				ELSE N'' END + CASE WHEN is_indexed_view = 1 THEN '[VIEW] '
 				ELSE N'' END + CASE WHEN is_primary_key = 1 THEN N'[PK] '
+				ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
+				ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
+				ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
 				ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
 				ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
 				ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
@@ -776,16 +796,21 @@ BEGIN TRY
 					N'CREATE ' + 
 					CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
 					CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+					CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
 					N' INDEX ['
 						 + index_name + N'] ON ' + 
-							QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
-							+ N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
-							+ CASE WHEN include_column_names IS NOT NULL THEN 
-								N' INCLUDE (' + include_column_names + N')' 
-								ELSE N'' 
-							END 
+						QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
+							CASE WHEN is_NC_columnstore=1 THEN 
+								N' (' + ISNULL(include_column_names,'') +  N' )' 
+							ELSE /*End non-colunnstore case */ 
+								N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
+								+ CASE WHEN include_column_names IS NOT NULL THEN 
+									N' INCLUDE (' + include_column_names + N')' 
+									ELSE N'' 
+								END
+							END /*End non-colunnstore case */ 
 				END /*End Non-PK index CASE */ +
-				CASE @SQLServerEdition WHEN 3 THEN + N' WITH (ONLINE=ON);' ELSE N';' END
+				CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
 			END, '[Unknown Error]')
 				AS create_tsql
 		FROM #index_sanity;
@@ -929,7 +954,8 @@ BEGIN;
 			WITH	duplicate_indexes
 					  AS ( SELECT	[object_id], key_column_names
 						   FROM		#index_sanity
-						   WHERE  is_hypothetical = 0
+						   WHERE  index_type IN (1,2) /* Clustered, NC only*/
+								AND is_hypothetical = 0
 								AND is_disabled = 0
 						   GROUP BY	[object_id], key_column_names
 						   HAVING	COUNT(*) > 1)
@@ -957,7 +983,8 @@ BEGIN;
 					  AS ( SELECT DISTINCT [object_id], first_key_column_name, key_column_names,
 									COUNT([object_id]) OVER ( PARTITION BY [object_id], first_key_column_name ) AS number_dupes
 						   FROM		#index_sanity
-						   WHERE is_hypothetical=0
+						   WHERE index_type IN (1,2) /* Clustered, NC only*/
+							AND is_hypothetical=0
 							AND is_disabled=0)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
@@ -1515,6 +1542,10 @@ BEGIN;
 				ISNULL(partition_key_column_name, '') AS partition_key_column_name,
 				ISNULL(filter_definition, '') AS filter_definition, 
 				is_indexed_view, 
+				is_primary_key,
+				is_XML,
+				is_spatial,
+				is_NC_columnstore,
 				is_disabled, 
 				is_hypothetical,
 				is_padded, 
@@ -1558,7 +1589,7 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL,NULL, NULL, 0 as display_order
+				NULL,NULL,NULL, NULL,NULL, NULL, NULL, 0 as display_order
 		ORDER BY display_order ASC, total_reserved_MB DESC
 		OPTION (RECOMPILE);
 
