@@ -45,8 +45,9 @@ Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
 Changes in v17:
-- Steve Wales:
-- Caught dupe checkID's 60, changed one to 87.
+- Steve Wales caught dupe checkID's 60, changed one to 87.
+- Russell Hart fixed a bug in the DBCC CHECKDB check that failed on systems
+  using British date formats.
 - Added @OutputType = 'CSV' option that strips commas and returns one field per
   row rather than separate fields of data. Doesn't return the query and query
   plan fields since those are monsters.
@@ -1851,8 +1852,7 @@ WHERE   is_percent_growth = 1 ';
                         + ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
                         + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
                 FROM    DB2
-                WHERE   CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14,
-                                                              CURRENT_TIMESTAMP)
+                WHERE   CONVERT(datetime, DB2.[Value] 121) < DATEADD(DD, -14, CURRENT_TIMESTAMP)
 
 
 
