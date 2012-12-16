@@ -48,6 +48,8 @@ Changes in v17:
 - Steve Wales caught dupe checkID's 60, changed one to 87.
 - Russell Hart fixed a bug in the DBCC CHECKDB check that failed on systems
   using British date formats.
+- Improved check 78 for implicit conversion so that it checks sys.sql_modules
+  for the is_recompiled bit flag rather than scanning the source code. 
 - Added @OutputType = 'CSV' option that strips commas and returns one field per
   row rather than separate fields of data. Doesn't return the query and query
   plan fields since those are monsters.
@@ -1479,7 +1481,7 @@ WHERE   is_percent_growth = 1 ';
     FROM    [?].sys.indexes 
     WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
 
-            EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 78, 100, ''Performance'', ''Stored Procedure WITH RECOMPILE'', ''http://BrentOzar.com/go/recompile'', (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
+            EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT 78, 100, ''Performance'', ''Stored Procedure WITH RECOMPILE'', ''http://BrentOzar.com/go/recompile'', (''['' + DB_NAME() + ''].['' + SCHEMA_NAME(o.schema_id) + ''].['' + o.name + ''] was created WITH RECOMPILE in the stored procedure code, which can cause increased CPU usage due to constant recompiles of the code.'') FROM [?].sys.sql_modules m INNER JOIN [?].sys.objects o ON m.object_id = o.object_id WHERE m.is_recompiled = 1 AND o.name <> ''sp_Blitz''';
 
             EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 
