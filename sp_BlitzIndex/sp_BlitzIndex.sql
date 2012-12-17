@@ -1520,6 +1520,23 @@ BEGIN;
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.is_spatial = 1 OPTION	( RECOMPILE );
 
+			RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	63 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Compressed indexes' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid  + N'. COMPRESSION: ' + sz.data_compression_desc AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' OPTION	( RECOMPILE );
+
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
