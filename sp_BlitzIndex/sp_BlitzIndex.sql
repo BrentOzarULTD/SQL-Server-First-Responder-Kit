@@ -489,8 +489,8 @@ BEGIN TRY
 						os.page_lock_wait_count, 
 						os.page_lock_wait_in_ms,
 						os.index_lock_promotion_attempt_count, 
-						os.index_lock_promotion_count,
-						par.data_compression_desc
+						os.index_lock_promotion_count, 
+						' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
 				FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
 				JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
 				JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
