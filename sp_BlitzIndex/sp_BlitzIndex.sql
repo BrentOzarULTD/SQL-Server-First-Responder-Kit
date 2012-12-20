@@ -1341,7 +1341,7 @@ BEGIN;
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	41 AS check_id, 
 							N'Self Loathing Indexes' AS findings_group,
-							N'	' AS finding, 'http://BrentOzar.com/go/SelfLoathing' AS URL,
+							N'Hypothetical Index' AS finding, 'http://BrentOzar.com/go/SelfLoathing' AS URL,
 							N'Hypothetical Index: ' + schema_object_indexid AS details, 
 							i.index_definition,
 							i.secret_columns,
