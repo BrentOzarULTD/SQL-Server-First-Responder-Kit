@@ -1759,7 +1759,7 @@ BEGIN;
 			database_name, 
 			[schema_name], 
 			table_name, 
-			cast(magic_benefit_number as NVARCHAR(500)) as magic_benefit_number, 
+			CAST(magic_benefit_number AS INT) AS magic_benefit_number, 
 			missing_index_details, 
 			avg_total_user_cost, 
 			avg_user_impact, 
@@ -1779,9 +1779,10 @@ BEGIN;
 			N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
+			100000000000,
 			N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 			NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-			NULL,NULL, 0 as display_order
+			NULL, 0 as display_order
 		ORDER BY display_order ASC, magic_benefit_number DESC
 
 	END /* End @mode=3 (index detail)*/
