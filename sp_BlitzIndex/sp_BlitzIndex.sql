@@ -49,6 +49,7 @@ CHANGE LOG (last three versions):
 		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
 		Fixed bug where the partitioning key column was displayed in the key of aligned nonclustered indexes on partitioned tables
+		Added set options to the script so procedure is created with required settings for its use of computed columns
 	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
 		missing index data detail only.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
