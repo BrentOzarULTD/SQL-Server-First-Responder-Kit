@@ -42,11 +42,12 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last three versions):
-	December 14, 2012 - Fixed bugs for instances using a case-sensitive collation
+	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
 		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
+		Fixed bug where the partitioning key column was displayed in the wrong order in aligned nonclustered indexes on partitioned tables
 	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
 		missing index data detail only.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
@@ -337,7 +338,7 @@ BEGIN TRY
 
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
-			
+
 		RAISERROR (N'Inserting data into #index_columns',0,1) WITH NOWAIT;
 		INSERT	#index_columns ( object_id, index_id, key_ordinal, partition_ordinal,
 			column_name, is_included_column, is_descending_key )
@@ -400,6 +401,7 @@ BEGIN TRY
 												WHERE	c.object_id = si.object_id
 														AND c.index_id = si.index_id
 														AND c.is_included_column = 0 /*Just Keys*/
+														AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
 												ORDER BY c.object_id, c.index_id, c.key_ordinal	
 										FOR	  XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 												  ) D1 ( key_column_names )
@@ -429,6 +431,7 @@ BEGIN TRY
 												WHERE	c.object_id = si.object_id
 														AND c.index_id = si.index_id
 														AND c.is_included_column = 0 /*Just Keys*/
+														AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
 												ORDER BY c.object_id, c.index_id, c.key_ordinal	
 										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 										) D2 ( key_column_names_with_sort_order )
@@ -456,8 +459,8 @@ BEGIN TRY
 				CROSS APPLY ( SELECT	SUM(CASE WHEN is_included_column = 'true' THEN 1
 												 ELSE 0
 											END) AS count_included_columns,
-										SUM(CASE WHEN is_included_column = 'true' THEN 0
-												 ELSE 1
+										SUM(CASE WHEN is_included_column = 'false' AND c.key_ordinal > 0 THEN 1
+												 ELSE 0
 											END) AS count_key_columns
 							  FROM		#index_columns c
 							  WHERE		c.object_id = si.object_id
@@ -645,7 +648,6 @@ BEGIN TRY
 			s.object_id=fk.referenced_object_id
 			AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns
 
-
 		RAISERROR (N'Add computed columns to #index_sanity to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity ADD 
 		[schema_object_name] AS [schema_name] + '.' + [object_name]  ,
@@ -713,6 +715,7 @@ BEGIN TRY
 		FROM #index_sanity AS tb
 		WHERE tb.index_id = 0 /*Heaps-- these have the RID */
 			or (tb.index_id=1 and tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
+
 		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity_size ADD 
 			  index_size_summary AS ISNULL(
