@@ -1543,6 +1543,46 @@ BEGIN;
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' OPTION	( RECOMPILE );
 
+			RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	64 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Partitioned indexes' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.partition_key_column_name IS NOT NULL OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 64: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	64 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Non-Aligned index on a partitioned table' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					JOIN #index_sanity AS iParent ON
+						i.[object_id]=iParent.[object_id]
+						AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
+						AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.partition_key_column_name IS NULL 
+						OPTION	( RECOMPILE );
+
+
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
