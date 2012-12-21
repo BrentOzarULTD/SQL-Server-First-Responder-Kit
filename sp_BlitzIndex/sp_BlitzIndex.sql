@@ -979,7 +979,7 @@ BEGIN;
 	BEGIN;
 		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH NOWAIT;
 
-		RAISERROR(N'Insert a row to help people find help.', 0,1) WITH NOWAIT;
+		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
 		VALUES  ( 0 , N'sp_BlitzIndex version 1.33 (Nov 22, 2012)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
@@ -1006,7 +1006,7 @@ BEGIN;
 						SELECT	1 AS check_id, 
 								ip.index_sanity_id,
 								'Multiple Index Personalities' AS findings_group,
-								'Duplicate keys.' AS finding,
+								'Duplicate keys' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
 								ip.schema_object_indexid AS details,
 								ip.index_definition, 
@@ -1033,7 +1033,7 @@ BEGIN;
 						SELECT	2 AS check_id, 
 								ip.index_sanity_id,
 								'Multiple Index Personalities' AS findings_group,
-								'Borderline duplicate keys.' AS finding,
+								'Borderline duplicate keys' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
 								ip.schema_object_indexid AS details, 
 								ip.index_definition, 
@@ -1126,7 +1126,7 @@ BEGIN;
 						SELECT	20 AS check_id, 
 								MAX(i.index_sanity_id) AS index_sanity_id, 
 								'Index Hoarder' AS findings_group,
-								'Many NC indexes on a single table.' AS finding,
+								'Many NC indexes on a single table' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (COUNT(*) AS NVARCHAR(30)) + ' NC indexes on ' + i.schema_object_name AS details,
 								i.schema_object_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + ' indexes)' AS index_definition,
@@ -1170,7 +1170,7 @@ BEGIN;
 						SELECT	21 AS check_id, 
 								MAX(i.index_sanity_id) AS index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'More than 5% of NC indexes are unused.' AS finding,
+								N'More than 5% of NC indexes are unused' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N'% of NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') are unused. ' +
 								N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
@@ -1199,7 +1199,7 @@ BEGIN;
 					SELECT	22 AS check_id, 
 							i.index_sanity_id,
 							N'Index Hoarder' AS findings_group,
-							N'Unused NC index.' AS finding, 
+							N'Unused NC index' AS finding, 
 							N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 							N'0 reads: ' + i.schema_object_indexid AS details, 
 							i.index_definition, 
@@ -1237,7 +1237,7 @@ BEGIN;
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
 								'Index Hoarder' AS findings_group,
-								'Multi-column clustered index.' AS finding,
+								'Multi-column clustered index' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (i.count_key_columns AS NVARCHAR(10)) + ' columns in clustered index:' + i.schema_object_name AS details,
 								i.index_definition,
@@ -1270,9 +1270,9 @@ BEGIN;
 						SELECT	30 AS check_id, 
 								NULL AS index_sanity_id, 
 								N'Feature-Phobic Indexes' AS findings_group,
-								N'No indexes use includes.' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
-								N'No indexes use includes.' AS details,
-								N'Entire database.' AS index_definition, 
+								N'No indexes use includes' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
+								N'No indexes use includes' AS details,
+								N'Entire database' AS index_definition, 
 								N'' AS secret_columns, 
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
@@ -1286,8 +1286,8 @@ BEGIN;
 								N'Feature-Phobic Indexes' AS findings_group,
 								N'Borderline: Includes are used in < 3% of indexes' AS findings,
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
-								N'Only ' + CAST(@percent_indexes_with_includes AS NVARCHAR(10)) + '% of indexes have includes.' AS details, 
-								N'Entire database.' AS index_definition, 
+								N'Only ' + CAST(@percent_indexes_with_includes AS NVARCHAR(10)) + '% of indexes have includes' AS details, 
+								N'Entire database' AS index_definition, 
 								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
@@ -1311,10 +1311,10 @@ BEGIN;
 						SELECT	32 AS check_id, 
 								NULL AS index_sanity_id,
 								N'Feature-Phobic Indexes' AS findings_group,
-								N'Borderline: No filtered indexes or indexed views exist.' AS finding, 
+								N'Borderline: No filtered indexes or indexed views exist' AS finding, 
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'These are NOT always needed-- but do you know when you would use them?' AS details,
-								N'Entire database.' AS index_definition, 
+								N'Entire database' AS index_definition, 
 								N'' AS secret_columns,
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
@@ -1458,7 +1458,7 @@ BEGIN;
 						SELECT	50 AS check_id, 
 								sz.index_sanity_id,
 								N'Indexaphobia' AS findings_group,
-								N'High value missing index.' AS finding, 
+								N'High value missing index' AS finding, 
 								N'http://BrentOzar.com/go/Indexaphobia' AS URL,
 								mi.[statement] + ' estimated benefit: ' + 
 									REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
