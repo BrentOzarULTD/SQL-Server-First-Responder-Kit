@@ -45,9 +45,10 @@ CHANGE LOG (last three versions):
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
+		Added "Abnormal Psychology" diagnosis to alert you to special index types in a database
 		Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
-		Fixed bug where the partitioning key column was displayed in the wrong order in aligned nonclustered indexes on partitioned tables
+		Fixed bug where the partitioning key column was displayed in the key of aligned nonclustered indexes on partitioned tables
 	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
 		missing index data detail only.
 	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
