@@ -2297,27 +2297,30 @@ SELECT a.name from
             );
 
 
+	DECLARE @separator AS VARCHAR(1) = ',';
+	IF @OutputType = 'RSV'
+		SET @separator = CHAR(30);
 
     IF @OutputType = 'COUNT' 
         BEGIN
             SELECT  COUNT(*) AS Warnings
             FROM    #BlitzResults
         END
-    ELSE IF @OutputType = 'CSV'
-    BEGIN
-    DECLARE @separator AS CHAR(1) = CHAR(30);
-  SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + @separator
-        + CAST(CheckID AS NVARCHAR(100)) + @separator
-        + [FindingsGroup] + @separator
-                + [Finding] + @separator
-                + [URL] + @separator 
-                + [Details]
-        FROM    #BlitzResults
-        ORDER BY Priority ,
-                FindingsGroup ,
-                Finding ,
-                Details;
-    END
+    ELSE IF @OutputType IN ('CSV', 'RSV')
+		BEGIN
+			
+			SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + @separator
+				+ CAST(CheckID AS NVARCHAR(100)) + @separator
+				+ [FindingsGroup] + @separator
+						+ [Finding] + @separator
+						+ [URL] + @separator 
+						+ [Details]
+				FROM    #BlitzResults
+				ORDER BY Priority ,
+						FindingsGroup ,
+						Finding ,
+						Details;
+		END
   ELSE
         BEGIN
             SELECT  [Priority] ,
