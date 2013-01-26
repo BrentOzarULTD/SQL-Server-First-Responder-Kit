@@ -3022,8 +3022,8 @@ DECLARE @separator AS VARCHAR(1) = ',';
 			SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + @separator
 				+ CAST(CheckID AS NVARCHAR(100)) + @separator
 				+ [FindingsGroup] + @separator
-				+ DatabaseName + @separator
 				+ [Finding] + @separator
+				+ DatabaseName + @separator
 				+ [URL] + @separator 
 				+ [Details]
 			FROM    #BlitzResults
