@@ -3009,7 +3009,7 @@ Explanation of priority levels:
 
 DECLARE @separator AS VARCHAR(1) = ',';
 	IF @OutputType = 'RSV'
-		SET @separator = CHAR(30);
+		SET @separator = CHAR(31);
 
     IF @OutputType = 'COUNT' 
     BEGIN
