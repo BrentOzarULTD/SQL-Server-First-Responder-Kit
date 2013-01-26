@@ -3022,11 +3022,12 @@ DECLARE @separator AS VARCHAR(1) = ',';
 			SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + @separator
 				+ CAST(CheckID AS NVARCHAR(100)) + @separator
 				+ [FindingsGroup] + @separator
-						+ [Finding] + @separator
-						+ [URL] + @separator 
-						+ [Details]
-				FROM    #BlitzResults
-				ORDER BY Priority ,
+				+ DatabaseName + @separator
+				+ [Finding] + @separator
+				+ [URL] + @separator 
+				+ [Details]
+			FROM    #BlitzResults
+			ORDER BY Priority ,
 						FindingsGroup ,
 						Finding ,
 						Details;
