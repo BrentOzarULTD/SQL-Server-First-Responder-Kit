@@ -22,9 +22,9 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v17 - January 31, 2013
+    sp_Blitz v17 - January 27, 2013
     
-    (C) 2012, Brent Ozar Unlimited
+    (C) 2013, Brent Ozar Unlimited
 
 To learn more, visit http://www.BrentOzar.com/blitz where you can download
 new versions for free, watch training videos on how it works, get more info on
@@ -3121,7 +3121,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz v17 Jan 31 2013' ,
+    'sp_Blitz v17 Jan 27 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
