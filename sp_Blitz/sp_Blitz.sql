@@ -16,6 +16,8 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @SkipChecksDatabase NVARCHAR(50) = NULL,
     @SkipChecksSchema NVARCHAR(10) = NULL,
     @SkipChecksTable NVARCHAR(50) = NULL,
+    @IgnorePrioritiesBelow INT = NULL,
+    @IgnorePrioritiesAbove INT = NULL,
     @Version INT = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
@@ -52,12 +54,17 @@ Changes in v17:
 - Steve Wales caught dupe checkID's 60, changed one to 87.
 - Russell Hart fixed a bug in the DBCC CHECKDB check that failed on systems
   using British date formats.
+- Alin Selician:
+  - Fixed bug in check 72 for partitioned indexes that weren't aligned.
+  - Suggested check 88 for SQL Server's last restart.
+- Stephanie Richter fixed description typo in check 57 for Agent startup jobs.
+- Roland Rosso suggested to add parameters for @IgnorePrioritiesBelow and
+  @IgnorePrioritiesAbove so you can just return results for some types of checks.
 - Improved check 78 for implicit conversion so that it checks sys.sql_modules
   for the is_recompiled bit flag rather than scanning the source code. 
 - Added @OutputType = 'CSV' option that strips commas and returns one field per
   row rather than separate fields of data. Doesn't return the query and query
   plan fields since those are monsters.
-
  - Created support for excluding databases and/or checks.  This will handled via a table that holds
   the servers, databases and checks that you would like skipped. Use the script below (naming the table)to 
   create the table
@@ -1776,7 +1783,7 @@ Explanation of priority levels:
     'Security' AS FindingsGroup ,
     'SQL Agent Job Runs at Startup' AS Finding ,
     'http://BrentOzar.com/go/startup' AS URL ,
-    ( 'Job ' + j.name
+    ( 'Job [' + j.name
     + '] runs automatically when SQL Server Agent starts up.  Make sure you know exactly what this job is doing, because it could pose a security risk.' ) AS Details
     FROM    msdb.dbo.sysschedules sched
     JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
@@ -2633,7 +2640,7 @@ Explanation of priority levels:
     SELECT distinct db_name(database_id) as DBName,o.name Object_Name,ds.type_desc
     FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id 
     JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
-    LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id
+    LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id AND s.database_id = DB_ID()
     WHERE  o.type = ''u''
      -- Clustered and Non-Clustered indexes
     AND i.type IN (1, 2) 
@@ -2867,73 +2874,112 @@ Explanation of priority levels:
     WHERE   cr.value <> cr.value_in_use ;
     end
                     
-    if not exists (select 1 from #tempchecks where CheckId = 83)
-    begin
-    IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
-    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    SELECT  83 AS CheckID ,
-    250 AS Priority ,
-    ''Server Info'' AS FindingsGroup ,
-    ''Services'' AS Finding ,
-    '''' AS URL ,
-    N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
-    FROM sys.dm_server_services;'
-    EXECUTE(@StringToExecute);
-    end
 
-    /* Check 84 - SQL Server 2012 */              
-    if not exists (select 1 from #tempchecks where CheckId = 84)
-    begin
-    IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_kb')
-    BEGIN
-    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    SELECT  84 AS CheckID ,
-    250 AS Priority ,
-    ''Server Info'' AS FindingsGroup ,
-    ''Hardware'' AS Finding ,
-    '''' AS URL ,
-    ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_kb / 1024.0 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
-    FROM sys.dm_os_sys_info';
-    EXECUTE(@StringToExecute);
-    END
+	IF @CheckServerInfo = 1
+	BEGIN
 
-    /* Check 84 - SQL Server 2008 */
-    IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_in_bytes')
-    BEGIN
-    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    SELECT  84 AS CheckID ,
-    250 AS Priority ,
-    ''Server Info'' AS FindingsGroup ,
-    ''Hardware'' AS Finding ,
-    '''' AS URL ,
-    ''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_in_bytes / 1024.0 / 1024 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
-    FROM sys.dm_os_sys_info';
-    EXECUTE(@StringToExecute);
-    END
-    end
+		if not exists (select 1 from #tempchecks where CheckId = 83)
+		begin
+		IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
+		SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT  83 AS CheckID ,
+		250 AS Priority ,
+		''Server Info'' AS FindingsGroup ,
+		''Services'' AS Finding ,
+		'''' AS URL ,
+		N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
+		FROM sys.dm_server_services;'
+		EXECUTE(@StringToExecute);
+		end
 
-                
-    if not exists (select 1 from #tempchecks where CheckId = 85)
-    begin
-    INSERT  INTO #BlitzResults
-    ( CheckID ,
-    Priority ,
-    FindingsGroup ,
-    Finding ,
-    URL ,
-    Details
-    )
-    SELECT  85 AS CheckID ,
-    250 AS Priority ,
-    'Server Info' AS FindingsGroup ,
-    'SQL Server Service' AS Finding ,
-    '' AS URL ,
-    N'Version: ' + CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100)) 
-    + N'. Patch Level: ' + CAST(SERVERPROPERTY ('productlevel') AS NVARCHAR(100)) 
-    + N'. Edition: ' + CAST(SERVERPROPERTY ('edition') AS VARCHAR(100))
-    + N'. AlwaysOn Enabled: ' + CAST(COALESCE(SERVERPROPERTY ('IsHadrEnabled'),0) AS VARCHAR(100))
-    + N'. AlwaysOn Mgr Status: ' + CAST(COALESCE(SERVERPROPERTY ('HadrManagerStatus'),0) AS VARCHAR(100))
-    end
+		/* Check 84 - SQL Server 2012 */              
+		if not exists (select 1 from #tempchecks where CheckId = 84)
+		begin
+		IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_kb')
+		BEGIN
+		SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT  84 AS CheckID ,
+		250 AS Priority ,
+		''Server Info'' AS FindingsGroup ,
+		''Hardware'' AS Finding ,
+		'''' AS URL ,
+		''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_kb / 1024.0 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
+		FROM sys.dm_os_sys_info';
+		EXECUTE(@StringToExecute);
+		END
+
+		/* Check 84 - SQL Server 2008 */
+		IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'physical_memory_in_bytes')
+		BEGIN
+		SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT  84 AS CheckID ,
+		250 AS Priority ,
+		''Server Info'' AS FindingsGroup ,
+		''Hardware'' AS Finding ,
+		'''' AS URL ,
+		''Logical processors: '' + CAST(cpu_count AS VARCHAR(50)) + ''. Physical memory: '' + CAST( CAST(ROUND((physical_memory_in_bytes / 1024.0 / 1024 / 1024), 1) AS INT) AS VARCHAR(50)) + ''GB.''
+		FROM sys.dm_os_sys_info';
+		EXECUTE(@StringToExecute);
+		END
+		end
+
+	                
+		if not exists (select 1 from #tempchecks where CheckId = 85)
+		begin
+		INSERT  INTO #BlitzResults
+		( CheckID ,
+		Priority ,
+		FindingsGroup ,
+		Finding ,
+		URL ,
+		Details
+		)
+		SELECT  85 AS CheckID ,
+		250 AS Priority ,
+		'Server Info' AS FindingsGroup ,
+		'SQL Server Service' AS Finding ,
+		'' AS URL ,
+		N'Version: ' + CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100)) 
+		+ N'. Patch Level: ' + CAST(SERVERPROPERTY ('productlevel') AS NVARCHAR(100)) 
+		+ N'. Edition: ' + CAST(SERVERPROPERTY ('edition') AS VARCHAR(100))
+		+ N'. AlwaysOn Enabled: ' + CAST(COALESCE(SERVERPROPERTY ('IsHadrEnabled'),0) AS VARCHAR(100))
+		+ N'. AlwaysOn Mgr Status: ' + CAST(COALESCE(SERVERPROPERTY ('HadrManagerStatus'),0) AS VARCHAR(100))
+		end
+
+
+		if not exists (select 1 from #tempchecks where CheckId = 88)
+		BEGIN
+		INSERT  INTO #BlitzResults
+		( CheckID ,
+		Priority ,
+		FindingsGroup ,
+		Finding ,
+		URL ,
+		Details
+		)
+		SELECT  88 AS CheckID ,
+		250 AS Priority ,
+		'Server Info' AS FindingsGroup ,
+		'SQL Server Last Restart' AS Finding ,
+		'' AS URL ,
+		CAST(create_date AS VARCHAR(100))
+		FROM sys.databases
+		WHERE database_id = 2
+		END
+
+END /* IF @CheckServerInfo = 1 */
+
+
+/* Delete priorites they wanted to skip. Needs to be above the Brent Ozar Unlimited credits. */
+IF @IgnorePrioritiesAbove IS NOT NULL
+	DELETE #BlitzResults
+	WHERE [Priority] > @IgnorePrioritiesAbove;
+	
+IF @IgnorePrioritiesBelow IS NOT NULL
+	DELETE #BlitzResults
+	WHERE [Priority] < @IgnorePrioritiesAbove;
+
+
                     
     INSERT  INTO #BlitzResults
     ( CheckID ,
@@ -3110,12 +3156,12 @@ GO
 
 /*
 Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz]
+EXEC [master].[dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
-  @CheckServerInfo = 1
+    @CheckServerInfo = 1
 
 */
