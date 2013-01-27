@@ -3007,9 +3007,11 @@ Explanation of priority levels:
         drop table #exempt
       end
 
-DECLARE @separator AS VARCHAR(1) = ',';
+DECLARE @separator AS VARCHAR(1);
 	IF @OutputType = 'RSV'
 		SET @separator = CHAR(31);
+	ELSE
+		SET @separator = ',';
 
     IF @OutputType = 'COUNT' 
     BEGIN
@@ -3021,11 +3023,11 @@ DECLARE @separator AS VARCHAR(1) = ',';
 			
 			SELECT  Result = CAST([Priority] AS NVARCHAR(100)) + @separator
 				+ CAST(CheckID AS NVARCHAR(100)) + @separator
-				+ [FindingsGroup] + @separator
-				+ [Finding] + @separator
-				+ DatabaseName + @separator
-				+ [URL] + @separator 
-				+ [Details]
+				+ COALESCE([FindingsGroup], '(N/A)') + @separator
+				+ COALESCE([Finding], '(N/A)') + @separator
+				+ COALESCE(DatabaseName, '(N/A)') + @separator
+				+ COALESCE([URL], '(N/A)') + @separator 
+				+ COALESCE([Details], '(N/A)')
 			FROM    #BlitzResults
 			ORDER BY Priority ,
 						FindingsGroup ,
