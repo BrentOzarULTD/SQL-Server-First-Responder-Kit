@@ -51,23 +51,34 @@ Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
  
 Changes in v17: 
-- Steve Wales caught dupe checkID's 60, changed one to 87.
-- Russell Hart fixed a bug in the DBCC CHECKDB check that failed on systems
-  using British date formats.
-- Alin Selician:
-  - Fixed bug in check 72 for partitioned indexes that weren't aligned.
-  - Suggested check 88 for SQL Server's last restart.
-- Stephanie Richter fixed description typo in check 57 for Agent startup jobs.
-- Roland Rosso suggested to add parameters for @IgnorePrioritiesBelow and
-  @IgnorePrioritiesAbove so you can just return results for some types of checks.
-- Improved check 78 for implicit conversion so that it checks sys.sql_modules
-  for the is_recompiled bit flag rather than scanning the source code. 
-- Added @OutputType = 'CSV' option that strips commas and returns one field per
-  row rather than separate fields of data. Doesn't return the query and query
-  plan fields since those are monsters.
+ - Alin Selician:
+   - Fixed bug in check 72 for partitioned indexes that weren't aligned.
+   - Suggested check 88 for SQL Server's last restart.
+ - Nigel Maneffa:
+   - Added check 90 for corruption alerts in msdb.dbo.suspect_pages.
+   - Added check 91 for merge replication with infinite retention.
+ - Nancy Hidy Wilson @NancyHidyWilson fixed a bug in the sys.configurations
+   check 22: SQL 2012 changed the remote login timeout setting from 20 to 10.
+ - Roland Rosso suggested to add parameters for @IgnorePrioritiesBelow and
+   @IgnorePrioritiesAbove so you can just return results for some types of checks.
+ - Russell Hart fixed a bug in the DBCC CHECKDB check that failed on systems
+   using British date formats.
+ - Stephanie Richter fixed description typo in check 57 for Agent startup jobs.
+ - Steve Wales caught dupe checkID's 60, changed one to 87.
+ - Improved check 78 for implicit conversion so that it checks sys.sql_modules
+   for the is_recompiled bit flag rather than scanning the source code. 
+ - Added check 89 looking for corruption reports in dm_hadr_auto_page_repair.
+ - Improved checks 58 and 76 (collation mismatches) to exclude ReportServer and
+   ReportServerTempDB. Microsoft builds those databases their own special way.
+ - Improved check 22, the default sys.configurations check, to add new SQL 2012
+   settings, deal with odd default min server memory settings (we're seeing
+   both 0mb and 16mb in the wild as defaults).
+ - Added @OutputType = 'CSV' option that strips commas and returns one field per
+   row rather than separate fields of data. Doesn't return the query and query
+   plan fields since those are monsters.
  - Created support for excluding databases and/or checks.  This will handled via a table that holds
-  the servers, databases and checks that you would like skipped. Use the script below (naming the table)to 
-  create the table
+   the servers, databases and checks that you would like skipped. Use the script below (naming the table)to 
+   create the table
      CREATE TABLE dbo.Whatever
       (ID INT IDENTITY(1,1),
       ServerName VARCHAR(50),
@@ -938,6 +949,12 @@ Explanation of priority levels:
       OR is_distributor = 1
       ;
     end
+
+    if not exists (select 1 from #tempchecks where CheckId = 91)
+    begin
+    EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 88, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/zzzzz_newsectionhere'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+    end
+
             
     if not exists (select 1 from #tempchecks where CheckId = 20)
     begin
@@ -992,6 +1009,10 @@ Explanation of priority levels:
     end
     
     /* Compare sp_configure defaults */
+    INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'access check cache bucket count', 0 );
+    INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'access check cache quota', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'Ad Hoc Distributed Queries', 0 );
     INSERT  INTO #ConfigurationDefaults
@@ -1058,8 +1079,15 @@ Explanation of priority levels:
     VALUES  ( 'media retention', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'min memory per query (KB)', 1024 );
-    INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'min server memory (MB)', 0 );
+    /* Accepting both 0 and 16 below because both have been seen in the wild as defaults. */
+    IF EXISTS(SELECT * FROM sys.configurations WHERE name = 'min server memory (MB)' AND value_in_use IN (0, 16))
+        INSERT  INTO #ConfigurationDefaults
+        SELECT 'min server memory (MB)', CAST(value_in_use AS BIGINT)
+        FROM sys.configurations
+        WHERE name = 'min server memory (MB)'
+    ELSE
+        INSERT  INTO #ConfigurationDefaults
+        VALUES  ( 'min server memory (MB)', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'nested triggers', 1 );
     INSERT  INTO #ConfigurationDefaults
@@ -1086,8 +1114,6 @@ Explanation of priority levels:
     VALUES  ( 'remote access', 1 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'remote admin connections', 0 );
-    INSERT  INTO #ConfigurationDefaults
-    VALUES  ( 'remote login timeout (s)', 20 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'remote proc trans', 0 );
     INSERT  INTO #ConfigurationDefaults
@@ -1120,6 +1146,27 @@ Explanation of priority levels:
     VALUES  ( 'Web Assistant Procedures', 0 );
     INSERT  INTO #ConfigurationDefaults
     VALUES  ( 'xp_cmdshell', 0 );
+    
+	/* New values for 2012 */    
+    INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'affinity64 mask', 0 );
+    INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'affinity64 I/O mask', 0 );
+    INSERT  INTO #ConfigurationDefaults
+    VALUES  ( 'contained database authentication', 0 );
+
+    /* SQL Server 2012 also changes a configuration default */
+    IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
+    OR @@VERSION LIKE '%Microsoft SQL Server 2008%' 
+    BEGIN 
+        INSERT  INTO #ConfigurationDefaults
+        VALUES  ( 'remote login timeout (s)', 20 );
+    END
+    ELSE
+    BEGIN
+        INSERT  INTO #ConfigurationDefaults
+        VALUES  ( 'remote login timeout (s)', 10 );
+    END
 
     
     if not exists (select 1 from #tempchecks where CheckId = 22)
@@ -1135,15 +1182,17 @@ Explanation of priority levels:
     SELECT  22 AS CheckID ,
     200 AS Priority ,
     'Non-Default Server Config' AS FindingsGroup ,
-    cd.name AS Finding ,
+    cr.name AS Finding ,
     'http://BrentOzar.com/go/conf' AS URL ,
     ( 'This sp_configure option has been changed.  Its default value is '
-      + CAST(cd.[DefaultValue] AS VARCHAR(100))
+      + COALESCE(CAST(cd.[DefaultValue] AS VARCHAR(100)), '(unknown)')
       + ' and it has been set to '
       + CAST(cr.value_in_use AS VARCHAR(100)) + '.' ) AS Details
-    FROM    #ConfigurationDefaults cd
-    INNER JOIN sys.configurations cr ON cd.name = cr.name
-    WHERE   cd.DefaultValue <> cr.value_in_use;
+    FROM sys.configurations cr
+    INNER JOIN #ConfigurationDefaults cd ON cd.name = cr.name
+    LEFT OUTER JOIN #ConfigurationDefaults cdUsed ON cdUsed.name = cr.name
+    AND cdUsed.DefaultValue = cr.value_in_use
+    WHERE cdUsed.name IS NULL;
     end
     
         
@@ -1463,29 +1512,89 @@ Explanation of priority levels:
     
     if not exists (select 1 from #tempchecks where CheckId = 34)
     begin
-    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-    AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+    IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_mirroring_auto_page_repair')
     BEGIN
       SET @StringToExecute = 
       'INSERT INTO #BlitzResults 
             (CheckID, 
+            DatabaseName,
             Priority, 
             FindingsGroup, 
             Finding, 
             URL, 
             Details)
-      SELECT TOP 1
+      SELECT DISTINCT
       34 AS CheckID ,
+      db.name ,
       1 AS Priority ,
       ''Corruption'' AS FindingsGroup ,
       ''Database Corruption Detected'' AS Finding ,
       ''http://BrentOzar.com/go/repair'' AS URL ,
       ( ''Database mirroring has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_db_mirroring_auto_page_repair.'' ) AS Details
-      FROM    sys.dm_db_mirroring_auto_page_repair
-      WHERE   modification_time >= DATEADD(dd, -30, GETDATE()) ;'
+      FROM    sys.dm_db_mirroring_auto_page_repair rp
+      INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
+      WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) ;'
       EXECUTE(@StringToExecute)
     END;
     end
+
+    if not exists (select 1 from #tempchecks where CheckId = 89)
+    begin
+    IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_hadr_auto_page_repair')
+    BEGIN
+      SET @StringToExecute = 
+      'INSERT INTO #BlitzResults 
+            (CheckID, 
+            DatabaseName,
+            Priority, 
+            FindingsGroup, 
+            Finding, 
+            URL, 
+            Details)
+      SELECT DISTINCT
+      89 AS CheckID ,
+      db.name ,
+      1 AS Priority ,
+      ''Corruption'' AS FindingsGroup ,
+      ''Database Corruption Detected'' AS Finding ,
+      ''http://BrentOzar.com/go/repair'' AS URL ,
+      ( ''AlwaysOn has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_hadr_auto_page_repair.'' ) AS Details
+      FROM    sys.dm_hadr_auto_page_repair rp
+      INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
+      WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) ;'
+      EXECUTE(@StringToExecute)
+    END;
+    end
+
+            
+    if not exists (select 1 from #tempchecks where CheckId = 90)
+    begin
+    IF EXISTS (SELECT * FROM msdb.sys.all_objects WHERE name = 'suspect_pages')
+    BEGIN
+      SET @StringToExecute = 
+      'INSERT INTO #BlitzResults 
+            (CheckID, 
+            DatabaseName,
+            Priority, 
+            FindingsGroup, 
+            Finding, 
+            URL, 
+            Details)
+      SELECT DISTINCT
+      90 AS CheckID ,
+      db.name ,
+      1 AS Priority ,
+      ''Corruption'' AS FindingsGroup ,
+      ''Database Corruption Detected'' AS Finding ,
+      ''http://BrentOzar.com/go/repair'' AS URL ,
+      ( ''SQL Server has detected at least one corrupt page in the last 30 days. For more information, query the system table msdb.dbo.suspect_pages.'' ) AS Details
+      FROM    msdb.dbo.suspect_pages sp
+      INNER JOIN master.sys.databases db ON sp.database_id = db.database_id
+      WHERE   sp.last_update_date >= DATEADD(dd, -30, GETDATE()) ;'
+      EXECUTE(@StringToExecute)
+    END;
+    end
+
             
     if not exists (select 1 from #tempchecks where CheckId = 36)
     begin
@@ -1542,6 +1651,7 @@ Explanation of priority levels:
     BEGIN
       INSERT  INTO #BlitzResults
       ( CheckID ,
+      DatabaseName ,
       Priority ,
       FindingsGroup ,
       Finding ,
@@ -1549,6 +1659,7 @@ Explanation of priority levels:
       Details
       )
       VALUES  ( 40 ,
+      'tempdb' ,
       100 ,
       'Performance' ,
       'TempDB Only Has 1 Data File' ,
@@ -1814,6 +1925,7 @@ Explanation of priority levels:
     FROM    master.sys.databases d
     WHERE   d.collation_name <> SERVERPROPERTY('collation')
     and d.name not in (select distinct DatabaseName from #tempchecks)
+    AND d.name NOT IN ('ReportServer', 'ReportServerTempDB')
     end
             
     if not exists (select 1 from #tempchecks where CheckId = 82)
@@ -2797,7 +2909,7 @@ Explanation of priority levels:
     'http://BrentOzar.com/go/collate' AS URL ,
     'Collation differences between user databases and tempdb can cause conflicts especially when comparing string values' AS Details
     FROM    sys.databases
-    WHERE   name NOT IN ( 'master', 'model', 'msdb' )
+    WHERE   name NOT IN ( 'master', 'model', 'msdb', 'ReportServer', 'ReportServerTempDB' )
     and name not in (select distinct DatabaseName from #tempchecks)
     AND collation_name <> ( SELECT  collation_name
     FROM    sys.databases
