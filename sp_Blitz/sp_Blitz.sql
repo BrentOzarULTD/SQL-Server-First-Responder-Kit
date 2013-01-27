@@ -12,10 +12,10 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputProcedureCache TINYINT = 0 ,
     @CheckProcedureCacheFilter VARCHAR(10) = NULL ,
     @CheckServerInfo TINYINT = 0 ,
-    @SkipChecksServer NVARCHAR(128) = NULL,
-    @SkipChecksDatabase NVARCHAR(50) = NULL,
-    @SkipChecksSchema NVARCHAR(10) = NULL,
-    @SkipChecksTable NVARCHAR(50) = NULL,
+    @SkipChecksServer NVARCHAR(256) = NULL,
+    @SkipChecksDatabase NVARCHAR(256) = NULL,
+    @SkipChecksSchema NVARCHAR(256) = NULL,
+    @SkipChecksTable NVARCHAR(256) = NULL,
     @IgnorePrioritiesBelow INT = NULL,
     @IgnorePrioritiesAbove INT = NULL,
     @Version INT = NULL OUTPUT
@@ -297,20 +297,20 @@ Explanation of priority levels:
   IF OBJECT_ID('tempdb..#GetChecks') IS NOT NULL 
     DROP TABLE #GetChecks;
   CREATE TABLE #GetChecks(
-  id INT NULL,
-  ServerName VARCHAR(50) NULL,
-  DatabaseName NVARCHAR(100) NULL,
+  ID INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
+  ServerName NVARCHAR(256) NULL,
+  DatabaseName NVARCHAR(256) NULL,
   CheckId INT NULL
   )
 
-  IF @SkipChecksTable IS NOT NULL
+  IF @SkipChecksTable IS NOT NULL AND @SkipChecksSchema IS NOT NULL AND @SkipChecksDatabase IS NOT NULL
   BEGIN
-    DECLARE @exemptionpath VARCHAR(100)
-    SET @exemptionpath = @SkipChecksDatabase+'.'+@SkipChecksSchema+'.'+@SkipChecksTable
-    DECLARE @sqlcmd VARCHAR(200)
-    SET @sqlcmd =  'insert into #GetChecks(id,servername, DatabaseName, checkid)
-            select *
-            from '+@exemptionpath
+    DECLARE @exemptionpath NVARCHAR(2000)
+    SET @exemptionpath = @SkipChecksDatabase +'.'+@SkipChecksSchema+'.'+@SkipChecksTable
+    DECLARE @sqlcmd NVARCHAR(2500)
+    SET @sqlcmd =  'insert into #GetChecks(ServerName, DatabaseName, CheckId )
+            SELECT DISTINCT ServerName, DatabaseName, CheckId
+            FROM '+@exemptionpath + ' WHERE ServerName IS NULL OR ServerName = @@SERVERNAME '
     EXEC(@sqlcmd)
   END
   
@@ -2574,7 +2574,7 @@ Explanation of priority levels:
       DROP TABLE #DBCCs;
     CREATE TABLE #DBCCs 
     (
-    Id INT IDENTITY(1, 1)
+    ID INT IDENTITY(1, 1)
     PRIMARY KEY ,
     ParentObject VARCHAR(255) ,
     Object VARCHAR(255) ,
@@ -3134,33 +3134,33 @@ IF @IgnorePrioritiesBelow IS NOT NULL
         where DatabaseName in (select DatabaseName from #tempchecks)
 
         create table #exempt(
-        id int identity(1,1),
-        servername varchar(50),
+        ID int identity(1,1),
+        ServerName varchar(50),
         DatabaseName varchar(100),
-        checkid int)
+        CheckId int)
 
-        insert into #exempt(servername,DatabaseName, checkid)
+        insert into #exempt(ServerName,DatabaseName, CheckId)
         select ServerName,DatabaseName, CheckId 
         from #GetChecks
         where DatabaseName is not null
         and CheckId is not null
         and (ServerName is null 
-        or Servername = @@SERVERNAME)
+        or ServerName = @@SERVERNAME)
         
         while (select COUNT(*) from #exempt) > 0
         begin 
-          declare @id int,
+          declare @ID int,
           @DatabaseName varchar(100),
           @checkid int
-          set @id = (select top 1 ID from #exempt)
-          set @DatabaseName = (select DatabaseName from #exempt where id = @id)
-          set @checkid = (select checkid from #exempt where id = @id)
+          set @ID = (select top 1 ID from #exempt)
+          set @DatabaseName = (select DatabaseName from #exempt where ID = @ID)
+          set @checkid = (select CheckId from #exempt where ID = @ID)
           delete from #BlitzResults
           where (DatabaseName = @DatabaseName)
           --and CheckID = @checkid)
 
           delete from #exempt
-        where id = @id
+        where ID = @ID
         end
         drop table #exempt
       end
