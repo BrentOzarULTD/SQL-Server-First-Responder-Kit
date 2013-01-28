@@ -755,8 +755,8 @@ Explanation of priority levels:
     Details
     )
     SELECT  13 AS CheckID ,
-    10 AS Priority ,
     [name] as DatabaseName,
+    10 AS Priority ,
     'Performance' AS FindingsGroup ,
     'Auto-Shrink Enabled' AS Finding ,
     'http://BrentOzar.com/go/autoshrink' AS URL ,
