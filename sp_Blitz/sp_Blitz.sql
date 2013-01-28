@@ -2626,7 +2626,7 @@ Explanation of priority levels:
     + ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
     FROM   DB2
     WHERE   DB2.DbName not in (select distinct DatabaseName from #tempchecks)
-    and CAST(DB2.Value AS DATETIME) < DATEADD(DD, -14, CURRENT_TIMESTAMP)
+	and CONVERT(DATETIME, DB2.Value , 121 ) < DATEADD(DD, -14, CURRENT_TIMESTAMP)
   end
 
     /*Check for high VLF count: this will omit any database snapshots*/
