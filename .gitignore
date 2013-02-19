@@ -35,3 +35,5 @@ test-results
 _NCrunch_*
 
 output.rtf
+
+*.zip
