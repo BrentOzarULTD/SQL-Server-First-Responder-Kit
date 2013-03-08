@@ -45,6 +45,7 @@ CHANGE LOG (last four versions):
 	March 8, 2013 - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
+		Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
@@ -1242,10 +1243,15 @@ BEGIN;
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
-								'Index Hoarder' AS findings_group,
-								'Multi-column clustered index' AS finding,
+								N'Index Hoarder' AS findings_group,
+								N'Multi-column clustered index' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-								CAST (i.count_key_columns AS NVARCHAR(10)) + ' columns in clustered index:' + i.schema_object_name AS details,
+								CAST (i.count_key_columns AS NVARCHAR(10)) + N' columns in clustered index:' + i.schema_object_name 
+									+ N'. ' + (SELECT CAST(COUNT(*) AS NVARCHAR(23)) FROM #index_sanity i2 
+										WHERE i2.[object_id]=i.[object_id] AND i2.index_id <> 1
+										AND i2.is_disabled=0 AND i2.is_hypothetical=0)
+										+ N' NC indexes on the table.'
+									AS details,
 								i.index_definition,
 								secret_columns, 
 								i.index_usage_summary,
@@ -1255,6 +1261,7 @@ BEGIN;
 						WHERE	index_id =1 /* clustered only */
 								AND count_key_columns > 1 /*More than one key column.*/
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
 		END
 		 ----------------------------------------
 		--Feature-Phobic Indexes: Check_id 30-39
