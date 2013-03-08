@@ -829,7 +829,8 @@ BEGIN TRY
 				CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
 				ELSE 
 					CASE WHEN is_primary_key=1 THEN
-						N'ALTER TABLE ' + QUOTENAME([object_name]) + 
+						N'ALTER TABLE ' + QUOTENAME([schema_name]) +
+							N'.' + QUOTENAME([object_name]) + 
 							N' ADD CONSTRAINT [' +
 							index_name + 
 							N'] PRIMARY KEY ' + 
