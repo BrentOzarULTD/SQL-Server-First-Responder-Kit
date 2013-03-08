@@ -281,7 +281,7 @@ BEGIN TRY
 			  avg_page_lock_wait_in_ms BIGINT NULL ,
  			  total_index_lock_promotion_attempt_count BIGINT NULL ,
 			  total_index_lock_promotion_count BIGINT NULL ,
-			  data_compression_desc nvarchar(60) NULL
+			  data_compression_desc NVARCHAR(MAX) NULL
 			);
 
 		CREATE TABLE #index_columns
