@@ -43,7 +43,8 @@ Known limitations of this version:
 
 CHANGE LOG (last four versions):
 	March 8, 2013 - Fixed breaking bug for partitioned tables with > 10(ish) partitions
-		
+		Added schema_name to suggested create statement for PKs
+		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
@@ -945,7 +946,9 @@ BEGIN
 		SELECT  N'Missing index.' AS finding ,
 				N'http://BrentOzar.com/go/Indexaphobia' AS URL ,
 				mi.[statement] + ' Est Benefit: '
-					+ REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
+					+ CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
+					ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '')
+					END AS details,
 				missing_index_details AS [index_definition] ,
 				index_estimated_impact,
 				create_tsql
@@ -1447,10 +1450,14 @@ BEGIN;
 									CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
 										 AS NVARCHAR(30))+ N' NC indexes exist (' + 
 									CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) > 1024
-										THEN CAST(CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END )/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB); ' 
-										ELSE CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NVARCHAR(30)) + N'MB); '
+										THEN CAST(CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END )/1024. 
+											AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB); ' 
+										ELSE CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) 
+											AS NVARCHAR(30)) + N'MB); '
 									END + 
-									REPLACE(CONVERT(NVARCHAR(30),CAST(MAX(sz.[total_rows]) AS money), 1), '.00', '') +
+										CASE WHEN MAX(sz.[total_rows]) >= 922337203685477 THEN '>= 922,337,203,685,477'
+										ELSE REPLACE(CONVERT(NVARCHAR(30),CAST(MAX(sz.[total_rows]) AS money), 1), '.00', '') 
+										END +
 									+ N' Estimated Rows;' 
 								,N'') AS index_size_summary
 							FROM	#index_sanity AS i
@@ -1464,7 +1471,9 @@ BEGIN;
 								N'High value missing index' AS finding, 
 								N'http://BrentOzar.com/go/Indexaphobia' AS URL,
 								mi.[statement] + ' estimated benefit: ' + 
-									REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') AS details,
+									CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
+									ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '') 
+									END AS details,
 								missing_index_details AS [definition],
 								index_estimated_impact,
 								sz.index_size_summary,
@@ -1764,7 +1773,7 @@ BEGIN;
 			database_name, 
 			[schema_name], 
 			table_name, 
-			CAST(magic_benefit_number AS INT) AS magic_benefit_number, 
+			CAST(magic_benefit_number AS BIGINT) AS magic_benefit_number, 
 			missing_index_details, 
 			avg_total_user_cost, 
 			avg_user_impact, 
