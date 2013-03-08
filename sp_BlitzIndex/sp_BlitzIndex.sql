@@ -22,7 +22,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.4 - December 23, 2012
+sp_BlitzIndex (TM) v2.0 - March 8, 2013
 (C) 2012, Brent Ozar Unlimited, LLC
 To learn more, visit http://www.BrentOzar.com/blitzIndex.
 
@@ -41,7 +41,9 @@ Known limitations of this version:
  - Doesn't analyze aligned vs non-aligned indexes on partitioned tables
  - Found something? Let us know at help@brentozar.com.
 
-CHANGE LOG (last three versions):
+CHANGE LOG (last four versions):
+	March 8, 2013 - Fixed breaking bug for partitioned tables with > 10(ish) partitions
+		
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
