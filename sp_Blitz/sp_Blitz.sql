@@ -59,6 +59,8 @@ Changes in v18:
    - Fixed typo in check 88 that wouldn't run if check 91 was being skipped.
    - Improved check 72, non-aligned partitioned indexes, to include the 
 	 database name even if the index hadn't been used since restart.
+ - David Forck @Thirster42 added check 94 for Agent jobs that are not set up to
+   notify an operator upon failure.
  - Dino Maric added check 92 for free drive space. (Not an alert, just runs if
    you set @CheckServerInfo = 1.) Doesn't include mount points.
  - Nigel Maneffa fixed a broken link in check 91 for merge replication.
@@ -2039,6 +2041,36 @@ end
     WHERE  [name] = 'model'
     )
     end
+
+if not exists (select 1 from #tempchecks where CheckId = 94)
+begin
+INSERT  INTO #BlitzResults
+( CheckID ,
+Priority ,
+FindingsGroup ,
+Finding ,
+URL ,
+Details)
+SELECT  94 AS CheckID ,
+50 as [Priority], 
+'Reliability' as FindingsGroup, 
+'Agent Jobs Without Failure Emails' as Finding, 
+'http://BrentOzar.com/go/alerts' as URL, 
+'The job ' + [name] + ' has not been set up to notify an operator if it fails.' as Details 
+FROM msdb.[dbo].[sysjobs] j 
+inner join 
+( 
+SELECT distinct 
+[job_id] 
+FROM [msdb].[dbo].[sysjobschedules] 
+where next_run_date>0 
+) s 
+on j.job_id=s.job_id 
+where j.enabled=1 
+and j.notify_email_operator_id=0 
+and j.notify_netsend_operator_id=0 
+and j.notify_page_operator_id=0        
+end
             
     IF @CheckUserDatabaseObjects = 1 
     BEGIN
