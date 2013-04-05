@@ -65,6 +65,8 @@ Changes in v18:
    you set @CheckServerInfo = 1.) Doesn't include mount points.
  - Nigel Maneffa fixed a broken link in check 91 for merge replication.
  - Added check 86 back in for elevated database permissions.
+ - Replaced @@SERVERNAME usage with SERVERPROPERTY('ServerName') because in
+   some cloud hosting environments, these don't match, and it's okay.
 	
 Changes in v17: 
  - Alin Selician:
@@ -326,7 +328,7 @@ Explanation of priority levels:
     DECLARE @sqlcmd NVARCHAR(2500)
     SET @sqlcmd =  'insert into #GetChecks(ServerName, DatabaseName, CheckId )
             SELECT DISTINCT ServerName, DatabaseName, CheckId
-            FROM '+@exemptionpath + ' WHERE ServerName IS NULL OR ServerName = @@SERVERNAME '
+            FROM '+@exemptionpath + ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') '
     EXEC(@sqlcmd)
   END
   
@@ -340,14 +342,14 @@ Explanation of priority levels:
   from #GetChecks
   where CheckId is null
   and (ServerName is null 
-  or ServerName = @@servername)
+  or ServerName = SERVERPROPERTY('ServerName'))
 
   insert into #tempchecks(DatabaseName,CheckId)
   select  '',CheckId
   from #GetChecks
   where DatabaseName is null
   and (ServerName is null 
-  or ServerName = @@servername)
+  or ServerName = SERVERPROPERTY('ServerName'))
 
 
   IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
@@ -429,7 +431,7 @@ Explanation of priority levels:
   /* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
   IF @OutputType = 'CSV' SET @CheckProcedureCache = 0;
 
-  if ((@@SERVERNAME not in (select ServerName from #GetChecks where DatabaseName is null and CheckId is null)) or (@SkipChecksTable is null))
+  if ((SERVERPROPERTY('ServerName') not in (select ServerName from #GetChecks where DatabaseName is null and CheckId is null)) or (@SkipChecksTable is null))
   begin
     if not exists (select 1 from #tempchecks where CheckId = 1)
     begin
@@ -453,7 +455,7 @@ Explanation of priority levels:
     FROM    master.sys.databases d
     LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
       AND b.type = 'D'
-      AND b.server_name = @@SERVERNAME /*Backupset ran on current server */
+      AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server */
     WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
       AND d.state <> 1 /* Not currently restoring, like log shipping databases */
       AND d.is_in_standby = 0 /* Not a log shipping target database */
@@ -488,7 +490,7 @@ Explanation of priority levels:
                 FROM   msdb.dbo.backupset b
                 WHERE  d.name = b.database_name
                 AND b.type = 'D'
-                AND b.server_name = @@SERVERNAME /*Backupset ran on current server */)
+                AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server */)
 
     end
     
@@ -3245,7 +3247,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
         where DatabaseName is not null
         and CheckId is not null
         and (ServerName is null 
-        or ServerName = @@SERVERNAME)
+        or ServerName = SERVERPROPERTY('ServerName'))
         
         while (select COUNT(*) from #exempt) > 0
         begin 
