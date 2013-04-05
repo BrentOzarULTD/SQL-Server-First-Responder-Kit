@@ -22,7 +22,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v17 - January 27, 2013
+    sp_Blitz v18 - April 6, 2013
     
     (C) 2013, Brent Ozar Unlimited
 
@@ -50,6 +50,14 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
  
+Changes in v18:
+ - Alin Selicean @AlinSelicean:
+   - Fixed typo in check 88 that wouldn't run if check 91 was being skipped.
+   - Improved check 72, non-aligned partitioned indexes, to include the 
+	 database name even if the index hadn't been used since restart.
+ - Nigel Maneffa fixed a broken link in check 91 for merge replication.
+ - Added check 86 back in for elevated database permissions.
+	
 Changes in v17: 
  - Alin Selician:
    - Fixed bug in check 72 for partitioned indexes that weren't aligned.
@@ -950,9 +958,9 @@ Explanation of priority levels:
       ;
     end
 
-    if not exists (select 1 from #tempchecks where CheckId = 91)
+    if not exists (select 1 from #tempchecks where CheckId = 88)
     begin
-    EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 88, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/zzzzz_newsectionhere'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+    EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 88, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
     end
 
             
@@ -2244,6 +2252,11 @@ Explanation of priority levels:
       (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') 
       from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
     end
+
+if not exists (select 1 from #tempchecks where CheckId = 86)
+begin
+            EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
+end
             
   END /* IF @CheckUserDatabaseObjects = 1 */
 
@@ -2749,7 +2762,7 @@ Explanation of priority levels:
   EXEC dbo.sp_MSforeachdb 
     'USE [?]; 
     insert into #partdb(dbname, objectname, type_desc)
-    SELECT distinct db_name(database_id) as DBName,o.name Object_Name,ds.type_desc
+    SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
     FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id 
     JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
     LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id AND s.database_id = DB_ID()
@@ -2776,7 +2789,7 @@ Explanation of priority levels:
               dbname as DatabaseName,
               100 AS Priority ,
               'Performance' AS FindingsGroup ,
-              'The partioned database ' + dbname
+              'The partitioned database ' + dbname
               + ' may have non-aligned indexes' AS Finding ,
               'http://BrentOzar.com/go/aligned' AS URL ,
               'Having non-aligned indexes on partitioned tables may cause inefficient query plans and CPU pressure' AS Details
@@ -3109,7 +3122,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
     );
 
-    SET @Version = 17;
+    SET @Version = 18;
     INSERT  INTO #BlitzResults
     ( CheckID ,
     Priority ,
@@ -3121,7 +3134,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz v17 Jan 27 2013' ,
+    'sp_Blitz v18 Apr 6 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
