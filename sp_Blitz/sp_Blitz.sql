@@ -52,6 +52,10 @@ Unknown limitations of this version:
  
 Changes in v18:
  - Alin Selicean @AlinSelicean:
+   - Added check 93 looking for backups stored on the same drive letter as user
+	 database files. Will give false positives if both your user databases
+	 and backup files are mount points on the same drive letter, but hey,
+	 don't do that.
    - Fixed typo in check 88 that wouldn't run if check 91 was being skipped.
    - Improved check 72, non-aligned partitioned indexes, to include the 
 	 database name even if the index hadn't been used since restart.
@@ -521,6 +525,32 @@ Explanation of priority levels:
               AND b.type = 'L'
               AND b.backup_finish_date >= DATEADD(dd, -7, GETDATE()) );
     end
+
+
+if not exists (select 1 from #tempchecks where CheckId = 93)
+begin
+INSERT  INTO #BlitzResults
+( CheckID ,
+Priority ,
+FindingsGroup ,
+Finding ,
+URL ,
+Details
+)
+SELECT DISTINCT 
+93 AS CheckID , 
+1 AS Priority , 
+'Backup' AS FindingsGroup , 
+'Backing Up to Same Drive Where Databases Reside' AS Finding , 
+'http://BrentOzar.com/go/backup' AS URL , 
+'Drive ' + UPPER(LEFT(bmf.physical_device_name,3)) + ' houses both database files AND backups taken in the last two weeks. This represents a serious risk if that array fails.' Details 
+FROM msdb.dbo.backupmediafamily AS bmf 
+INNER JOIN msdb.dbo.backupset AS bs ON BMF.media_set_id = BS.media_set_id 
+AND bs.backup_start_date >= (DATEADD(dd, -14, GETDATE()))
+WHERE UPPER(LEFT(bmf.physical_device_name,3)) IN 
+(SELECT DISTINCT UPPER(LEFT(mf.physical_name,3)) FROM sys.master_files AS mf)
+end
+
 
     if not exists (select 1 from #tempchecks where CheckId = 3)
     begin
