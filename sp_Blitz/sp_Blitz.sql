@@ -24,7 +24,8 @@ AS
 /*
     sp_Blitz v18 - April 6, 2013
     
-    (C) 2013, Brent Ozar Unlimited
+    (C) 2013, Brent Ozar Unlimited. 
+	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
 To learn more, visit http://www.BrentOzar.com/blitz where you can download
 new versions for free, watch training videos on how it works, get more info on
@@ -59,10 +60,13 @@ Changes in v18:
    - Fixed typo in check 88 that wouldn't run if check 91 was being skipped.
    - Improved check 72, non-aligned partitioned indexes, to include the 
 	 database name even if the index hadn't been used since restart.
- - David Forck @Thirster42 added check 94 for Agent jobs that are not set up to
-   notify an operator upon failure.
+ - David Forck @Thirster42:
+   - Added check 94 for Agent jobs that are not set up to notify an operator
+	 upon failure.
+   - Improved check 80 to ignore max file sizes for filestream data files.
  - Dino Maric added check 92 for free drive space. (Not an alert, just runs if
    you set @CheckServerInfo = 1.) Doesn't include mount points.
+ - Eric Alter fixed bug with missing begin/end in check 83.
  - Nigel Maneffa fixed a broken link in check 91 for merge replication.
  - Added check 86 back in for elevated database permissions.
  - Replaced @@SERVERNAME usage with SERVERPROPERTY('ServerName') because in
@@ -2929,7 +2933,7 @@ end
     'Global Trace Flag' AS FindingsGroup ,
     'TraceFlag On' AS Finding ,
     'http://www.BrentOzar.com/go/traceflags/' AS URL ,
-    'Trace flag ' + T.TraceFlag + ' is enabled globally.' ASDetails
+    'Trace flag ' + T.TraceFlag + ' is enabled globally.' AS Details
     FROM    #TraceStatus T
     end
     
@@ -3040,10 +3044,13 @@ end
     WHERE step.command LIKE N'%SHRINKDATABASE%' OR step.command LIKE N'%SHRINKFILE%'
     end
                     
-    if not exists (select 1 from #tempchecks where CheckId = 81)
+    if not exists (select 1 from #tempchecks where CheckId = 80)
     begin
-    EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1';
+    EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
+	end
 
+	if not exists (select 1 from #tempchecks where CheckId = 81)
+	begin
     INSERT  INTO #BlitzResults
     ( CheckID ,
     Priority ,
@@ -3072,15 +3079,17 @@ end
 		if not exists (select 1 from #tempchecks where CheckId = 83)
 		begin
 		IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_server_services')
-		SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-		SELECT  83 AS CheckID ,
-		250 AS Priority ,
-		''Server Info'' AS FindingsGroup ,
-		''Services'' AS Finding ,
-		'''' AS URL ,
-		N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
-		FROM sys.dm_server_services;'
-		EXECUTE(@StringToExecute);
+			BEGIN
+			SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT  83 AS CheckID ,
+			250 AS Priority ,
+			''Server Info'' AS FindingsGroup ,
+			''Services'' AS Finding ,
+			'''' AS URL ,
+			N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
+			FROM sys.dm_server_services;'
+			EXECUTE(@StringToExecute);
+			END
 		end
 
 		/* Check 84 - SQL Server 2012 */              
