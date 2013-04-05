@@ -22,7 +22,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v18 - April 6, 2013
+    sp_Blitz v18 - April 4, 2013
     
     (C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -71,6 +71,7 @@ Changes in v18:
  - Added check 86 back in for elevated database permissions.
  - Replaced @@SERVERNAME usage with SERVERPROPERTY('ServerName') because in
    some cloud hosting environments, these don't match, and it's okay.
+ - Changed database name variables to be NVARCHAR(128). Dang SharePoint.
 	
 Changes in v17: 
  - Alin Selician:
@@ -103,8 +104,8 @@ Changes in v17:
    create the table
      CREATE TABLE dbo.Whatever
       (ID INT IDENTITY(1,1),
-      ServerName VARCHAR(50),
-      DatabaseName NVARCHAR(100), 
+      ServerName NVARCHAR(128),
+      DatabaseName NVARCHAR(128), 
       CheckID INT)
       
   ServerName = 'MyServer, DatabaseName = NULL, CheckId = NULL - will not check anything on servername MyServer
@@ -338,7 +339,7 @@ Explanation of priority levels:
   
   IF OBJECT_ID('tempdb..#tempchecks') IS NOT NULL 
     DROP TABLE #tempchecks;
-  create table #tempchecks(DatabaseName varchar(100),
+  create table #tempchecks(DatabaseName NVARCHAR(128),
               CheckId int)
 
   insert into #tempchecks(DatabaseName)
@@ -361,7 +362,7 @@ Explanation of priority levels:
   CREATE TABLE #BlitzResults(
     ID INT IDENTITY(1, 1) ,
     CheckID INT ,
-    DatabaseName varchar(50),
+    DatabaseName NVARCHAR(128),
     Priority TINYINT ,
     FindingsGroup VARCHAR(50) ,
     Finding VARCHAR(200) ,
@@ -553,7 +554,7 @@ SELECT DISTINCT
 'http://BrentOzar.com/go/backup' AS URL , 
 'Drive ' + UPPER(LEFT(bmf.physical_device_name,3)) + ' houses both database files AND backups taken in the last two weeks. This represents a serious risk if that array fails.' Details 
 FROM msdb.dbo.backupmediafamily AS bmf 
-INNER JOIN msdb.dbo.backupset AS bs ON BMF.media_set_id = BS.media_set_id 
+INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id 
 AND bs.backup_start_date >= (DATEADD(dd, -14, GETDATE()))
 WHERE UPPER(LEFT(bmf.physical_device_name,3)) IN 
 (SELECT DISTINCT UPPER(LEFT(mf.physical_name,3)) FROM sys.master_files AS mf)
@@ -2825,9 +2826,9 @@ end
     begin
     CREATE TABLE #partdb
         (
-          dbname VARCHAR(100) ,
-          objectname VARCHAR(200) ,
-          type_desc VARCHAR(50)
+          dbname NVARCHAR(128) ,
+          objectname NVARCHAR(200) ,
+          type_desc NVARCHAR(128)
         )
   EXEC dbo.sp_MSforeachdb 
     'USE [?]; 
@@ -3232,7 +3233,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz v18 Apr 6 2013' ,
+    'sp_Blitz v18 Apr 4 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -3246,8 +3247,8 @@ IF @IgnorePrioritiesBelow IS NOT NULL
 
         create table #exempt(
         ID int identity(1,1),
-        ServerName varchar(50),
-        DatabaseName varchar(100),
+        ServerName NVARCHAR(128),
+        DatabaseName NVARCHAR(128),
         CheckId int)
 
         insert into #exempt(ServerName,DatabaseName, CheckId)
@@ -3261,7 +3262,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
         while (select COUNT(*) from #exempt) > 0
         begin 
           declare @ID int,
-          @DatabaseName varchar(100),
+          @DatabaseName NVARCHAR(128),
           @checkid int
           set @ID = (select top 1 ID from #exempt)
           set @DatabaseName = (select DatabaseName from #exempt where ID = @ID)
