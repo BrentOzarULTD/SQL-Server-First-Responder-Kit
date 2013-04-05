@@ -55,6 +55,8 @@ Changes in v18:
    - Fixed typo in check 88 that wouldn't run if check 91 was being skipped.
    - Improved check 72, non-aligned partitioned indexes, to include the 
 	 database name even if the index hadn't been used since restart.
+ - Dino Maric added check 92 for free drive space. (Not an alert, just runs if
+   you set @CheckServerInfo = 1.) Doesn't include mount points.
  - Nigel Maneffa fixed a broken link in check 91 for merge replication.
  - Added check 86 back in for elevated database permissions.
 	
@@ -3092,6 +3094,29 @@ end
 		WHERE database_id = 2
 		END
 
+	if not exists (select 1 from #tempchecks where CheckId = 92)
+	BEGIN
+	CREATE TABLE #driveInfo(drive NVARCHAR,SIZE DECIMAL(18,2))
+	INSERT INTO #driveInfo(drive,SIZE)
+	EXEC master..xp_fixeddrives
+
+	INSERT  INTO #BlitzResults
+	        ( CheckID ,
+	          Priority ,
+	          FindingsGroup ,
+	          Finding ,
+	          URL ,
+	          Details
+	        )
+	SELECT 92 AS CheckID ,
+	250 AS Priority ,
+	'ServerInfo' AS FindingsGroup ,
+	'Drive ' + i.drive + ' Space' as Finding,
+	'' AS URL ,
+	CAST(i.SIZE AS VARCHAR) + 'MB free on ' + i.drive + ' drive' AS Details
+	FROM #driveInfo AS i
+	DROP TABLE #driveInfo
+    END
 END /* IF @CheckServerInfo = 1 */
 
 
