@@ -17,7 +17,7 @@ GO
 EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
 ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256)='AdventureWorks',
+	@database_name NVARCHAR(256),
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
