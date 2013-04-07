@@ -219,11 +219,18 @@ GO 1000
 -- TEST
 ----------------------------------------
 
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks'
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3
-
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=1;
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3;
+GO
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
 
 GO
+
+--Test a lot of partitions
+--You have to connect to just a 2012 instance to do this one
+EXEC dbo.sp_BlitzIndex @database_name='Partition5000';
+
+--dbo.sp_WhoIsActive @get_outer_command=1
