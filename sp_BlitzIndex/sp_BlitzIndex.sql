@@ -27,21 +27,18 @@ sp_BlitzIndex (TM) v2.0 - April 8, 2013
 (C) 2013, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
-For help and how-to info, visit http://www.BrentOzar.com/blitzIndex.
+For help and how-to info, visit http://www.BrentOzar.com/BlitzIndex
 
 Usage examples:
 	Diagnose:
 		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks';
 	Return detail for a specific table:
 		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Person', @table_name='Person';
-	Return all detail:
-		EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
 
 Known limitations of this version:
  - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
  - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
- - Doesn't analyze aligned vs non-aligned indexes on partitioned tables
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
