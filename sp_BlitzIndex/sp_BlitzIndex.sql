@@ -272,7 +272,7 @@ BEGIN TRY
 			  page_lock_wait_in_ms BIGINT NULL ,
 			  index_lock_promotion_attempt_count BIGINT NULL ,
 			  index_lock_promotion_count BIGINT NULL,
-  			  data_compression_desc nvarchar(60) NULL
+  			  data_compression_desc VARCHAR(60) NULL
 			);
 
 		CREATE TABLE #index_sanity_size
@@ -294,7 +294,7 @@ BEGIN TRY
 			  avg_page_lock_wait_in_ms BIGINT NULL ,
  			  total_index_lock_promotion_attempt_count BIGINT NULL ,
 			  total_index_lock_promotion_count BIGINT NULL ,
-			  data_compression_desc NVARCHAR(MAX) NULL
+			  data_compression_desc VARCHAR(8000) NULL
 			);
 
 		CREATE TABLE #index_columns
@@ -612,7 +612,7 @@ BEGIN TRY
 						ELSE 0 END AS avg_page_lock_wait_in_ms,           
 						SUM(index_lock_promotion_attempt_count),
 						SUM(index_lock_promotion_count),
-						MAX(data_compression_info.data_compression_rollup)
+						LEFT(MAX(data_compression_info.data_compression_rollup),8000)
 				FROM	#index_partition_sanity ipp
 				/* individual partitions can have distinct compression settings, just roll them into a list here*/
 				OUTER APPLY (SELECT STUFF((
@@ -621,7 +621,8 @@ BEGIN TRY
 					WHERE ipp.[object_id]=ipp2.[object_id]
 						AND ipp.[index_id]=ipp2.[index_id]
 					ORDER BY ipp2.partition_number
-					FOR	  XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) data_compression_info(data_compression_rollup)
+					FOR	  XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
+						data_compression_info(data_compression_rollup)
 				GROUP BY index_sanity_id
 				ORDER BY index_sanity_id 
 		OPTION	( RECOMPILE );
