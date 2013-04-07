@@ -53,6 +53,7 @@ CHANGE LOG (last four versions):
 		Simplified aggressive index checks (blocking). Multiple checks confused people more than it helped.
 			Left only "Total lock wait time > 5 minutes (row + page)".
 		Added CheckId 25 for non-unique clustered indexes. 
+		The "Create TSQL" column now shows a commented out drop command for disabled non-clustered indexes
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
@@ -833,38 +834,44 @@ BEGIN TRY
 		SELECT
 			index_sanity_id,
 			ISNULL (
-			CASE index_id WHEN 0 THEN '(HEAP)' 
-			ELSE 
-				CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
+			/* Script drops for disabled non-clustered indexes*/
+			CASE WHEN is_disabled = 1 AND index_id <> 1
+				THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
+				 + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
+			ELSE
+				CASE index_id WHEN 0 THEN N'(HEAP)' 
 				ELSE 
-					CASE WHEN is_primary_key=1 THEN
-						N'ALTER TABLE ' + QUOTENAME([schema_name]) +
-							N'.' + QUOTENAME([object_name]) + 
-							N' ADD CONSTRAINT [' +
-							index_name + 
-							N'] PRIMARY KEY ' + 
-							CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-							key_column_names_with_sort_order + N' )' 
-					ELSE /*End PK index CASE */ 
-						N'CREATE ' + 
-						CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
-						CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
-						CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
-						N' INDEX ['
-							 + index_name + N'] ON ' + 
-							QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
-								CASE WHEN is_NC_columnstore=1 THEN 
-									N' (' + ISNULL(include_column_names,'') +  N' )' 
-								ELSE /*End non-colunnstore case */ 
-									N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
-									+ CASE WHEN include_column_names IS NOT NULL THEN 
-										N' INCLUDE (' + include_column_names + N')' 
-										ELSE N'' 
-									END
-								END /*End non-colunnstore case */ 
-						END /*End Non-PK index CASE */ +
-					CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
-  				END /*End non-spatial and non-xml CASE */ 
+					CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
+					ELSE 
+						CASE WHEN is_primary_key=1 THEN
+							N'ALTER TABLE ' + QUOTENAME([schema_name]) +
+								N'.' + QUOTENAME([object_name]) + 
+								N' ADD CONSTRAINT [' +
+								index_name + 
+								N'] PRIMARY KEY ' + 
+								CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+								key_column_names_with_sort_order + N' )' 
+						ELSE /*End PK index CASE */ 
+							N'CREATE ' + 
+							CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
+							CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+							CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
+							N' INDEX ['
+								 + index_name + N'] ON ' + 
+								QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
+									CASE WHEN is_NC_columnstore=1 THEN 
+										N' (' + ISNULL(include_column_names,'') +  N' )' 
+									ELSE /*End non-colunnstore case */ 
+										N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
+										+ CASE WHEN include_column_names IS NOT NULL THEN 
+											N' INCLUDE (' + include_column_names + N')' 
+											ELSE N'' 
+										END
+									END /*End non-colunnstore case */ 
+							END /*End Non-PK index CASE */ +
+						CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
+  					END /*End non-spatial and non-xml CASE */ 
+				END
 			END, '[Unknown Error]')
 				AS create_tsql
 		FROM #index_sanity;
