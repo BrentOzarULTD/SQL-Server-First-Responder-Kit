@@ -1069,25 +1069,6 @@ BEGIN;
 		--Aggressive Indexes: Check_id 10-19
 		----------------------------------------
 		BEGIN;
-		RAISERROR(N'check_id 10: Avg lock wait time > 1 second (row or page)', 0,1) WITH NOWAIT;
-		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										secret_columns, index_usage_summary, index_size_summary )
-				SELECT	10 AS check_id, 
-						i.index_sanity_id,
-						N'Aggressive Indexes' AS findings_group,
-						N'Avg lock wait time > 1 second (row or page)' AS finding, 
-						N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-						i.schema_object_indexid + N': ' +
-							sz.index_lock_wait_summary AS details, 
-						i.index_definition,
-						i.secret_columns,
-						i.index_usage_summary,
-						sz.index_size_summary
-				FROM	#index_sanity AS i
-						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	avg_row_lock_wait_in_ms > 1000 OR avg_page_lock_wait_in_ms > 1000
-				OPTION	( RECOMPILE );
-
 
 		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
@@ -1108,25 +1089,6 @@ BEGIN;
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				OPTION	( RECOMPILE );
 
-		RAISERROR(N'check_id 12: More than 10 lock escalation attempts', 0,1) WITH NOWAIT;
-		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										secret_columns, index_usage_summary, index_size_summary )
-				SELECT	12 AS check_id, 
-						i.index_sanity_id,
-						N'Aggressive Indexes' AS findings_group,
-						N'More than 10 lock escalation attempts' AS finding, 
-						N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-						i.schema_object_indexid + N': ' +
-							sz.index_lock_wait_summary AS details, 
-						i.index_definition,
-						i.secret_columns,
-						i.index_usage_summary,
-						sz.index_size_summary
-				FROM	#index_sanity AS i
-						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	total_index_lock_promotion_attempt_count > 10  OPTION	( RECOMPILE );
-
-		END;
 		---------------------------------------- 
 		--Index Hoarder: Check_id 20-29
 		----------------------------------------
