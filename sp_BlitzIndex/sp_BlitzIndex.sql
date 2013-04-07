@@ -481,45 +481,91 @@ BEGIN TRY
 										AND c.index_id = si.index_id 
 										) AS D4 ( count_included_columns, count_key_columns );
 
-		--NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
-		--This is because of quirks prior to SQL Server 2012 with this DMV.
-		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-				SELECT	ps.object_id, 
-						ps.index_id, 
-						ps.partition_number, 
-						ps.row_count,
-						ps.reserved_page_count * 8. / 1024. AS reserved_MB,
-						ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
-						ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
-						os.leaf_insert_count, 
-						os.leaf_delete_count, 
-						os.leaf_update_count, 
-						os.forwarded_fetch_count,
-						os.lob_fetch_in_pages, 
-						os.lob_fetch_in_bytes, 
-						os.row_overflow_fetch_in_pages,
-						os.row_overflow_fetch_in_bytes, 
-						os.row_lock_count, 
-						os.row_lock_wait_count,
-						os.row_lock_wait_in_ms, 
-						os.page_lock_count, 
-						os.page_lock_wait_count, 
-						os.page_lock_wait_in_ms,
-						os.index_lock_promotion_attempt_count, 
-						os.index_lock_promotion_count, 
-						' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
-				FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
-				JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
-				JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
-						   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
-						   AND so.type <> ''TF'' /*Exclude table valued functions*/
-				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.dm_db_index_operational_stats('
-			+ CAST(@database_id AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
-				ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
-		' + CASE WHEN @object_id IS NOT NULL THEN 'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
-		ORDER BY ps.object_id,  ps.index_id, ps.partition_number
-		OPTION	( RECOMPILE );
-		';
+		IF (SELECT LEFT(@SQLServerProductVersion,
+			  CHARINDEX('.',@SQLServerProductVersion,0)-1
+			  )) < 11 --Anything prior to 2012
+		BEGIN
+			--NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
+			--This is because of quirks prior to SQL Server 2012 with this DMV.
+			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+					SELECT	ps.object_id, 
+							ps.index_id, 
+							ps.partition_number, 
+							ps.row_count,
+							ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+							ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+							ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+							os.leaf_insert_count, 
+							os.leaf_delete_count, 
+							os.leaf_update_count, 
+							os.forwarded_fetch_count,
+							os.lob_fetch_in_pages, 
+							os.lob_fetch_in_bytes, 
+							os.row_overflow_fetch_in_pages,
+							os.row_overflow_fetch_in_bytes, 
+							os.row_lock_count, 
+							os.row_lock_wait_count,
+							os.row_lock_wait_in_ms, 
+							os.page_lock_count, 
+							os.page_lock_wait_count, 
+							os.page_lock_wait_in_ms,
+							os.index_lock_promotion_attempt_count, 
+							os.index_lock_promotion_count, 
+							' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
+					FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
+					JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
+					JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
+							   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
+							   AND so.type <> ''TF'' /*Exclude table valued functions*/
+					LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.dm_db_index_operational_stats('
+				+ CAST(@database_id AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
+					ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
+			' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
+			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
+			OPTION	( RECOMPILE );
+			';
+		END
+		ELSE /* Otherwise use this syntax which takes advantage of OUTER APPLY on the os_partitions DMV. 
+		This performs much better on 2012 tables using 1000+ partitions. */
+		BEGIN
+ 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+						SELECT	ps.object_id, 
+								ps.index_id, 
+								ps.partition_number, 
+								ps.row_count,
+								ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+								ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+								ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								os.leaf_insert_count, 
+								os.leaf_delete_count, 
+								os.leaf_update_count, 
+								os.forwarded_fetch_count,
+								os.lob_fetch_in_pages, 
+								os.lob_fetch_in_bytes, 
+								os.row_overflow_fetch_in_pages,
+								os.row_overflow_fetch_in_bytes, 
+								os.row_lock_count, 
+								os.row_lock_wait_count,
+								os.row_lock_wait_in_ms, 
+								os.page_lock_count, 
+								os.page_lock_wait_count, 
+								os.page_lock_wait_in_ms,
+								os.index_lock_promotion_attempt_count, 
+								os.index_lock_promotion_count, 
+								' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
+						FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
+						JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
+						JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
+								   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
+								   AND so.type <> ''TF'' /*Exclude table valued functions*/
+						OUTER APPLY ' + QUOTENAME(@database_name) + '.sys.dm_db_index_operational_stats('
+					+ CAST(@database_id AS NVARCHAR(10)) + ', ps.object_id, ps.index_id,ps.partition_number) AS os
+				' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
+				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
+				OPTION	( RECOMPILE );
+				';
+ 
+		END       
 
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
