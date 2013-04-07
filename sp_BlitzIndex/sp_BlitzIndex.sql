@@ -54,6 +54,7 @@ CHANGE LOG (last four versions):
 			Left only "Total lock wait time > 5 minutes (row + page)".
 		Added CheckId 25 for non-unique clustered indexes. 
 		The "Create TSQL" column now shows a commented out drop command for disabled non-clustered indexes
+		Updated query which joins to sys.dm_operational_stats DMV when running against 2012 for performance reasons
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
