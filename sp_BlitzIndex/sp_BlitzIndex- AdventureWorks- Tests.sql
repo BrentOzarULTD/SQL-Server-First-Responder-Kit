@@ -14,7 +14,8 @@ BEGIN
 	CREATE CLUSTERED INDEX cx_nonuniquecx ON dbo.nonuniqueCX(i,j);
 END
 GO
-
+SELECT * FROM dbo.nonuniqueCX
+GO 8
 
 --Create two hyopthetical indexes
 IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonProduct_ClassStyle_HYPOTHETICALINDEX' AND [is_hypothetical]=1) =0
@@ -228,6 +229,28 @@ EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @ta
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
 
 GO
+
+
+--Duplicate indexes against
+------Person.Address.ixPersonAddress_DUPLICATEINDEX (6)
+------Person.Address.ixPersonAddress_DUPLICATEINDEX2 (7)
+--Borderline duplicates against
+--Person.Address.ixPersonAddress_BORDERLINEDUPLICATEINDEX (9)
+--Person.Address.ixPersonAddress_DUPLICATEINDEX3 (8)
+--16 multi-column CX
+--One Non-uniqueCX (with 8 reads)
+--Two hypothetical indexes
+--Two disabled indexes
+--Self Loathing Indexes: Heaps with forwarded records or deletes
+----0 forwarded fetches, 200000 deletes against heap:dbo.Tally (0)
+--Columnstore index: Purchasing.Vendor.PurchasingVendor_COLUMNSTORE (3)
+--Compressed indexes:
+----dbo.OrdersDaily.NCOrderIdOrdersDaily (2). COMPRESSION:  NONE, PAGE, NONE, NONE
+----Sales.SalesPerson.PK_SalesPerson_BusinessEntityID (1). COMPRESSION:  ROW
+----Sales.SalesPerson.AK_SalesPerson_rowguid (2). COMPRESSION:  PAGE
+-- Abnormal Psychology: Non-Aligned index on a partitioned table
+	
+
 
 --Test a lot of partitions
 --You have to connect to just a 2012 instance to do this one
