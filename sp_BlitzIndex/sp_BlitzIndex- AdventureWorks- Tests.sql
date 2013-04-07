@@ -224,5 +224,6 @@ EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2
 EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3
 
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
+EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
 
 GO
