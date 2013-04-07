@@ -277,6 +277,8 @@ AND range_value IS NOT NULL
 
 
 
+--Compress one partition.
+ALTER INDEX [PKOrdersDaily] ON dbo.OrdersDaily REBUILD PARTITION=2 WITH (DATA_COMPRESSION=ROW)
 
 
 
@@ -303,7 +305,6 @@ order by index_name, partition_number
 EXEC sp_helpindex OrdersDaily
 
 
-
-
+SELECT * FROM ph.ObjectDetail	
 
 
