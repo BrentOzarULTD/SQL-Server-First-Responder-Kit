@@ -980,7 +980,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 7, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1048,7 +1048,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'sp_BlitzIndex version 2.0 (Mar 7, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
+		VALUES  ( 0 , N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 					N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 					, N'',N'',N''
 				);
@@ -1729,7 +1729,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 7, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1805,7 +1805,7 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 7, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1841,7 +1841,7 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 2.0 (Mar 7, 2013)' ,   
+			N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
