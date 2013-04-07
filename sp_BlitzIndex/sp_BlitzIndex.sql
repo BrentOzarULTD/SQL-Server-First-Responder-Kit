@@ -50,6 +50,8 @@ CHANGE LOG (last four versions):
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
 		Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
 		Added link to EULA
+		Simplified aggressive index checks (blocking). Multiple checks confused people more than it helped.
+			Left only "Total lock wait time > 5 minutes (row + page)". 
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
