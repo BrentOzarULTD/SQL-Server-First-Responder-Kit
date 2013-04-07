@@ -22,7 +22,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v2.0 - April 8, 2013
+sp_BlitzIndex (TM) v1.5 - April 8, 2013
 
 (C) 2013, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -42,7 +42,7 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
-	April 8, 2013 (v2.0) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
+	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
 		Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
@@ -52,7 +52,7 @@ CHANGE LOG (last four versions):
 		Added CheckId 25 for non-unique clustered indexes. 
 		The "Create TSQL" column now shows a commented out drop command for disabled non-clustered indexes
 		Updated query which joins to sys.dm_operational_stats DMV when running against 2012 for performance reasons
-	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
+	December 20, 2012 (v1.4) - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
 		Added "Abnormal Psychology" diagnosis to alert you to special index types in a database
@@ -980,7 +980,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
+				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1048,7 +1048,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
+		VALUES  ( 0 , N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 					N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 					, N'',N'',N''
 				);
@@ -1729,7 +1729,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
+				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1805,7 +1805,7 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
+				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1841,7 +1841,7 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 2.0 (Mar 8, 2013)' ,   
+			N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
