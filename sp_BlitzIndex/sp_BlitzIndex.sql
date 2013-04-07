@@ -23,8 +23,11 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
 sp_BlitzIndex (TM) v2.0 - March 8, 2013
-(C) 2012, Brent Ozar Unlimited, LLC
-To learn more, visit http://www.BrentOzar.com/blitzIndex.
+
+(C) 2013, Brent Ozar Unlimited. 
+See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
+
+For help and how-to info, visit http://www.BrentOzar.com/blitzIndex.
 
 Usage examples:
 	Diagnose:
@@ -42,10 +45,11 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
-	March 8, 2013 - Fixed breaking bug for partitioned tables with > 10(ish) partitions
+	April 6, 2013 - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
 		Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
+		Added link to EULA
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
