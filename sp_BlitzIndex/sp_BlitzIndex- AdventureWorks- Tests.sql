@@ -1,0 +1,228 @@
+--Requires databases on all SQL Versions to be named AdventureWorks
+--Run this twice if SQL Server has been restarted recently
+
+----------------------------------------
+-- Create havoc!
+----------------------------------------
+USE AdventureWorks;
+
+
+--Create a non-unique clustered index
+IF OBJECT_ID('nonuniqueCX') IS NULL
+BEGIN
+	CREATE TABLE dbo.nonuniqueCX ( i INT, j INT, k INT);
+	CREATE CLUSTERED INDEX cx_nonuniquecx ON dbo.nonuniqueCX(i,j);
+END
+GO
+
+
+--Create two hyopthetical indexes
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonProduct_ClassStyle_HYPOTHETICALINDEX' AND [is_hypothetical]=1) =0
+BEGIN
+	CREATE INDEX ixPersonProduct_ClassStyle_HYPOTHETICALINDEX ON [Production].Product ([Class],[Style]) WITH STATISTICS_ONLY;
+END
+
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonProduct_ListPrice_HYPOTHETICALINDEX' AND [is_hypothetical]=1) =0
+BEGIN
+	CREATE INDEX ixPersonProduct_ListPrice_HYPOTHETICALINDEX ON [Production].Product ([ListPrice]) WITH STATISTICS_ONLY;
+END
+
+
+
+--Create and disable two indexes
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixProductionProduct_DISABLEDINDEX') =0
+BEGIN
+	CREATE INDEX ixProductionProduct_DISABLEDINDEX ON [Production].Product ([SellStartDate], [SellEndDate]);
+END
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixProductionProduct_DISABLEDINDEX' AND [is_disabled]=1) =0
+BEGIN
+	ALTER INDEX ixProductionProduct_DISABLEDINDEX ON [Production].Product DISABLE;
+END
+
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonProduct_DISABLEDINDEX') =0
+BEGIN
+	CREATE INDEX ixPersonProduct_DISABLEDINDEX ON [Production].Product (ProductID);
+END
+
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonProduct_DISABLEDINDEX' AND [is_disabled]=1) =0
+BEGIN
+	ALTER INDEX ixPersonProduct_DISABLEDINDEX ON [Production].Product DISABLE;
+END
+
+
+
+--Create two duplicate indexes
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonAddress_DUPLICATEINDEX') =0
+BEGIN
+	CREATE INDEX ixPersonAddress_DUPLICATEINDEX ON Person.Address (AddressLine1, AddressLine2, City, StateProvinceID, PostalCode);
+END
+
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonAddress_DUPLICATEINDEX2') =0
+BEGIN
+	CREATE INDEX ixPersonAddress_DUPLICATEINDEX2 ON Person.Address (AddressLine1, AddressLine2, City, StateProvinceID, PostalCode);
+END
+
+--create two borderline duplicate indexes
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonAddress_DUPLICATEINDEX3') =0
+BEGIN
+	CREATE INDEX ixPersonAddress_DUPLICATEINDEX3 ON Person.Address (AddressLine1, AddressLine2) INCLUDE (City, StateProvinceID, PostalCode);
+END
+
+IF (SELECT COUNT(*) FROM sys.indexes WHERE name='ixPersonAddress_BORDERLINEDUPLICATEINDEX') =0
+BEGIN
+	CREATE INDEX ixPersonAddress_BORDERLINEDUPLICATEINDEX ON Person.Address (AddressLine1) INCLUDE (AddressLine2, City, StateProvinceID, PostalCode, AddressID, ModifiedDate);
+END
+GO
+
+--Compress two indexes (2008 + )
+--EXEC sp_helpindex 'Sales.SalesPerson'
+IF (SELECT CAST(LEFT(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(256)),3) AS NUMERIC(3,1))) >= 10
+BEGIN
+	EXEC sp_executesql N'ALTER INDEX [AK_SalesPerson_rowguid] ON [Sales].[SalesPerson] REBUILD WITH (DATA_COMPRESSION=PAGE)'
+END
+
+IF (SELECT CAST(LEFT(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(256)),3) AS NUMERIC(3,1))) >= 10
+BEGIN
+	EXEC sp_executesql N'ALTER INDEX [PK_SalesPerson_BusinessEntityID] ON [Sales].[SalesPerson] REBUILD WITH (DATA_COMPRESSION=ROW)'
+END
+
+--Create a columnstore index (2012 version only)
+IF (SELECT CAST(LEFT(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(256)),3) AS NUMERIC(3,1))) >= 11
+BEGIN
+	EXEC sp_executesql N'IF (SELECT COUNT(*) FROM sys.indexes WHERE name=''PurchasingVendor_COLUMNSTORE'') =0 
+	CREATE COLUMNSTORE INDEX [PurchasingVendor_COLUMNSTORE] ON [Purchasing].[Vendor] (BusinessEntityID, AccountNumber, Name, CreditRating)
+	'
+END
+
+--------------------------------
+--Create a partitioned table with a non-aligned index
+--------------------------------
+
+--Create the partition function: dailyPF
+--Start out 3 days ago
+
+IF (SELECT COUNT(*) FROM sys.[partition_functions] WHERE name='DailyPF')=0
+BEGIN
+
+	--DROP PARTITION FUNCTION DailyPF
+	DECLARE @StartDay DATETIME
+	SELECT @StartDay=DATEADD(dd,-2,CAST(GETDATE() AS DATETIME));
+	CREATE PARTITION FUNCTION DailyPF (DATETIME)
+		AS RANGE RIGHT FOR VALUES
+		(@StartDay, DATEADD(dd,1,@StartDay), DATEADD(dd,2,@StartDay) );
+
+	--DROP PARTITION SCHEME DailyPS
+	CREATE PARTITION SCHEME DailyPS 
+		AS PARTITION DailyPF
+		ALL TO ( [PRIMARY] );
+END
+GO
+
+
+
+
+--Create a tally table, we'll use this to populate rows
+--This method from Itzik Ben-Gan
+IF OBJECT_ID('dbo.Tally') IS NULL
+	CREATE TABLE dbo.Tally (N INT NOT NULL)
+GO
+
+--Delete all the records. This gives us an active heap 
+DELETE FROM dbo.Tally;
+GO
+
+;WITH    Pass0 AS ( SELECT   1 AS C UNION ALL SELECT   1), --2 rows
+	Pass1 AS ( SELECT   1 AS C FROM     Pass0 AS A , Pass0 AS B),--4 rows
+    Pass2 AS ( SELECT   1 AS C FROM     Pass1 AS A , Pass1 AS B),--16 rows
+    Pass3 AS ( SELECT   1 AS C FROM     Pass2 AS A , Pass2 AS B),--256 rows
+    Pass4 AS ( SELECT   1 AS C FROM     Pass3 AS A , Pass3 AS B),--65536 rows
+    Pass5 AS ( SELECT   1 AS C FROM     Pass4 AS A , Pass4 AS B),--4,294,967,296 rows
+    Tally0 AS ( SELECT   row_number() OVER ( Order BY C ) AS N FROM Pass5 )
+INSERT [Tally](N)
+SELECT  N
+FROM    Tally0
+WHERE   N <= 100000;
+GO
+
+
+--DROP TABLE dbo.OrdersDaily
+IF OBJECT_ID('OrdersDaily','U') is NULL
+BEGIN
+	CREATE TABLE dbo.OrdersDaily (
+		OrderDate DATETIME NOT NULL,
+		OrderId int IDENTITY NOT NULL,
+		OrderName nvarchar(256) NOT NULL
+	) on DailyPS(OrderDate)
+
+	--OK-- let's insert some records.
+	--Three days ago = 1000 rows
+	INSERT dbo.OrdersDaily(OrderDate, OrderName) 
+	SELECT DATEADD(ss, t.N, DATEADD(dd,-3,CAST(CONVERT(CHAR(10),GETDATE(),120)AS DATETIME))) AS OrderDate,
+		CASE WHEN t.N % 3 = 0 THEN 'Robot' WHEN t.N % 4 = 0 THEN 'Badger'  ELSE 'Pen' END AS OrderName
+	FROM dbo.Tally AS t
+	WHERE N < = 1000
+	
+	--Two days ago = 2000 rows
+	INSERT dbo.OrdersDaily(OrderDate, OrderName) 
+	SELECT DATEADD(ss, t.N, DATEADD(dd,-2,CAST(CONVERT(CHAR(10),GETDATE(),120)AS DATETIME))) AS OrderDate,
+		CASE WHEN t.N % 3 = 0 THEN 'Flying Monkey' WHEN t.N % 4 = 0 THEN 'Junebug'  ELSE 'Pen' END AS OrderName
+	FROM dbo.Tally AS t
+	WHERE N < = 2000
+
+	--Yesterday= 3000 rows
+	INSERT dbo.OrdersDaily(OrderDate, OrderName) 
+	SELECT DATEADD(ss, t.N, DATEADD(dd,-1,CAST(CONVERT(CHAR(10),GETDATE(),120)AS DATETIME))) AS OrderDate,
+		CASE WHEN t.N % 2 = 0 THEN 'Turtle' WHEN t.N % 5 = 0 THEN 'Eraser'  ELSE 'Pen' END AS OrderName
+	FROM dbo.Tally AS t
+	WHERE N < = 3000
+
+	--Today=  4000 rows
+	INSERT dbo.OrdersDaily(OrderDate, OrderName) 
+	SELECT DATEADD(ss, t.N, CAST(CONVERT(CHAR(10),GETDATE(),120)AS DATETIME)) AS OrderDate,
+		CASE WHEN t.N % 3 = 0 THEN 'Lasso' WHEN t.N % 2 = 0 THEN 'Cattle Prod'  ELSE 'Pen' END AS OrderName
+	FROM dbo.Tally AS t
+	WHERE N < = 4000
+
+	--Add a Clustered Index-- Not a heap anymore
+	--Note that this isn't unique
+	ALTER TABLE dbo.OrdersDaily
+	ADD CONSTRAINT PKOrdersDaily
+		PRIMARY KEY CLUSTERED(OrderDate,OrderId)
+
+	--An aligned NCI
+	--We don't have to specify the partition function.
+	CREATE NONCLUSTERED INDEX NCOrderIdOrdersDaily ON dbo.OrdersDaily(OrderId)
+
+
+	--compress one partition if SQL 2008 or higher
+	IF (SELECT CAST(LEFT(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(256)),3) AS NUMERIC(3,1))) >= 10
+	BEGIN
+		EXEC sp_executesql N'ALTER INDEX [NCOrderIdOrdersDaily] ON dbo.OrdersDaily REBUILD PARTITION=2 WITH (DATA_COMPRESSION=PAGE)'
+	END
+
+	--An NCI that is NOT aligned
+	CREATE NONCLUSTERED INDEX NCOrderNameOrdersDailyNonAligned ON dbo.OrdersDaily(OrderName) ON [PRIMARY]
+END
+GO
+
+--Create a high value missing indexes
+--It's trashy, but oh well
+DECLARE @count INT;
+SELECT @count=COUNT(*)
+FROM [Sales].[vIndividualCustomer]
+WHERE [LastName] LIKE 'R%'
+GO 1000
+
+--Create spatial index (2008 + )
+
+----------------------------------------
+-- TEST
+----------------------------------------
+
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks'
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3
+
+EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
+
+GO

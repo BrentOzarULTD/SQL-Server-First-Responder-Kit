@@ -51,7 +51,8 @@ CHANGE LOG (last four versions):
 		Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
 		Added link to EULA
 		Simplified aggressive index checks (blocking). Multiple checks confused people more than it helped.
-			Left only "Total lock wait time > 5 minutes (row + page)". 
+			Left only "Total lock wait time > 5 minutes (row + page)".
+		Added CheckId 25 for non-unique clustered indexes. 
 	December 20, 2012 - Fixed bugs for instances using a case-sensitive collation
 		Added support to identify compressed indexes
 		Added basic support for columnstore, XML, and spatial indexes
@@ -1228,6 +1229,29 @@ BEGIN;
 								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						WHERE	index_id =1 /* clustered only */
 								AND count_key_columns > 1 /*More than one key column.*/
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
+		END
+
+
+			RAISERROR(N'check_id 25: Non-Unique Clustered Indexes.', 0,1) WITH NOWAIT;
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	24 AS check_id, 
+								i.index_sanity_id, 
+								N'Index Hoarder' AS findings_group,
+								N'Non-Unique clustered index' AS finding,
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								N'The clustered index on ' + i.schema_object_name 
+									+ N' may incur overhead from uniquifiers.' AS details,
+								i.index_definition,
+								secret_columns, 
+								i.index_usage_summary,
+								ip.index_size_summary
+						FROM	#index_sanity i
+								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						WHERE	index_id =1 /* clustered only */
+								AND is_unique = 0 /*is not unique*/
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 		END
