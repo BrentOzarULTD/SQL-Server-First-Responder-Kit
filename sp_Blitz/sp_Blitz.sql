@@ -22,7 +22,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz v18 - April 4, 2013
+    sp_Blitz (TM) v19 - April 10, 2013
     
     (C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -47,10 +47,17 @@ Known limitations of this version:
  - No support for SQL Server 2000 or compatibility mode 80.
  - If a database name has a question mark in it, some tests will fail.  Gotta
    love that unsupported sp_MSforeachdb.
+ - If you have offline databases, sp_Blitz fails the first time you run it,
+   but does work the second time. (Hoo, boy, this will be fun to fix.)
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
  
+Changes in v19:
+ - Frank van der Heide and Ken Wilson fixed a bug in @IgnorePrioritiesBelow.
+   Pushed this out since it's a critical fix for people using sp_Blitz with
+   monitoring tools.
+	
 Changes in v18:
  - Alin Selicean @AlinSelicean:
    - Added check 93 looking for backups stored on the same drive letter as user
@@ -3201,7 +3208,7 @@ IF @IgnorePrioritiesAbove IS NOT NULL
 	
 IF @IgnorePrioritiesBelow IS NOT NULL
 	DELETE #BlitzResults
-	WHERE [Priority] < @IgnorePrioritiesAbove;
+	WHERE [Priority] < @IgnorePrioritiesBelow;
 
 
                     
@@ -3221,7 +3228,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
     );
 
-    SET @Version = 18;
+    SET @Version = 19;
     INSERT  INTO #BlitzResults
     ( CheckID ,
     Priority ,
@@ -3233,7 +3240,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz v18 Apr 4 2013' ,
+    'sp_Blitz (TM) v19 Apr 10 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
