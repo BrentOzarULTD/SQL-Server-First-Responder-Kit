@@ -22,7 +22,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz (TM) v19 - April 10, 2013
+    sp_Blitz (TM) v20 - April 12, 2013
     
     (C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -52,7 +52,11 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
- 
+
+Changes in v20:
+ - Randy Knight @Randy_Knight http://sqlsolutionsgroup.com identified a bunch
+   of checks with duplicate IDs, so a few check IDs changed for uniqueness.
+
 Changes in v19:
  - Frank van der Heide and Ken Wilson fixed a bug in @IgnorePrioritiesBelow.
    Pushed this out since it's a critical fix for people using sp_Blitz with
@@ -1008,9 +1012,9 @@ end
       ;
     end
 
-    if not exists (select 1 from #tempchecks where CheckId = 88)
+    if not exists (select 1 from #tempchecks where CheckId = 99)
     begin
-    EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 88, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+    EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
     end
 
             
@@ -1454,7 +1458,7 @@ end
     ( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
     end
     
-    if not exists (select 1 from #tempchecks where CheckId = 60)
+    if not exists (select 1 from #tempchecks where CheckId = 96)
     begin
     IF NOT EXISTS ( SELECT  *
             FROM    msdb.dbo.sysalerts
@@ -1467,7 +1471,7 @@ end
     URL ,
     Details
     )
-    SELECT  60 AS CheckID ,
+    SELECT  96 AS CheckID ,
     50 AS Priority ,
     'Reliability' AS FindingsGroup ,
     'No Alerts for Corruption' AS Finding ,
@@ -1498,7 +1502,7 @@ end
     end
 
     --check for disabled alerts
-    if not exists (select 1 from #tempchecks where CheckId = 62)
+    if not exists (select 1 from #tempchecks where CheckId = 98)
     begin
     IF EXISTS ( SELECT  name
           FROM    msdb.dbo.sysalerts
@@ -1511,7 +1515,7 @@ end
     URL ,
     Details
     )
-    SELECT  62 AS CheckID ,
+    SELECT  98 AS CheckID ,
     50 AS Priority ,
     'Reliability' AS FindingsGroup ,
     'Alerts Disabled' AS Finding ,
@@ -2010,7 +2014,7 @@ end
     WHERE   is_percent_growth = 1 ';
     end
             
-    if not exists (select 1 from #tempchecks where CheckId = 61)
+    if not exists (select 1 from #tempchecks where CheckId = 97)
     begin
     INSERT  INTO #BlitzResults
     ( CheckID ,
@@ -2020,7 +2024,7 @@ end
     URL ,
     Details
     )
-    SELECT  61 AS CheckID ,
+    SELECT  97 AS CheckID ,
     100 AS Priority ,
     'Performance' AS FindingsGroup ,
     'Unusual SQL Server Edition' AS Finding ,
@@ -2264,7 +2268,7 @@ end
       WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0';
     end
             
-    if not exists (select 1 from #tempchecks where CheckId = 13)
+    if not exists (select 1 from #tempchecks where CheckId = 95)
     begin
       IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
       AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -2279,7 +2283,7 @@ end
               Finding, 
               URL, 
               Details) 
-        SELECT TOP 1 13 AS CheckID,
+        SELECT TOP 1 95 AS CheckID,
         ''?'' as DatabaseName, 
         110 AS Priority, 
         ''Performance'' AS FindingsGroup, 
@@ -2557,7 +2561,7 @@ end
       CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%PhysicalOp="Index Scan"%'
     end
             
-    if not exists (select 1 from #tempchecks where CheckId = 63)
+    if not exists (select 1 from #tempchecks where CheckId = 64)
     begin
     INSERT  INTO #BlitzResults
     ( CheckID ,
@@ -2569,7 +2573,7 @@ end
     QueryPlan ,
     QueryPlanFiltered
     )
-    SELECT  63 AS CheckID ,
+    SELECT  64 AS CheckID ,
     120 AS Priority ,
     'Query Plans' AS FindingsGroup ,
     'Implicit Conversion Affecting Cardinality' AS Finding ,
@@ -3244,7 +3248,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz (TM) v19 Apr 10 2013' ,
+    'sp_Blitz (TM) v20 Apr 12 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
