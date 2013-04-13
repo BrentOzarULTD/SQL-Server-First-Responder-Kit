@@ -1077,6 +1077,8 @@ BEGIN
 			(SELECT COUNT(*)
 				FROM #foreign_keys fk WHERE fk.parent_object_id=s.object_id
 				AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
+			s.create_date,
+			s.modify_date,
 			ct.create_tsql,
 			1 as display_order
 		FROM #index_sanity s
@@ -1091,7 +1093,7 @@ BEGIN
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
-				NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				0 as display_order
 	)
 	SELECT 
@@ -1103,6 +1105,8 @@ BEGIN
 			index_lock_wait_summary AS [Lock Waits],
 			is_referenced_by_foreign_key AS [Referenced by FK?],
 			FKs_covered_by_index AS [FK Covered by Index?],
+			create_date AS [Created],
+			modify_date AS [Last Modified],
 			create_tsql AS [Create TSQL]
 	FROM table_mode_cte
 	ORDER BY display_order ASC, key_column_names ASC
@@ -1852,6 +1856,9 @@ BEGIN;
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
+			MIN(create_date) AS [Oldest Create Date],
+			MAX(create_date) AS [Most Recent Create Date],
+			MAX(modify_date) as [Most Recent Modify Date],
 			1 as [Display Order]
 		FROM #index_sanity AS i
 		--left join here so we don't lose disabled nc indexes
@@ -1929,6 +1936,8 @@ BEGIN;
 				sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
 				sz.total_index_lock_promotion_count AS [Lock Escalations],
 				sz.data_compression_desc AS [Data Compression],
+				i.create_date AS [Create Date],
+				i.modify_date as [Modify Date],
 				more_info AS [More Info],
 				1 as [Display Order]
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
@@ -1943,7 +1952,8 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, 0 as [Display Order]
+				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, NULL,
+				NULL, 0 as [Display Order]
 		ORDER BY [Display Order] ASC, [Reserved MB] DESC
 		OPTION (RECOMPILE);
 
