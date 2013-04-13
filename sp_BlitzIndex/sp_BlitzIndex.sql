@@ -16,6 +16,7 @@ IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL
 GO
 EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
+
 ALTER PROCEDURE dbo.sp_BlitzIndex
 	@database_name NVARCHAR(256),
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
@@ -298,10 +299,10 @@ BEGIN TRY
 			(
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
-			  [key_ordinal] INT NOT NULL ,
-			  is_included_column BIT NOT NULL ,
-			  is_descending_key BIT NOT NULL ,
-			  [partition_ordinal] INT NOT NULL ,
+			  [key_ordinal] INT NULL ,
+			  is_included_column BIT NULL ,
+			  is_descending_key BIT NULL ,
+			  [partition_ordinal] INT NULL ,
 			  column_name NVARCHAR(256) NOT NULL ,
 			  system_type_name NVARCHAR(256) NOT NULL,
 			  max_length SMALLINT NOT NULL,
@@ -351,10 +352,11 @@ BEGIN TRY
 			create_tsql NVARCHAR(MAX) NOT NULL
 		)
 
+		--insert columns for clustered indexes and heaps
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
-					sc.object_id, 
-					sc.index_id, 
+					si.object_id, 
+					si.index_id, 
 					sc.key_ordinal, 
 					sc.is_included_column, 
 					sc.is_descending_key,
@@ -370,24 +372,77 @@ BEGIN TRY
 					c.is_computed,
 					c.is_replicated,
 					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'
-				FROM	' + QUOTENAME(@database_name) + '.sys.index_columns sc
-				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.columns c ON 
-					sc.object_id = c.object_id
-					AND sc.column_id = c.column_id
-				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.types st ON 
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
+				JOIN	' + QUOTENAME(@database_name) + N'.sys.columns c ON
+					si.object_id=c.object_id
+				LEFT JOIN ' + QUOTENAME(@database_name) + N'.sys.index_columns sc ON 
+					sc.object_id = si.object_id
+					and sc.index_id=si.index_id
+					AND sc.column_id=c.column_id
+				JOIN ' + QUOTENAME(@database_name) + N'.sys.types st ON 
 					c.system_type_id=st.system_type_id
-				' + CASE WHEN @object_id IS NOT NULL THEN 'WHERE sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N'; ' ELSE N';' END ;
+					AND c.user_type_id=st.user_type_id
+				WHERE si.index_id in (0,1) ' 
+					+ CASE WHEN @object_id IS NOT NULL 
+						THEN N' AND sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
+					ELSE N'' END 
+				+ N';';
 
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 
-		RAISERROR (N'Inserting data into #index_columns',0,1) WITH NOWAIT;
+		RAISERROR (N'Inserting data into #index_columns for clustered indexes and heaps',0,1) WITH NOWAIT;
 		INSERT	#index_columns ( object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
 			column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
 			is_replicated, is_sparse, is_filestream )
 				EXEC sp_executesql @dsql;
 
+		--insert columns for nonclustered indexes
+		--this uses a full join to sys.index_columns
+		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				SELECT	
+					si.object_id, 
+					si.index_id, 
+					sc.key_ordinal, 
+					sc.is_included_column, 
+					sc.is_descending_key,
+					sc.partition_ordinal,
+					c.name as column_name, 
+					st.name as system_type_name,
+					c.max_length,
+					c.[precision],
+					c.[scale],
+					c.collation_name,
+					c.is_nullable,
+					c.is_identity,
+					c.is_computed,
+					c.is_replicated,
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
+				JOIN	' + QUOTENAME(@database_name) + N'.sys.columns c ON
+					si.object_id=c.object_id
+				JOIN ' + QUOTENAME(@database_name) + N'.sys.index_columns sc ON 
+					sc.object_id = si.object_id
+					and sc.index_id=si.index_id
+					AND sc.column_id=c.column_id
+				JOIN ' + QUOTENAME(@database_name) + N'.sys.types st ON 
+					c.system_type_id=st.system_type_id
+					AND c.user_type_id=st.user_type_id
+				WHERE si.index_id not in (0,1) ' 
+					+ CASE WHEN @object_id IS NOT NULL 
+						THEN N' AND sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
+					ELSE N'' END 
+				+ N';';
+
+		IF @dsql IS NULL 
+			RAISERROR('@dsql is null',16,1);
+
+		RAISERROR (N'Inserting data into #index_columns for nonclustered indexes',0,1) WITH NOWAIT;
+		INSERT	#index_columns ( object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+			column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
+			is_replicated, is_sparse, is_filestream )
+				EXEC sp_executesql @dsql;
+					
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	' + CAST(@database_id AS NVARCHAR(10)) + ' AS database_id, 
 						so.object_id, 
