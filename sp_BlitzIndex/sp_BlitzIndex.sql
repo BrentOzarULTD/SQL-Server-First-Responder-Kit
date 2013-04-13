@@ -243,7 +243,9 @@ BEGIN TRY
 			  last_user_update DATETIME NULL ,
 			  is_referenced_by_foreign_key BIT DEFAULT(0),
 			  secret_columns NVARCHAR(MAX) NULL,
-			  count_secret_columns INT NULL
+			  count_secret_columns INT NULL,
+			  create_date DATETIME NOT NULL,
+			  modify_date DATETIME NOT NULL
 			);	
 
 		CREATE TABLE #index_partition_sanity
@@ -471,7 +473,8 @@ BEGIN TRY
 						END AS filter_definition' ELSE ''''' AS filter_definition' END + '
 						, ISNULL(us.user_seeks, 0), ISNULL(us.user_scans, 0),
 						ISNULL(us.user_lookups, 0), ISNULL(us.user_updates, 0), us.last_user_seek, us.last_user_scan,
-						us.last_user_lookup, us.last_user_update
+						us.last_user_lookup, us.last_user_update,
+						so.create_date, so.modify_date
 				FROM	' + QUOTENAME(@database_name) + '.sys.indexes AS si WITH (NOLOCK)
 						JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
 											   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
@@ -491,7 +494,8 @@ BEGIN TRY
 		INSERT	#index_sanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
 								index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, 
 								is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
-								user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update )
+								user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
+								create_date, modify_date )
 				EXEC sp_executesql @dsql;
 
 		RAISERROR (N'Updating #index_sanity.key_column_names',0,1) WITH NOWAIT;
