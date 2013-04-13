@@ -23,7 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
 /*
-sp_BlitzIndex (TM) v1.5 - April 8, 2013
+sp_BlitzIndex (TM) v2.0 - April 8, 2013
 
 (C) 2013, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -43,7 +43,8 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
-	April 14, 2013 (v2.0) - Added data types and max length to all columns
+	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+		Neatened up column names in result sets.
 
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -827,8 +828,14 @@ BEGIN TRY
 				ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
 				ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
 				ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
-				ELSE N'' END + CASE WHEN count_key_columns > 0 THEN N'[KEYS] '	+ LTRIM(key_column_names_with_sort_order)
-				ELSE N'' END + CASE WHEN count_included_columns > 0 THEN N' [INCLUDES] ' + include_column_names
+				ELSE N'' END + CASE WHEN count_key_columns > 0 THEN 
+					N'[' + CAST(count_key_columns AS VARCHAR(10)) + N' KEY' 
+						+ CASE WHEN count_key_columns > 1 then  N'S' ELSE N'' END
+						+ N'] ' + LTRIM(key_column_names_with_sort_order)
+				ELSE N'' END + CASE WHEN count_included_columns > 0 THEN 
+					N' [' + CAST(count_included_columns AS VARCHAR(10))  + N' INCLUDE' + 
+						+ CASE WHEN count_included_columns > 1 then  N'S' ELSE N'' END					
+						+ N'] ' + include_column_names
 				ELSE N'' END + CASE WHEN filter_definition <> N'' THEN N' [FILTER] ' + filter_definition
 				ELSE N'' END ,
 		[total_reads] AS user_seeks + user_scans + user_lookups,
@@ -845,7 +852,10 @@ BEGIN TRY
 		RAISERROR (N'Update index_secret on #index_sanity for NC indexes.',0,1) WITH NOWAIT;
 		UPDATE nc 
 		SET secret_columns=
-			CASE nc.is_unique WHEN 1 THEN N'[INCLUDES] ' ELSE N'[KEYS] ' END +
+			N'[' + 
+			CASE tb.count_key_columns WHEN 0 THEN '1' ELSE CAST(tb.count_key_columns AS VARCHAR(10)) END +
+			CASE nc.is_unique WHEN 1 THEN N' INCLUDE' ELSE N' KEY' END +
+			CASE WHEN tb.count_key_columns > 1 then  N'S] ' ELSE N'] ' END +
 			CASE tb.index_id WHEN 0 THEN '[RID]' ELSE LTRIM(tb.key_column_names) +
 				/* Uniquifiers only needed on non-unique clustereds-- not heaps */
 				CASE tb.is_unique WHEN 0 THEN ' [UNIQUIFIER]' ELSE N'' END
@@ -1081,30 +1091,30 @@ BEGIN
 				0 as display_order
 	)
 	SELECT 
-			schema_object_indexid, 
-			index_definition, 
-			secret_columns,
-			index_usage_summary, 
-			index_size_summary,
-			index_lock_wait_summary,
-			is_referenced_by_foreign_key,
-			FKs_covered_by_index,
-			create_tsql
+			schema_object_indexid AS 'Details: schema.table.index(indexid)', 
+			index_definition AS 'Definition: [Property]] ColumnName {datatype maxbytes}', 
+			secret_columns AS 'Secret Columns',
+			index_usage_summary AS 'Usage', 
+			index_size_summary AS 'Size',
+			index_lock_wait_summary AS 'Lock Waits',
+			is_referenced_by_foreign_key AS 'Referenced by FK?',
+			FKs_covered_by_index AS 'FK Covered by Index?',
+			create_tsql AS 'Create TSQL'
 	FROM table_mode_cte
 	ORDER BY display_order ASC, key_column_names ASC
-	OPTION	( RECOMPILE );
+	OPTION	( RECOMPILE );						
 
 	IF (SELECT TOP 1 [object_id] FROM    #missing_indexes mi) IS NOT NULL
 	BEGIN  
-		SELECT  N'Missing index.' AS finding ,
+		SELECT  N'Missing index.' AS Finding ,
 				N'http://BrentOzar.com/go/Indexaphobia' AS URL ,
 				mi.[statement] + ' Est Benefit: '
 					+ CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
 					ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '')
-					END AS details,
-				missing_index_details AS [index_definition] ,
-				index_estimated_impact,
-				create_tsql
+					END AS [Estimated Benefit],
+				missing_index_details AS [Missing Index Request] ,
+				index_estimated_impact AS [Estimated Impact],
+				create_tsql AS [Create TSQL]
 		FROM    #missing_indexes mi
 		WHERE   [object_id] = @object_id
 		ORDER BY magic_benefit_number DESC
@@ -1115,15 +1125,15 @@ BEGIN
 
 	IF (SELECT TOP 1 parent_object_id FROM #foreign_keys) IS NOT NULL
 	BEGIN
-		SELECT parent_object_name + N': ' + foreign_key_name AS foreign_key,
-			parent_fk_columns AS foreign_key_columns,
-			referenced_object_name AS referenced_table,
-			referenced_fk_columns AS referenced_table_columns,
-			is_disabled,
-			is_not_trusted,
-			is_not_for_replication
+		SELECT parent_object_name + N': ' + foreign_key_name AS [Foreign Key],
+			parent_fk_columns AS [Foreign Key Columns],
+			referenced_object_name AS [Referenced Table],
+			referenced_fk_columns AS [Referenced Table Columns],
+			is_disabled AS [Is Disabled?],
+			is_not_trusted as [Not Trusted?],
+			is_not_for_replication [Not for Replication?]
 		FROM #foreign_keys
-		ORDER BY foreign_key
+		ORDER BY [Foreign Key]
 		OPTION	( RECOMPILE );
 	END
 	ELSE
@@ -1758,13 +1768,13 @@ BEGIN;
 		SELECT br.findings_group + 
 			CASE WHEN findings_group NOT LIKE N'All done!' THEN N': '  ELSE N'' END + br.finding AS [Finding], 
 			br.URL, 
-			br.details AS [details: schema.table.index(indexid)], 
-			br.index_definition, 
-			ISNULL(br.secret_columns,'') AS secret_columns,          
-			br.index_usage_summary, 
-			br.index_size_summary,
-			COALESCE(br.more_info,sn.more_info,'') AS more_info,
-			COALESCE(br.create_tsql,ts.create_tsql,'') AS create_tsql
+			br.details AS [Details: schema.table.index(indexid)], 
+			br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+			ISNULL(br.secret_columns,'') AS [Secret Columns],          
+			br.index_usage_summary AS [Usage], 
+			br.index_size_summary AS [Size],
+			COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+			COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
 		FROM #blitz_index_results br
 		LEFT JOIN #index_sanity sn ON 
 			br.index_sanity_id=sn.index_sanity_id
@@ -1815,7 +1825,7 @@ BEGIN;
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
-			1 as display_order
+			1 as [Display Order]
 		FROM #index_sanity AS i
 		--left join here so we don't lose disabled nc indexes
 		LEFT JOIN #index_sanity_size AS sz 
@@ -1829,7 +1839,7 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,0 as display_order
-		ORDER BY display_order ASC
+		ORDER BY [Display Order] ASC
 		OPTION (RECOMPILE);
 	   	
 	END /* End @mode=1 (summarize)*/
@@ -1839,61 +1849,61 @@ BEGIN;
 		--This supports slicing AND dicing in Excel
 		RAISERROR(N'@mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
-		SELECT	database_name, 
-				[schema_name], 
-				[object_name], 
-				ISNULL(index_name, '') AS index_name, 
-				index_id,
-				schema_object_indexid, 
+		SELECT	database_name AS [Database Name], 
+				[schema_name] AS [Schema Name], 
+				[object_name] AS [Object Name], 
+				ISNULL(index_name, '') AS [Index Name], 
+				index_id AS [Index ID],
+				schema_object_indexid AS [Details: schema.table.index(indexid)], 
 				CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
 					ELSE 'NonClustered'
-					END AS object_type, 
-				index_definition,
-				ISNULL(LTRIM(key_column_names_with_sort_order), '') AS key_column_names_with_sort_order,
-				ISNULL(count_key_columns, 0) AS count_key_columns,
-				ISNULL(include_column_names, '') AS include_column_names, 
-				ISNULL(count_included_columns,0) AS count_included_columns,
-				ISNULL(secret_columns,'') AS secret_column_names, 
-				ISNULL(count_secret_columns,0) AS count_secret_columns,
-				ISNULL(partition_key_column_name, '') AS partition_key_column_name,
-				ISNULL(filter_definition, '') AS filter_definition, 
-				is_indexed_view, 
-				is_primary_key,
-				is_XML,
-				is_spatial,
-				is_NC_columnstore,
-				is_disabled, 
-				is_hypothetical,
-				is_padded, 
-				fill_factor, 
-				is_referenced_by_foreign_key, 
-				last_user_seek, 
-				last_user_scan, 
-				last_user_lookup,
-				last_user_update, 
-				total_reads, 
-				user_updates, 
-				reads_per_write, 
-				index_usage_summary, 
-				sz.partition_count,
-				sz.total_rows, 
-				sz.total_reserved_MB, 
-				sz.total_reserved_LOB_MB, 
-				sz.total_reserved_row_overflow_MB,
-				sz.index_size_summary, 
-				sz.total_row_lock_count ,
-				sz.total_row_lock_wait_count ,
-				sz.total_row_lock_wait_in_ms ,
-				sz.avg_row_lock_wait_in_ms ,
-				sz.total_page_lock_count ,
-				sz.total_page_lock_wait_count ,
-				sz.total_page_lock_wait_in_ms ,
-				sz.avg_page_lock_wait_in_ms ,
-				sz.total_index_lock_promotion_attempt_count ,
-				sz.total_index_lock_promotion_count ,
-				sz.data_compression_desc,
-				more_info,
-				1 as display_order
+					END AS [Object Type], 
+				index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
+				ISNULL(LTRIM(key_column_names_with_sort_order), '') AS [Key Column Names With Sort],
+				ISNULL(count_key_columns, 0) AS [Count Key Columns],
+				ISNULL(include_column_names, '') AS [Include Column Names], 
+				ISNULL(count_included_columns,0) AS [Count Included Columns],
+				ISNULL(secret_columns,'') AS [Secret Column Names], 
+				ISNULL(count_secret_columns,0) AS [Count Secret Columns],
+				ISNULL(partition_key_column_name, '') AS [Partition Key Column Name],
+				ISNULL(filter_definition, '') AS [Filter Definition], 
+				is_indexed_view AS [Is Indexed View], 
+				is_primary_key AS [Is Primary Key],
+				is_XML AS [Is XML],
+				is_spatial AS [Is Spatial],
+				is_NC_columnstore AS [Is NC Columnstore],
+				is_disabled AS [Is Disabled], 
+				is_hypothetical AS [Is Hypothetical],
+				is_padded AS [Is Padded], 
+				fill_factor AS [Fill Factor], 
+				is_referenced_by_foreign_key AS [Is Reference by Foreign Key], 
+				last_user_seek AS [Last User Seek], 
+				last_user_scan AS [Last User Scan], 
+				last_user_lookup AS [Last User Lookup],
+				last_user_update AS [Last User Update], 
+				total_reads AS [Total Reads], 
+				user_updates AS [User Updates], 
+				reads_per_write AS [Reads Per Write], 
+				index_usage_summary AS [Index Usage], 
+				sz.partition_count AS [Partition Count],
+				sz.total_rows AS [Rows], 
+				sz.total_reserved_MB AS [Reserved MB], 
+				sz.total_reserved_LOB_MB AS [Reserved LOB MB], 
+				sz.total_reserved_row_overflow_MB AS [Reserved Row Overflow MB],
+				sz.index_size_summary AS [Index Size], 
+				sz.total_row_lock_count AS [Row Lock Count],
+				sz.total_row_lock_wait_count AS [Row Lock Wait Count],
+				sz.total_row_lock_wait_in_ms AS [Row Lock Wait ms],
+				sz.avg_row_lock_wait_in_ms AS [Avg Row Lock Wait ms],
+				sz.total_page_lock_count AS [Page Lock Count],
+				sz.total_page_lock_wait_count AS [Page Lock Wait Count],
+				sz.total_page_lock_wait_in_ms AS [Page Lock Wait ms],
+				sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
+				sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
+				sz.total_index_lock_promotion_count AS [Lock Escalations],
+				sz.data_compression_desc AS [Data Compression],
+				more_info AS [More Info],
+				1 as [Display Order]
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
@@ -1906,31 +1916,31 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, 0 as display_order
-		ORDER BY display_order ASC, total_reserved_MB DESC
+				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, 0 as [Display Order]
+		ORDER BY [Display Order] ASC, [Reserved MB] DESC
 		OPTION (RECOMPILE);
 
 	END /* End @mode=2 (index detail)*/
 	ELSE IF @mode=3 /*Missing index Detail*/
 	BEGIN
 		SELECT 
-			database_name, 
-			[schema_name], 
-			table_name, 
-			CAST(magic_benefit_number AS BIGINT) AS magic_benefit_number, 
-			missing_index_details, 
-			avg_total_user_cost, 
-			avg_user_impact, 
-			user_seeks, 
-			user_scans,
-			unique_compiles, 
-			equality_columns, 
-			inequality_columns, 
-			included_columns, 
-			index_estimated_impact, 
-			create_tsql, 
-			more_info,
-			1 as display_order
+			database_name AS [Database], 
+			[schema_name] AS [Schema], 
+			table_name AS [Table], 
+			CAST(magic_benefit_number AS BIGINT) AS [Magic Benefit Number], 
+			missing_index_details AS [Missing Index Details], 
+			avg_total_user_cost AS [Avg Query Cost], 
+			avg_user_impact AS [Est Index Improvement], 
+			user_seeks AS [Seeks], 
+			user_scans AS [Scans],
+			unique_compiles AS [Compiles], 
+			equality_columns AS [Equality Columns], 
+			inequality_columns AS [Inequality Columns], 
+			included_columns AS [Included Columns], 
+			index_estimated_impact AS [Estimated Impact], 
+			create_tsql AS [Create TSQL], 
+			more_info AS [More Info],
+			1 as [Display Order]
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
@@ -1941,7 +1951,7 @@ BEGIN;
 			N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 			NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 			NULL, 0 as display_order
-		ORDER BY display_order ASC, magic_benefit_number DESC
+		ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 
 	END /* End @mode=3 (index detail)*/
 END
