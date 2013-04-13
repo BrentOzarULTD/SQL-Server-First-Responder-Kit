@@ -1091,15 +1091,15 @@ BEGIN
 				0 as display_order
 	)
 	SELECT 
-			schema_object_indexid AS 'Details: schema.table.index(indexid)', 
-			index_definition AS 'Definition: [Property]] ColumnName {datatype maxbytes}', 
-			secret_columns AS 'Secret Columns',
-			index_usage_summary AS 'Usage', 
-			index_size_summary AS 'Size',
-			index_lock_wait_summary AS 'Lock Waits',
-			is_referenced_by_foreign_key AS 'Referenced by FK?',
-			FKs_covered_by_index AS 'FK Covered by Index?',
-			create_tsql AS 'Create TSQL'
+			schema_object_indexid AS [Details: schema.table.index(indexid)], 
+			index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+			secret_columns AS [Secret Columns],
+			index_usage_summary AS [Usage], 
+			index_size_summary AS [Size],
+			index_lock_wait_summary AS [Lock Waits],
+			is_referenced_by_foreign_key AS [Referenced by FK?],
+			FKs_covered_by_index AS [FK Covered by Index?],
+			create_tsql AS [Create TSQL]
 	FROM table_mode_cte
 	ORDER BY display_order ASC, key_column_names ASC
 	OPTION	( RECOMPILE );						
