@@ -389,7 +389,7 @@ BEGIN TRY
 					AND c.user_type_id=st.user_type_id
 				WHERE si.index_id in (0,1) ' 
 					+ CASE WHEN @object_id IS NOT NULL 
-						THEN N' AND sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
+						THEN N' AND si.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
 					ELSE N'' END 
 				+ N';';
 
@@ -435,7 +435,7 @@ BEGIN TRY
 					AND c.user_type_id=st.user_type_id
 				WHERE si.index_id not in (0,1) ' 
 					+ CASE WHEN @object_id IS NOT NULL 
-						THEN N' AND sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
+						THEN N' AND si.object_id=' + CAST(@object_id AS NVARCHAR(30)) 
 					ELSE N'' END 
 				+ N';';
 
