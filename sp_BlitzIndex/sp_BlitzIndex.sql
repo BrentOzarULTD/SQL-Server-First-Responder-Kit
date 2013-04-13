@@ -299,10 +299,21 @@ BEGIN TRY
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
 			  [key_ordinal] INT NOT NULL ,
+			  is_included_column BIT NOT NULL ,
+			  is_descending_key BIT NOT NULL ,
 			  [partition_ordinal] INT NOT NULL ,
 			  column_name NVARCHAR(256) NOT NULL ,
-			  is_included_column BIT NOT NULL ,
-			  is_descending_key BIT NOT NULL
+			  system_type_name NVARCHAR(256) NOT NULL,
+			  max_length SMALLINT NOT NULL,
+			  [precision] TINYINT NOT NULL,
+			  [scale] TINYINT NOT NULL,
+			  collation_name NVARCHAR(256) NULL,
+			  is_nullable bit NULL,
+			  is_identity bit NULL,
+			  is_computed bit NULL,
+			  is_replicated bit NULL,
+			  is_sparse bit NULL,
+			  is_filestream bit NULL
 			);
 
 		CREATE TABLE #missing_indexes
@@ -340,23 +351,44 @@ BEGIN TRY
 			create_tsql NVARCHAR(MAX) NOT NULL
 		)
 
-		SET @dsql = N'
-				SELECT	sc.object_id, sc.index_id, sc.key_ordinal, sc.partition_ordinal,
-					c.name, sc.is_included_column, sc.is_descending_key
+		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				SELECT	
+					sc.object_id, 
+					sc.index_id, 
+					sc.key_ordinal, 
+					sc.is_included_column, 
+					sc.is_descending_key,
+					sc.partition_ordinal,
+					c.name as column_name, 
+					st.name as system_type_name,
+					c.max_length,
+					c.[precision],
+					c.[scale],
+					c.collation_name,
+					c.is_nullable,
+					c.is_identity,
+					c.is_computed,
+					c.is_replicated,
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'
 				FROM	' + QUOTENAME(@database_name) + '.sys.index_columns sc
-				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.columns c ON sc.object_id = c.object_id
-							   AND sc.column_id = c.column_id
+				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.columns c ON 
+					sc.object_id = c.object_id
+					AND sc.column_id = c.column_id
+				LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.types st ON 
+					c.system_type_id=st.system_type_id
 				' + CASE WHEN @object_id IS NOT NULL THEN 'WHERE sc.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N'; ' ELSE N';' END ;
 
 		IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 
 		RAISERROR (N'Inserting data into #index_columns',0,1) WITH NOWAIT;
-		INSERT	#index_columns ( object_id, index_id, key_ordinal, partition_ordinal,
-			column_name, is_included_column, is_descending_key )
+		INSERT	#index_columns ( object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+			column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
+			is_replicated, is_sparse, is_filestream )
 				EXEC sp_executesql @dsql;
 
-		SET @dsql = N'
+		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	' + CAST(@database_id AS NVARCHAR(10)) + ' AS database_id, 
 						so.object_id, 
 						si.index_id, 
@@ -550,15 +582,15 @@ BEGIN TRY
 								os.page_lock_wait_in_ms,
 								os.index_lock_promotion_attempt_count, 
 								os.index_lock_promotion_count, 
-								' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
-						FROM	' + QUOTENAME(@database_name) + '.sys.dm_db_partition_stats AS ps  
-						JOIN ' + QUOTENAME(@database_name) + '.sys.partitions AS par on ps.partition_id=par.partition_id
-						JOIN ' + QUOTENAME(@database_name) + '.sys.objects AS so ON ps.object_id = so.object_id
+								' + case when @SQLServerProductVersion not like '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N'
+						FROM	' + QUOTENAME(@database_name) + N'.sys.dm_db_partition_stats AS ps  
+						JOIN ' + QUOTENAME(@database_name) + N'.sys.partitions AS par on ps.partition_id=par.partition_id
+						JOIN ' + QUOTENAME(@database_name) + N'.sys.objects AS so ON ps.object_id = so.object_id
 								   AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
 								   AND so.type <> ''TF'' /*Exclude table valued functions*/
-						OUTER APPLY ' + QUOTENAME(@database_name) + '.sys.dm_db_index_operational_stats('
-					+ CAST(@database_id AS NVARCHAR(10)) + ', ps.object_id, ps.index_id,ps.partition_number) AS os
-				' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
+						OUTER APPLY ' + QUOTENAME(@database_name) + N'.sys.dm_db_index_operational_stats('
+					+ CAST(@database_id AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
+				' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
 				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
 				OPTION	( RECOMPILE );
 				';
