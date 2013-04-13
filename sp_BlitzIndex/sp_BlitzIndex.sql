@@ -44,8 +44,8 @@ Known limitations of this version:
 
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Neatened up column names in result sets.
-
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
@@ -1122,6 +1122,29 @@ BEGIN
 	END       
 	ELSE     
 	SELECT 'No missing indexes.' AS finding;
+
+	SELECT 	
+		column_name AS [Column Name],
+		system_type_name + 
+			CASE max_length WHEN -1 THEN N' (max)' ELSE
+				CASE  
+					WHEN system_type_name in (N'char',N'nchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length as NVARCHAR(20)) + N')' 
+					WHEN system_type_name in (N'varchar',N'nvarchar') THEN N' (' + CAST(max_length/2 as NVARCHAR(20)) + N')' 
+					ELSE '' 
+				END
+			END
+			AS [Type],
+		CASE is_computed WHEN 1 THEN 'yes' ELSE '' END AS [Computed?],
+		max_length AS [Length (bytes)],
+		[precision] AS [Prec],
+		[scale] AS [Scale],
+		CASE is_nullable WHEN 1 THEN 'yes' ELSE '' END AS [Nullable?],
+		CASE is_identity WHEN 1 THEN 'yes' ELSE '' END AS [Identity?],
+		CASE is_replicated WHEN 1 THEN 'yes' ELSE '' END AS [Replicated?],
+		CASE is_sparse WHEN 1 THEN 'yes' ELSE '' END AS [Sparse?],
+		CASE is_filestream WHEN 1 THEN 'yes' ELSE '' END AS [Filestream?],
+		collation_name AS [Collation]
+	FROM #index_columns;
 
 	IF (SELECT TOP 1 parent_object_id FROM #foreign_keys) IS NOT NULL
 	BEGIN
