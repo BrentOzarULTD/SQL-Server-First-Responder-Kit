@@ -43,6 +43,8 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
+	April 14, 2013 (v2.0) - Added data types and max length to all columns
+
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
 		Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
@@ -495,45 +497,48 @@ BEGIN TRY
 		UPDATE	#index_sanity
 		SET		key_column_names = D1.key_column_names
 		FROM	#index_sanity si
-				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name AS col_definition
-												FROM	#index_columns c
-												WHERE	c.object_id = si.object_id
-														AND c.index_id = si.index_id
-														AND c.is_included_column = 0 /*Just Keys*/
-														AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
-												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
-												  ) D1 ( key_column_names )
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name 
+									+ N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+										AS col_definition
+									FROM	#index_columns c
+									WHERE	c.object_id = si.object_id
+											AND c.index_id = si.index_id
+											AND c.is_included_column = 0 /*Just Keys*/
+											AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
+									ORDER BY c.object_id, c.index_id, c.key_ordinal	
+							FOR	  XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+										) D1 ( key_column_names )
 
 		RAISERROR (N'Updating #index_sanity.partition_key_column_name',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		partition_key_column_name = D1.partition_key_column_name
 		FROM	#index_sanity si
 				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name AS col_definition
-												FROM	#index_columns c
-												WHERE	c.object_id = si.object_id
-														AND c.index_id = si.index_id
-														AND c.partition_ordinal <> 0 /*Just Partitioned Keys*/
-												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1,''))) D1 
-													( partition_key_column_name )
+									FROM	#index_columns c
+									WHERE	c.object_id = si.object_id
+											AND c.index_id = si.index_id
+											AND c.partition_ordinal <> 0 /*Just Partitioned Keys*/
+									ORDER BY c.object_id, c.index_id, c.key_ordinal	
+							FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1,''))) D1 
+										( partition_key_column_name )
 
 		RAISERROR (N'Updating #index_sanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
 		SET		key_column_names_with_sort_order = D2.key_column_names_with_sort_order
 		FROM	#index_sanity si
 				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name + CASE c.is_descending_key
-																				  WHEN 1 THEN N' DESC'
-																				  ELSE N''
-																				END AS col_definition
-												FROM	#index_columns c
-												WHERE	c.object_id = si.object_id
-														AND c.index_id = si.index_id
-														AND c.is_included_column = 0 /*Just Keys*/
-														AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
-												ORDER BY c.object_id, c.index_id, c.key_ordinal	
-										FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
-										) D2 ( key_column_names_with_sort_order )
+									WHEN 1 THEN N' DESC'
+									ELSE N''
+								+ N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+								END AS col_definition
+							FROM	#index_columns c
+							WHERE	c.object_id = si.object_id
+									AND c.index_id = si.index_id
+									AND c.is_included_column = 0 /*Just Keys*/
+									AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
+							ORDER BY c.object_id, c.index_id, c.key_ordinal	
+					FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+					) D2 ( key_column_names_with_sort_order )
 
 
 		RAISERROR (N'Updating #index_sanity.include_column_names',0,1) WITH NOWAIT;
@@ -541,14 +546,15 @@ BEGIN TRY
 		SET		include_column_names = D3.include_column_names
 		FROM	#index_sanity si
 				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + c.column_name
-												FROM	#index_columns c
-												WHERE	c.object_id = si.object_id
-														AND c.index_id = si.index_id
-														AND c.is_included_column = 1 /*Just includes*/
-												ORDER BY c.column_name /*Order doesn't matter in includes, 
-														this is here to make rows easy to compare.*/ 
-										FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
-										) D3 ( include_column_names );
+								+ N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+								FROM	#index_columns c
+								WHERE	c.object_id = si.object_id
+										AND c.index_id = si.index_id
+										AND c.is_included_column = 1 /*Just includes*/
+								ORDER BY c.column_name /*Order doesn't matter in includes, 
+										this is here to make rows easy to compare.*/ 
+						FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+						) D3 ( include_column_names );
 
 		RAISERROR (N'Updating #index_sanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
