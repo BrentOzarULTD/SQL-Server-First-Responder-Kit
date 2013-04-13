@@ -1152,7 +1152,8 @@ BEGIN
 		CASE is_sparse WHEN 1 THEN 'yes' ELSE '' END AS [Sparse?],
 		CASE is_filestream WHEN 1 THEN 'yes' ELSE '' END AS [Filestream?],
 		collation_name AS [Collation]
-	FROM #index_columns;
+	FROM #index_columns
+	where index_id in (0,1);
 
 	IF (SELECT TOP 1 parent_object_id FROM #foreign_keys) IS NOT NULL
 	BEGIN
