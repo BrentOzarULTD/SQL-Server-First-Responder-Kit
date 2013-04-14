@@ -58,6 +58,7 @@ CHANGE LOG (last four versions):
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
 		Added check_id 68: Int identity columns with 1+ Billion Rows
+		Added check_id 69: Column collation does not match database collation
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
@@ -106,10 +107,10 @@ DECLARE	@Rowcount BIGINT;
 DECLARE @SQLServerProductVersion NVARCHAR(128);
 DECLARE @SQLServerEdition INT;
 DECLARE @filterMB INT;
-DECLARE @collation NVARCHAR(256)
+DECLARE @collation NVARCHAR(256);
 
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
-SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
+SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @filterMB=250;
 
 IF @database_name is null 
@@ -400,6 +401,11 @@ BEGIN TRY
 			create_tsql NVARCHAR(MAX) NOT NULL
 		)
 
+		--set @collation
+		SELECT @collation=collation_name
+		FROM sys.databases
+		where database_id=@database_id;
+
 		--insert columns for clustered indexes and heaps
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
@@ -466,7 +472,8 @@ BEGIN TRY
 					c.is_computed,
 					c.is_replicated,
 					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				
+				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
 				JOIN	' + QUOTENAME(@database_name) + N'.sys.columns c ON
 					si.object_id=c.object_id
 				JOIN ' + QUOTENAME(@database_name) + N'.sys.index_columns sc ON 
@@ -1593,7 +1600,7 @@ BEGIN;
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 31: < 3% of indexes have includes', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
 			IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
@@ -1980,6 +1987,38 @@ BEGIN;
 						WHERE	i.index_id in (1,0)
 							and ip.total_rows >= 1000000000
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								COUNT(*) as column_count
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+								and collation_name <> @collation
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	69 AS check_id, 
+								i.index_sanity_id, 
+								N'Abnormal Psychology' AS findings_group,
+								N'Column collation does not match database collation' AS finding,
+								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+								i.schema_object_name 
+									+ N' has ' + CAST(column_count AS NVARCHAR(20))
+									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
+									+ N' with a different collation than the db collation of '
+									+ @collation	AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						WHERE	i.index_id in (1,0)
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
 	END
 		 ----------------------------------------
 		--FINISHING UP
