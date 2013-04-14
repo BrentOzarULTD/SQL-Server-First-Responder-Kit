@@ -45,6 +45,7 @@ Known limitations of this version:
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
+		Added count of total number of indexes a column is part of
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
