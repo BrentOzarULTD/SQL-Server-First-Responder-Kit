@@ -1289,6 +1289,7 @@ BEGIN;
 						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				OPTION	( RECOMPILE );
+		END
 
 		---------------------------------------- 
 		--Index Hoarder: Check_id 20-29
@@ -1429,9 +1430,6 @@ BEGIN;
 								AND count_key_columns > 1 /*More than one key column.*/
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
-		END
-
-
 			RAISERROR(N'check_id 25: Non-Unique Clustered Indexes.', 0,1) WITH NOWAIT;
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
@@ -1451,7 +1449,6 @@ BEGIN;
 						WHERE	index_id =1 /* clustered only */
 								AND is_unique = 0 /*is not unique*/
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
-
 		END
 		 ----------------------------------------
 		--Feature-Phobic Indexes: Check_id 30-39
