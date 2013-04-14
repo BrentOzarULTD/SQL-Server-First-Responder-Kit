@@ -20,8 +20,11 @@ GO
 ALTER PROCEDURE dbo.sp_BlitzIndex
 	@database_name NVARCHAR(256) = null,
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
-	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
-	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
+	@schema_name NVARCHAR(256) = NULL, /*Requires table_name as well.*/
+	@table_name NVARCHAR(256) = NULL,  /*Requires schema_name as well.*/
+		/*Note:@mode doesn't matter if you're specifying schema_name and @table_name.*/
+	@filter tinyint = 0 /* 0=no filter. 1=ignore objects with 0 reads. 2=Only objects >= 500MB */
+		/*Note:@filter doesn't do anything unless @mode=0*/
 /*
 sp_BlitzIndex (TM) v2.0 - April 8, 2013
 
@@ -45,6 +48,7 @@ Known limitations of this version:
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
+		Added @filter:  0=no filter (default). 1=ignore objects with 0 reads. 2=Only objects >= 500MB
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns.
@@ -132,6 +136,18 @@ BEGIN TRY
 		IF (@mode NOT IN (0,1,2,3))
 		BEGIN
 			SET @msg=N'Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail, 3=missing index detail';
+			RAISERROR(@msg,16,1);
+		END
+
+		IF (@mode <> 0 AND @table_name IS NOT NULL)
+		BEGIN
+			SET @msg=N'Setting the @mode doesn''t change behavior if you supply @table_name. Use default @mode=0 to see table detail.';
+			RAISERROR(@msg,16,1);
+		END
+
+		IF ((@mode <> 0 OR @table_name IS NOT NULL) and @filter <> 0)
+		BEGIN
+			SET @msg=N'@filter only appies when @mode=0 and @table_name is not specified. Please try again.';
 			RAISERROR(@msg,16,1);
 		END
 
@@ -1202,7 +1218,7 @@ BEGIN
 END 
 
 --If @table_name is NOT specified...
---Act based on the mode!
+--Act based on the @mode and @filter. (@filter applies only when @mode=0 "diagnose")
 ELSE
 BEGIN;
 	IF @mode=0 /* DIAGNOSE*/
@@ -1212,11 +1228,11 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
-					N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
-					, N'',N''
+		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,
+				N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
+				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+				, N'',N''
 				);
-
 
 		----------------------------------------
 		--Multiple Index Personalities: Check_id 0-10
@@ -1340,71 +1356,76 @@ BEGIN;
 						HAVING	COUNT(*) >= 7
 						ORDER BY i.schema_object_name DESC  OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH NOWAIT;
-				DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
-				DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
+			if @filter = 1 /*@filter=1 is "ignore unusued" */
+			BEGIN
+				RAISERROR(N'Skipping checks on unused indexes (21 and 22) because @filter=1', 0,1) WITH NOWAIT;
+			END
+			ELSE /*Otherwise, go ahead and do the checks*/
+			BEGIN
+				RAISERROR(N'check_id 21: >=5 percent of indexes are unused. Yes, 5 is an arbitrary number.', 0,1) WITH NOWAIT;
+					DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
+					DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
 
-				SELECT	@percent_NC_indexes_unused =( 100.00 * SUM(CASE	WHEN total_reads = 0 THEN 1
-											ELSE 0
-									   END) ) / COUNT(*) ,
-						@NC_indexes_unused_reserved_MB = SUM(CASE WHEN total_reads = 0 THEN sz.total_reserved_MB
-								 ELSE 0
-							END) 
-				FROM	#index_sanity i
-						JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
-				WHERE	index_id NOT IN ( 0, 1 ) 
-				OPTION	( RECOMPILE );
-
-		--REPLACE(CONVERT(NVARCHAR(30),CAST(MAX([total_rows]) AS money), 1), '.00', '')
-
-			IF @percent_NC_indexes_unused >= 5 
-				INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
-											   secret_columns, index_usage_summary, index_size_summary )
-						SELECT	21 AS check_id, 
-								MAX(i.index_sanity_id) AS index_sanity_id, 
-								N'Index Hoarder' AS findings_group,
-								N'More than 5% of NC indexes are unused' AS finding,
-								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-								CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N'% of NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') are unused. ' +
-								N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
-								i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
-								'' AS secret_columns, 
-								CAST(SUM(total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
-									+ CAST(SUM([user_updates]) AS NVARCHAR(256)) + N' writes (ALL)' AS index_usage_summary,
-								
-								REPLACE(CONVERT(NVARCHAR(30),CAST(MAX([total_rows]) AS money), 1), '.00', '') + N' rows (MAX)'
-									+ CASE WHEN SUM(total_reserved_MB) > 1024 THEN 
-										N'; ' + CAST(CAST(SUM(total_reserved_MB)/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'GB (ALL)'
-									WHEN SUM(total_reserved_MB) > 0 THEN
-										N'; ' + CAST(CAST(SUM(total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
-									ELSE ''
-									END AS index_size_summary
-						FROM	#index_sanity i
-								JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
-						WHERE	index_id NOT IN ( 0, 1 )
-								AND total_reads = 0
-						GROUP BY i.database_name 
-				OPTION	( RECOMPILE );
-
-			RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
-			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
-										   secret_columns, index_usage_summary, index_size_summary )
-					SELECT	22 AS check_id, 
-							i.index_sanity_id,
-							N'Index Hoarder' AS findings_group,
-							N'Unused NC index' AS finding, 
-							N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-							N'0 reads: ' + i.schema_object_indexid AS details, 
-							i.index_definition, 
-							i.secret_columns, 
-							i.index_usage_summary,
-							sz.index_size_summary
-					FROM	#index_sanity AS i
-							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE	i.total_reads=0
-							AND i.index_id NOT IN (0,1) /*NCs only*/
-					ORDER BY i.schema_object_indexid
+					SELECT	@percent_NC_indexes_unused =( 100.00 * SUM(CASE	WHEN total_reads = 0 THEN 1
+												ELSE 0
+										   END) ) / COUNT(*) ,
+							@NC_indexes_unused_reserved_MB = SUM(CASE WHEN total_reads = 0 THEN sz.total_reserved_MB
+									 ELSE 0
+								END) 
+					FROM	#index_sanity i
+							JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE	index_id NOT IN ( 0, 1 ) 
 					OPTION	( RECOMPILE );
+
+				IF @percent_NC_indexes_unused >= 5 
+					INSERT	#blitz_index_results ( check_id, index_sanity_id,  findings_group, finding, URL, details, index_definition,
+												   secret_columns, index_usage_summary, index_size_summary )
+							SELECT	21 AS check_id, 
+									MAX(i.index_sanity_id) AS index_sanity_id, 
+									N'Index Hoarder' AS findings_group,
+									N'More than 5% of NC indexes are unused' AS finding,
+									N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+									CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N'% of NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') are unused. ' +
+									N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
+									i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
+									'' AS secret_columns, 
+									CAST(SUM(total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
+										+ CAST(SUM([user_updates]) AS NVARCHAR(256)) + N' writes (ALL)' AS index_usage_summary,
+								
+									REPLACE(CONVERT(NVARCHAR(30),CAST(MAX([total_rows]) AS money), 1), '.00', '') + N' rows (MAX)'
+										+ CASE WHEN SUM(total_reserved_MB) > 1024 THEN 
+											N'; ' + CAST(CAST(SUM(total_reserved_MB)/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'GB (ALL)'
+										WHEN SUM(total_reserved_MB) > 0 THEN
+											N'; ' + CAST(CAST(SUM(total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
+										ELSE ''
+										END AS index_size_summary
+							FROM	#index_sanity i
+									JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+							WHERE	index_id NOT IN ( 0, 1 )
+									AND total_reads = 0
+							GROUP BY i.database_name 
+					OPTION	( RECOMPILE );
+
+				RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	22 AS check_id, 
+								i.index_sanity_id,
+								N'Index Hoarder' AS findings_group,
+								N'Unused NC index' AS finding, 
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								N'0 reads: ' + i.schema_object_indexid AS details, 
+								i.index_definition, 
+								i.secret_columns, 
+								i.index_usage_summary,
+								sz.index_size_summary
+						FROM	#index_sanity AS i
+								JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+						WHERE	i.total_reads=0
+								AND i.index_id NOT IN (0,1) /*NCs only*/
+						ORDER BY i.schema_object_indexid
+						OPTION	( RECOMPILE );
+			END /*end checks only run when @filter <> 1*/
 
 			RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
