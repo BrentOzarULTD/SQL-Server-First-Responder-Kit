@@ -50,6 +50,7 @@ CHANGE LOG (last four versions):
 		Added check_id 25: Addicted to nullable columns.
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
+		Added check_id 68: Int identity columns with 1+ Billion Rows
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
@@ -1759,10 +1760,11 @@ BEGIN;
 				WHERE magic_benefit_number > 500000
 				ORDER BY magic_benefit_number DESC;
 
-
+	END
 		 ----------------------------------------
 		--Abnormal Psychology : Check_id 60-69
 		----------------------------------------
+	BEGIN
 			RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
@@ -1914,9 +1916,41 @@ BEGIN;
 					and /*Exclude recently created tables unless they've been modified after being created.*/
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
 						OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 68: Int identity columns with 1+ Billion Rows', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id]
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+								and is_identity=1
+								and system_type_name='int'
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	68 AS check_id, 
+								i.index_sanity_id, 
+								N'Abnormal Psychology' AS findings_group,
+								N'Int identity columns with > 1 billion rows' AS finding,
+								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+								i.schema_object_name 
+									+ N' has an int typed identity column with ' + cast(ip.total_rows as NVARCHAR(25)) 
+									+ N' rows.'	AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						WHERE	i.index_id in (1,0)
+							and ip.total_rows >= 1000000000
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+	END
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
+	BEGIN
 				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,secret_columns,
 											   index_usage_summary, index_size_summary )
 				VALUES  ( 1000 , N'Database=' + @database_name,
@@ -1928,7 +1962,7 @@ BEGIN;
 						);
 
 
-		END
+	END
 	
 		/*Return results.*/
 		SELECT br.findings_group + 
