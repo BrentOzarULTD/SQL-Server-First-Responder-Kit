@@ -18,7 +18,7 @@ EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256),
+	@database_name NVARCHAR(256) = null,
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@schema_name NVARCHAR(256) = NULL /*Requires table_name as well.*/,
 	@table_name NVARCHAR(256) = NULL  /*Requires schema_name as well. @mode doesn't matter if you're specifying a table.*/
@@ -92,6 +92,9 @@ DECLARE @SQLServerEdition INT;
 
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
+
+IF @database_name is null 
+	SET @database_name=DB_NAME();
 
 SELECT	@database_id = database_id
 FROM	sys.databases
@@ -1091,7 +1094,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1195,9 +1198,9 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
+		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 					N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
-					, N'',N'',N''
+					, N'',N''
 				);
 
 
@@ -1807,11 +1810,14 @@ BEGIN;
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
-				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,secret_columns,
 											   index_usage_summary, index_size_summary )
-				VALUES  ( 1000 , N'All done!' ,   N' Learn how to use this script at:' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-						  N'Thanks from the Brent Ozar Unlimited, LLC team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
-						  , N'',N'',N''
+				VALUES  ( 1000 , N'Database=' + @database_name,
+						N' Learn how to use this script at:' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+						N'Thanks from the Brent Ozar Unlimited, LLC team.',
+						N'We hope you found this tool useful.',
+						N'If you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+						, N'',N''
 						);
 
 
@@ -1819,7 +1825,7 @@ BEGIN;
 	
 		/*Return results.*/
 		SELECT br.findings_group + 
-			CASE WHEN findings_group NOT LIKE N'All done!' THEN N': '  ELSE N'' END + br.finding AS [Finding], 
+			N': ' + br.finding AS [Finding], 
 			br.URL, 
 			br.details AS [Details: schema.table.index(indexid)], 
 			br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
@@ -1849,7 +1855,7 @@ BEGIN;
 				1024. AS numeric(29,1)) AS NVARCHAR(500)) AS [LOB GB],
 			CAST(CAST(SUM(sz.total_reserved_row_overflow_MB)/
 				1024. AS numeric(29,1)) AS NVARCHAR(500)) AS [Row Overflow GB],
-			SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END) AS [Clustered Tables],
+			CAST(SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END)AS NVARCHAR(50)) AS [Clustered Tables],
 			CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
 				/1024. AS numeric(29,1)) AS [Clustered Tables GB],
 			SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
@@ -1887,13 +1893,13 @@ BEGIN;
 		LEFT JOIN #index_sanity_size AS sz 
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
-		SELECT 				
-				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
+		SELECT	N'Database='+ @database_name,		
+				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,0 as display_order
 		ORDER BY [Display Order] ASC
 		OPTION (RECOMPILE);
@@ -1909,7 +1915,7 @@ BEGIN;
 				[schema_name] AS [Schema Name], 
 				[object_name] AS [Object Name], 
 				ISNULL(index_name, '') AS [Index Name], 
-				index_id AS [Index ID],
+				cast(index_id as VARCHAR(10))AS [Index ID],
 				schema_object_indexid AS [Details: schema.table.index(indexid)], 
 				CASE	WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
 					ELSE 'NonClustered'
@@ -1965,8 +1971,8 @@ BEGIN;
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
-		SELECT 				
-				N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
+		SELECT 	N'Database=' + @database_name,			
+				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1975,7 +1981,7 @@ BEGIN;
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL, NULL,NULL, NULL, NULL, NULL, NULL,
-				NULL, 0 as [Display Order]
+				0 as [Display Order]
 		ORDER BY [Display Order] ASC, [Reserved MB] DESC
 		OPTION (RECOMPILE);
 
@@ -2003,11 +2009,11 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 1.5 (Mar 8, 2013)' ,   
+			N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
-			N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+			N'Thanks from the Brent Ozar Unlimited team. We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 			NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 			NULL, 0 as display_order
 		ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
