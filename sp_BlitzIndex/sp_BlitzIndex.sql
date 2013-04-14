@@ -50,6 +50,8 @@ CHANGE LOG (last four versions):
 		Added check_id 25: Addicted to nullable columns.
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
+		Fixed bug where you couldn't see detailed view for indexed views. 
+			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -149,12 +151,17 @@ BEGIN TRY
 			SET @dsql = N'
 					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					SELECT	@object_id= OBJECT_ID
-					FROM	' + QUOTENAME(@database_name) + '.sys.objects AS so
-					JOIN	' + QUOTENAME(@database_name) + '.sys.schemas AS sc on 
+					FROM	' + QUOTENAME(@database_name) + N'.sys.objects AS so
+					JOIN	' + QUOTENAME(@database_name) + N'.sys.schemas AS sc on 
 						so.schema_id=sc.schema_id
-					where so.type=''U''
-					and so.name=' + QUOTENAME(@table_name,'''')+ '
-					and sc.name=' + QUOTENAME(@schema_name,'''')+ '
+					where so.type in (''U'', ''V'')
+					and so.name=' + QUOTENAME(@table_name,'''')+ N'
+					and sc.name=' + QUOTENAME(@schema_name,'''')+ N'
+					/*Has a row in sys.indexes. This lets us get indexed views.*/
+					and exists (
+						SELECT si.name
+						FROM ' + QUOTENAME(@database_name) + '.sys.indexes AS si 
+						WHERE so.object_id=si.object_id)
 					OPTION (RECOMPILE);';
 
 			SET @params='@object_id INT OUTPUT'				
@@ -166,7 +173,7 @@ BEGIN TRY
 			
 			IF @object_id IS NULL
 					BEGIN
-						SET @msg='Table does not exist in specified database, please check parameters.'
+						SET @msg='Table or indexed view does not exist in specified database, please check parameters.'
 						RAISERROR(@msg,16,1);
 					END
 		END
