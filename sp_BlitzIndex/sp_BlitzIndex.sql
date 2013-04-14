@@ -1133,6 +1133,16 @@ BEGIN
 
 	SELECT 	
 		column_name AS [Column Name],
+		(SELECT COUNT(*)  
+			FROM #index_columns c2 
+			WHERE c2.column_name=c.column_name
+			and c2.key_ordinal is not null)
+		+ CASE WHEN c.index_id = 1 and c.key_ordinal is not null THEN
+			-1+ (SELECT COUNT(DISTINCT index_id)
+			from #index_columns c3
+			where c3.index_id not in (0,1))
+			ELSE 0 END
+				AS [Found In],
 		system_type_name + 
 			CASE max_length WHEN -1 THEN N' (max)' ELSE
 				CASE  
@@ -1143,7 +1153,7 @@ BEGIN
 			END
 			AS [Type],
 		CASE is_computed WHEN 1 THEN 'yes' ELSE '' END AS [Computed?],
-		max_length AS [Length (bytes)],
+		max_length AS [Length (max bytes)],
 		[precision] AS [Prec],
 		[scale] AS [Scale],
 		CASE is_nullable WHEN 1 THEN 'yes' ELSE '' END AS [Nullable?],
@@ -1152,7 +1162,7 @@ BEGIN
 		CASE is_sparse WHEN 1 THEN 'yes' ELSE '' END AS [Sparse?],
 		CASE is_filestream WHEN 1 THEN 'yes' ELSE '' END AS [Filestream?],
 		collation_name AS [Collation]
-	FROM #index_columns
+	FROM #index_columns AS c
 	where index_id in (0,1);
 
 	IF (SELECT TOP 1 parent_object_id FROM #foreign_keys) IS NOT NULL
