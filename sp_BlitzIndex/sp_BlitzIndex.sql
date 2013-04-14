@@ -106,6 +106,7 @@ DECLARE	@Rowcount BIGINT;
 DECLARE @SQLServerProductVersion NVARCHAR(128);
 DECLARE @SQLServerEdition INT;
 DECLARE @filterMB INT;
+DECLARE @collation NVARCHAR(256)
 
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
@@ -136,7 +137,14 @@ BEGIN TRY
 			SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2005 and higher. The version of this instance is: ' + @SQLServerProductVersion;
 			RAISERROR(@msg,16,1);
 		END
-    
+
+		--Short circuit here if database name does not exist.
+		IF @database_name IS NULL OR @database_id IS NULL
+		BEGIN
+			SET @msg='Database does not exist or is not online/multi-user: cannot proceed.'
+			RAISERROR(@msg,16,1);
+		END    
+
 		--Validate parameters.
 		IF (@mode NOT IN (0,1,2,3))
 		BEGIN
@@ -162,12 +170,7 @@ BEGIN TRY
 			RAISERROR(@msg,16,1);
 		END
 
-		--Short circuit here if database name does not exist.
-		IF @database_name IS NULL OR @database_id IS NULL
-		BEGIN
-			SET @msg='Database does not exist or is not online/multi-user: cannot proceed.'
-			RAISERROR(@msg,16,1);
-		END
+
 
 		--If a table is specified, grab the object id.
 		--Short circuit if it doesn't exist.
