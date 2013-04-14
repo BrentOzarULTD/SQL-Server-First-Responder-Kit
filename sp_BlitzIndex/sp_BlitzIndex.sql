@@ -55,6 +55,7 @@ CHANGE LOG (last four versions):
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
 			Previously just simplistically looked for multiple column CX.
+		Removed extra spacing (non-breaking) in more_info column.
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -869,7 +870,7 @@ BEGIN TRY
 			+ N'; Writes:' + 
 			REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS money), 1), '.00', ''),
 		[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
-			N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([object_name],'''') + N';'
+			N', @schema_name=' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([object_name],'''') + N';'
 
 		RAISERROR (N'Update index_secret on #index_sanity for NC indexes.',0,1) WITH NOWAIT;
 		UPDATE nc 
