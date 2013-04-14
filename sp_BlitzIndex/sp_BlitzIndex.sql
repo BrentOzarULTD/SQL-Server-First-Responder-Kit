@@ -44,6 +44,7 @@ Known limitations of this version:
 
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns.
