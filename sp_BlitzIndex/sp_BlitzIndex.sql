@@ -49,6 +49,7 @@ CHANGE LOG (last four versions):
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns.
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
+		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -1467,6 +1468,45 @@ BEGIN;
 							AND cc.non_nullable_columns < 2
 							and cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								SUM(CASE max_length when -1 THEN 1 ELSE 0 END) AS count_lob_columns,
+								SUM(CASE max_length when -1 THEN 0 ELSE max_length END) AS sum_max_length,
+								COUNT(*) as total_columns
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	26 AS check_id, 
+								i.index_sanity_id, 
+								N'Index Hoarder' AS findings_group,
+								N'Wide tables: lots of columns or high byte count' AS finding,
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								i.schema_object_name 
+									+ N' has ' + CAST((total_columns) as NVARCHAR(10))
+									+ N' total columns with a max possible width of ' + CAST(sum_max_length as NVARCHAR(10))
+									+ N' bytes.' +
+									CASE WHEN count_lob_columns > 0 THEN CAST((count_lob_columns) as NVARCHAR(10))
+										+ ' columns are LOB types.' ELSE ''
+									END
+										AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						LEFT JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						WHERE	i.index_id in (1,0)
+							and 
+							(cc.total_columns >= 25 OR
+							cc.sum_max_length >= 2000)
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
 		END
 		 ----------------------------------------
 		--Feature-Phobic Indexes: Check_id 30-39
@@ -1826,7 +1866,7 @@ BEGIN;
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE i.create_date > DATEADD(dd,-7,GETDATE()) 
+					WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
 						OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
@@ -1848,6 +1888,8 @@ BEGIN;
 					FROM	#index_sanity AS i
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
+					and /*Exclude recently created tables unless they've been modified after being created.*/
+					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
 						OPTION	( RECOMPILE );
 		 ----------------------------------------
 		--FINISHING UP
