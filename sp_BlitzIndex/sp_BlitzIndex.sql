@@ -23,7 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@schema_name NVARCHAR(256) = NULL, /*Requires table_name as well.*/
 	@table_name NVARCHAR(256) = NULL,  /*Requires schema_name as well.*/
 		/*Note:@mode doesn't matter if you're specifying schema_name and @table_name.*/
-	@filter tinyint = 0 /* 0=no filter. 1=ignore objects with 0 reads. 2=Only objects >= 500MB */
+	@filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@filter doesn't do anything unless @mode=0*/
 /*
 sp_BlitzIndex (TM) v2.0 - April 8, 2013
@@ -48,7 +48,10 @@ Known limitations of this version:
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
-		Added @filter:  0=no filter (default). 1=ignore objects with 0 reads. 2=Only objects >= 500MB
+		Added @filter:  
+			0=no filter (default)
+			1=Don't throw low-usage warnings for objects with 0 reads (helpful for dev/non-production environments)
+			2=Only report on objects >= 250MB (helps focus on larger indexes). Still runs a few database-wide checks as well.
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns.
@@ -102,9 +105,11 @@ DECLARE	@ErrorState INT;
 DECLARE	@Rowcount BIGINT;
 DECLARE @SQLServerProductVersion NVARCHAR(128);
 DECLARE @SQLServerEdition INT;
+DECLARE @filterMB INT;
 
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates were EngineEdition=3*/
+SET @filterMB=250;
 
 IF @database_name is null 
 	SET @database_name=DB_NAME();
@@ -651,7 +656,9 @@ BEGIN TRY
 					LEFT JOIN ' + QUOTENAME(@database_name) + '.sys.dm_db_index_operational_stats('
 				+ CAST(@database_id AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
 					ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
-			' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
+					WHERE 1=1 
+					' + CASE WHEN @object_id IS NOT NULL THEN N'AND so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
+					' + CASE WHEN @filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@filterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
 			OPTION	( RECOMPILE );
 			';
@@ -691,7 +698,9 @@ BEGIN TRY
 								   AND so.type <> ''TF'' /*Exclude table valued functions*/
 						OUTER APPLY ' + QUOTENAME(@database_name) + N'.sys.dm_db_index_operational_stats('
 					+ CAST(@database_id AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
-				' + CASE WHEN @object_id IS NOT NULL THEN N'WHERE so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
+						WHERE 1=1 
+						' + CASE WHEN @object_id IS NOT NULL THEN N'AND so.object_id=' + CAST(@object_id AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
+						' + CASE WHEN @filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@filterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
 				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
 				OPTION	( RECOMPILE );
 				';
@@ -1258,11 +1267,11 @@ BEGIN;
 								ip.index_definition, 
 								ip.secret_columns, 
 								ip.index_usage_summary,
-								ISNULL(ips.index_size_summary,'N/A') /*Disabled*/
+								ips.index_size_summary
 						FROM	duplicate_indexes di
 								JOIN #index_sanity ip ON di.[object_id] = ip.[object_id]
 														 AND ip.key_column_names = di.key_column_names
-								LEFT JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
+								JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
 						ORDER BY ip.object_id, ip.key_column_names_with_sort_order	
 				OPTION	( RECOMPILE );
 
@@ -1285,9 +1294,9 @@ BEGIN;
 								ip.index_definition, 
 								ip.secret_columns,
 								ip.index_usage_summary,
-								ISNULL(ips.index_size_summary,'N/A') /*Disabled*/
+								ips.index_size_summary
 						FROM	#index_sanity AS ip 
-						LEFT JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
+						JOIN #index_sanity_size ips ON ip.index_sanity_id = ips.index_sanity_id
 						WHERE EXISTS (
 							SELECT di.[object_id]
 							FROM borderline_duplicate_indexes AS di
@@ -1320,7 +1329,7 @@ BEGIN;
 						i.index_usage_summary,
 						sz.index_size_summary
 				FROM	#index_sanity AS i
-						JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+				JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				OPTION	( RECOMPILE );
 		END
@@ -1350,7 +1359,7 @@ BEGIN;
 									ELSE ''
 									END AS index_size_summary
 						FROM	#index_sanity i
-								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						WHERE	index_id NOT IN ( 0, 1 )
 						GROUP BY schema_object_name
 						HAVING	COUNT(*) >= 7
@@ -1373,7 +1382,7 @@ BEGIN;
 									 ELSE 0
 								END) 
 					FROM	#index_sanity i
-							JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN	#index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	index_id NOT IN ( 0, 1 ) 
 					OPTION	( RECOMPILE );
 
@@ -1400,7 +1409,7 @@ BEGIN;
 										ELSE ''
 										END AS index_size_summary
 							FROM	#index_sanity i
-									JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+							JOIN	#index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 							WHERE	index_id NOT IN ( 0, 1 )
 									AND total_reads = 0
 							GROUP BY i.database_name 
@@ -1420,7 +1429,7 @@ BEGIN;
 								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#index_sanity AS i
-								JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+						JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 						WHERE	i.total_reads=0
 								AND i.index_id NOT IN (0,1) /*NCs only*/
 						ORDER BY i.schema_object_indexid
@@ -1441,7 +1450,7 @@ BEGIN;
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
-							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	( count_key_columns + count_included_columns ) >= 7
 					OPTION	( RECOMPILE );
 
@@ -1475,7 +1484,7 @@ BEGIN;
 								i.index_usage_summary,
 								ip.index_size_summary
 						FROM	#index_sanity i
-						JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]	
 						WHERE	index_id = 1 /* clustered only */
 								AND 
@@ -1508,14 +1517,14 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#index_sanity i
-						LEFT JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							AND cc.non_nullable_columns < 2
 							and cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 26: Wide tables (25 or more cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
 				WITH count_columns AS (
 							SELECT [object_id],
 								SUM(CASE max_length when -1 THEN 1 ELSE 0 END) AS count_lob_columns,
@@ -1545,7 +1554,7 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#index_sanity i
-						LEFT JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							and 
@@ -1642,7 +1651,7 @@ BEGIN;
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
-							JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	fill_factor BETWEEN 1 AND 80 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
@@ -1700,8 +1709,8 @@ BEGIN;
 								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#index_sanity i
-								JOIN heaps_cte h ON i.[object_id] = h.[object_id]
-								JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+						JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+						JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 						WHERE	i.index_id = 0 
 				OPTION	( RECOMPILE );
 
@@ -1726,8 +1735,8 @@ BEGIN;
 								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#index_sanity i
-								LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
-								JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+						LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+						JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 						WHERE	i.index_id = 0 
 								AND 
 									(i.total_reads > 0 OR i.user_updates > 0)
@@ -1801,7 +1810,7 @@ BEGIN;
 							N'' AS index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.is_XML = 1 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 61: NC Columnstore indexes', 0,1) WITH NOWAIT;
@@ -1818,7 +1827,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.is_NC_columnstore = 1 OPTION	( RECOMPILE );
 
 
@@ -1836,7 +1845,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.is_spatial = 1 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
@@ -1853,7 +1862,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
@@ -1870,7 +1879,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.partition_key_column_name IS NOT NULL OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
@@ -1891,7 +1900,7 @@ BEGIN;
 						i.[object_id]=iParent.[object_id]
 						AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
 						AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.partition_key_column_name IS NULL 
 						OPTION	( RECOMPILE );
 
@@ -1912,7 +1921,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
 						OPTION	( RECOMPILE );
 
@@ -1933,7 +1942,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
-					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
 					and /*Exclude recently created tables unless they've been modified after being created.*/
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
