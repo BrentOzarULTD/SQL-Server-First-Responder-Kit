@@ -48,6 +48,7 @@ CHANGE LOG (last four versions):
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns.
+		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -1807,7 +1808,47 @@ BEGIN;
 					WHERE i.partition_key_column_name IS NULL 
 						OPTION	( RECOMPILE );
 
+			RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	66 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Recently created tables/indexes (1 week)' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid + N' was created on ' + 
+								CONVERT(NVARCHAR(16),i.create_date,121) + 
+								N'. Tables/indexes which are dropped/created regularly require special methods for index tuning.'
+									 AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.create_date > DATEADD(dd,-7,GETDATE()) 
+						OPTION	( RECOMPILE );
 
+			RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	67 AS check_id, 
+							i.index_sanity_id,
+							N'Abnormal Psychology' AS findings_group,
+							N'Recently modified tables/indexes (2 days)' AS finding, 
+							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+							i.schema_object_indexid + N' was modified on ' + 
+								CONVERT(NVARCHAR(16),i.modify_date,121) + 
+								N'. A large amount of recently modified indexes may mean a lot of rebuilds are occurring each night.'
+									 AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							ISNULL(sz.index_size_summary,'') AS index_size_summary
+					FROM	#index_sanity AS i
+					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
+						OPTION	( RECOMPILE );
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
