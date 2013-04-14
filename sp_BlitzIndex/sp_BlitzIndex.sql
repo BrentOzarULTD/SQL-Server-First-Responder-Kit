@@ -52,6 +52,8 @@ CHANGE LOG (last four versions):
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
+		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
+			Previously just simplistically looked for multiple column CX.
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -1420,16 +1422,27 @@ BEGIN;
 					WHERE	( count_key_columns + count_included_columns ) >= 7
 					OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 24: Clustered indexes with > 1 column.', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 24: Wide clustered indexes (> 3 columns or > 16 bytes).', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								SUM(CASE max_length when -1 THEN 0 ELSE max_length END) AS sum_max_length
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							and key_ordinal > 0
+							GROUP BY object_id
+							)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Multi-column clustered index' AS finding,
+								N'Wide clustered index' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-								CAST (i.count_key_columns AS NVARCHAR(10)) + N' columns in clustered index:' + i.schema_object_name 
-									+ N'. ' + (SELECT CAST(COUNT(*) AS NVARCHAR(23)) FROM #index_sanity i2 
+								CAST (i.count_key_columns AS NVARCHAR(10)) + N' columns with potential size of '
+									+ CAST(cc.sum_max_length AS NVARCHAR(10))
+									+ N' bytes in clustered index:' + i.schema_object_name 
+									+ N'. ' + 
+										(SELECT CAST(COUNT(*) AS NVARCHAR(23)) FROM #index_sanity i2 
 										WHERE i2.[object_id]=i.[object_id] AND i2.index_id <> 1
 										AND i2.is_disabled=0 AND i2.is_hypothetical=0)
 										+ N' NC indexes on the table.'
@@ -1439,9 +1452,12 @@ BEGIN;
 								i.index_usage_summary,
 								ip.index_size_summary
 						FROM	#index_sanity i
-								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
-						WHERE	index_id =1 /* clustered only */
-								AND count_key_columns > 1 /*More than one key column.*/
+						JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]	
+						WHERE	index_id = 1 /* clustered only */
+								AND 
+									(count_key_columns > 3 /*More than three key columns.*/
+									OR cc.sum_max_length > 15 /*More than 16 bytes in key */)
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
