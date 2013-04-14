@@ -1785,10 +1785,10 @@ BEGIN;
 					LEFT JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.partition_key_column_name IS NOT NULL OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 64: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
-					SELECT	64 AS check_id, 
+					SELECT	65 AS check_id, 
 							i.index_sanity_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Non-Aligned index on a partitioned table' AS finding, 
