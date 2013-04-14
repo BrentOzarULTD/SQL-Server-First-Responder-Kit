@@ -59,6 +59,7 @@ CHANGE LOG (last four versions):
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
 		Added check_id 68: Int identity columns with 1+ Billion Rows
 		Added check_id 69: Column collation does not match database collation
+		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
@@ -2019,6 +2020,39 @@ BEGIN;
 						WHERE	i.index_id in (1,0)
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
+			RAISERROR(N'check_id 70: Replicated columns', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								COUNT(*) as column_count,
+								SUM(CASE is_replicated WHEN 1 THEN 1 ELSE 0 END) as replicated_column_count
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	70 AS check_id, 
+								i.index_sanity_id, 
+								N'Abnormal Psychology' AS findings_group,
+								N'Replicated columns' AS finding,
+								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+								i.schema_object_name 
+									+ N' has ' + CAST(replicated_column_count AS NVARCHAR(20))
+									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
+									+ N' out of a total ' + CAST(column_count AS NVARCHAR(20))
+									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
+									+ N' in a publication.'
+										AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						WHERE	i.index_id in (1,0)
+							and replicated_column_count > 0
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 	END
 		 ----------------------------------------
 		--FINISHING UP
