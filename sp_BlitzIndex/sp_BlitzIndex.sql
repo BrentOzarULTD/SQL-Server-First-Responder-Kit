@@ -1445,10 +1445,12 @@ BEGIN;
 						SELECT	25 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Only one or fewer columns is non-nullable.' AS finding,
+								N'Addicted to nulls' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-								N'The table ' + i.schema_object_name 
-									+ N' allows null in almost all columns.' AS details,
+								i.schema_object_name 
+									+ N' allows null in ' + CAST((total_columns-non_nullable_columns) as NVARCHAR(10))
+									+ N' of ' + CAST(total_columns as NVARCHAR(10))
+									+ N' columns.' AS details,
 								i.index_definition,
 								secret_columns, 
 								ISNULL(i.index_usage_summary,''),
