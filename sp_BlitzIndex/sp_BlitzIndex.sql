@@ -45,7 +45,8 @@ Known limitations of this version:
 CHANGE LOG (last four versions):
 	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
-		Added count of total number of indexes a column is part of
+		Added count of total number of indexes a column is part of.
+		Added check_id 25: Addicted to nullable columns.
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -1430,24 +1431,34 @@ BEGIN;
 								AND count_key_columns > 1 /*More than one key column.*/
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 25: Non-Unique Clustered Indexes.', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								SUM(CASE is_nullable WHEN 1 THEN 0 ELSE 1 END) as non_nullable_columns,
+								COUNT(*) as total_columns
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							GROUP BY object_id
+							)
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
-						SELECT	24 AS check_id, 
+						SELECT	25 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Non-Unique clustered index' AS finding,
+								N'Only one or fewer columns is non-nullable.' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-								N'The clustered index on ' + i.schema_object_name 
-									+ N' may incur overhead from uniquifiers.' AS details,
+								N'The table ' + i.schema_object_name 
+									+ N' allows null in almost all columns.' AS details,
 								i.index_definition,
 								secret_columns, 
-								i.index_usage_summary,
-								ip.index_size_summary
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
 						FROM	#index_sanity i
-								JOIN #index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
-						WHERE	index_id =1 /* clustered only */
-								AND is_unique = 0 /*is not unique*/
+						LEFT JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						WHERE	i.index_id in (1,0)
+							AND cc.non_nullable_columns < 2
+							and cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 		END
 		 ----------------------------------------
