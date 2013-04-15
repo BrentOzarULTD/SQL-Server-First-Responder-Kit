@@ -63,6 +63,7 @@ CHANGE LOG (last four versions):
 		Split check_id 40 into two checks: fillfactor on nonclustered indexes < 80%, fillfactor on clustered indexes < 90%
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
+		Added four index usage columns to table detail output: last_user_seek, last_user_scan, last_user_lookup, last_user_update
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
 			Previously just simplistically looked for multiple column CX.
 		Removed extra spacing (non-breaking) in more_info column.
@@ -1133,6 +1134,10 @@ BEGIN
 			(SELECT COUNT(*)
 				FROM #foreign_keys fk WHERE fk.parent_object_id=s.object_id
 				AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
+			s.last_user_seek,
+			s.last_user_scan,
+			s.last_user_lookup,
+			s.last_user_update,
 			s.create_date,
 			s.modify_date,
 			ct.create_tsql,
@@ -1161,6 +1166,10 @@ BEGIN
 			index_lock_wait_summary AS [Lock Waits],
 			is_referenced_by_foreign_key AS [Referenced by FK?],
 			FKs_covered_by_index AS [FK Covered by Index?],
+			s.last_user_seek AS [Last User Seek],
+			s.last_user_scan AS [Last User Scan],
+			s.last_user_lookup AS [Last User Lookup],
+			s.last_user_update as [Last User Write],
 			create_date AS [Created],
 			modify_date AS [Last Modified],
 			create_tsql AS [Create TSQL]
