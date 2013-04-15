@@ -1154,7 +1154,7 @@ BEGIN
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				0 as display_order
 	)
 	SELECT 
@@ -1166,10 +1166,10 @@ BEGIN
 			index_lock_wait_summary AS [Lock Waits],
 			is_referenced_by_foreign_key AS [Referenced by FK?],
 			FKs_covered_by_index AS [FK Covered by Index?],
-			s.last_user_seek AS [Last User Seek],
-			s.last_user_scan AS [Last User Scan],
-			s.last_user_lookup AS [Last User Lookup],
-			s.last_user_update as [Last User Write],
+			last_user_seek AS [Last User Seek],
+			last_user_scan AS [Last User Scan],
+			last_user_lookup AS [Last User Lookup],
+			last_user_update as [Last User Write],
 			create_date AS [Created],
 			modify_date AS [Last Modified],
 			create_tsql AS [Create TSQL]
