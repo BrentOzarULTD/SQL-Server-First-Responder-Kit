@@ -60,6 +60,7 @@ CHANGE LOG (last four versions):
 		Added check_id 68: Int identity columns with 1+ Billion Rows
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
+		Split check_id 40 into two checks: fillfactor on nonclustered indexes < 80%, fillfactor on clustered indexes < 90%
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
@@ -1648,22 +1649,56 @@ BEGIN;
 		----------------------------------------
 		BEGIN
 
-			RAISERROR(N'check_id 40: Fillfactor less than or equal to 80 percent', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 40: Fillfactor in nonclustered 80 percent or less', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	40 AS check_id, 
 							i.index_sanity_id,
 							N'Self Loathing Indexes' AS findings_group,
-							N'Low Fill Factor' AS finding, 
+							N'Low Fill Factor: nonclustered index' AS finding, 
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-							N'Fill factor on ' + schema_object_indexid + N' is ' + CAST(fill_factor AS NVARCHAR(10)) + N'%' AS details, 
+							N'Fill factor on ' + schema_object_indexid + N' is ' + CAST(fill_factor AS NVARCHAR(10)) + N'%. '+
+								CASE WHEN (last_user_update is null OR user_updates < 1)
+								THEN N'No writes have been made.'
+								ELSE
+									N'Last write was ' +  CONVERT(NVARCHAR(16),last_user_update,121) + N' and ' + 
+									CAST(user_updates as NVARCHAR(25)) + N' updates have been made.'
+								END
+								AS details, 
+							i.index_definition,
+							i.secret_columns,
+							i.index_usage_summary,
+							sz.index_size_summary
+					FROM	#index_sanity AS i
+					JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+					WHERE	index_id > 1
+					and	fill_factor BETWEEN 1 AND 80 OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 40: Fillfactor in clustered 90 percent or less', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										   secret_columns, index_usage_summary, index_size_summary )
+					SELECT	40 AS check_id, 
+							i.index_sanity_id,
+							N'Self Loathing Indexes' AS findings_group,
+							N'Low Fill Factor: clustered index' AS finding, 
+							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
+							N'Fill factor on ' + schema_object_indexid + N' is ' + CAST(fill_factor AS NVARCHAR(10)) + N'%. '+
+								CASE WHEN (last_user_update is null OR user_updates < 1)
+								THEN N'No writes have been made.'
+								ELSE
+									N'Last write was ' +  CONVERT(NVARCHAR(16),last_user_update,121) + N' and ' + 
+									CAST(user_updates as NVARCHAR(25)) + N' updates have been made.'
+								END
+								AS details, 
 							i.index_definition,
 							i.secret_columns,
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#index_sanity AS i
 					JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE	fill_factor BETWEEN 1 AND 80 OPTION	( RECOMPILE );
+					WHERE	index_id = 1
+					and fill_factor BETWEEN 1 AND 90 OPTION	( RECOMPILE );
+
 
 			RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
