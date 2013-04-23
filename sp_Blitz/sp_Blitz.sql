@@ -18,11 +18,12 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @SkipChecksTable NVARCHAR(256) = NULL,
     @IgnorePrioritiesBelow INT = NULL,
     @IgnorePrioritiesAbove INT = NULL,
+    @OutputTableName NVARCHAR(256) = NULL,
     @Version INT = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
 /*
-    sp_Blitz (TM) v20 - April 12, 2013
+    sp_Blitz (TM) v21 - April 23, 2013
     
     (C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -52,6 +53,11 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
+
+Changes in v21:
+ - Added @OutputTableName. If set, the #BlitzResults table is saved into that
+   table name. Must be in the current database, and the schema must match our
+   specs. Only outputs the check results, not the plan cache.
 
 Changes in v20:
  - Randy Knight @Randy_Knight http://sqlsolutionsgroup.com identified a bunch
@@ -3291,6 +3297,29 @@ IF @IgnorePrioritiesBelow IS NOT NULL
         end
         drop table #exempt
       end
+
+
+/* @OutputTableName lets us export the sp_Blitz™ results to a permanent table */
+IF @OutputTableName IS NOT NULL
+    BEGIN
+        IF NOT EXISTS (SELECT * FROM sys.objects WHERE type_desc = 'USER_TABLE' AND name = @OutputTableName)
+			BEGIN
+		SET @StringToExecute = 'CREATE TABLE ' + QUOTENAME(@OutputTableName) + ' (ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, ServerName NVARCHAR(128), CheckDate DATETIME, BlitzVersion INT,
+    CheckID INT ,
+    DatabaseName NVARCHAR(128),
+    Priority TINYINT ,
+    FindingsGroup VARCHAR(50) ,
+    Finding VARCHAR(200) ,
+    URL VARCHAR(200) ,
+    Details NVARCHAR(4000) ,
+    QueryPlan [XML] NULL ,
+    QueryPlanFiltered [NVARCHAR](MAX) NULL
+    );'
+EXEC(@StringToExecute);
+	END
+	SET @StringToExecute = N'INSERT ' + QUOTENAME(@OutputTableName) + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128)) + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+EXEC(@StringToExecute);
+    END
 
 DECLARE @separator AS VARCHAR(1);
 	IF @OutputType = 'RSV'
