@@ -59,7 +59,7 @@ Unknown limitations of this version:
 Changes in v21:
  - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
    #BlitzResults table is saved into that. Only outputs the check results, not
-   the plan cache.
+   the plan cache. Suggested by Robbert Hof and Andy Bassitt.
  - Moved temp table creation up to the top of the sproc while trying to fix an
    issue with offline databases. I like it up there, so leaving it. Didn't fix
    the issue, but ah well.
@@ -2413,7 +2413,7 @@ if not exists (select 1 from #tempchecks where CheckId = 86)
 begin
             EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 end
-            
+
   END /* IF @CheckUserDatabaseObjects = 1 */
 
     IF @CheckProcedureCache = 1 
