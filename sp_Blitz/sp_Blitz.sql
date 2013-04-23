@@ -68,6 +68,7 @@ Changes in v21:
  - Mike Eastland suggested check 102 for databases in unusual states - suspect,
    recovering, emergency, etc.
  - Russell Hart coded check 104 looking for logins with CONTROL SERVER perms.
+ - Added check 105 looking for extended stored procedures in master.
  - Moved temp table creation up to the top of the sproc while trying to fix an
    issue with offline databases. I like it up there, so leaving it. Didn't fix
    the issue, but ah well.
@@ -2254,6 +2255,28 @@ FROM sys.databases
 WHERE state > 1
 END
 
+IF EXISTS(SELECT * FROM master.sys.extended_procedures) AND not exists (select 1 from #tempchecks where CheckId = 105)
+BEGIN
+INSERT INTO #BlitzResults
+( 
+ CheckID,
+ DatabaseName,
+ Priority,
+ FindingsGroup,
+ Finding,
+ URL,
+ Details
+)
+SELECT 
+105 AS CheckID,
+'master',
+50 AS Priority,
+'Reliability' AS FindingGroup,
+'Extended Stored Procedures in Master' AS Finding,
+'http://BrentOzar.com/go/clr' AS URL,
+'The [' + name + '] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.'
+FROM master.sys.extended_procedures
+END
             
     IF @CheckUserDatabaseObjects = 1 
     BEGIN
