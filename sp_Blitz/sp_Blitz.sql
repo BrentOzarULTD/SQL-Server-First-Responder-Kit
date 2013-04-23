@@ -67,6 +67,7 @@ Changes in v21:
  - Chris Leavitt coded check 103 looking for virtualization.
  - Mike Eastland suggested check 102 for databases in unusual states - suspect,
    recovering, emergency, etc.
+ - Russell Hart coded check 104 looking for logins with CONTROL SERVER perms.
  - Moved temp table creation up to the top of the sproc while trying to fix an
    issue with offline databases. I like it up there, so leaving it. Didn't fix
    the issue, but ah well.
@@ -720,7 +721,23 @@ end
       AND l.name <> SUSER_SNAME(0x01)
       AND l.denylogin = 0;
     end
-    
+
+if not exists (select 1 from #tempchecks where CheckId = 104)
+begin
+INSERT INTO #BlitzResults ([CheckID], [Priority], [FindingsGroup], [Finding], [URL], [Details]) 
+SELECT 104 as [CheckID], 
+10 as [Priority], 
+'Security' as [FindingsGroup], 
+'Login Can Control Server' as [Finding], 
+'http://BrentOzar.com/go/sa' as [URL], 
+'Login [' + pri.[name] + '] has the CONTROL SERVER permission - meaning they can do absolutely anything in SQL Server, including dropping databases or hiding their tracks.' as [Details] 
+FROM sys.server_principals as pri 
+WHERE pri.[principal_id] in ( 
+SELECT p.[grantee_principal_id] 
+FROM sys.server_permissions as p 
+WHERE p.[state] in ('G','W') and p.[class] = 100 and p.[type] = 'CL' 
+) and pri.[name] not like '##%##'
+end    
         
     if not exists (select 1 from #tempchecks where CheckId = 6)
     begin
