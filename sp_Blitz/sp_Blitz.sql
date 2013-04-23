@@ -18,6 +18,8 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @SkipChecksTable NVARCHAR(256) = NULL,
     @IgnorePrioritiesBelow INT = NULL,
     @IgnorePrioritiesAbove INT = NULL,
+@OutputDatabaseName NVARCHAR(128) = NULL,
+@OutputSchemaName NVARCHAR(256) = NULL,
     @OutputTableName NVARCHAR(256) = NULL,
     @Version INT = NULL OUTPUT
 AS 
@@ -55,9 +57,9 @@ Unknown limitations of this version:
  - None.  (If we knew them, they'd be known.  Duh.)
 
 Changes in v21:
- - Added @OutputTableName. If set, the #BlitzResults table is saved into that
-   table name. Must be in the current database, and the schema must match our
-   specs. Only outputs the check results, not the plan cache.
+ - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
+   #BlitzResults table is saved into that. Only outputs the check results, not
+   the plan cache.
 
 Changes in v20:
  - Randy Knight @Randy_Knight http://sqlsolutionsgroup.com identified a bunch
@@ -3242,7 +3244,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
     );
 
-    SET @Version = 19;
+    SET @Version = 21;
     INSERT  INTO #BlitzResults
     ( CheckID ,
     Priority ,
@@ -3254,7 +3256,7 @@ IF @IgnorePrioritiesBelow IS NOT NULL
     )
     VALUES  ( -1 ,
     0 ,
-    'sp_Blitz (TM) v20 Apr 12 2013' ,
+    'sp_Blitz (TM) v21 Apr 23 2013' ,
     'From Brent Ozar Unlimited' ,
     'http://www.BrentOzar.com/blitz/' ,
     'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -3300,11 +3302,9 @@ IF @IgnorePrioritiesBelow IS NOT NULL
 
 
 /* @OutputTableName lets us export the sp_Blitz™ results to a permanent table */
-IF @OutputTableName IS NOT NULL
+IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
     BEGIN
-        IF NOT EXISTS (SELECT * FROM sys.objects WHERE type_desc = 'USER_TABLE' AND name = @OutputTableName)
-			BEGIN
-		SET @StringToExecute = 'CREATE TABLE ' + QUOTENAME(@OutputTableName) + ' (ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, ServerName NVARCHAR(128), CheckDate DATETIME, BlitzVersion INT,
+        SET @StringToExecute = 'USE ' + QUOTENAME(@OutputDatabaseName) + '; IF NOT EXISTS (SELECT * FROM ' + QUOTENAME(@OutputDatabaseName) + '.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ''' + @OutputSchemaName + ''' AND TABLE_NAME = ''' + @OutputTableName + ''') CREATE TABLE ' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, ServerName NVARCHAR(128), CheckDate DATETIME, BlitzVersion INT,
     CheckID INT ,
     DatabaseName NVARCHAR(128),
     Priority TINYINT ,
@@ -3315,10 +3315,9 @@ IF @OutputTableName IS NOT NULL
     QueryPlan [XML] NULL ,
     QueryPlanFiltered [NVARCHAR](MAX) NULL
     );'
-EXEC(@StringToExecute);
-	END
-	SET @StringToExecute = N'INSERT ' + QUOTENAME(@OutputTableName) + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128)) + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-EXEC(@StringToExecute);
+    EXEC(@StringToExecute);
+    SET @StringToExecute = N'INSERT ' + QUOTENAME(@OutputDatabaseName) + '.' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128)) + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+    EXEC(@StringToExecute);
     END
 
 DECLARE @separator AS VARCHAR(1);
