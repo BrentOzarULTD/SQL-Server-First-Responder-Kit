@@ -60,6 +60,10 @@ Changes in v21:
  - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
    #BlitzResults table is saved into that. Only outputs the check results, not
    the plan cache. Suggested by Robbert Hof and Andy Bassitt.
+ - Alin Selicean @AlinSelicean:
+   - Added check 100 looking for disabled remote access to the DAC.
+ - Added check 101 looking for disabled CPU schedulers due to licensing or
+   affinity masking.
  - Moved temp table creation up to the top of the sproc while trying to fix an
    issue with offline databases. I like it up there, so leaving it. Didn't fix
    the issue, but ah well.
@@ -2163,8 +2167,51 @@ and j.notify_email_operator_id=0
 and j.notify_netsend_operator_id=0 
 and j.notify_page_operator_id=0        
 end
+
+
+IF EXISTS(SELECT 1 FROM sys.configurations WHERE name = 'remote admin connections' AND value_in_use = 0) AND not exists (select 1 from #tempchecks where CheckId = 100)
+BEGIN
+INSERT INTO #BlitzResults
+( 
+ CheckID,
+ Priority,
+ FindingsGroup,
+ Finding,
+ URL,
+ Details
+)
+SELECT 
+100 AS CheckID,
+50 AS Priority,
+'Reliability' AS FindingGroup,
+'Remote DAC Disabled' AS Finding,
+'http://BrentOzar.com/go/dac' AS URL,
+'Remote access to the Dedicated Admin Connection (DAC) is not enabled. The DAC can make remote troubleshooting much easier when SQL Server is unresponsive.'
+END
+
+
+IF EXISTS(SELECT * FROM sys.dm_os_schedulers WHERE is_online = 0) AND not exists (select 1 from #tempchecks where CheckId = 101)
+BEGIN
+INSERT INTO #BlitzResults
+( 
+ CheckID,
+ Priority,
+ FindingsGroup,
+ Finding,
+ URL,
+ Details
+)
+SELECT 
+101 AS CheckID,
+1 AS Priority,
+'Performance' AS FindingGroup,
+'CPU Schedulers Offline' AS Finding,
+'http://BrentOzar.com/go/schedulers' AS URL,
+'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing problems.'
+END
+
             
-    IF @CheckUserDatabaseObjects = 1 
+    IF CheckUserDatabaseObjects = 1 
     BEGIN
               
     if not exists (select 1 from #tempchecks where CheckId = 32)
