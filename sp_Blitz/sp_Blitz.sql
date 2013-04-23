@@ -64,6 +64,7 @@ Changes in v21:
    - Added check 100 looking for disabled remote access to the DAC.
    - Added check 101 looking for disabled CPU schedulers due to licensing or
      affinity masking.
+ - Chris Leavitt coded check 103 looking for virtualization.
  - Mike Eastland suggested check 102 for databases in unusual states - suspect,
    recovering, emergency, etc.
  - Moved temp table creation up to the top of the sproc while trying to fix an
@@ -3300,6 +3301,23 @@ end
 	FROM #driveInfo AS i
 	DROP TABLE #driveInfo
     END
+
+
+IF not exists (select 1 from #tempchecks where CheckId = 103) AND EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_os_sys_info' AND c.name = 'virtual_machine_type_desc')
+BEGIN
+SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+SELECT 103 AS CheckID,
+250 AS Priority,
+''Server Info'' AS FindingsGroup,
+''Virtual Server'' AS Finding,
+''http://BrentOzar.com/go/virtual'' AS URL,
+''Type: ('' + virtual_machine_type_desc + '')'' AS Details
+FROM sys.dm_os_sys_info
+WHERE virtual_machine_type <> 0';
+EXECUTE(@StringToExecute);
+END
+
+
 END /* IF @CheckServerInfo = 1 */
 
 
