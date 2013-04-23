@@ -60,6 +60,9 @@ Changes in v21:
  - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
    #BlitzResults table is saved into that. Only outputs the check results, not
    the plan cache.
+ - Moved temp table creation up to the top of the sproc while trying to fix an
+   issue with offline databases. I like it up there, so leaving it. Didn't fix
+   the issue, but ah well.
 
 Changes in v20:
  - Randy Knight @Randy_Knight http://sqlsolutionsgroup.com identified a bunch
@@ -397,6 +400,65 @@ Explanation of priority levels:
         name NVARCHAR(128) ,
         DefaultValue BIGINT
         );
+
+    IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL DROP TABLE #DBCCs;
+    CREATE TABLE #DBCCs 
+    (
+    ID INT IDENTITY(1, 1)
+    PRIMARY KEY ,
+    ParentObject VARCHAR(255) ,
+    Object VARCHAR(255) ,
+    Field VARCHAR(255) ,
+    Value VARCHAR(255) ,
+    DbName NVARCHAR(128) NULL
+    )
+
+
+    IF OBJECT_ID('tempdb..#LogInfo2012') IS NOT NULL DROP TABLE #LogInfo2012;
+      CREATE TABLE #LogInfo2012
+      (
+      recoveryunitid INT ,
+      FileID SMALLINT ,
+      FileSize BIGINT ,
+      StartOffset BIGINT ,
+      FSeqNo BIGINT ,
+      [Status] TINYINT ,
+      Parity TINYINT ,
+      CreateLSN NUMERIC(38)
+      );
+
+    IF OBJECT_ID('tempdb..#LogInfo') IS NOT NULL DROP TABLE #LogInfo;
+      CREATE TABLE #LogInfo
+      (
+      FileID SMALLINT ,
+      FileSize BIGINT ,
+      StartOffset BIGINT ,
+      FSeqNo BIGINT ,
+      [Status] TINYINT ,
+      Parity TINYINT ,
+      CreateLSN NUMERIC(38)
+      );
+
+    IF OBJECT_ID('tempdb..#partdb') IS NOT NULL DROP TABLE #partdb;
+    CREATE TABLE #partdb
+        (
+          dbname NVARCHAR(128) ,
+          objectname NVARCHAR(200) ,
+          type_desc NVARCHAR(128)
+        )
+
+    IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL DROP TABLE #TraceStatus;
+    CREATE TABLE #TraceStatus
+    (
+    TraceFlag VARCHAR(10) ,
+    status BIT ,
+    Global BIT ,
+    Session BIT
+    );
+
+    IF OBJECT_ID('tempdb..#driveInfo') IS NOT NULL DROP TABLE #driveInfo;
+	CREATE TABLE #driveInfo(drive NVARCHAR,SIZE DECIMAL(18,2))
+
 
   IF @CheckProcedureCache = 1 
   BEGIN
@@ -2677,18 +2739,6 @@ end
     /*Check for the last good DBCC CHECKDB date */
     if not exists (select 1 from #tempchecks where CheckId = 68)
     begin
-    IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL 
-      DROP TABLE #DBCCs;
-    CREATE TABLE #DBCCs 
-    (
-    ID INT IDENTITY(1, 1)
-    PRIMARY KEY ,
-    ParentObject VARCHAR(255) ,
-    Object VARCHAR(255) ,
-    Field VARCHAR(255) ,
-    Value VARCHAR(255) ,
-    DbName NVARCHAR(128) NULL
-    )
     EXEC sp_MSforeachdb 
     N'USE [?];
     INSERT #DBCCs
@@ -2742,17 +2792,6 @@ end
     begin
     IF @@VERSION LIKE 'Microsoft SQL Server 2012%' 
     BEGIN
-      CREATE TABLE #LogInfo2012
-      (
-      recoveryunitid INT ,
-      FileID SMALLINT ,
-      FileSize BIGINT ,
-      StartOffset BIGINT ,
-      FSeqNo BIGINT ,
-      [Status] TINYINT ,
-      Parity TINYINT ,
-      CreateLSN NUMERIC(38)
-      );
       EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo2012 
       EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
@@ -2783,16 +2822,6 @@ end
     
     IF @@VERSION NOT LIKE 'Microsoft SQL Server 2012%' 
     BEGIN
-      CREATE TABLE #LogInfo
-      (
-      FileID SMALLINT ,
-      FileSize BIGINT ,
-      StartOffset BIGINT ,
-      FSeqNo BIGINT ,
-      [Status] TINYINT ,
-      Parity TINYINT ,
-      CreateLSN NUMERIC(38)
-      );
       EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo 
       EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
@@ -2847,12 +2876,6 @@ end
                   
     if not exists (select 1 from #tempchecks where CheckId = 72)
     begin
-    CREATE TABLE #partdb
-        (
-          dbname NVARCHAR(128) ,
-          objectname NVARCHAR(200) ,
-          type_desc NVARCHAR(128)
-        )
   EXEC dbo.sp_MSforeachdb 
     'USE [?]; 
     insert into #partdb(dbname, objectname, type_desc)
@@ -2932,15 +2955,6 @@ end
     /*Identify globally enabled trace flags*/
     if not exists (select 1 from #tempchecks where CheckId = 74)
     begin
-    IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL 
-    DROP TABLE #TraceStatus;
-    CREATE TABLE #TraceStatus
-    (
-    TraceFlag VARCHAR(10) ,
-    status BIT ,
-    Global BIT ,
-    Session BIT
-    );
     INSERT  INTO #TraceStatus
     EXEC ( ' DBCC TRACESTATUS(-1) WITH NO_INFOMSGS'
     )
@@ -3193,7 +3207,6 @@ end
 
 	if not exists (select 1 from #tempchecks where CheckId = 92)
 	BEGIN
-	CREATE TABLE #driveInfo(drive NVARCHAR,SIZE DECIMAL(18,2))
 	INSERT INTO #driveInfo(drive,SIZE)
 	EXEC master..xp_fixeddrives
 
@@ -3302,21 +3315,22 @@ IF @IgnorePrioritiesBelow IS NOT NULL
 
 
 /* @OutputTableName lets us export the sp_Blitz™ results to a permanent table */
-IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL AND EXISTS (SELECT * FROM sys.databases WHERE [name] = @OutputDatabaseName)
     BEGIN
-        SET @StringToExecute = 'USE ' + QUOTENAME(@OutputDatabaseName) + '; IF NOT EXISTS (SELECT * FROM ' + QUOTENAME(@OutputDatabaseName) + '.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ''' + @OutputSchemaName + ''' AND TABLE_NAME = ''' + @OutputTableName + ''') CREATE TABLE ' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, ServerName NVARCHAR(128), CheckDate DATETIME, BlitzVersion INT,
-    CheckID INT ,
-    DatabaseName NVARCHAR(128),
-    Priority TINYINT ,
+        SET @StringToExecute = 'USE ' + QUOTENAME(@OutputDatabaseName) + '; IF EXISTS(SELECT * FROM ' + QUOTENAME(@OutputDatabaseName) + '.INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ''' + @OutputSchemaName + ''') AND NOT EXISTS (SELECT * FROM ' + QUOTENAME(@OutputDatabaseName) + '.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ''' + @OutputSchemaName + ''' AND TABLE_NAME = ''' + @OutputTableName + ''') CREATE TABLE ' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ID INT IDENTITY(1,1) NOT NULL, ServerName NVARCHAR(128), CheckDate DATETIME, BlitzVersion INT,
+	    Priority TINYINT ,
     FindingsGroup VARCHAR(50) ,
     Finding VARCHAR(200) ,
-    URL VARCHAR(200) ,
-    Details NVARCHAR(4000) ,
-    QueryPlan [XML] NULL ,
-    QueryPlanFiltered [NVARCHAR](MAX) NULL
+DatabaseName NVARCHAR(128),
+URL VARCHAR(200) ,
+Details NVARCHAR(4000) ,
+QueryPlan [XML] NULL ,
+QueryPlanFiltered [NVARCHAR](MAX) NULL,
+    CheckID INT ,
+	CONSTRAINT [PK_' + @OutputTableName + '] PRIMARY KEY CLUSTERED (ID ASC)
     );'
     EXEC(@StringToExecute);
-    SET @StringToExecute = N'INSERT ' + QUOTENAME(@OutputDatabaseName) + '.' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128)) + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+    SET @StringToExecute = N' IF EXISTS(SELECT * FROM ' + QUOTENAME(@OutputDatabaseName) + '.INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ''' + @OutputSchemaName + ''') INSERT ' + QUOTENAME(@OutputDatabaseName) + '.' + QUOTENAME(@OutputSchemaName) + '.' + QUOTENAME(@OutputTableName) + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128)) + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
     EXEC(@StringToExecute);
     END
 
