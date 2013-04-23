@@ -62,8 +62,10 @@ Changes in v21:
    the plan cache. Suggested by Robbert Hof and Andy Bassitt.
  - Alin Selicean @AlinSelicean:
    - Added check 100 looking for disabled remote access to the DAC.
- - Added check 101 looking for disabled CPU schedulers due to licensing or
-   affinity masking.
+   - Added check 101 looking for disabled CPU schedulers due to licensing or
+     affinity masking.
+ - Mike Eastland suggested check 102 for databases in unusual states - suspect,
+   recovering, emergency, etc.
  - Moved temp table creation up to the top of the sproc while trying to fix an
    issue with offline databases. I like it up there, so leaving it. Didn't fix
    the issue, but ah well.
@@ -2210,8 +2212,32 @@ SELECT
 'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing problems.'
 END
 
+IF EXISTS(SELECT * FROM sys.databases WHERE state > 1) AND not exists (select 1 from #tempchecks where CheckId = 102)
+BEGIN
+INSERT INTO #BlitzResults
+( 
+ CheckID,
+ DatabaseName,
+ Priority,
+ FindingsGroup,
+ Finding,
+ URL,
+ Details
+)
+SELECT 
+102 AS CheckID,
+[name],
+20 AS Priority,
+'Reliability' AS FindingGroup,
+'Unusual Database State: ' + [state_desc] AS Finding,
+'http://BrentOzar.com/go/repair' AS URL,
+'This database may not be online.'
+FROM sys.databases
+WHERE state > 1
+END
+
             
-    IF CheckUserDatabaseObjects = 1 
+    IF @CheckUserDatabaseObjects = 1 
     BEGIN
               
     if not exists (select 1 from #tempchecks where CheckId = 32)
