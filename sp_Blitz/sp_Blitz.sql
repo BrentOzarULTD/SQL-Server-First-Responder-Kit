@@ -25,7 +25,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	/*
-	sp_Blitz (TM) v21 - April 25, 2013
+	sp_Blitz (TM) v22 - May 6, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -55,7 +55,11 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
-	Changes in v21:
+	Changes in v22 - May 6, 2013:
+	 - Fixed new v21 case sensitivity bug reported by several users.
+	 - Cleaned up some typos in script output.
+
+	Changes in v21 - April 25, 2013:
 	 - Easier readability - cleaned up the code with Red Gate SQL Prompt, plus
 	   added comments explaining what's happening.
 	 - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
@@ -129,7 +133,7 @@ AS
                  PRIMARY KEY CLUSTERED ,
           ServerName NVARCHAR(256) NULL ,
           DatabaseName NVARCHAR(256) NULL ,
-          CheckId INT NULL
+          CheckID INT NULL
         )
 
     IF @SkipChecksTable IS NOT NULL
@@ -140,8 +144,8 @@ AS
             SET @exemptionpath = @SkipChecksDatabase + '.' + @SkipChecksSchema
                 + '.' + @SkipChecksTable
             DECLARE @sqlcmd NVARCHAR(2500)
-            SET @sqlcmd = 'insert into #GetChecks(ServerName, DatabaseName, CheckId )
-            SELECT DISTINCT ServerName, DatabaseName, CheckId
+            SET @sqlcmd = 'insert into #GetChecks(ServerName, DatabaseName, CheckID )
+            SELECT DISTINCT ServerName, DatabaseName, CheckID
             FROM ' + @exemptionpath
                 + ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') '
             EXEC(@sqlcmd)
@@ -152,7 +156,7 @@ AS
     CREATE TABLE #tempchecks
         (
           DatabaseName NVARCHAR(128) ,
-          CheckId INT
+          CheckID INT
         )
 
     INSERT  INTO #tempchecks
@@ -160,17 +164,17 @@ AS
             )
             SELECT  ISNULL(DatabaseName, '')
             FROM    #GetChecks
-            WHERE   CheckId IS NULL
+            WHERE   CheckID IS NULL
                     AND ( ServerName IS NULL
                           OR ServerName = SERVERPROPERTY('ServerName')
                         )
 
     INSERT  INTO #tempchecks
             ( DatabaseName ,
-              CheckId
+              CheckID
             )
             SELECT  '' ,
-                    CheckId
+                    CheckID
             FROM    #GetChecks
             WHERE   DatabaseName IS NULL
                     AND ( ServerName IS NULL
@@ -324,7 +328,7 @@ AS
     IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName
                                                  FROM   #GetChecks
                                                  WHERE  DatabaseName IS NULL
-                                                        AND CheckId IS NULL ) )
+                                                        AND CheckID IS NULL ) )
          OR ( @SkipChecksTable IS NULL )
        ) 
         BEGIN
@@ -336,7 +340,7 @@ AS
 			*/
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 1 ) 
+                            WHERE   CheckID = 1 ) 
                 BEGIN
 
 					/*
@@ -439,7 +443,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 2 ) 
+                            WHERE   CheckID = 2 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -481,7 +485,7 @@ AS
 
 
 			/* 
-			Next up, we've got CheckId 8. (These don't have to go in order.) This one
+			Next up, we've got CheckID 8. (These don't have to go in order.) This one
 			won't work on SQL Server 2005 because it relies on a new DMV that didn't
 			exist prior to SQL Server 2008. This means we have to check the SQL Server
 			version first, then build a dynamic string with the query we want to run:			
@@ -489,7 +493,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 8 ) 
+                            WHERE   CheckID = 8 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -511,7 +515,7 @@ AS
 
 			/* 
 			But what if you need to run a query in every individual database?
-			Check out CheckId 99 below. Yes, it uses sp_MSforeachdb, and no,
+			Check out CheckID 99 below. Yes, it uses sp_MSforeachdb, and no,
 			we're not happy about that. sp_MSforeachdb is known to have a lot
 			of issues, like skipping databases sometimes. However, this is the
 			only built-in option that we have. If you're writing your own code
@@ -523,7 +527,7 @@ AS
 			*/
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 99 ) 
+                            WHERE   CheckID = 99 ) 
                 BEGIN
                     EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
                 END
@@ -541,14 +545,14 @@ AS
 
 			If you'd like to contribute your own check, use one of the check
 			formats shown above and email it to Help@BrentOzar.com. You don't
-			have to pick a CheckId or a link - we'll take care of that when we
+			have to pick a CheckID or a link - we'll take care of that when we
 			test and publish the code. Thanks!
 			*/
 
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 93 ) 
+                            WHERE   CheckID = 93 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -580,7 +584,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 3 ) 
+                            WHERE   CheckID = 3 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -608,7 +612,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 4 ) 
+                            WHERE   CheckID = 4 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -634,7 +638,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 5 ) 
+                            WHERE   CheckID = 5 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -659,7 +663,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 104 ) 
+                            WHERE   CheckID = 104 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( [CheckID] ,
@@ -688,7 +692,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 6 ) 
+                            WHERE   CheckID = 6 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -715,7 +719,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 7 ) 
+                            WHERE   CheckID = 7 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -742,7 +746,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 9 ) 
+                            WHERE   CheckID = 9 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
                         BEGIN
@@ -766,7 +770,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 10 ) 
+                            WHERE   CheckID = 10 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -791,7 +795,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 11 ) 
+                            WHERE   CheckID = 11 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
                         BEGIN
@@ -815,7 +819,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 12 ) 
+                            WHERE   CheckID = 12 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -844,7 +848,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 13 ) 
+                            WHERE   CheckID = 13 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -873,7 +877,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 14 ) 
+                            WHERE   CheckID = 14 ) 
                 BEGIN
                     IF @@VERSION LIKE '%Microsoft SQL Server 2000%' 
                         BEGIN
@@ -903,7 +907,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 14 ) 
+                            WHERE   CheckID = 14 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
                         BEGIN
@@ -933,7 +937,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 15 ) 
+                            WHERE   CheckID = 15 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -961,7 +965,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 16 ) 
+                            WHERE   CheckID = 16 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -990,7 +994,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 17 ) 
+                            WHERE   CheckID = 17 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1019,7 +1023,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 18 ) 
+                            WHERE   CheckID = 18 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1046,7 +1050,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 19 ) 
+                            WHERE   CheckID = 19 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1078,7 +1082,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 20 ) 
+                            WHERE   CheckID = 20 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1107,7 +1111,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 21 ) 
+                            WHERE   CheckID = 21 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -1301,7 +1305,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 22 ) 
+                            WHERE   CheckID = 22 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1332,7 +1336,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 24 ) 
+                            WHERE   CheckID = 24 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1349,7 +1353,7 @@ AS
                                     20 AS Priority ,
                                     'Reliability' AS FindingsGroup ,
                                     'System Database on C Drive' AS Finding ,
-                                    'http://BrentOzar.com/go/drivec' AS URL ,
+                                    'http://BrentOzar.com/go/cdrive' AS URL ,
                                     ( 'The ' + DB_NAME(database_id)
                                       + ' database has a file on the C drive.  Putting system databases on the C drive runs the risk of crashing the server when it runs out of space.' ) AS Details
                             FROM    sys.master_files
@@ -1361,7 +1365,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 25 ) 
+                            WHERE   CheckID = 25 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1378,7 +1382,7 @@ AS
                                     100 AS Priority ,
                                     'Performance' AS FindingsGroup ,
                                     'TempDB on C Drive' AS Finding ,
-                                    'http://BrentOzar.com/go/drivec' AS URL ,
+                                    'http://BrentOzar.com/go/cdrive' AS URL ,
                                     CASE WHEN growth > 0
                                          THEN ( 'The tempdb database has files on the C drive.  TempDB frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' )
                                          ELSE ( 'The tempdb database has files on the C drive.  TempDB is not set to Autogrow, hopefully it is big enough.  C is also often much slower than other drives, so performance may be suffering.' )
@@ -1391,7 +1395,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 26 ) 
+                            WHERE   CheckID = 26 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1425,7 +1429,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 27 ) 
+                            WHERE   CheckID = 27 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1453,7 +1457,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 28 ) 
+                            WHERE   CheckID = 28 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1479,7 +1483,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 29 ) 
+                            WHERE   CheckID = 29 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1505,7 +1509,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 30 ) 
+                            WHERE   CheckID = 30 ) 
                 BEGIN
                     IF ( SELECT COUNT(*)
                          FROM   msdb.dbo.sysalerts
@@ -1529,7 +1533,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 59 ) 
+                            WHERE   CheckID = 59 ) 
                 BEGIN   
                     IF EXISTS ( SELECT  *
                                 FROM    msdb.dbo.sysalerts
@@ -1554,7 +1558,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 96 ) 
+                            WHERE   CheckID = 96 ) 
                 BEGIN
                     IF NOT EXISTS ( SELECT  *
                                     FROM    msdb.dbo.sysalerts
@@ -1578,7 +1582,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 61 ) 
+                            WHERE   CheckID = 61 ) 
                 BEGIN
                     IF NOT EXISTS ( SELECT  *
                                     FROM    msdb.dbo.sysalerts
@@ -1602,7 +1606,7 @@ AS
     --check for disabled alerts
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 98 ) 
+                            WHERE   CheckID = 98 ) 
                 BEGIN
                     IF EXISTS ( SELECT  name
                                 FROM    msdb.dbo.sysalerts
@@ -1629,7 +1633,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 31 ) 
+                            WHERE   CheckID = 31 ) 
                 BEGIN
                     IF NOT EXISTS ( SELECT  *
                                     FROM    msdb.dbo.sysoperators
@@ -1653,7 +1657,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 33 ) 
+                            WHERE   CheckID = 33 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -1679,7 +1683,7 @@ AS
     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 34 ) 
+                            WHERE   CheckID = 34 ) 
                 BEGIN
                     IF EXISTS ( SELECT  *
                                 FROM    sys.all_objects
@@ -1710,7 +1714,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 89 ) 
+                            WHERE   CheckID = 89 ) 
                 BEGIN
                     IF EXISTS ( SELECT  *
                                 FROM    sys.all_objects
@@ -1742,7 +1746,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 90 ) 
+                            WHERE   CheckID = 90 ) 
                 BEGIN
                     IF EXISTS ( SELECT  *
                                 FROM    msdb.sys.all_objects
@@ -1774,7 +1778,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 36 ) 
+                            WHERE   CheckID = 36 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1801,7 +1805,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 37 ) 
+                            WHERE   CheckID = 37 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1829,7 +1833,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 40 ) 
+                            WHERE   CheckID = 40 ) 
                 BEGIN
                     IF ( SELECT COUNT(*)
                          FROM   tempdb.sys.database_files
@@ -1858,7 +1862,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 41 ) 
+                            WHERE   CheckID = 41 ) 
                 BEGIN   
                     EXEC dbo.sp_MSforeachdb 'use [?]; 
       INSERT INTO #BlitzResults 
@@ -1884,7 +1888,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 42 ) 
+                            WHERE   CheckID = 42 ) 
                 BEGIN
                     EXEC dbo.sp_MSforeachdb 'use [?]; 
         INSERT INTO #BlitzResults 
@@ -1910,7 +1914,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 44 ) 
+                            WHERE   CheckID = 44 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1934,7 +1938,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 45 ) 
+                            WHERE   CheckID = 45 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1958,7 +1962,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 49 ) 
+                            WHERE   CheckID = 49 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -1987,7 +1991,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 50 ) 
+                            WHERE   CheckID = 50 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -2012,7 +2016,7 @@ AS
         
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 51 ) 
+                            WHERE   CheckID = 51 ) 
                 BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                         AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -2037,7 +2041,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 53 ) 
+                            WHERE   CheckID = 53 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2059,7 +2063,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 55 ) 
+                            WHERE   CheckID = 55 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2087,7 +2091,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 57 ) 
+                            WHERE   CheckID = 57 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2112,7 +2116,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 58 ) 
+                            WHERE   CheckID = 58 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2144,7 +2148,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 82 ) 
+                            WHERE   CheckID = 82 ) 
                 BEGIN
                     EXEC sp_MSforeachdb 'use [?]; 
     INSERT INTO #BlitzResults 
@@ -2167,7 +2171,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 97 ) 
+                            WHERE   CheckID = 97 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2192,7 +2196,7 @@ AS
             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 62 ) 
+                            WHERE   CheckID = 62 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2228,7 +2232,7 @@ AS
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 94 ) 
+                            WHERE   CheckID = 94 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2264,7 +2268,7 @@ AS
                                 AND value_in_use = 0 )
                 AND NOT EXISTS ( SELECT 1
                                  FROM   #tempchecks
-                                 WHERE  CheckId = 100 ) 
+                                 WHERE  CheckID = 100 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2288,7 +2292,7 @@ AS
                         WHERE   is_online = 0 )
                 AND NOT EXISTS ( SELECT 1
                                  FROM   #tempchecks
-                                 WHERE  CheckId = 101 ) 
+                                 WHERE  CheckID = 101 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2311,7 +2315,7 @@ AS
                         WHERE   state > 1 )
                 AND NOT EXISTS ( SELECT 1
                                  FROM   #tempchecks
-                                 WHERE  CheckId = 102 ) 
+                                 WHERE  CheckID = 102 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2337,7 +2341,7 @@ AS
                         FROM    master.sys.extended_procedures )
                 AND NOT EXISTS ( SELECT 1
                                  FROM   #tempchecks
-                                 WHERE  CheckId = 105 ) 
+                                 WHERE  CheckID = 105 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -2364,7 +2368,7 @@ AS
               
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 32 ) 
+                                    WHERE   CheckID = 32 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
         INSERT INTO #BlitzResults 
@@ -2388,7 +2392,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 38 ) 
+                                    WHERE   CheckID = 38 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
         INSERT INTO #BlitzResults 
@@ -2416,7 +2420,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 39 ) 
+                                    WHERE   CheckID = 39 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
         INSERT INTO #BlitzResults 
@@ -2444,7 +2448,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 46 ) 
+                                    WHERE   CheckID = 46 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2468,7 +2472,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 47 ) 
+                                    WHERE   CheckID = 47 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2493,7 +2497,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 48 ) 
+                                    WHERE   CheckID = 48 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2517,7 +2521,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 56 ) 
+                                    WHERE   CheckID = 56 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2542,7 +2546,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 95 ) 
+                                    WHERE   CheckID = 95 ) 
                         BEGIN
                             IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
                                 AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
@@ -2569,7 +2573,7 @@ AS
               
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 60 ) 
+                                    WHERE   CheckID = 60 ) 
                         BEGIN
                             EXEC sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2593,7 +2597,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 78 ) 
+                                    WHERE   CheckID = 78 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; 
       INSERT INTO #BlitzResults 
@@ -2616,7 +2620,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 86 ) 
+                                    WHERE   CheckID = 86 ) 
                         BEGIN
                             EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
                         END
@@ -2628,7 +2632,7 @@ AS
         
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 35 ) 
+                                    WHERE   CheckID = 35 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2823,7 +2827,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 63 ) 
+                                    WHERE   CheckID = 63 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2852,7 +2856,7 @@ AS
             
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 64 ) 
+                                    WHERE   CheckID = 64 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2880,7 +2884,7 @@ AS
     /* Look for missing indexes */
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 65 ) 
+                                    WHERE   CheckID = 65 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2909,7 +2913,7 @@ AS
                     
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 66 ) 
+                                    WHERE   CheckID = 66 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2938,7 +2942,7 @@ AS
                     
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 67 ) 
+                                    WHERE   CheckID = 67 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -2968,7 +2972,7 @@ AS
     /*Check for the last good DBCC CHECKDB date */
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 68 ) 
+                            WHERE   CheckID = 68 ) 
                 BEGIN
                     EXEC sp_MSforeachdb N'USE [?];
     INSERT #DBCCs
@@ -3026,7 +3030,7 @@ AS
                     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 69 ) 
+                            WHERE   CheckID = 69 ) 
                 BEGIN
                     IF @@VERSION LIKE 'Microsoft SQL Server 2012%' 
                         BEGIN
@@ -3091,7 +3095,7 @@ AS
     /*Verify that the servername is set */          
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 70 ) 
+                            WHERE   CheckID = 70 ) 
                 BEGIN
                     IF @@SERVERNAME IS NULL 
                         BEGIN
@@ -3116,7 +3120,7 @@ AS
                   
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 72 ) 
+                            WHERE   CheckID = 72 ) 
                 BEGIN
                     EXEC dbo.sp_MSforeachdb 'USE [?]; 
     insert into #partdb(dbname, objectname, type_desc)
@@ -3143,7 +3147,7 @@ AS
                               Details
                             )
                             SELECT DISTINCT
-                                    72 AS CheckId ,
+                                    72 AS CheckID ,
                                     dbname AS DatabaseName ,
                                     100 AS Priority ,
                                     'Performance' AS FindingsGroup ,
@@ -3162,7 +3166,7 @@ AS
     /*Check to see if a failsafe operator has been configured*/   
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 73 ) 
+                            WHERE   CheckID = 73 ) 
                 BEGIN
 
                     DECLARE @AlertInfo TABLE
@@ -3200,7 +3204,7 @@ AS
     /*Identify globally enabled trace flags*/
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 74 ) 
+                            WHERE   CheckID = 74 ) 
                 BEGIN
                     INSERT  INTO #TraceStatus
                             EXEC ( ' DBCC TRACESTATUS(-1) WITH NO_INFOMSGS'
@@ -3226,7 +3230,7 @@ AS
     /*Check for transaction log file larger than data file */             
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 75 ) 
+                            WHERE   CheckID = 75 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -3237,7 +3241,7 @@ AS
                               URL ,
                               Details
                             )
-                            SELECT  75 AS CheckId ,
+                            SELECT  75 AS CheckID ,
                                     DB_NAME(a.database_id) ,
                                     50 AS Priority ,
                                     'Reliability' AS FindingsGroup ,
@@ -3266,7 +3270,7 @@ AS
     /*Check for collation conflicts between user databases and tempdb */          
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 76 ) 
+                            WHERE   CheckID = 76 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -3277,7 +3281,7 @@ AS
                               URL ,
                               Details
                             )
-                            SELECT  76 AS CheckId ,
+                            SELECT  76 AS CheckID ,
                                     name AS DatabaseName ,
                                     50 AS Priority ,
                                     'Reliability' AS FindingsGroup ,
@@ -3303,7 +3307,7 @@ AS
                     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 77 ) 
+                            WHERE   CheckID = 77 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -3314,7 +3318,7 @@ AS
                               URL ,
                               Details
                             )
-                            SELECT  77 AS CheckId ,
+                            SELECT  77 AS CheckID ,
                                     dSnap.[name] AS DatabaseName ,
                                     50 AS Priority ,
                                     'Reliability' AS FindingsGroup ,
@@ -3335,7 +3339,7 @@ AS
                     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 79 ) 
+                            WHERE   CheckID = 79 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -3345,7 +3349,7 @@ AS
                               URL ,
                               Details
                             )
-                            SELECT  79 AS CheckId ,
+                            SELECT  79 AS CheckID ,
                                     100 AS Priority ,
                                     'Performance' AS FindingsGroup ,
                                     'Shrink Database Job' AS Finding ,
@@ -3361,14 +3365,14 @@ AS
                     
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 80 ) 
+                            WHERE   CheckID = 80 ) 
                 BEGIN
                     EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
                 END
 
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
-                            WHERE   CheckId = 81 ) 
+                            WHERE   CheckID = 81 ) 
                 BEGIN
                     INSERT  INTO #BlitzResults
                             ( CheckID ,
@@ -3398,7 +3402,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 83 ) 
+                                    WHERE   CheckID = 83 ) 
                         BEGIN
                             IF EXISTS ( SELECT  *
                                         FROM    sys.all_objects
@@ -3419,7 +3423,7 @@ AS
 		/* Check 84 - SQL Server 2012 */              
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 84 ) 
+                                    WHERE   CheckID = 84 ) 
                         BEGIN
                             IF EXISTS ( SELECT  *
                                         FROM    sys.all_objects o
@@ -3460,7 +3464,7 @@ AS
 	                
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 85 ) 
+                                    WHERE   CheckID = 85 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -3492,7 +3496,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 88 ) 
+                                    WHERE   CheckID = 88 ) 
                         BEGIN
                             INSERT  INTO #BlitzResults
                                     ( CheckID ,
@@ -3514,7 +3518,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 92 ) 
+                                    WHERE   CheckID = 92 ) 
                         BEGIN
                             INSERT  INTO #driveInfo
                                     ( drive, SIZE )
@@ -3543,7 +3547,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #tempchecks
-                                    WHERE   CheckId = 103 )
+                                    WHERE   CheckID = 103 )
                         AND EXISTS ( SELECT *
                                      FROM   sys.all_objects o
                                             INNER JOIN sys.all_columns c ON o.object_id = c.object_id
@@ -3593,7 +3597,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 21;
+            SET @Version = 22;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3605,7 +3609,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v21 Apr 25 2013' ,
+                      'sp_Blitz (TM) v22 May 6 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -3623,20 +3627,20 @@ AS
                           ID INT IDENTITY(1, 1) ,
                           ServerName NVARCHAR(128) ,
                           DatabaseName NVARCHAR(128) ,
-                          CheckId INT
+                          CheckID INT
                         )
 
                     INSERT  INTO #exempt
                             ( ServerName ,
                               DatabaseName ,
-                              CheckId
+                              CheckID
                             )
                             SELECT  ServerName ,
                                     DatabaseName ,
-                                    CheckId
+                                    CheckID
                             FROM    #GetChecks
                             WHERE   DatabaseName IS NOT NULL
-                                    AND CheckId IS NOT NULL
+                                    AND CheckID IS NOT NULL
                                     AND ( ServerName IS NULL
                                           OR ServerName = SERVERPROPERTY('ServerName')
                                         )
@@ -3656,7 +3660,7 @@ AS
                                                   FROM      #exempt
                                                   WHERE     ID = @ID
                                                 )
-                            SET @checkid = ( SELECT CheckId
+                            SET @checkid = ( SELECT CheckID
                                              FROM   #exempt
                                              WHERE  ID = @ID
                                            )
