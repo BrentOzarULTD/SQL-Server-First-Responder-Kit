@@ -265,8 +265,10 @@ BEGIN TRY
 			  index_name NVARCHAR(256) NULL ,
 			  key_column_names NVARCHAR(MAX) NULL ,
 			  key_column_names_with_sort_order NVARCHAR(MAX) NULL ,
+			  key_column_names_with_sort_order_no_types NVARCHAR(MAX) NULL ,
 			  count_key_columns INT NULL ,
 			  include_column_names NVARCHAR(MAX) NULL ,
+			  include_column_names_no_types NVARCHAR(MAX) NULL ,
 			  count_included_columns INT NULL ,
 			  partition_key_column_name NVARCHAR(MAX) NULL,
 			  filter_definition NVARCHAR(MAX) NOT NULL ,
@@ -598,6 +600,22 @@ BEGIN TRY
 					FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 					) D2 ( key_column_names_with_sort_order )
 
+		RAISERROR (N'Updating #index_sanity.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
+		UPDATE	#index_sanity
+		SET		key_column_names_with_sort_order_no_types = D2.key_column_names_with_sort_order_no_types
+		FROM	#index_sanity si
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + QUOTENAME(c.column_name) + CASE c.is_descending_key
+									WHEN 1 THEN N' [DESC]'
+									ELSE N''
+								END AS col_definition
+							FROM	#index_columns c
+							WHERE	c.object_id = si.object_id
+									AND c.index_id = si.index_id
+									AND c.is_included_column = 0 /*Just Keys*/
+									AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
+							ORDER BY c.object_id, c.index_id, c.key_ordinal	
+					FOR	  XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+					) D2 ( key_column_names_with_sort_order_no_types )
 
 		RAISERROR (N'Updating #index_sanity.include_column_names',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
@@ -613,6 +631,20 @@ BEGIN TRY
 										this is here to make rows easy to compare.*/ 
 						FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
 						) D3 ( include_column_names );
+
+		RAISERROR (N'Updating #index_sanity.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
+		UPDATE	#index_sanity
+		SET		include_column_names_no_types = D3.include_column_names_no_types
+		FROM	#index_sanity si
+				CROSS APPLY ( SELECT	RTRIM(STUFF( (SELECT	N', ' + QUOTENAME(c.column_name)
+								FROM	#index_columns c
+								WHERE	c.object_id = si.object_id
+										AND c.index_id = si.index_id
+										AND c.is_included_column = 1 /*Just includes*/
+								ORDER BY c.column_name /*Order doesn't matter in includes, 
+										this is here to make rows easy to compare.*/ 
+						FOR	  XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+						) D3 ( include_column_names_no_types );
 
 		RAISERROR (N'Updating #index_sanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
 		UPDATE	#index_sanity
@@ -1059,7 +1091,7 @@ BEGIN TRY
 								index_name + 
 								N'] PRIMARY KEY ' + 
 								CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-								key_column_names_with_sort_order + N' )' 
+								key_column_names_with_sort_order_no_types + N' )' 
 						ELSE /*End PK index CASE */ 
 							N'CREATE ' + 
 							CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
@@ -1069,11 +1101,11 @@ BEGIN TRY
 								 + index_name + N'] ON ' + 
 								QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
 									CASE WHEN is_NC_columnstore=1 THEN 
-										N' (' + ISNULL(include_column_names,'') +  N' )' 
+										N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
 									ELSE /*End non-colunnstore case */ 
-										N' (' + ISNULL(key_column_names_with_sort_order,'') +  N' )' 
-										+ CASE WHEN include_column_names IS NOT NULL THEN 
-											N' INCLUDE (' + include_column_names + N')' 
+										N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
+										+ CASE WHEN include_column_names_no_types IS NOT NULL THEN 
+											N' INCLUDE (' + include_column_names_no_types + N')' 
 											ELSE N'' 
 										END
 									END /*End non-colunnstore case */ 
