@@ -46,7 +46,7 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
-	April 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+	May 8, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added @filter:  
 			0=no filter (default)
@@ -67,6 +67,7 @@ CHANGE LOG (last four versions):
 		Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
 			Previously just simplistically looked for multiple column CX.
 		Removed extra spacing (non-breaking) in more_info column.
+		Fixed bug where create t-sql didn't include filter (for filtered indexes)
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
