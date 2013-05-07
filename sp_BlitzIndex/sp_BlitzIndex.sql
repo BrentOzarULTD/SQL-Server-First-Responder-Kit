@@ -61,6 +61,7 @@ CHANGE LOG (last four versions):
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
 		Split check_id 40 into two checks: fillfactor on nonclustered indexes < 80%, fillfactor on clustered indexes < 90%
+		Added check_id 33: Potential filtered indexes based on column names.
 		Fixed bug where you couldn't see detailed view for indexed views. 
 			(Ex: EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';)
 		Added four index usage columns to table detail output: last_user_seek, last_user_scan, last_user_lookup, last_user_update
@@ -1688,6 +1689,33 @@ BEGIN;
 								N'N/A' AS index_usage_summary, 
 								N'N/A' AS index_size_summary OPTION	( RECOMPILE );
 		END;
+
+		RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
+
+		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+										secret_columns, index_usage_summary, index_size_summary )
+		SELECT	33 AS check_id, 
+				i.index_sanity_id AS index_sanity_id,
+				N'Feature-Phobic Indexes' AS findings_group,
+				N'Potential filtered index (based on column name)' AS finding, 
+				N'http://BrentOzar.com/go/IndexFeatures' AS URL,
+				N'A column name in this index suggests it might be a candidate for filtering (is%, %archive%, %active%, %flag%)' AS details,
+				i.index_definition, 
+				i.secret_columns,
+				i.index_usage_summary, 
+				sz.index_size_summary
+		FROM #index_columns ic 
+		join #index_sanity i on 
+			ic.[object_id]=i.[object_id] and
+			ic.[index_id]=i.[index_id] and
+			i.[index_id] > 1 /* non-clustered index */
+		JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
+		WHERE column_name like 'is%'
+			or column_name like '%archive%'
+			or column_name like '%active%'
+			or column_name like '%flag%'
+		OPTION	( RECOMPILE );
+
 		 ----------------------------------------
 		--Self Loathing Indexes : Check_id 40-49
 		----------------------------------------
