@@ -1092,7 +1092,7 @@ BEGIN TRY
 								N'] PRIMARY KEY ' + 
 								CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
 								key_column_names_with_sort_order_no_types + N' )' 
-						ELSE /*End PK index CASE */ 
+						ELSE /*Else not a PK */ 
 							N'CREATE ' + 
 							CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
 							CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
@@ -1102,13 +1102,14 @@ BEGIN TRY
 								QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
 									CASE WHEN is_NC_columnstore=1 THEN 
 										N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
-									ELSE /*End non-colunnstore case */ 
+									ELSE /*Else not colunnstore */ 
 										N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
 										+ CASE WHEN include_column_names_no_types IS NOT NULL THEN 
 											N' INCLUDE (' + include_column_names_no_types + N')' 
 											ELSE N'' 
 										END
 									END /*End non-colunnstore case */ 
+								+ CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
 							END /*End Non-PK index CASE */ +
 						CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
   					END /*End non-spatial and non-xml CASE */ 
