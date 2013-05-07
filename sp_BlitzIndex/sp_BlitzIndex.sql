@@ -68,6 +68,7 @@ CHANGE LOG (last four versions):
 			Previously just simplistically looked for multiple column CX.
 		Removed extra spacing (non-breaking) in more_info column.
 		Fixed bug where create t-sql didn't include filter (for filtered indexes)
+		Fixed formatting bug where "magic number" in table detail view didn't have commas
 		Neatened up column names in result sets.
 	April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
 		Added schema_name to suggested create statement for PKs
@@ -2318,7 +2319,8 @@ BEGIN;
 			database_name AS [Database], 
 			[schema_name] AS [Schema], 
 			table_name AS [Table], 
-			CAST(magic_benefit_number AS BIGINT) AS [Magic Benefit Number], 
+			REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '')
+				AS [Magic Benefit Number], 
 			missing_index_details AS [Missing Index Details], 
 			avg_total_user_cost AS [Avg Query Cost], 
 			avg_user_impact AS [Est Index Improvement], 
