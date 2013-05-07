@@ -1065,7 +1065,7 @@ BEGIN TRY
 							CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
 							CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
 							CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
-							N' INDEX ['
+							N'INDEX ['
 								 + index_name + N'] ON ' + 
 								QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
 									CASE WHEN is_NC_columnstore=1 THEN 
