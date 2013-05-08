@@ -401,7 +401,9 @@ BEGIN TRY
 			is_not_trusted BIT,
 			is_not_for_replication BIT,
 			parent_fk_columns NVARCHAR(MAX),
-			referenced_fk_columns NVARCHAR(MAX)
+			referenced_fk_columns NVARCHAR(MAX),
+			update_referential_action_desc NVARCHAR(16),
+			delete_referential_action_desc NVARCHAR(60)
 		)
 		
 		CREATE TABLE #index_create_tsql (
@@ -853,7 +855,9 @@ BEGIN TRY
 				fk.is_not_trusted,
 				fk.is_not_for_replication,
 				parent.fk_columns,
-				referenced.fk_columns
+				referenced.fk_columns,
+				[update_referential_action_desc],
+				[delete_referential_action_desc]
 			FROM ' + QUOTENAME(@database_name) + N'.sys.foreign_keys fk
 			JOIN ' + QUOTENAME(@database_name) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
 			JOIN ' + QUOTENAME(@database_name) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
@@ -886,7 +890,8 @@ BEGIN TRY
 
         RAISERROR (N'Inserting data into #foreign_keys',0,1) WITH NOWAIT;
         INSERT  #foreign_keys ( foreign_key_name, parent_object_id,parent_object_name, referenced_object_id, referenced_object_name,
-                                is_disabled, is_not_trusted, is_not_for_replication, parent_fk_columns, referenced_fk_columns )
+                                is_disabled, is_not_trusted, is_not_for_replication, parent_fk_columns, referenced_fk_columns,
+								[update_referential_action_desc], [delete_referential_action_desc] )
                 EXEC sp_executesql @dsql;
 
         RAISERROR (N'Updating #index_sanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
@@ -1274,7 +1279,9 @@ BEGIN
 			referenced_fk_columns AS [Referenced Table Columns],
 			is_disabled AS [Is Disabled?],
 			is_not_trusted as [Not Trusted?],
-			is_not_for_replication [Not for Replication?]
+			is_not_for_replication [Not for Replication?],
+			[update_referential_action_desc] as [Cascading Updates?],
+			[delete_referential_action_desc] as [Cascading Deletes?]
 		FROM #foreign_keys
 		ORDER BY [Foreign Key]
 		OPTION	( RECOMPILE );
@@ -1861,6 +1868,7 @@ BEGIN;
 								AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
 				OPTION	( RECOMPILE );
 
+
 			END;
 		----------------------------------------
 		--Indexaphobia
@@ -2160,6 +2168,33 @@ BEGIN;
 						WHERE	i.index_id in (1,0)
 							and replicated_column_count > 0
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
+			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+								   secret_columns, index_usage_summary, index_size_summary, more_info )
+			SELECT	71 AS check_id, 
+					null as index_sanity_id,
+					N'Abnormal Psychology' AS findings_group,
+					N'Cascading Updates or Deletes' AS finding, 
+					N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+					N'Foreign Key ' + foreign_key_name +
+					N' on ' + QUOTENAME(parent_object_name)  + N'(' + LTRIM(parent_fk_columns) + N')'
+						+ N' referencing ' + QUOTENAME(referenced_object_name) + N'(' + LTRIM(referenced_fk_columns) + N')'
+						+ N' has settings:'
+						+ CASE [delete_referential_action_desc] WHEN N'NO_ACTION' THEN N'' ELSE N' ON DELETE ' +[delete_referential_action_desc] END
+						+ CASE [update_referential_action_desc] WHEN N'NO_ACTION' THEN N'' ELSE N' ON UPDATE ' + [update_referential_action_desc] END
+							AS details, 
+					N'N/A' 
+							AS index_definition, 
+					N'N/A' AS secret_columns,
+					N'N/A' AS index_usage_summary,
+					N'N/A' AS index_size_summary,
+					(SELECT TOP 1 more_info from #index_sanity i where i.object_id=fk.parent_object_id)
+						AS more_info
+			from #foreign_keys fk
+			where [delete_referential_action_desc] <> N'NO_ACTION'
+			OR [update_referential_action_desc] <> N'NO_ACTION'
+
 	END
 		 ----------------------------------------
 		--FINISHING UP
