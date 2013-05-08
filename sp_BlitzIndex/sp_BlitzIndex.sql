@@ -60,6 +60,7 @@ CHANGE LOG (last four versions):
 		Added check_id 68: Int identity columns with 1+ Billion Rows
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
+		Added check_id 71: Cascading updates or cascading deletes.
 		Split check_id 40 into two checks: fillfactor on nonclustered indexes < 80%, fillfactor on clustered indexes < 90%
 		Added check_id 33: Potential filtered indexes based on column names.
 		Fixed bug where you couldn't see detailed view for indexed views. 
