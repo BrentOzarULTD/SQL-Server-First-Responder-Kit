@@ -214,7 +214,21 @@ FROM [Sales].[vIndividualCustomer]
 WHERE [LastName] LIKE 'R%'
 GO 1000
 
---Create spatial index (2008 + )
+--Create identity tables near the end of ranges
+create table dbo.IdentityHigh (
+	i int identity  (2141483647,10) not null,
+	j char(10) default('foo') not null
+);
+GO
+create table dbo.IdentityNegative (
+	i int identity  (-2041483647,10) not null,
+	j char(10) default('foo') not null
+);
+
+--create table with all but one column nullable
+
+--create table with all or all but one column with nvarchar types
+
 
 ----------------------------------------
 -- TEST
