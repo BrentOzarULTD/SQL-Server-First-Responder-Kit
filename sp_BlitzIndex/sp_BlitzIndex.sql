@@ -2101,9 +2101,9 @@ BEGIN;
 								N'Abnormal Psychology' AS findings_group,
 								N'Identity column within ' + 									
 									CAST (calc1.percent_remaining as nvarchar(256))
-									+ N'% of end of range.' AS finding,
+									+ N'% of end of range' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
-								N'Column ' + ic.column_name + N' in ' + i.schema_object_name 
+								i.schema_object_name + N'.' +  QUOTENAME(ic.column_name)
 									+ N' is an identity with type ' + ic.system_type_name 
 									+ N', last value of ' 
 										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
@@ -2146,7 +2146,38 @@ BEGIN;
 								) as calc1
 						WHERE	i.index_id in (1,0)
 							and calc1.percent_remaining <= 30
-						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+						UNION ALL
+						SELECT	68 AS check_id, 
+								i.index_sanity_id, 
+								N'Abnormal Psychology' AS findings_group,
+								N'Identity column using a negative seed or increment other than 1' AS finding,
+								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+								i.schema_object_name + N'.' +  QUOTENAME(ic.column_name)
+									+ N' is an identity with type ' + ic.system_type_name 
+									+ N', last value of ' 
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', seed of '
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
+									+ N', and range of ' +
+										CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
+											WHEN 'smallint' THEN N'+/- 32,768'
+											WHEN 'tinyint' THEN N'0 to 255'
+										END
+										AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_columns ic on
+							i.object_id=ic.object_id
+							and ic.is_identity=1
+							and ic.system_type_name in ('tinyint', 'smallint', 'int')
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						WHERE	i.index_id in (1,0)
+							and (ic.seed_value < 0 or ic.increment_value <> 1)
+						ORDER BY finding, details DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
 				WITH count_columns AS (
