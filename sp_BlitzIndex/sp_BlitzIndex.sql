@@ -57,7 +57,7 @@ CHANGE LOG (last four versions):
 		Added check_id 25: Addicted to nullable columns.
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
-		Added check_id 68: Int identity columns with 1+ Billion Rows
+		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int)
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
 		Added check_id 71: Cascading updates or cascading deletes.
@@ -372,7 +372,11 @@ BEGIN TRY
 			  is_computed bit NULL,
 			  is_replicated bit NULL,
 			  is_sparse bit NULL,
-			  is_filestream bit NULL
+			  is_filestream bit NULL,
+			  seed_value BIGINT NULL,
+			  increment_value INT NULL ,
+			  last_value BIGINT NULL,
+			  is_not_for_replication BIT NULL
 			);
 
 		CREATE TABLE #missing_indexes
@@ -418,6 +422,7 @@ BEGIN TRY
 		where database_id=@database_id;
 
 		--insert columns for clustered indexes and heaps
+		--collect info on identity columns for this one
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
 					si.object_id, 
@@ -437,13 +442,21 @@ BEGIN TRY
 					c.is_computed,
 					c.is_replicated,
 					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N',
+					CAST(ic.seed_value AS BIGINT),
+					CAST(ic.increment_value AS INT),
+					CAST(ic.last_value AS BIGINT),
+					ic.is_not_for_replication
+				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
 				JOIN	' + QUOTENAME(@database_name) + N'.sys.columns c ON
 					si.object_id=c.object_id
 				LEFT JOIN ' + QUOTENAME(@database_name) + N'.sys.index_columns sc ON 
 					sc.object_id = si.object_id
 					and sc.index_id=si.index_id
 					AND sc.column_id=c.column_id
+				LEFT JOIN sys.identity_columns ic ON
+					c.object_id=ic.object_id and
+					c.column_id=ic.column_id
 				JOIN ' + QUOTENAME(@database_name) + N'.sys.types st ON 
 					c.system_type_id=st.system_type_id
 					AND c.user_type_id=st.user_type_id
@@ -459,11 +472,12 @@ BEGIN TRY
 		RAISERROR (N'Inserting data into #index_columns for clustered indexes and heaps',0,1) WITH NOWAIT;
 		INSERT	#index_columns ( object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
 			column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
-			is_replicated, is_sparse, is_filestream )
+			is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
 				EXEC sp_executesql @dsql;
 
 		--insert columns for nonclustered indexes
 		--this uses a full join to sys.index_columns
+		--We don't collect info on identity columns here. They may be in NC indexes, but we just analyze identities in the base table.
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
 					si.object_id, 
@@ -2075,34 +2089,63 @@ BEGIN;
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
 						OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 68: Int identity columns with 1+ Billion Rows', 0,1) WITH NOWAIT;
-				WITH count_columns AS (
-							SELECT [object_id]
-							FROM #index_columns ic
-							WHERE index_id in (1,0) /*Heap or clustered only*/
-								and is_identity=1
-								and system_type_name='int'
-							GROUP BY object_id
-							)
+			RAISERROR(N'check_id 68: Identity columns within 30% of the end of range', 0,1) WITH NOWAIT;
+			-- Allowed Ranges: 
+				--int -2,147,483,648 to 2,147,483,647
+				--smallint -32,768 to 32,768
+				--tinyint 0 to 255
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	68 AS check_id, 
 								i.index_sanity_id, 
 								N'Abnormal Psychology' AS findings_group,
-								N'Int identity columns with > 1 billion rows' AS finding,
+								N'Identity column within ' + 									
+									CAST (calc1.percent_remaining as nvarchar(256))
+									+ N'% of end of range.' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
-								i.schema_object_name 
-									+ N' has an int typed identity column with ' + cast(ip.total_rows as NVARCHAR(25)) 
-									+ N' rows.'	AS details,
+								N'Column ' + ic.column_name + N' in ' + i.schema_object_name 
+									+ N' is an identity with type ' + ic.system_type_name 
+									+ N', last value of ' 
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', seed of '
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
+									+ N', and range of ' +
+										CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
+											WHEN 'smallint' THEN N'+/- 32,768'
+											WHEN 'tinyint' THEN N'0 to 255'
+										END
+										AS details,
 								i.index_definition,
 								secret_columns, 
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#index_sanity i
+						JOIN	#index_columns ic on
+							i.object_id=ic.object_id
+							and ic.is_identity=1
+							and ic.system_type_name in ('tinyint', 'smallint', 'int')
 						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
-						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						CROSS APPLY (
+							SELECT CAST(CASE WHEN ic.increment_value >= 0
+									THEN
+										CASE ic.system_type_name 
+											WHEN 'int' then (2147483647 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 2147483647.*100
+											WHEN 'smallint' then (32768 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 32768.*100
+											WHEN 'tinyint' then ( 255 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 255.*100
+											ELSE 999
+										END
+								ELSE --ic.increment_value is negative
+										CASE ic.system_type_name 
+											WHEN 'int' then ABS(-2147483647 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 2147483647.*100
+											WHEN 'smallint' then ABS(-32768 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 32768.*100
+											WHEN 'tinyint' then ABS( 0 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 255.*100
+											ELSE -1
+										END 
+								END AS NUMERIC(4,1)) AS percent_remaining
+								) as calc1
 						WHERE	i.index_id in (1,0)
-							and ip.total_rows >= 1000000000
+							and calc1.percent_remaining <= 30
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
