@@ -54,10 +54,11 @@ CHANGE LOG (last four versions):
 			2=Only report on objects >= 250MB (helps focus on larger indexes). Still runs a few database-wide checks as well.
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
-		Added check_id 25: Addicted to nullable columns.
+		Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
-		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int)
+		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
+			Negative identity seeds or identity increments <> 1
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
 		Added check_id 71: Cascading updates or cascading deletes.
@@ -177,8 +178,6 @@ BEGIN TRY
 			SET @msg='You must specify both @schema_name and @table_name, or leave both NULL for summary info.'
 			RAISERROR(@msg,16,1);
 		END
-
-
 
 		--If a table is specified, grab the object id.
 		--Short circuit if it doesn't exist.
