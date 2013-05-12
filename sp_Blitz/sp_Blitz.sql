@@ -25,7 +25,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	/*
-	sp_Blitz (TM) v22 - May 6, 2013
+	sp_Blitz (TM) v23 - May 6, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -54,6 +54,10 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v23 - May 2013:
+	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
+	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
 
 	Changes in v22 - May 6, 2013:
 	 - Fixed new v21 case sensitivity bug reported by several users.
@@ -2625,6 +2629,56 @@ AS
                             EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
                         END
 
+
+						/*Check for non-aligned indexes in partioned databases*/
+                  
+						            IF NOT EXISTS ( SELECT  1
+						                            FROM    #tempchecks
+						                            WHERE   CheckID = 72 ) 
+						                BEGIN
+						                    EXEC dbo.sp_MSforeachdb 'USE [?]; 
+						    insert into #partdb(dbname, objectname, type_desc)
+						    SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
+						    FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id 
+						    JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
+						    LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id AND s.database_id = DB_ID()
+						    WHERE  o.type = ''u''
+						     -- Clustered and Non-Clustered indexes
+						    AND i.type IN (1, 2) 
+						    AND o.name in 
+						      (
+						        SELECT a.name from 
+						          (SELECT ob.name, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
+						          GROUP BY ob.name, ds.type_desc ) a group by a.name having COUNT (*) > 1
+						      )'
+						                    INSERT  INTO #BlitzResults
+						                            ( CheckID ,
+						                              DatabaseName ,
+						                              Priority ,
+						                              FindingsGroup ,
+						                              Finding ,
+						                              URL ,
+						                              Details
+						                            )
+						                            SELECT DISTINCT
+						                                    72 AS CheckID ,
+						                                    dbname AS DatabaseName ,
+						                                    100 AS Priority ,
+						                                    'Performance' AS FindingsGroup ,
+						                                    'The partitioned database ' + dbname
+						                                    + ' may have non-aligned indexes' AS Finding ,
+						                                    'http://BrentOzar.com/go/aligned' AS URL ,
+						                                    'Having non-aligned indexes on partitioned tables may cause inefficient query plans and CPU pressure' AS Details
+						                            FROM    #partdb
+						                            WHERE   dbname IS NOT NULL
+						                                    AND dbname NOT IN ( SELECT DISTINCT
+						                                                              DatabaseName
+						                                                        FROM  #tempchecks )
+						                    DROP TABLE #partdb
+						                END
+
+
+
                 END /* IF @CheckUserDatabaseObjects = 1 */
 
             IF @CheckProcedureCache = 1 
@@ -3116,52 +3170,6 @@ AS
                         END;
                 END
 
-/*Check for non-aligned indexes in partioned databases*/
-                  
-            IF NOT EXISTS ( SELECT  1
-                            FROM    #tempchecks
-                            WHERE   CheckID = 72 ) 
-                BEGIN
-                    EXEC dbo.sp_MSforeachdb 'USE [?]; 
-    insert into #partdb(dbname, objectname, type_desc)
-    SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
-    FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id 
-    JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
-    LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id AND s.database_id = DB_ID()
-    WHERE  o.type = ''u''
-     -- Clustered and Non-Clustered indexes
-    AND i.type IN (1, 2) 
-    AND o.name in 
-      (
-        SELECT a.name from 
-          (SELECT ob.name, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
-          GROUP BY ob.name, ds.type_desc ) a group by a.name having COUNT (*) > 1
-      )'
-                    INSERT  INTO #BlitzResults
-                            ( CheckID ,
-                              DatabaseName ,
-                              Priority ,
-                              FindingsGroup ,
-                              Finding ,
-                              URL ,
-                              Details
-                            )
-                            SELECT DISTINCT
-                                    72 AS CheckID ,
-                                    dbname AS DatabaseName ,
-                                    100 AS Priority ,
-                                    'Performance' AS FindingsGroup ,
-                                    'The partitioned database ' + dbname
-                                    + ' may have non-aligned indexes' AS Finding ,
-                                    'http://BrentOzar.com/go/aligned' AS URL ,
-                                    'Having non-aligned indexes on partitioned tables may cause inefficient query plans and CPU pressure' AS Details
-                            FROM    #partdb
-                            WHERE   dbname IS NOT NULL
-                                    AND dbname NOT IN ( SELECT DISTINCT
-                                                              DatabaseName
-                                                        FROM  #tempchecks )
-                    DROP TABLE #partdb
-                END
     
     /*Check to see if a failsafe operator has been configured*/   
             IF NOT EXISTS ( SELECT  1
@@ -3597,7 +3605,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 22;
+            SET @Version = 23;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3609,7 +3617,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v22 May 6 2013' ,
+                      'sp_Blitz (TM) v23 May 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
