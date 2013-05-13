@@ -58,6 +58,7 @@ AS
 	Changes in v23 - May 2013:
 	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
 	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
+	 - Fixed various typos.
 
 	Changes in v22 - May 6, 2013:
 	 - Fixed new v21 case sensitivity bug reported by several users.
@@ -3542,7 +3543,7 @@ AS
 	                                )
                                     SELECT  92 AS CheckID ,
                                             250 AS Priority ,
-                                            'ServerInfo' AS FindingsGroup ,
+                                            'Server Info' AS FindingsGroup ,
                                             'Drive ' + i.drive + ' Space' AS Finding ,
                                             '' AS URL ,
                                             CAST(i.SIZE AS VARCHAR)
