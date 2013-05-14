@@ -215,11 +215,13 @@ WHERE [LastName] LIKE 'R%'
 GO 1000
 
 --Create identity tables near the end of ranges
+IF OBJECT_ID('IdentityHigh') IS NULL
 create table dbo.IdentityHigh (
 	i int identity  (2141483647,10) not null,
 	j char(10) default('foo') not null
 );
 GO
+IF OBJECT_ID('IdentityNegative') IS NULL
 create table dbo.IdentityNegative (
 	i int identity  (-2041483647,10) not null,
 	j char(10) default('foo') not null
@@ -228,7 +230,7 @@ GO
 
 --create table with all but one column nullable
 --Also make it all varchar/nvarchar except one column
---Make one column a date value stored as 
+IF OBJECT_ID('AddictedToNullsAndAllCharVarchar') IS NULL
 create table dbo.AddictedToNullsAndAllCharVarchar (
 	i int identity primary key,
 	j varchar(512),
@@ -239,6 +241,7 @@ create table dbo.AddictedToNullsAndAllCharVarchar (
 );
 GO
 
+IF OBJECT_ID('AllLob') IS NULL
 create table dbo.AllLob (
 	i int identity primary key,
 	j xml,
