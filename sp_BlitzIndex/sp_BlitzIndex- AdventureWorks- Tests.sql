@@ -224,10 +224,28 @@ create table dbo.IdentityNegative (
 	i int identity  (-2041483647,10) not null,
 	j char(10) default('foo') not null
 );
+GO
 
 --create table with all but one column nullable
+--Also make it all varchar/nvarchar except one column
+--Make one column a date value stored as 
+create table dbo.AddictedToNullsAndAllCharVarchar (
+	i int identity primary key,
+	j varchar(512),
+	k varchar(512),
+	l varchar(512),
+	createdate varchar(512),
+	myguid nvarchar(512)
+);
+GO
 
---create table with all or all but one column with nvarchar types
+create table dbo.AllLob (
+	i int identity primary key,
+	j xml,
+	k varchar(max),
+	l varchar(8000)
+);
+GO
 
 
 ----------------------------------------
