@@ -268,6 +268,9 @@ EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @ta
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
 GO
 
+--Indexed view
+EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';
+
 
 --Duplicate indexes against
 ------Person.Address.ixPersonAddress_DUPLICATEINDEX (6)
