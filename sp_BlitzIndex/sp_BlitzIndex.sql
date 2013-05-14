@@ -56,7 +56,7 @@ CHANGE LOG (last four versions):
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
-		Added check_id 26: Super-wide tables (35+ cols or > 2000 non-LOB bytes).
+		Added check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).
 		Added check_id 27: Addicted to strings. Looks for tables with 4 or more columns, of which all or all but one are string or LOB types.
 		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
 			Negative identity seeds or identity increments <> 1
@@ -2261,10 +2261,9 @@ BEGIN;
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
 								i.schema_object_name 
 									+ N' has ' + CAST(replicated_column_count AS NVARCHAR(20))
+									+ N' out of ' + CAST(column_count AS NVARCHAR(20))
 									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
-									+ N' out of a total ' + CAST(column_count AS NVARCHAR(20))
-									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
-									+ N' in a publication.'
+									+ N' in one or more publications.'
 										AS details,
 								i.index_definition,
 								secret_columns, 
