@@ -56,7 +56,7 @@ CHANGE LOG (last four versions):
 		Added count of total number of indexes a column is part of.
 		Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
-		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
+		Added check_id 26: Super-wide tables (35+ cols or > 2000 non-LOB bytes).
 		Added check_id 27: Addicted to strings. Looks for tables with 4 or more columns, of which all or all but one are string or LOB types.
 		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
 			Negative identity seeds or identity increments <> 1
@@ -1603,7 +1603,7 @@ BEGIN;
 							and cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 26: Wide tables (25 or more cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
 				WITH count_columns AS (
 							SELECT [object_id],
 								SUM(CASE max_length when -1 THEN 1 ELSE 0 END) AS count_lob_columns,
@@ -1618,7 +1618,7 @@ BEGIN;
 						SELECT	26 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Wide tables: lots of columns or high byte count' AS finding,
+								N'Wide tables: 35+ cols or > 2000 non-LOB bytes' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								i.schema_object_name 
 									+ N' has ' + CAST((total_columns) as NVARCHAR(10))
@@ -1637,7 +1637,7 @@ BEGIN;
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							and 
-							(cc.total_columns >= 25 OR
+							(cc.total_columns >= 35 OR
 							cc.sum_max_length >= 2000)
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 					
