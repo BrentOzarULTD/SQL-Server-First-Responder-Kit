@@ -46,7 +46,7 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last four versions):
-	May 8, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added @filter:  
 			0=no filter (default)
@@ -213,6 +213,8 @@ BEGIN TRY
 						RAISERROR(@msg,16,1);
 					END
 		END
+
+		RAISERROR(N'Starting run. sp_BlitzIndex version 2.0 (May 15, 2013)', 0,1) WITH NOWAIT;
 
 		IF OBJECT_ID('tempdb..#index_sanity') IS NOT NULL 
 			DROP TABLE #index_sanity;
@@ -1206,7 +1208,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1316,7 +1318,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,
+		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,
 				N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
@@ -2319,7 +2321,8 @@ BEGIN;
 
 
 	END
-	
+		RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
+			
 		/*Return results.*/
 		SELECT br.findings_group + 
 			N': ' + br.finding AS [Finding], 
@@ -2391,7 +2394,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT	N'Database='+ @database_name,		
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2469,7 +2472,7 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 	N'Database=' + @database_name,			
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2507,7 +2510,7 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+			N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
