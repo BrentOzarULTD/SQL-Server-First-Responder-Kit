@@ -2490,7 +2490,7 @@ BEGIN;
 			database_name AS [Database], 
 			[schema_name] AS [Schema], 
 			table_name AS [Table], 
-			REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '')
+			CAST(magic_benefit_number AS BIGINT)
 				AS [Magic Benefit Number], 
 			missing_index_details AS [Missing Index Details], 
 			avg_total_user_cost AS [Avg Query Cost], 
