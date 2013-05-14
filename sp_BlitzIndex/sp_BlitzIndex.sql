@@ -57,6 +57,7 @@ CHANGE LOG (last four versions):
 		Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
 		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
+		Added check_id 27: Addicted to strings. Looks for tables with 4 or more columns, of which all or all but one are string or LOB types.
 		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
 			Negative identity seeds or identity increments <> 1
 		Added check_id 69: Column collation does not match database collation
@@ -1638,6 +1639,39 @@ BEGIN;
 							and 
 							(cc.total_columns >= 25 OR
 							cc.sum_max_length >= 2000)
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+					
+			RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								SUM(CASE WHEN system_type_name in ('varchar','nvarchar','char') or max_length=-1 THEN 1 ELSE 0 END) as string_or_LOB_columns,
+								COUNT(*) as total_columns
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	27 AS check_id, 
+								i.index_sanity_id, 
+								N'Index Hoarder' AS findings_group,
+								N'Addicted to strings' AS finding,
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								i.schema_object_name 
+									+ N' uses string or LOB types for ' + CAST((string_or_LOB_columns) as NVARCHAR(10))
+									+ N' of ' + CAST(total_columns as NVARCHAR(10))
+									+ N' columns. Check if data types are valid.' AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						CROSS APPLY (SELECT cc.total_columns - string_or_LOB_columns AS non_string_or_lob_columns) AS calc1
+						WHERE	i.index_id in (1,0)
+							AND calc1.non_string_or_lob_columns <= 1
+							AND cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 		END
