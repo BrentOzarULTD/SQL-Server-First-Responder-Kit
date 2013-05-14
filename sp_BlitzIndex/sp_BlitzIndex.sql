@@ -41,11 +41,12 @@ Usage examples:
 
 Known limitations of this version:
  - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
- - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
+ - Index create statements are just to give you a rough idea of the syntax.
+ --		Example: they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
  - Found something? Let us know at help@brentozar.com.
 
-CHANGE LOG (last four versions):
+CHANGE LOG (last five versions):
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added @filter:  
