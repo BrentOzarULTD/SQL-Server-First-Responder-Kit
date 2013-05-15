@@ -214,21 +214,62 @@ FROM [Sales].[vIndividualCustomer]
 WHERE [LastName] LIKE 'R%'
 GO 1000
 
---Create spatial index (2008 + )
+--Create identity tables near the end of ranges
+IF OBJECT_ID('IdentityHigh') IS NULL
+create table dbo.IdentityHigh (
+	i int identity  (2141483647,10) not null,
+	j char(10) default('foo') not null
+);
+GO
+IF OBJECT_ID('IdentityNegative') IS NULL
+create table dbo.IdentityNegative (
+	i int identity  (-2041483647,10) not null,
+	j char(10) default('foo') not null
+);
+GO
+
+--create table with all but one column nullable
+--Also make it all varchar/nvarchar except one column
+IF OBJECT_ID('AddictedToNullsAndAllCharVarchar') IS NULL
+create table dbo.AddictedToNullsAndAllCharVarchar (
+	i int identity primary key,
+	j varchar(512),
+	k varchar(512),
+	l varchar(512),
+	createdate varchar(512),
+	myguid nvarchar(512)
+);
+GO
+
+IF OBJECT_ID('AllLob') IS NULL
+create table dbo.AllLob (
+	i int identity primary key,
+	j xml,
+	k varchar(max),
+	l varchar(8000)
+);
+GO
+
 
 ----------------------------------------
 -- TEST
 ----------------------------------------
 
 EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
+
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=1;
+EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=2;
+
 EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=1;
 EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
 EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3;
 GO
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
 EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
-
 GO
+
+--Indexed view
+EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';
 
 
 --Duplicate indexes against
@@ -254,6 +295,8 @@ GO
 
 --Test a lot of partitions
 --You have to connect to just a 2012 instance to do this one
+--This will take around 15 seconds. That's not awesome, but it's better than 1 minute.
 EXEC dbo.sp_BlitzIndex @database_name='Partition5000';
+EXEC dbo.sp_BlitzIndex @database_name='Partition5000', @schema_name='dbo', @table_name='OrdersDaily';
 
 --dbo.sp_WhoIsActive @get_outer_command=1

@@ -41,12 +41,13 @@ Usage examples:
 
 Known limitations of this version:
  - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
- - Index create statements are just to give you a rough idea-- they do not include all the options the index may have been created with (padding, etc.)
+ - Index create statements are just to give you a rough idea of the syntax.
+ --		Example: they do not include all the options the index may have been created with (padding, etc.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
  - Found something? Let us know at help@brentozar.com.
 
-CHANGE LOG (last four versions):
-	May 8, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
+CHANGE LOG (last five versions):
+	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added @filter:  
 			0=no filter (default)
@@ -54,10 +55,12 @@ CHANGE LOG (last four versions):
 			2=Only report on objects >= 250MB (helps focus on larger indexes). Still runs a few database-wide checks as well.
 		Added list of all columns and types in table for runs using: @database_name, @schema_name, @table_name
 		Added count of total number of indexes a column is part of.
-		Added check_id 25: Addicted to nullable columns.
+		Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
 		Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
-		Added check_id 26: Super-wide tables (25 or more cols or > 2000 non-LOB bytes).
-		Added check_id 68: Int identity columns with 1+ Billion Rows
+		Added check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).
+		Added check_id 27: Addicted to strings. Looks for tables with 4 or more columns, of which all or all but one are string or LOB types.
+		Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
+			Negative identity seeds or identity increments <> 1
 		Added check_id 69: Column collation does not match database collation
 		Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
 		Added check_id 71: Cascading updates or cascading deletes.
@@ -178,8 +181,6 @@ BEGIN TRY
 			RAISERROR(@msg,16,1);
 		END
 
-
-
 		--If a table is specified, grab the object id.
 		--Short circuit if it doesn't exist.
 		IF @table_name IS NOT NULL
@@ -213,6 +214,8 @@ BEGIN TRY
 						RAISERROR(@msg,16,1);
 					END
 		END
+
+		RAISERROR(N'Starting run. sp_BlitzIndex version 2.0 (May 15, 2013)', 0,1) WITH NOWAIT;
 
 		IF OBJECT_ID('tempdb..#index_sanity') IS NOT NULL 
 			DROP TABLE #index_sanity;
@@ -372,7 +375,11 @@ BEGIN TRY
 			  is_computed bit NULL,
 			  is_replicated bit NULL,
 			  is_sparse bit NULL,
-			  is_filestream bit NULL
+			  is_filestream bit NULL,
+			  seed_value BIGINT NULL,
+			  increment_value INT NULL ,
+			  last_value BIGINT NULL,
+			  is_not_for_replication BIT NULL
 			);
 
 		CREATE TABLE #missing_indexes
@@ -418,6 +425,7 @@ BEGIN TRY
 		where database_id=@database_id;
 
 		--insert columns for clustered indexes and heaps
+		--collect info on identity columns for this one
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
 					si.object_id, 
@@ -437,13 +445,21 @@ BEGIN TRY
 					c.is_computed,
 					c.is_replicated,
 					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N',
+					CAST(ic.seed_value AS BIGINT),
+					CAST(ic.increment_value AS INT),
+					CAST(ic.last_value AS BIGINT),
+					ic.is_not_for_replication
+				FROM	' + QUOTENAME(@database_name) + N'.sys.indexes si
 				JOIN	' + QUOTENAME(@database_name) + N'.sys.columns c ON
 					si.object_id=c.object_id
 				LEFT JOIN ' + QUOTENAME(@database_name) + N'.sys.index_columns sc ON 
 					sc.object_id = si.object_id
 					and sc.index_id=si.index_id
 					AND sc.column_id=c.column_id
+				LEFT JOIN sys.identity_columns ic ON
+					c.object_id=ic.object_id and
+					c.column_id=ic.column_id
 				JOIN ' + QUOTENAME(@database_name) + N'.sys.types st ON 
 					c.system_type_id=st.system_type_id
 					AND c.user_type_id=st.user_type_id
@@ -459,11 +475,12 @@ BEGIN TRY
 		RAISERROR (N'Inserting data into #index_columns for clustered indexes and heaps',0,1) WITH NOWAIT;
 		INSERT	#index_columns ( object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
 			column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
-			is_replicated, is_sparse, is_filestream )
+			is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
 				EXEC sp_executesql @dsql;
 
 		--insert columns for nonclustered indexes
 		--this uses a full join to sys.index_columns
+		--We don't collect info on identity columns here. They may be in NC indexes, but we just analyze identities in the base table.
 		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				SELECT	
 					si.object_id, 
@@ -1192,7 +1209,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1302,7 +1319,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,
+		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,
 				N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
@@ -1589,7 +1606,7 @@ BEGIN;
 							and cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 26: Wide tables (25 or more cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
 				WITH count_columns AS (
 							SELECT [object_id],
 								SUM(CASE max_length when -1 THEN 1 ELSE 0 END) AS count_lob_columns,
@@ -1604,7 +1621,7 @@ BEGIN;
 						SELECT	26 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Wide tables: lots of columns or high byte count' AS finding,
+								N'Wide tables: 35+ cols or > 2000 non-LOB bytes' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								i.schema_object_name 
 									+ N' has ' + CAST((total_columns) as NVARCHAR(10))
@@ -1623,8 +1640,41 @@ BEGIN;
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							and 
-							(cc.total_columns >= 25 OR
+							(cc.total_columns >= 35 OR
 							cc.sum_max_length >= 2000)
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+					
+			RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
+				WITH count_columns AS (
+							SELECT [object_id],
+								SUM(CASE WHEN system_type_name in ('varchar','nvarchar','char') or max_length=-1 THEN 1 ELSE 0 END) as string_or_LOB_columns,
+								COUNT(*) as total_columns
+							FROM #index_columns ic
+							WHERE index_id in (1,0) /*Heap or clustered only*/
+							GROUP BY object_id
+							)
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	27 AS check_id, 
+								i.index_sanity_id, 
+								N'Index Hoarder' AS findings_group,
+								N'Addicted to strings' AS finding,
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								i.schema_object_name 
+									+ N' uses string or LOB types for ' + CAST((string_or_LOB_columns) as NVARCHAR(10))
+									+ N' of ' + CAST(total_columns as NVARCHAR(10))
+									+ N' columns. Check if data types are valid.' AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						CROSS APPLY (SELECT cc.total_columns - string_or_LOB_columns AS non_string_or_lob_columns) AS calc1
+						WHERE	i.index_id in (1,0)
+							AND calc1.non_string_or_lob_columns <= 1
+							AND cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 		END
@@ -2075,35 +2125,95 @@ BEGIN;
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
 						OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 68: Int identity columns with 1+ Billion Rows', 0,1) WITH NOWAIT;
-				WITH count_columns AS (
-							SELECT [object_id]
-							FROM #index_columns ic
-							WHERE index_id in (1,0) /*Heap or clustered only*/
-								and is_identity=1
-								and system_type_name='int'
-							GROUP BY object_id
-							)
+			RAISERROR(N'check_id 68: Identity columns within 30% of the end of range', 0,1) WITH NOWAIT;
+			-- Allowed Ranges: 
+				--int -2,147,483,648 to 2,147,483,647
+				--smallint -32,768 to 32,768
+				--tinyint 0 to 255
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	68 AS check_id, 
 								i.index_sanity_id, 
 								N'Abnormal Psychology' AS findings_group,
-								N'Int identity columns with > 1 billion rows' AS finding,
+								N'Identity column within ' + 									
+									CAST (calc1.percent_remaining as nvarchar(256))
+									+ N'% of end of range' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
-								i.schema_object_name 
-									+ N' has an int typed identity column with ' + cast(ip.total_rows as NVARCHAR(25)) 
-									+ N' rows.'	AS details,
+								i.schema_object_name + N'.' +  QUOTENAME(ic.column_name)
+									+ N' is an identity with type ' + ic.system_type_name 
+									+ N', last value of ' 
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', seed of '
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
+									+ N', and range of ' +
+										CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
+											WHEN 'smallint' THEN N'+/- 32,768'
+											WHEN 'tinyint' THEN N'0 to 255'
+										END
+										AS details,
 								i.index_definition,
 								secret_columns, 
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#index_sanity i
+						JOIN	#index_columns ic on
+							i.object_id=ic.object_id
+							and ic.is_identity=1
+							and ic.system_type_name in ('tinyint', 'smallint', 'int')
 						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
-						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
+						CROSS APPLY (
+							SELECT CAST(CASE WHEN ic.increment_value >= 0
+									THEN
+										CASE ic.system_type_name 
+											WHEN 'int' then (2147483647 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 2147483647.*100
+											WHEN 'smallint' then (32768 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 32768.*100
+											WHEN 'tinyint' then ( 255 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 255.*100
+											ELSE 999
+										END
+								ELSE --ic.increment_value is negative
+										CASE ic.system_type_name 
+											WHEN 'int' then ABS(-2147483647 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 2147483647.*100
+											WHEN 'smallint' then ABS(-32768 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 32768.*100
+											WHEN 'tinyint' then ABS( 0 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 255.*100
+											ELSE -1
+										END 
+								END AS NUMERIC(4,1)) AS percent_remaining
+								) as calc1
 						WHERE	i.index_id in (1,0)
-							and ip.total_rows >= 1000000000
-						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+							and calc1.percent_remaining <= 30
+						UNION ALL
+						SELECT	68 AS check_id, 
+								i.index_sanity_id, 
+								N'Abnormal Psychology' AS findings_group,
+								N'Identity column using a negative seed or increment other than 1' AS finding,
+								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+								i.schema_object_name + N'.' +  QUOTENAME(ic.column_name)
+									+ N' is an identity with type ' + ic.system_type_name 
+									+ N', last value of ' 
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', seed of '
+										+ ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS money), 1), '.00', ''),N'NULL')
+									+ N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
+									+ N', and range of ' +
+										CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
+											WHEN 'smallint' THEN N'+/- 32,768'
+											WHEN 'tinyint' THEN N'0 to 255'
+										END
+										AS details,
+								i.index_definition,
+								secret_columns, 
+								ISNULL(i.index_usage_summary,''),
+								ISNULL(ip.index_size_summary,'')
+						FROM	#index_sanity i
+						JOIN	#index_columns ic on
+							i.object_id=ic.object_id
+							and ic.is_identity=1
+							and ic.system_type_name in ('tinyint', 'smallint', 'int')
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						WHERE	i.index_id in (1,0)
+							and (ic.seed_value < 0 or ic.increment_value <> 1)
+						ORDER BY finding, details DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
 				WITH count_columns AS (
@@ -2154,10 +2264,9 @@ BEGIN;
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
 								i.schema_object_name 
 									+ N' has ' + CAST(replicated_column_count AS NVARCHAR(20))
+									+ N' out of ' + CAST(column_count AS NVARCHAR(20))
 									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
-									+ N' out of a total ' + CAST(column_count AS NVARCHAR(20))
-									+ N' column' + CASE WHEN column_count > 1 THEN 's' ELSE '' END
-									+ N' in a publication.'
+									+ N' in one or more publications.'
 										AS details,
 								i.index_definition,
 								secret_columns, 
@@ -2213,7 +2322,8 @@ BEGIN;
 
 
 	END
-	
+		RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
+			
 		/*Return results.*/
 		SELECT br.findings_group + 
 			N': ' + br.finding AS [Finding], 
@@ -2285,7 +2395,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT	N'Database='+ @database_name,		
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2363,7 +2473,7 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 	N'Database=' + @database_name,			
-				N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2383,7 +2493,7 @@ BEGIN;
 			database_name AS [Database], 
 			[schema_name] AS [Schema], 
 			table_name AS [Table], 
-			REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(magic_benefit_number AS BIGINT) AS money), 1), '.00', '')
+			CAST(magic_benefit_number AS BIGINT)
 				AS [Magic Benefit Number], 
 			missing_index_details AS [Missing Index Details], 
 			avg_total_user_cost AS [Avg Query Cost], 
@@ -2401,7 +2511,7 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 2.0 (Mar 15, 2013)' ,   
+			N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
