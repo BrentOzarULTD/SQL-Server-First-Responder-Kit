@@ -1550,7 +1550,7 @@ BEGIN;
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Wide clustered index' AS finding,
+								N'Wide clustered index (> 3 columns OR > 16 bytes)' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (i.count_key_columns AS NVARCHAR(10)) + N' columns with potential size of '
 									+ CAST(cc.sum_max_length AS NVARCHAR(10))
