@@ -26,7 +26,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@filter doesn't do anything unless @mode=0*/
 /*
-sp_BlitzIndex (TM) v2.0 - April 8, 2013
+sp_BlitzIndex (TM) v2.0 - May 14, 2013
 
 (C) 2013, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
