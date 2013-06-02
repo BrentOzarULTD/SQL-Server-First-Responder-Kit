@@ -25,7 +25,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	/*
-	sp_Blitz (TM) v23 - May 6, 2013
+	sp_Blitz (TM) v23 - June 2, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -55,9 +55,23 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
-	Changes in v23 - May 2013:
+	Changes in v23 - June 2, 2013:
 	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
 	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
+	 - Paul Olson http://www.SQLsprawl.com wrote check 106 to show how much
+	   history is being kept in the default traces, and where they are. Only runs
+       if @CheckServerInfo = 1.
+	 - Randall Stone suggested ignoring ReportServer% databases in the collation
+	   checks. Prior versions of the checks were only ignoring default name
+	   instances of SSRS.
+	 - Added checks for "poison" wait types: THREADPOOL, RESOURCE_SEMAPHORE, and
+	   RESOURCE_SEMAPHORE_QUERY_COMPILE. Any occurrence of these waits often
+	   indicates a killer performance issue.
+	 - Non-default sp_configure options used to be CheckID 22 for all possible
+	   sp_configure settings. Now we use the range 1,000-1,999 for sp_configure.
+	   This way, if you're writing a tool that outputs specific advice for each
+	   CheckID, you can get more specific with the advice based on which
+	   sp_configure option has been changed.
 	 - Fixed various typos.
 
 	Changes in v22 - May 6, 2013:
@@ -196,7 +210,8 @@ AS
     CREATE TABLE #ConfigurationDefaults
         (
           name NVARCHAR(128) ,
-          DefaultValue BIGINT
+          DefaultValue BIGINT,
+		  CheckID INT
         );
 
     IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL 
@@ -316,7 +331,16 @@ AS
                                           NULL
         )
 
-    DECLARE @StringToExecute NVARCHAR(4000);
+    DECLARE @StringToExecute NVARCHAR(4000)
+		,@curr_tracefilename NVARCHAR(500) 
+		,@base_tracefilename NVARCHAR(500) 
+		,@indx int ;
+
+	select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
+	set @curr_tracefilename = reverse(@curr_tracefilename);
+	select @indx = patindex('%\%', @curr_tracefilename) ;
+	set @curr_tracefilename = reverse(@curr_tracefilename) ;
+	set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 
 
 	/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
@@ -1148,75 +1172,75 @@ AS
 			for sp_configure options! We'll make our own list here.
 			*/
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'access check cache bucket count', 0 );
+            VALUES  ( 'access check cache bucket count', 0, 1001 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'access check cache quota', 0 );
+            VALUES  ( 'access check cache quota', 0, 1002 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Ad Hoc Distributed Queries', 0 );
+            VALUES  ( 'Ad Hoc Distributed Queries', 0, 1003 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'affinity I/O mask', 0 );
+            VALUES  ( 'affinity I/O mask', 0, 1004 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'affinity mask', 0 );
+            VALUES  ( 'affinity mask', 0, 1005 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Agent XPs', 0 );
+            VALUES  ( 'Agent XPs', 0, 1006 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'allow updates', 0 );
+            VALUES  ( 'allow updates', 0, 1007 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'awe enabled', 0 );
+            VALUES  ( 'awe enabled', 0, 1008 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'blocked process threshold', 0 );
+            VALUES  ( 'blocked process threshold', 0, 1009 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'c2 audit mode', 0 );
+            VALUES  ( 'c2 audit mode', 0, 1010 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'clr enabled', 0 );
+            VALUES  ( 'clr enabled', 0, 1011 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'cost threshold for parallelism', 5 );
+            VALUES  ( 'cost threshold for parallelism', 5, 1012 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'cross db ownership chaining', 0 );
+            VALUES  ( 'cross db ownership chaining', 0, 1013 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'cursor threshold', -1 );
+            VALUES  ( 'cursor threshold', -1, 1014 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Database Mail XPs', 0 );
+            VALUES  ( 'Database Mail XPs', 0, 1015 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'default full-text language', 1033 );
+            VALUES  ( 'default full-text language', 1033, 1016 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'default language', 0 );
+            VALUES  ( 'default language', 0, 1017 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'default trace enabled', 1 );
+            VALUES  ( 'default trace enabled', 1, 1018 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'disallow results from triggers', 0 );
+            VALUES  ( 'disallow results from triggers', 0, 1019 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'fill factor (%)', 0 );
+            VALUES  ( 'fill factor (%)', 0, 1020 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'ft crawl bandwidth (max)', 100 );
+            VALUES  ( 'ft crawl bandwidth (max)', 100, 1021 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'ft crawl bandwidth (min)', 0 );
+            VALUES  ( 'ft crawl bandwidth (min)', 0, 1022 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'ft notify bandwidth (max)', 100 );
+            VALUES  ( 'ft notify bandwidth (max)', 100, 1023 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'ft notify bandwidth (min)', 0 );
+            VALUES  ( 'ft notify bandwidth (min)', 0, 1024 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'index create memory (KB)', 0 );
+            VALUES  ( 'index create memory (KB)', 0, 1025 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'in-doubt xact resolution', 0 );
+            VALUES  ( 'in-doubt xact resolution', 0, 1026 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'lightweight pooling', 0 );
+            VALUES  ( 'lightweight pooling', 0, 1027 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'locks', 0 );
+            VALUES  ( 'locks', 0, 1028 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'max degree of parallelism', 0 );
+            VALUES  ( 'max degree of parallelism', 0, 1029 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'max full-text crawl range', 4 );
+            VALUES  ( 'max full-text crawl range', 4, 1030 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'max server memory (MB)', 2147483647 );
+            VALUES  ( 'max server memory (MB)', 2147483647, 1031 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'max text repl size (B)', 65536 );
+            VALUES  ( 'max text repl size (B)', 65536, 1032 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'max worker threads', 0 );
+            VALUES  ( 'max worker threads', 0, 1033 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'media retention', 0 );
+            VALUES  ( 'media retention', 0, 1034 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'min memory per query (KB)', 1024 );
+            VALUES  ( 'min memory per query (KB)', 1024, 1035 );
 			/* Accepting both 0 and 16 below because both have been seen in the wild as defaults. */
             IF EXISTS ( SELECT  *
                         FROM    sys.configurations
@@ -1224,87 +1248,87 @@ AS
                                 AND value_in_use IN ( 0, 16 ) ) 
                 INSERT  INTO #ConfigurationDefaults
                         SELECT  'min server memory (MB)' ,
-                                CAST(value_in_use AS BIGINT)
+                                CAST(value_in_use AS BIGINT), 1036
                         FROM    sys.configurations
                         WHERE   name = 'min server memory (MB)'
             ELSE 
                 INSERT  INTO #ConfigurationDefaults
-                VALUES  ( 'min server memory (MB)', 0 );
+                VALUES  ( 'min server memory (MB)', 0, 1036 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'nested triggers', 1 );
+            VALUES  ( 'nested triggers', 1, 1037 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'network packet size (B)', 4096 );
+            VALUES  ( 'network packet size (B)', 4096, 1038 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Ole Automation Procedures', 0 );
+            VALUES  ( 'Ole Automation Procedures', 0, 1039 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'open objects', 0 );
+            VALUES  ( 'open objects', 0, 1040 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'optimize for ad hoc workloads', 0 );
+            VALUES  ( 'optimize for ad hoc workloads', 0, 1041 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'PH timeout (s)', 60 );
+            VALUES  ( 'PH timeout (s)', 60, 1042 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'precompute rank', 0 );
+            VALUES  ( 'precompute rank', 0, 1043 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'priority boost', 0 );
+            VALUES  ( 'priority boost', 0, 1044 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'query governor cost limit', 0 );
+            VALUES  ( 'query governor cost limit', 0, 1045 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'query wait (s)', -1 );
+            VALUES  ( 'query wait (s)', -1, 1046 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'recovery interval (min)', 0 );
+            VALUES  ( 'recovery interval (min)', 0, 1047 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'remote access', 1 );
+            VALUES  ( 'remote access', 1, 1048 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'remote admin connections', 0 );
+            VALUES  ( 'remote admin connections', 0, 1049 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'remote proc trans', 0 );
+            VALUES  ( 'remote proc trans', 0, 1050 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'remote query timeout (s)', 600 );
+            VALUES  ( 'remote query timeout (s)', 600, 1051 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Replication XPs', 0 );
+            VALUES  ( 'Replication XPs', 0, 1052 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'RPC parameter data validation', 0 );
+            VALUES  ( 'RPC parameter data validation', 0, 1053 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'scan for startup procs', 0 );
+            VALUES  ( 'scan for startup procs', 0, 1054 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'server trigger recursion', 1 );
+            VALUES  ( 'server trigger recursion', 1, 1055 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'set working set size', 0 );
+            VALUES  ( 'set working set size', 0, 1056 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'show advanced options', 0 );
+            VALUES  ( 'show advanced options', 0, 1057 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'SMO and DMO XPs', 1 );
+            VALUES  ( 'SMO and DMO XPs', 1, 1058 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'SQL Mail XPs', 0 );
+            VALUES  ( 'SQL Mail XPs', 0, 1059 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'transform noise words', 0 );
+            VALUES  ( 'transform noise words', 0, 1060 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'two digit year cutoff', 2049 );
+            VALUES  ( 'two digit year cutoff', 2049, 1061 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'user connections', 0 );
+            VALUES  ( 'user connections', 0, 1062 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'user options', 0 );
+            VALUES  ( 'user options', 0, 1063 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'Web Assistant Procedures', 0 );
+            VALUES  ( 'Web Assistant Procedures', 0, 1064 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'xp_cmdshell', 0 );
+            VALUES  ( 'xp_cmdshell', 0, 1065 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'affinity64 mask', 0 );
+            VALUES  ( 'affinity64 mask', 0, 1066 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'affinity64 I/O mask', 0 );
+            VALUES  ( 'affinity64 I/O mask', 0, 1067 );
             INSERT  INTO #ConfigurationDefaults
-            VALUES  ( 'contained database authentication', 0 );
+            VALUES  ( 'contained database authentication', 0, 1068 );
 			/* SQL Server 2012 also changes a configuration default */
             IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
                 OR @@VERSION LIKE '%Microsoft SQL Server 2008%' 
                 BEGIN 
                     INSERT  INTO #ConfigurationDefaults
-                    VALUES  ( 'remote login timeout (s)', 20 );
+                    VALUES  ( 'remote login timeout (s)', 20, 1069 );
                 END
             ELSE 
                 BEGIN
                     INSERT  INTO #ConfigurationDefaults
-                    VALUES  ( 'remote login timeout (s)', 10 );
+                    VALUES  ( 'remote login timeout (s)', 10, 1070 );
                 END
 
     
@@ -1320,7 +1344,7 @@ AS
                               URL ,
                               Details
                             )
-                            SELECT  22 AS CheckID ,
+                            SELECT  cd.CheckID ,
                                     200 AS Priority ,
                                     'Non-Default Server Config' AS FindingsGroup ,
                                     cr.name AS Finding ,
@@ -2147,8 +2171,7 @@ AS
                                     AND d.name NOT IN ( SELECT DISTINCT
                                                               DatabaseName
                                                         FROM  #tempchecks )
-                                    AND d.name NOT IN ( 'ReportServer',
-                                                        'ReportServerTempDB' )
+                                    AND d.name NOT LIKE 'ReportServer%'
                 END
             
             IF NOT EXISTS ( SELECT  1
@@ -2367,6 +2390,84 @@ AS
                                     + '] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.'
                             FROM    master.sys.extended_procedures
                 END
+
+
+
+	            IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'THREADPOOL' ) > 5000
+	                AND NOT EXISTS ( SELECT 1
+	                                 FROM   #tempchecks
+	                                 WHERE  CheckID = 102 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  107 AS CheckID ,
+	                                    100 AS Priority ,
+	                                    'Performance' AS FindingGroup ,
+	                                    'Poison Wait Detected: THREADPOOL'  AS Finding ,
+	                                    'http://BrentOzar.com/go/poison' AS URL ,
+	                                    CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
+	                            FROM sys.[dm_os_wait_stats] 
+								WHERE wait_type = 'THREADPOOL'
+								GROUP BY wait_type
+	                END
+
+	            IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'RESOURCE_SEMAPHORE' ) > 5000
+	                AND NOT EXISTS ( SELECT 1
+	                                 FROM   #tempchecks
+	                                 WHERE  CheckID = 102 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  108 AS CheckID ,
+	                                    100 AS Priority ,
+	                                    'Performance' AS FindingGroup ,
+	                                    'Poison Wait Detected: RESOURCE_SEMAPHORE'  AS Finding ,
+	                                    'http://BrentOzar.com/go/poison' AS URL ,
+	                                    CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
+	                            FROM sys.[dm_os_wait_stats] 
+								WHERE wait_type = 'RESOURCE_SEMAPHORE'
+								GROUP BY wait_type
+	                END
+
+
+	            IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE' ) > 5000
+	                AND NOT EXISTS ( SELECT 1
+	                                 FROM   #tempchecks
+	                                 WHERE  CheckID = 102 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  109 AS CheckID ,
+	                                    100 AS Priority ,
+	                                    'Performance' AS FindingGroup ,
+	                                    'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE'  AS Finding ,
+	                                    'http://BrentOzar.com/go/poison' AS URL ,
+	                                    CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
+	                            FROM sys.[dm_os_wait_stats] 
+								WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE'
+								GROUP BY wait_type
+	                END
+
+
+
             
             IF @CheckUserDatabaseObjects = 1 
                 BEGIN
@@ -3299,9 +3400,8 @@ AS
                                     'http://BrentOzar.com/go/collate' AS URL ,
                                     'Collation differences between user databases and tempdb can cause conflicts especially when comparing string values' AS Details
                             FROM    sys.databases
-                            WHERE   name NOT IN ( 'master', 'model', 'msdb',
-                                                  'ReportServer',
-                                                  'ReportServerTempDB' )
+						WHERE   name NOT IN ( 'master', 'model', 'msdb')
+									AND name NOT LIKE 'ReportServer%'
                                     AND name NOT IN ( SELECT DISTINCT
                                                               DatabaseName
                                                       FROM    #tempchecks )
@@ -3576,6 +3676,41 @@ AS
                         END
 
 
+	                    IF NOT EXISTS ( SELECT  1
+	                                    FROM    #tempchecks
+	                                    WHERE   CheckID = 106 )
+										AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
+						BEGIN
+						select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
+						set @curr_tracefilename = reverse(@curr_tracefilename);
+						select @indx = patindex('%\%', @curr_tracefilename) ;
+						set @curr_tracefilename = reverse(@curr_tracefilename) ;
+						set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
+	
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT  
+											 106 AS CheckID 
+											,250 AS Priority 
+											,'Server Info' AS FindingsGroup 
+											,'Default Trace Contents' AS Finding 
+											,'http://BrentOzar.com/go/trace' AS URL 
+											,'The default trace holds '+cast(DATEDIFF(hour,MIN(StartTime),GETDATE())as varchar)+' hours of data'
+											+' between '+cast(Min(StartTime) as varchar)+' and '+cast(GETDATE()as varchar)
+											+('. The default trace files are located in: '+left( @curr_tracefilename,len(@curr_tracefilename) - @indx)
+											) as Details
+									FROM    ::fn_trace_gettable( @base_tracefilename, default )
+									WHERE EventClass BETWEEN 65500 and 65600
+						END /* CheckID 106 */
+
+
+
                 END /* IF @CheckServerInfo = 1 */
 
 
@@ -3618,7 +3753,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v23 May 2013' ,
+                      'sp_Blitz (TM) v23 June 2 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -3683,7 +3818,7 @@ AS
                 END
 
 
-			/* @OutputTableName lets us export the sp_Blitz™ results to a permanent table */
+			/* @OutputTableName lets us export the results to a permanent table */
             IF @OutputDatabaseName IS NOT NULL
                 AND @OutputSchemaName IS NOT NULL
                 AND @OutputTableName IS NOT NULL
