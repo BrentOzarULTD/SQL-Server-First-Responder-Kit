@@ -57,6 +57,7 @@ AS
 
     Changes in v24 - June 19, 2013
 	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
+	 - Andreas Schubert debugged check 14 to remove duplicate results.
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Added check 110 for memory nodes offline.
 	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
@@ -917,36 +918,6 @@ AS
                             FROM    #tempchecks
                             WHERE   CheckID = 14 ) 
                 BEGIN
-                    IF @@VERSION LIKE '%Microsoft SQL Server 2000%' 
-                        BEGIN
-                            SET @StringToExecute = 'INSERT INTO #BlitzResults 
-                        (CheckID, 
-                        DatabaseName,
-                        Priority, 
-                        FindingsGroup, 
-                        Finding, 
-                        URL, 
-                        Details)
-                  SELECT 14 AS CheckID,
-                  [name] as DatabaseName, 
-                  50 AS Priority, 
-                  ''Reliability'' AS FindingsGroup, 
-                  ''Page Verification Not Optimal'' AS Finding, 
-                  ''http://BrentOzar.com/go/torn'' AS URL,
-                  (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') COLLATE database_default AS Details 
-                  FROM sys.databases 
-                  WHERE page_verify_option < 1 
-                  AND name <> ''tempdb''
-                  and name not in (select distinct DatabaseName from #tempchecks)'
-                            EXECUTE(@StringToExecute)
-                        END;
-                END
-    
-        
-            IF NOT EXISTS ( SELECT  1
-                            FROM    #tempchecks
-                            WHERE   CheckID = 14 ) 
-                BEGIN
                     IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
                         BEGIN
                             SET @StringToExecute = 'INSERT INTO #BlitzResults 
@@ -963,7 +934,7 @@ AS
                   ''Reliability'' AS FindingsGroup, 
                   ''Page Verification Not Optimal'' AS Finding, 
                   ''http://BrentOzar.com/go/torn'' AS URL,
-                  (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') AS Details 
+                  (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') COLLATE database_default AS Details
                   FROM sys.databases 
                   WHERE page_verify_option < 2 
                   AND name <> ''tempdb''
