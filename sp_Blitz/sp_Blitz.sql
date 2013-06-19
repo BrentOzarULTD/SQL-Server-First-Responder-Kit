@@ -58,6 +58,7 @@ AS
     Changes in v24 - June 19, 2013
 	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
+	 - Josh Duewer added check 112 looking for change tracking.
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
 	 - Added check 110 for memory nodes offline.
@@ -2501,6 +2502,31 @@ AS
 										AND rh.restore_date >= DATEADD(dd, -2, GETDATE()))
 
 	                END
+
+
+		            IF NOT EXISTS ( SELECT  1
+		                            FROM    #tempchecks
+		                            WHERE   CheckID = 112 ) 
+		                BEGIN
+		                    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
+		                        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+		                        BEGIN
+		                            SET @StringToExecute = 'INSERT INTO #BlitzResults 
+		                        (CheckID, 
+		                        Priority, 
+		                        FindingsGroup, 
+		                        Finding, 
+		                        URL, 
+		                        Details)
+		                  SELECT 112 AS CheckID, 
+		                  100 AS Priority, 
+		                  ''Performance'' AS FindingsGroup, 
+		                  ''Change Tracking Enabled'' AS Finding, 
+		                  ''http://BrentOzar.com/go/tracking'' AS URL,
+		                  ( d.[name] + '' has change tracking enabled. This is not a default setting, and it has some performance overhead. It keeps track of changes to rows in tables that have change tracking turned on.'' ) AS Details FROM sys.change_tracking_databases AS ctd INNER JOIN sys.databases AS d ON ctd.database_id = d.database_id'
+		                            EXECUTE(@StringToExecute)
+		                        END;
+		                END
 
 
             
