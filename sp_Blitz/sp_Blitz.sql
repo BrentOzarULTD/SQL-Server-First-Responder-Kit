@@ -55,6 +55,13 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
+    Changes in v24 - June 19, 2013
+	 - Added check 110 for memory nodes offline.
+	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
+	   about databases with 51-100 VLFs, and that's just not a real performance
+	   killer. To minimize false alarms, we cranked the threshold way up. Let's
+	   get you focused on making sure your databases are backed up first.
+
 	Changes in v23 - June 2, 2013:
 	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
 	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
@@ -66,7 +73,7 @@ AS
 	   instances of SSRS.
 	 - Added checks for "poison" wait types: THREADPOOL, RESOURCE_SEMAPHORE, and
 	   RESOURCE_SEMAPHORE_QUERY_COMPILE. Any occurrence of these waits often
-	   indicates a killer performance issue.
+	   indicates a killer performance issue. Checks 107-109.
 	 - Non-default sp_configure options used to be CheckID 22 for all possible
 	   sp_configure settings. Now we use the range 1,000-1,999 for sp_configure.
 	   This way, if you're writing a tool that outputs specific advice for each
@@ -2338,6 +2345,30 @@ AS
                                     'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing problems.'
                 END
 
+	            IF EXISTS ( SELECT  *
+					FROM sys.dm_os_nodes n
+					INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
+					WHERE n.node_state_desc = 'OFFLINE' )
+	                AND NOT EXISTS ( SELECT 1
+	                                 FROM   #tempchecks
+	                                 WHERE  CheckID = 110 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  110 AS CheckID ,
+	                                    1 AS Priority ,
+	                                    'Performance' AS FindingGroup ,
+	                                    'Memory Nodes Offline' AS Finding ,
+	                                    'http://BrentOzar.com/go/schedulers' AS URL ,
+	                                    'Due to affinity masking or licensing problems, some of the server''s memory may not be available.'
+	                END
+
             IF EXISTS ( SELECT  *
                         FROM    sys.databases
                         WHERE   state > 1 )
@@ -3193,7 +3224,7 @@ AS
                             EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo2012 
       EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
-      IF    @@ROWCOUNT > 50            
+      IF    @@ROWCOUNT > 999            
       BEGIN
         INSERT  INTO #BlitzResults                        
         ( CheckID   
@@ -3223,7 +3254,7 @@ AS
                             EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo 
       EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
-      IF    @@ROWCOUNT > 50            
+      IF    @@ROWCOUNT > 999            
       BEGIN
         INSERT  INTO #BlitzResults                        
         ( CheckID 
