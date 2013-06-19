@@ -25,7 +25,7 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	/*
-	sp_Blitz (TM) v23 - June 2, 2013
+	sp_Blitz (TM) v24 - June 19, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -56,6 +56,8 @@ AS
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
     Changes in v24 - June 19, 2013
+	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
+     - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Added check 110 for memory nodes offline.
 	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
 	   about databases with 51-100 VLFs, and that's just not a real performance
@@ -2778,11 +2780,11 @@ AS
 						    WHERE  o.type = ''u''
 						     -- Clustered and Non-Clustered indexes
 						    AND i.type IN (1, 2) 
-						    AND o.name in 
+						    AND o.object_id in 
 						      (
-						        SELECT a.name from 
-						          (SELECT ob.name, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
-						          GROUP BY ob.name, ds.type_desc ) a group by a.name having COUNT (*) > 1
+						        SELECT a.object_id from 
+						          (SELECT ob.object_id, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
+						          GROUP BY ob.object_id, ds.type_desc ) a group by a.object_id having COUNT (*) > 1
 						      )'
 						                    INSERT  INTO #BlitzResults
 						                            ( CheckID ,
@@ -3712,11 +3714,6 @@ AS
 	                                    WHERE   CheckID = 106 )
 										AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
 						BEGIN
-						select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
-						set @curr_tracefilename = reverse(@curr_tracefilename);
-						select @indx = patindex('%\%', @curr_tracefilename) ;
-						set @curr_tracefilename = reverse(@curr_tracefilename) ;
-						set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 	
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -3772,7 +3769,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 23;
+            SET @Version = 24;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3784,7 +3781,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v23 June 2 2013' ,
+                      'sp_Blitz (TM) v24 June 19 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
