@@ -59,6 +59,7 @@ AS
 	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
+	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
 	 - Added check 110 for memory nodes offline.
 	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
 	   about databases with 51-100 VLFs, and that's just not a real performance
@@ -2311,7 +2312,7 @@ AS
                               Details
                             )
                             SELECT  101 AS CheckID ,
-                                    1 AS Priority ,
+                                    50 AS Priority ,
                                     'Performance' AS FindingGroup ,
                                     'CPU Schedulers Offline' AS Finding ,
                                     'http://BrentOzar.com/go/schedulers' AS URL ,
@@ -2335,7 +2336,7 @@ AS
 	                              Details
 	                            )
 	                            SELECT  110 AS CheckID ,
-	                                    1 AS Priority ,
+	                                    50 AS Priority ,
 	                                    'Performance' AS FindingGroup ,
 	                                    'Memory Nodes Offline' AS Finding ,
 	                                    'http://BrentOzar.com/go/schedulers' AS URL ,
@@ -2470,6 +2471,36 @@ AS
 								GROUP BY wait_type
 	                END
 
+
+					IF NOT EXISTS ( SELECT 1
+	                                 FROM   #tempchecks
+	                                 WHERE  CheckID = 111 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+								  DatabaseName ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  111 AS CheckID ,
+	                                    50 AS Priority ,
+	                                    'Reliability' AS FindingGroup ,
+	                                    'Possibly Broken Log Shipping'  AS Finding ,
+										d.[name] ,
+	                                    'http://BrentOzar.com/go/shipping' AS URL ,
+	                                    d.[name] + ' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.'
+										FROM [master].sys.databases d
+										WHERE ( d.[state] = 1
+										OR (d.[state] = 0 AND d.[is_in_standby] = 1) )
+										AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh 
+										INNER JOIN msdb.dbo.backupset bs ON rh.backup_set_id = bs.backup_set_id
+										WHERE d.[name] = rh.destination_database_name
+										AND rh.restore_date >= DATEADD(dd, -2, GETDATE()))
+
+	                END
 
 
             
