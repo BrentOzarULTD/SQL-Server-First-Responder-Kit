@@ -2944,6 +2944,7 @@ AS
                         END;
                     IF @@VERSION LIKE '%Microsoft SQL Server 2008%'
                         OR @@VERSION LIKE '%Microsoft SQL Server 2012%' 
+                        OR @@VERSION LIKE '%Microsoft SQL Server 2014%' 
                         BEGIN
                             IF @CheckProcedureCacheFilter = 'CPU'
                                 OR @CheckProcedureCacheFilter IS NULL 
@@ -3249,7 +3250,7 @@ AS
                             FROM    #tempchecks
                             WHERE   CheckID = 69 ) 
                 BEGIN
-                    IF @@VERSION LIKE 'Microsoft SQL Server 2012%' 
+                    IF @@VERSION LIKE 'Microsoft SQL Server 2012%' OR @@VERSION LIKE 'Microsoft SQL Server 2014%'
                         BEGIN
                             EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo2012 
@@ -3278,8 +3279,7 @@ AS
     TRUNCATE TABLE #LogInfo2012;'
                             DROP TABLE #LogInfo2012;
                         END
-    
-                    IF @@VERSION NOT LIKE 'Microsoft SQL Server 2012%' 
+					ELSE
                         BEGIN
                             EXEC sp_MSforeachdb N'USE [?];    
       INSERT INTO #LogInfo 
