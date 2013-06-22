@@ -55,10 +55,12 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
-    Changes in v24 - June 19, 2013
+    Changes in v24 - June 22, 2013
 	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
 	 - Josh Duewer added check 112 looking for change tracking.
+	 - Katie Vetter improved check 6 for jobs owned by <> SA, by removing the join
+	   to sys.server_principals and using a function for the name instead.
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
 	 - Added check 110 for memory nodes offline.
@@ -66,6 +68,7 @@ AS
 	   about databases with 51-100 VLFs, and that's just not a real performance
 	   killer. To minimize false alarms, we cranked the threshold way up. Let's
 	   get you focused on making sure your databases are backed up first.
+	 - Added SQL Server 2014 compatibility.
 
 	Changes in v23 - June 2, 2013:
 	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
@@ -749,12 +752,11 @@ AS
                                     'Jobs Owned By Users' AS Finding ,
                                     'http://BrentOzar.com/go/owners' AS URL ,
                                     ( 'Job [' + j.name + '] is owned by ['
-                                      + sl.name
+                                      + SUSER_SNAME(j.owner_sid)
                                       + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
                             FROM    msdb.dbo.sysjobs j
-                                    LEFT OUTER JOIN sys.server_principals sl ON j.owner_sid = sl.sid
                             WHERE   j.enabled = 1
-                                    AND sl.name <> SUSER_SNAME(0x01);
+                                    AND SUSER_SNAME(j.owner_sid) <> SUSER_SNAME(0x01);
                 END
     
         
@@ -3809,7 +3811,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v24 June 19 2013' ,
+                      'sp_Blitz (TM) v24 June 22 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -4029,7 +4031,7 @@ AS
 GO
 
 /*
-Sample execution call with the most common parameters:
+--Sample execution call with the most common parameters:
 EXEC [master].[dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
