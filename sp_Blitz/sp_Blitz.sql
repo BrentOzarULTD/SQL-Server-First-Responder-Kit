@@ -66,6 +66,7 @@ AS
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
 	 - Added check 110 for memory nodes offline.
+	 - Added check 113 for full text indexes not crawled in the last week.
 	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
 	   about databases with 51-100 VLFs, and that's just not a real performance
 	   killer. To minimize false alarms, we cranked the threshold way up. Let's
@@ -2843,6 +2844,30 @@ AS
 						                                                        FROM  #tempchecks )
 						                    DROP TABLE #partdb
 						                END
+
+
+					                    IF NOT EXISTS ( SELECT  1
+					                                    FROM    #tempchecks
+					                                    WHERE   CheckID = 113 ) 
+					                        BEGIN
+					                            EXEC dbo.sp_MSforeachdb 'USE [?]; 
+					      INSERT INTO #BlitzResults 
+					            (CheckID, 
+					            DatabaseName,
+					            Priority, 
+					            FindingsGroup, 
+					            Finding, 
+					            URL, 
+					            Details) 
+					      SELECT DISTINCT 113,
+					      ''?'', 
+					      50, 
+					      ''Reliability'', 
+					      ''Full Text Indexes Not Updating'', 
+					      ''http://BrentOzar.com/go/trust'', 
+					      (''At least one full text index in this database has not been crawled in the last week.'') 
+					      from [?].sys.fulltext_indexes i WHERE i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())';
+					                        END
 
 
 
