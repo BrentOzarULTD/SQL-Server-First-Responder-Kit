@@ -56,7 +56,9 @@ AS
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
     Changes in v24 - June 22, 2013
-	 - Alin Selicean debugged check 72 for non-aligned partitioned indexes.
+	 - Alin Selicean @AlinSelicean:
+	   - debugged check 72 for non-aligned partitioned indexes.
+       - improved check 70 for the @@servername variable.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
 	 - Josh Duewer added check 112 looking for change tracking.
 	 - Katie Vetter improved check 6 for jobs owned by <> SA, by removing the join
@@ -3312,30 +3314,58 @@ AS
                         END
                 END
     /*Verify that the servername is set */          
-            IF NOT EXISTS ( SELECT  1
-                            FROM    #tempchecks
-                            WHERE   CheckID = 70 ) 
-                BEGIN
-                    IF @@SERVERNAME IS NULL 
-                        BEGIN
-                            INSERT  INTO #BlitzResults
-                                    ( CheckID ,
-                                      Priority ,
-                                      FindingsGroup ,
-                                      Finding ,
-                                      URL ,
-                                      Details
-                                    )
-                                    SELECT  70 AS CheckID ,
-                                            200 AS Priority ,
-                                            'Configuration' AS FindingsGroup ,
-                                            '@@Servername not set' AS Finding ,
-                                            'http://BrentOzar.com/go/servername' AS URL ,
-                                            '@@Servername variable is null. Correct by executing "sp_addserver ''<LocalServerName>'', local"' AS Details
-                        END;
-                END
+/*Verify that the servername is set */          
+        IF NOT EXISTS ( SELECT  1
+                        FROM    #tempchecks
+                        WHERE   CheckId = 70 ) 
+            BEGIN
+                IF @@SERVERNAME IS NULL 
+                    BEGIN
+                        INSERT  INTO #BlitzResults
+                                ( CheckID ,
+                                  Priority ,
+                                  FindingsGroup ,
+                                  Finding ,
+                                  URL ,
+                                  Details
+                                )
+                                SELECT  70 AS CheckID ,
+                                        200 AS Priority ,
+                                        'Configuration' AS FindingsGroup ,
+                                        '@@Servername Not Set' AS Finding ,
+                                        'http://BrentOzar.com/go/servername' AS URL ,
+                                        '@@Servername variable is null. You can fix it by executing: "sp_addserver ''<LocalServerName>'', local"' AS Details
+                    END;
 
-    
+                IF  /* @@SERVERNAME IS set */
+                    (@@SERVERNAME IS NOT NULL 
+                    AND 
+                    /* not a named instance */
+                    CHARINDEX(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR),'\') = 0
+                    AND
+                    /* not clustered, when computername may be different than the servername */
+                    SERVERPROPERTY('IsClustered') = 0
+                    AND
+                    /* @@SERVERNAME is different than the computer name */
+                    @@SERVERNAME <> CAST(ISNULL(SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),@@SERVERNAME) AS NVARCHAR) )
+                     BEGIN
+                        INSERT  INTO #BlitzResults
+                                ( CheckID ,
+                                  Priority ,
+                                  FindingsGroup ,
+                                  Finding ,
+                                  URL ,
+                                  Details
+                                )
+                                SELECT  70 AS CheckID ,
+                                        200 AS Priority ,
+                                        'Configuration' AS FindingsGroup ,
+                                        '@@Servername Not Correct' AS Finding ,
+                                        'http://BrentOzar.com/go/servername' AS URL ,
+                                        'The @@Servername is different than the computer name, which may trigger certificate errors.' AS Details
+                    END;
+
+            END    
     /*Check to see if a failsafe operator has been configured*/   
             IF NOT EXISTS ( SELECT  1
                             FROM    #tempchecks
@@ -4039,5 +4069,4 @@ EXEC [master].[dbo].[sp_Blitz]
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
-
 */
