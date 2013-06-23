@@ -58,14 +58,14 @@ AS
     Changes in v24 - June 23, 2013
 	 - Alin Selicean @AlinSelicean:
 	   - debugged check 72 for non-aligned partitioned indexes.
-       - improved check 70 for the @@servername variable.
+	   - improved check 70 for the @@servername variable.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
 	 - Josh Duewer added check 112 looking for change tracking.
 	 - Justin Dearing @Zippy1981 improved @OutputTableName to export the results
 	   to a global temp table.
 	 - Katie Vetter improved check 6 for jobs owned by <> SA, by removing the join
 	   to sys.server_principals and using a function for the name instead.
-     - Kevin Frazier improved check 106 by removing extra copy/paste code.
+	 - Kevin Frazier improved check 106 by removing extra copy/paste code.
 	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
 	 - Added check 110 for memory nodes offline.
 	 - Added check 113 for full text indexes not crawled in the last week.
@@ -82,7 +82,7 @@ AS
 	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
 	 - Paul Olson http://www.SQLsprawl.com wrote check 106 to show how much
 	   history is being kept in the default traces, and where they are. Only runs
-       if @CheckServerInfo = 1.
+	   if @CheckServerInfo = 1.
 	 - Randall Stone suggested ignoring ReportServer% databases in the collation
 	   checks. Prior versions of the checks were only ignoring default name
 	   instances of SSRS.
@@ -137,7 +137,7 @@ AS
 	download that from http://www.BrentOzar.com/blitz/documentation/ - you'll
 	see why it can help shortly.
 	*/
-    DECLARE @StringToExecute NVARCHAR(4000)
+	DECLARE @StringToExecute NVARCHAR(4000)
 		,@curr_tracefilename NVARCHAR(500) 
 		,@base_tracefilename NVARCHAR(500) 
 		,@indx int ;
