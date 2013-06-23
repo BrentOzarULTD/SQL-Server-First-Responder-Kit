@@ -61,6 +61,8 @@ AS
        - improved check 70 for the @@servername variable.
 	 - Andreas Schubert debugged check 14 to remove duplicate results.
 	 - Josh Duewer added check 112 looking for change tracking.
+	 - Justin Dearing @Zippy1981 improved @OutputTableName to export the results
+	   to a global temp table.
 	 - Katie Vetter improved check 6 for jobs owned by <> SA, by removing the join
 	   to sys.server_principals and using a function for the name instead.
      - Kevin Frazier improved check 106 by removing extra copy/paste code.
@@ -334,6 +336,13 @@ AS
 	/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
     IF @OutputType = 'CSV' 
         SET @CheckProcedureCache = 0;
+
+	/* Sanitize our inputs */
+    SELECT
+		@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+		@OutputSchemaName = QUOTENAME(@OutputSchemaName),
+		@OutputTableName = QUOTENAME(@OutputTableName)
+
 
 
 	/* 
@@ -3870,21 +3879,21 @@ AS
                 AND @OutputTableName IS NOT NULL
                 AND EXISTS ( SELECT *
                              FROM   sys.databases
-                             WHERE  [name] = @OutputDatabaseName ) 
+                             WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
                 BEGIN
                     SET @StringToExecute = 'USE '
-                        + QUOTENAME(@OutputDatabaseName)
+                        + @OutputDatabaseName
                         + '; IF EXISTS(SELECT * FROM '
-                        + QUOTENAME(@OutputDatabaseName)
-                        + '.INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '''
+                        + @OutputDatabaseName
+                        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
                         + @OutputSchemaName
                         + ''') AND NOT EXISTS (SELECT * FROM '
-                        + QUOTENAME(@OutputDatabaseName)
-                        + '.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '''
-                        + @OutputSchemaName + ''' AND TABLE_NAME = '''
+                        + @OutputDatabaseName
+                        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+                        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
                         + @OutputTableName + ''') CREATE TABLE '
-                        + QUOTENAME(@OutputSchemaName) + '.'
-                        + QUOTENAME(@OutputTableName)
+                        + @OutputSchemaName + '.'
+                        + @OutputTableName
                         + ' (ID INT IDENTITY(1,1) NOT NULL, 
 							ServerName NVARCHAR(128), 
 							CheckDate DATETIME, 
@@ -3898,21 +3907,55 @@ AS
 							QueryPlan [XML] NULL ,
 							QueryPlanFiltered [NVARCHAR](MAX) NULL,
 							CheckID INT ,
-							CONSTRAINT [PK_' + @OutputTableName + '] PRIMARY KEY CLUSTERED (ID ASC));'
+							CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
                     EXEC(@StringToExecute);
                     SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
-                        + QUOTENAME(@OutputDatabaseName)
-                        + '.INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '''
+                        + @OutputDatabaseName
+                        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
                         + @OutputSchemaName + ''') INSERT '
-                        + QUOTENAME(@OutputDatabaseName) + '.'
-                        + QUOTENAME(@OutputSchemaName) + '.'
-                        + QUOTENAME(@OutputTableName)
+                        + @OutputDatabaseName + '.'
+                        + @OutputSchemaName + '.'
+                        + @OutputTableName
                         + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
                         + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
                         + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
                         + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
                     EXEC(@StringToExecute);
                 END
+			ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+				BEGIN
+					SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+                        + @OutputTableName
+                        + ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
+						+ 'CREATE TABLE '
+                        + @OutputTableName
+                        + ' (ID INT IDENTITY(1,1) NOT NULL, 
+							ServerName NVARCHAR(128), 
+							CheckDate DATETIME, 
+							BlitzVersion INT,
+							Priority TINYINT ,
+							FindingsGroup VARCHAR(50) ,
+							Finding VARCHAR(200) ,
+							DatabaseName NVARCHAR(128),
+							URL VARCHAR(200) ,
+							Details NVARCHAR(4000) ,
+							QueryPlan [XML] NULL ,
+							QueryPlanFiltered [NVARCHAR](MAX) NULL,
+							CheckID INT ,
+							CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                        + ' INSERT '
+                        + @OutputTableName
+                        + ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+                        + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+                        + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
+                        + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+                    EXEC(@StringToExecute);
+				END
+			ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+				BEGIN
+					RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+				END
+
 
             DECLARE @separator AS VARCHAR(1);
             IF @OutputType = 'RSV' 
