@@ -2304,29 +2304,33 @@ AS
                                     'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing problems.'
                 END
 
-	            IF EXISTS ( SELECT  *
-					FROM sys.dm_os_nodes n
-					INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
-					WHERE n.node_state_desc = 'OFFLINE' )
-	                AND NOT EXISTS ( SELECT 1
-	                                 FROM   #SkipChecks
-	                                 WHERE  DatabaseName IS NULL AND CheckID = 110 ) 
+
+	            IF NOT EXISTS ( SELECT  1
+	                            FROM    #SkipChecks
+	                            WHERE   DatabaseName IS NULL AND CheckID = 110 ) 
+							AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_os_memory_nodes')
 	                BEGIN
-	                    INSERT  INTO #BlitzResults
-	                            ( CheckID ,
-	                              Priority ,
-	                              FindingsGroup ,
-	                              Finding ,
-	                              URL ,
-	                              Details
-	                            )
-	                            SELECT  110 AS CheckID ,
-	                                    50 AS Priority ,
-	                                    'Performance' AS FindingGroup ,
-	                                    'Memory Nodes Offline' AS Finding ,
-	                                    'http://BrentOzar.com/go/schedulers' AS URL ,
-	                                    'Due to affinity masking or licensing problems, some of the server''s memory may not be available.'
+                        SET @StringToExecute = 'IF EXISTS (SELECT  *
+											FROM sys.dm_os_nodes n
+											INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
+											WHERE n.node_state_desc = ''OFFLINE'')
+						                    INSERT  INTO #BlitzResults
+						                            ( CheckID ,
+						                              Priority ,
+						                              FindingsGroup ,
+						                              Finding ,
+						                              URL ,
+						                              Details
+						                            )
+						                            SELECT  110 AS CheckID ,
+						                                    50 AS Priority ,
+						                                    ''Performance'' AS FindingGroup ,
+						                                    ''Memory Nodes Offline'' AS Finding ,
+						                                    ''http://BrentOzar.com/go/schedulers'' AS URL ,
+						                                    ''Due to affinity masking or licensing problems, some of the memory may not be available.''';
+	                            EXECUTE(@StringToExecute);
 	                END
+
 
             IF EXISTS ( SELECT  *
                         FROM    sys.databases
@@ -2491,11 +2495,9 @@ AS
 		            IF NOT EXISTS ( SELECT  1
 		                            FROM    #SkipChecks
 		                            WHERE   DatabaseName IS NULL AND CheckID = 112 ) 
+								AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'change_tracking_databases')
 		                BEGIN
-		                    IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-		                        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
-		                        BEGIN
-		                            SET @StringToExecute = 'INSERT INTO #BlitzResults 
+                            SET @StringToExecute = 'INSERT INTO #BlitzResults 
 		                        (CheckID, 
 		                        Priority, 
 		                        FindingsGroup, 
@@ -2507,9 +2509,8 @@ AS
 		                  ''Performance'' AS FindingsGroup, 
 		                  ''Change Tracking Enabled'' AS Finding, 
 		                  ''http://BrentOzar.com/go/tracking'' AS URL,
-		                  ( d.[name] + '' has change tracking enabled. This is not a default setting, and it has some performance overhead. It keeps track of changes to rows in tables that have change tracking turned on.'' ) AS Details FROM sys.change_tracking_databases AS ctd INNER JOIN sys.databases AS d ON ctd.database_id = d.database_id'
-		                            EXECUTE(@StringToExecute)
-		                        END;
+		                  ( d.[name] + '' has change tracking enabled. This is not a default setting, and it has some performance overhead. It keeps track of changes to rows in tables that have change tracking turned on.'' ) AS Details FROM sys.change_tracking_databases AS ctd INNER JOIN sys.databases AS d ON ctd.database_id = d.database_id';
+		                            EXECUTE(@StringToExecute);
 		                END
 
 
