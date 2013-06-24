@@ -24,8 +24,10 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @Version INT = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+	
 	/*
-	sp_Blitz (TM) v24 - June 23, 2013
+	sp_Blitz (TM) v25 - June 23, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
