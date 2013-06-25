@@ -1,7 +1,7 @@
 USE [master];
 GO
 
-IF OBJECT_ID('master.dbo.sp_Blitz') IS NOT NULL 
+IF OBJECT_ID('dbo.sp_Blitz') IS NOT NULL 
     DROP PROC dbo.sp_Blitz;
 GO
 
@@ -56,6 +56,10 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v25 - ???
+	 - David Todd suggested a tweak to make it easier to deploy this stored proc
+	   in other databases.
 
     Changes in v24 - June 23, 2013
 	 - Alin Selicean @AlinSelicean:
