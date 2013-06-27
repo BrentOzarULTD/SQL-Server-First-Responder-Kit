@@ -182,9 +182,32 @@ WHERE r.command LIKE 'DBCC%';
 
 
 
-/* Close out the XML field Details by adding a footer */
-UPDATE #AskBrentResults
-  SET Details = Details + @StockDetailsFooter;
+/* If we didn't find anything, apologize. */
+IF NOT EXISTS (SELECT * FROM #AskBrentResults)
+	BEGIN
+	
+            INSERT  INTO #AskBrentResults
+                    ( CheckID ,
+                      Priority ,
+                      FindingsGroup ,
+                      Finding ,
+                      URL ,
+                      Details
+                    )
+            VALUES  ( -1 ,
+                      255 ,
+                      'No Problems Found' ,
+                      'From Brent Ozar Unlimited' ,
+                      'http://www.BrentOzar.com/blitz/' ,
+                      @StockDetailsHeader + 'Try running our more in-depth checks: http://www.BrentOzar.com/blitz/' + @LineFeed + 'or there may not be an unusual SQL Server performance problem. ' + @StockDetailsFooter
+                    );
+	
+	END /*IF NOT EXISTS (SELECT * FROM #AskBrentResults) */
+	ELSE /* We found stuff, so add credits */
+	BEGIN
+		/* Close out the XML field Details by adding a footer */
+		UPDATE #AskBrentResults
+		  SET Details = Details + @StockDetailsFooter;
 
 			/* Add credits for the nice folks who put so much time into building and maintaining this for free: */                    
             INSERT  INTO #AskBrentResults
@@ -221,6 +244,7 @@ UPDATE #AskBrentResults
                       '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
                     );
 
+	END /* ELSE  We found stuff, so add credits */
 
 			/* @OutputTableName lets us export the results to a permanent table */
             IF @OutputDatabaseName IS NOT NULL
