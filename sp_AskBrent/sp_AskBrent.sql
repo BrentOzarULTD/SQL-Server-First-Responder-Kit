@@ -114,24 +114,31 @@ SELECT 1 AS CheckID,
 	'Maintenance Tasks Running' AS FindingGroup,
 	'Backup Running' AS Finding,
 	'http://BrentOzar.com/go/backups' AS URL,
-	@StockDetailsHeader + 'Backup ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+	@StockDetailsHeader + 'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 	CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
-	p.query_plan AS QueryPlan,
+	pl.query_plan AS QueryPlan,
 	r.start_time AS StartTime,
 	s.login_name AS LoginName,
 	s.nt_user_name AS NTUserName,
 	s.original_login_name AS OriginalLoginName,
 	s.[program_name] AS ProgramName,
 	s.[host_name] AS HostName,
-	s.database_id AS DatabaseID,
-	d.[name] AS DatabaseName,
-	s.open_transaction_count AS OpenTransactionCount
+	db.[resource_database_id] AS DatabaseID,
+	DB_NAME(db.resource_database_id) AS DatabaseName,
+	0 AS OpenTransactionCount
 FROM sys.dm_exec_requests r
 INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
 INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-INNER JOIN sys.databases d ON s.database_id = d.database_id
-CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) p
-WHERE r.command = 'BACKUP DATABASE';
+INNER JOIN (
+SELECT DISTINCT request_session_id, resource_database_id
+FROM    sys.dm_tran_locks
+WHERE resource_type = N'DATABASE'
+AND     request_mode = N'S'
+AND     request_status = N'GRANT'
+AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+WHERE r.command LIKE 'BACKUP%';
+
 
 /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
 UPDATE #AskBrentResults
@@ -148,25 +155,30 @@ SELECT 2 AS CheckID,
 	'Maintenance Tasks Running' AS FindingGroup,
 	'DBCC Running' AS Finding,
 	'http://BrentOzar.com/go/dbcc' AS URL,
-	@StockDetailsHeader + 'Corruption check has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+	@StockDetailsHeader + 'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 	CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
-	p.query_plan AS QueryPlan,
+	pl.query_plan AS QueryPlan,
 	r.start_time AS StartTime,
 	s.login_name AS LoginName,
 	s.nt_user_name AS NTUserName,
 	s.original_login_name AS OriginalLoginName,
 	s.[program_name] AS ProgramName,
 	s.[host_name] AS HostName,
-	s.database_id AS DatabaseID,
-	d.[name] AS DatabaseName,
-	s.open_transaction_count AS OpenTransactionCount
+	db.[resource_database_id] AS DatabaseID,
+	DB_NAME(db.resource_database_id) AS DatabaseName,
+	0 AS OpenTransactionCount
 FROM sys.dm_exec_requests r
 INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
 INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-LEFT OUTER JOIN sys.databases d ON s.database_id = d.database_id
-CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) p
+INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
+FROM    sys.dm_tran_locks l
+INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
+WHERE l.resource_type = N'DATABASE'
+AND     l.request_mode = N'S'
+AND    l.request_status = N'GRANT'
+AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
 WHERE r.command LIKE 'DBCC%';
-
 
 
 
@@ -338,7 +350,22 @@ UPDATE #AskBrentResults
                     END
                 ELSE IF @ExpertMode = 1
                     BEGIN
-                        SELECT  *
+                        SELECT  [Priority] ,
+                                [FindingsGroup] ,
+                                [Finding] ,
+                                [URL] ,
+                                CAST([Details] AS [XML]) AS Details,
+								[HowToStopIt] ,
+								[CheckID] ,
+								[StartTime],
+								[LoginName],
+								[NTUserName],
+								[OriginalLoginName],
+								[ProgramName],
+								[HostName],
+								[DatabaseID],
+								[DatabaseName],
+								[OpenTransactionCount]
                         FROM    #AskBrentResults
 						ORDER BY Priority ,
                                 FindingsGroup ,
@@ -352,4 +379,4 @@ UPDATE #AskBrentResults
 GO
 
 
-EXEC dbo.sp_AskBrent;
+EXEC dbo.sp_AskBrent @ExpertMode = 1;
