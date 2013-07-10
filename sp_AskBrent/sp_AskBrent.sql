@@ -18,7 +18,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_AskBrent (TM) v1 - June 23, 2013
+	sp_AskBrent (TM) v1 - July 11, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -42,12 +42,10 @@ AS
 	Unknown limitations of this version:
 	 - None. Like Zombo.com, the only limit is yourself.
 
-    Changes in v1 - June 23, 2013
+    Changes in v1 - July 11, 2013
 	 - Initial bug-filled release. We purposely left extra errors on here so
 	   you could email bug reports to Help@BrentOzar.com, thereby increasing
-	   your self-esteem.
-
-	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
+	   your self-esteem. It's all about you.
 	*/
 
 
@@ -85,6 +83,7 @@ AS
           Details NVARCHAR(4000) NOT NULL,
 		  HowToStopIt [XML] NULL,
           QueryPlan [XML] NULL,
+          QueryText NVARCHAR(MAX) NULL,
 		  StartTime DATETIME NULL,
 		  LoginName NVARCHAR(128) NULL,
 		  NTUserName NVARCHAR(128) NULL,
@@ -181,6 +180,104 @@ CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
 WHERE r.command LIKE 'DBCC%';
 
 
+/* Maintenance Tasks Running - Restore Running - CheckID 3 */
+INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+SELECT 3 AS CheckID,
+	1 AS Priority,
+	'Maintenance Tasks Running' AS FindingGroup,
+	'Restore Running' AS Finding,
+	'http://BrentOzar.com/go/backups' AS URL,
+	@StockDetailsHeader + 'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+	CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+	pl.query_plan AS QueryPlan,
+	r.start_time AS StartTime,
+	s.login_name AS LoginName,
+	s.nt_user_name AS NTUserName,
+	s.original_login_name AS OriginalLoginName,
+	s.[program_name] AS ProgramName,
+	s.[host_name] AS HostName,
+	db.[resource_database_id] AS DatabaseID,
+	DB_NAME(db.resource_database_id) AS DatabaseName,
+	0 AS OpenTransactionCount
+FROM sys.dm_exec_requests r
+INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+INNER JOIN (
+SELECT DISTINCT request_session_id, resource_database_id
+FROM    sys.dm_tran_locks
+WHERE resource_type = N'DATABASE'
+AND     request_mode = N'S'
+AND     request_status = N'GRANT'
+AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+WHERE r.command LIKE 'RESTORE%';
+
+
+/* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
+INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+SELECT 4 AS CheckID,
+	1 AS Priority,
+	'SQL Server Internal Maintenance' AS FindingGroup,
+	'Database File Growing' AS Finding,
+	'http://BrentOzar.com/go/backups' AS URL,
+	@StockDetailsHeader + 'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
+	CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+	pl.query_plan AS QueryPlan,
+	r.start_time AS StartTime,
+	s.login_name AS LoginName,
+	s.nt_user_name AS NTUserName,
+	s.original_login_name AS OriginalLoginName,
+	s.[program_name] AS ProgramName,
+	s.[host_name] AS HostName,
+	NULL AS DatabaseID,
+	NULL AS DatabaseName,
+	0 AS OpenTransactionCount
+FROM sys.dm_os_waiting_tasks t
+INNER JOIN sys.dm_exec_connections c ON t.session_id = c.session_id
+INNER JOIN sys.dm_exec_requests r ON t.session_id = r.session_id
+INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+WHERE t.wait_type = 'PREEMPTIVE_OS_WRITEFILEGATHER'
+
+
+/* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
+INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+SELECT 5 AS CheckID,
+	1 AS Priority,
+	'Query Problems' AS FindingGroup,
+	'Long-Running Query Blocking Others' AS Finding,
+	'http://BrentOzar.com/go/blocking' AS URL,
+	@StockDetailsHeader + 'Query in ' + DB_NAME(db.resource_database_id) + ' has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed + @LineFeed
+		+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
+		(SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY ::fn_get_sql(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
+	CAST(@StockWarningHeader + 'KILL ' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+	(SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(rBlocker.plan_handle)) AS QueryPlan,
+	COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
+		(SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY ::fn_get_sql(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id)) AS QueryText,
+	r.start_time AS StartTime,
+	s.login_name AS LoginName,
+	s.nt_user_name AS NTUserName,
+	s.original_login_name AS OriginalLoginName,
+	s.[program_name] AS ProgramName,
+	s.[host_name] AS HostName,
+	db.[resource_database_id] AS DatabaseID,
+	DB_NAME(db.resource_database_id) AS DatabaseName,
+	0 AS OpenTransactionCount
+FROM sys.dm_exec_sessions s
+INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+INNER JOIN sys.dm_os_waiting_tasks tBlocked ON tBlocked.session_id = s.session_id
+INNER JOIN (
+SELECT DISTINCT request_session_id, resource_database_id
+FROM    sys.dm_tran_locks
+WHERE resource_type = N'DATABASE'
+AND     request_mode = N'S'
+AND     request_status = N'GRANT'
+AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+LEFT OUTER JOIN sys.dm_exec_requests rBlocker ON tBlocked.blocking_session_id = rBlocker.session_id
+  WHERE NOT EXISTS (SELECT * FROM sys.dm_os_waiting_tasks tBlocker WHERE tBlocker.session_id = tBlocked.blocking_session_id AND tBlocker.blocking_session_id IS NOT NULL)
+  AND s.last_request_start_time < DATEADD(SECOND, -30, GETDATE())
+
 
 /* If we didn't find anything, apologize. */
 IF NOT EXISTS (SELECT * FROM #AskBrentResults)
@@ -238,7 +335,7 @@ IF NOT EXISTS (SELECT * FROM #AskBrentResults)
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_AskBrent (TM) v1 June 23 2013' ,
+                      'sp_AskBrent (TM) v1 July 11 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/askbrent/' ,
                       '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
@@ -313,14 +410,15 @@ IF NOT EXISTS (SELECT * FROM #AskBrentResults)
 							Details [XML] ,
 							HowToStopIt [XML] ,
 							QueryPlan [XML] NULL ,
+							QueryText NVARCHAR(MAX) NULL ,
 							CheckID INT ,
 							CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
                         + ' INSERT '
                         + @OutputTableName
-                        + ' (ServerName, CheckDate, AskBrentVersion, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, CheckID) SELECT '''
+                        + ' (ServerName, CheckDate, AskBrentVersion, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, CheckID) SELECT '''
                         + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
                         + ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-                        + ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+                        + ', Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, CheckID FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
                     EXEC(@StringToExecute);
 				END
 			ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -389,7 +487,9 @@ IF NOT EXISTS (SELECT * FROM #AskBrentResults)
 								[HostName],
 								[DatabaseID],
 								[DatabaseName],
-								[OpenTransactionCount]
+								[OpenTransactionCount],
+								[QueryPlan],
+								[QueryText]
                         FROM    #AskBrentResults
 						ORDER BY Priority ,
                                 FindingsGroup ,
