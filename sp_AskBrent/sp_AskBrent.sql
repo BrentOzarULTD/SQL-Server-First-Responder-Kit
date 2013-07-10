@@ -68,7 +68,9 @@ AS
 		@StockWarningHeader NVARCHAR(500),
 		@StockWarningFooter NVARCHAR(100),
 		@StockDetailsHeader NVARCHAR(100),
-		@StockDetailsFooter NVARCHAR(100);
+		@StockDetailsFooter NVARCHAR(100),
+		@StartSampleTime DATETIME = GETDATE(),
+		@FinishSampleTime DATETIME = DATEADD(ss, 10, GETDATE());
 
     IF OBJECT_ID('tempdb..#AskBrentResults') IS NOT NULL 
         DROP TABLE #AskBrentResults;
@@ -95,6 +97,10 @@ AS
 		  OpenTransactionCount INT NULL
         );
 
+    IF OBJECT_ID('tempdb..#WaitStatsBaseline') IS NOT NULL 
+        DROP TABLE #WaitStatsBaseline;
+	CREATE TABLE #WaitStatsBaseline (wait_type NVARCHAR(60), waiting_tasks_count BIGINT, wait_time_ms BIGINT, signal_wait_time_ms BIGINT, recorded_date DATETIME);
+
 	SET @StockWarningHeader = '<?ClickToSeeCommmand -- ' + @LineFeed + @LineFeed 
 	    + 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
 		+ 'This tool is meant as a shortcut to help generate scripts for DBAs.' + @LineFeed
@@ -104,6 +110,12 @@ AS
 	SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
 		@StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
 		@StockDetailsFooter = @LineFeed + ' -- ?>';
+
+	/* Populate #WaitStatsBaseline with our current sys.dm_os_wait_stats. We'll revisit this after doing our checks. */
+	INSERT INTO #WaitStatsBaseline (wait_type, waiting_tasks_count, wait_time_ms, signal_wait_time_ms, recorded_date)
+	SELECT wait_type, waiting_tasks_count, wait_time_ms, signal_wait_time_ms, GETDATE()
+	FROM sys.dm_os_wait_stats
+	WHERE waiting_tasks_count > 0 OR wait_time_ms > 0;
 
 
 /* Maintenance Tasks Running - Backup Running - CheckID 1 */
@@ -279,6 +291,35 @@ LEFT OUTER JOIN sys.dm_exec_requests rBlocker ON tBlocked.blocking_session_id = 
   AND s.last_request_start_time < DATEADD(SECOND, -30, GETDATE())
 
 
+
+
+
+/* End of checks. If we haven't waited ten seconds, wait. */
+IF GETDATE() < @FinishSampleTime
+	WAITFOR TIME @FinishSampleTime;
+
+
+/* Compare the current wait stats to the sample we took ten seconds ago, and insert the top 10 waits. */
+INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+SELECT TOP 10 6 AS CheckID,
+	200 AS Priority,
+	'Wait Stats' AS FindingGroup,
+	wNow.wait_type AS Finding,
+	N'http://BrentOzar.com/waits/' + wNow.wait_type AS URL,
+	@StockDetailsHeader + 'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last 10 seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+	CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt
+FROM sys.dm_os_wait_stats wNow
+LEFT OUTER JOIN #WaitStatsBaseline wBase ON wNow.wait_type = wBase.wait_type
+WHERE wNow.wait_time_ms > (wBase.wait_time_ms + 5000) /* Only look for things we've actually waited on for 5 seconds or more */
+AND wNow.wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH','SQLTRACE_INCREMENTAL_FLUSH_SLEEP','SQLTRACE_BUFFER_FLUSH',
+'LAZYWRITER_SLEEP','XE_TIMER_EVENT','XE_DISPATCHER_WAIT','FT_IFTS_SCHEDULER_IDLE_WAIT','LOGMGR_QUEUE','CHECKPOINT_QUEUE',
+'BROKER_TO_FLUSH','BROKER_TASK_STOP','BROKER_EVENTHANDLER','BROKER_TRANSMITTER','SLEEP_TASK','WAITFOR','DBMIRROR_DBM_MUTEX',
+'DBMIRROR_EVENTS_QUEUE','DBMIRRORING_CMD','DISPATCHER_QUEUE_SEMAPHORE','BROKER_RECEIVE_WAITFOR','CLR_AUTO_EVENT',
+'DIRTY_PAGE_POLL','CLR_SEMAPHORE','HADR_FILESTREAM_IOMGR_IOCOMPLETION','ONDEMAND_TASK_QUEUE','FT_IFTSHC_MUTEX',
+'CLR_MANUAL_EVENT','SP_SERVER_DIAGNOSTICS_SLEEP','DBMIRROR_WORKER_QUEUE','DBMIRROR_DBM_EVENT')
+ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC
+
+
 /* If we didn't find anything, apologize. */
 IF NOT EXISTS (SELECT * FROM #AskBrentResults)
 	BEGIN
@@ -295,7 +336,7 @@ IF NOT EXISTS (SELECT * FROM #AskBrentResults)
                       255 ,
                       'No Problems Found' ,
                       'From Brent Ozar Unlimited' ,
-                      'http://www.BrentOzar.com/blitz/' ,
+                      'http://www.BrentOzar.com/askbrent/' ,
                       @StockDetailsHeader + 'Try running our more in-depth checks: http://www.BrentOzar.com/blitz/' + @LineFeed + 'or there may not be an unusual SQL Server performance problem. ' + @StockDetailsFooter
                     );
 	
