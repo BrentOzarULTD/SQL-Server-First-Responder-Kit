@@ -13,6 +13,7 @@ CREATE PROCEDURE [dbo].[sp_AskBrent]
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @Version INT = NULL OUTPUT
+    WITH EXECUTE AS CALLER
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -27,9 +28,9 @@ AS
 	sp_AskBrent performs quick checks for things like:
 
 	* Blocking queries that have been running a long time
-	* Backups and restores
+	* Backups, restores, DBCCs
+	* Recently cleared plan cache
 	* Transactions that are rolling back
-	* Long-running end user queries waiting on slow workstations
 
 	To learn more, visit http://www.BrentOzar.com/askbrent/ where you can download
 	new versions for free, watch training videos on how it works, get more info on
