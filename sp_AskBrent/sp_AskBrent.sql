@@ -31,7 +31,7 @@ AS
 	* Blocking queries that have been running a long time
 	* Backups, restores, DBCCs
 	* Recently cleared plan cache
-	* Sleeping queries still holding locks
+	* Transactions that are rolling back
 
 	To learn more, visit http://www.BrentOzar.com/askbrent/ where you can download
 	new versions for free, watch training videos on how it works, get more info on
@@ -355,6 +355,36 @@ BEGIN
 
 
 
+	/* Query Problems - Query Rolling Back - CheckID 9 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
+	SELECT 9 AS CheckID,
+		1 AS Priority,
+		'Query Problems' AS FindingGroup,
+		'Query Rolling Back' AS Finding,
+		'http://BrentOzar.com/go/rollback' AS URL,
+		@StockDetailsHeader + 'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+		CAST(@StockWarningHeader + 'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		r.start_time AS StartTime,
+		s.login_name AS LoginName,
+		s.nt_user_name AS NTUserName,
+		s.original_login_name AS OriginalLoginName,
+		s.[program_name] AS ProgramName,
+		s.[host_name] AS HostName,
+		db.[resource_database_id] AS DatabaseID,
+		DB_NAME(db.resource_database_id) AS DatabaseName,
+		(SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText
+	FROM sys.dm_exec_sessions s 
+	INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+	INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+	LEFT OUTER JOIN (
+		SELECT DISTINCT request_session_id, resource_database_id
+		FROM    sys.dm_tran_locks
+		WHERE resource_type = N'DATABASE'
+		AND     request_mode = N'S'
+		AND     request_status = N'GRANT'
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+	WHERE r.status = 'rollback'
+
 
 
 	/* End of checks. If we haven't waited ten seconds, wait. */
@@ -640,3 +670,5 @@ GO
 
 
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
+EXEC dbo.sp_AskBrent @ExpertMode = 0;
+EXEC dbo.sp_AskBrent 'This is a test question';
