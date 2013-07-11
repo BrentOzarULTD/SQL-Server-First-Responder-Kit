@@ -7,6 +7,7 @@ GO
 
 CREATE PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
+    @AsOf DATETIME = NULL ,
     @OutputType VARCHAR(20) = 'TABLE' ,
 	@ExpertMode TINYINT = 0,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
@@ -30,7 +31,7 @@ AS
 	* Blocking queries that have been running a long time
 	* Backups, restores, DBCCs
 	* Recently cleared plan cache
-	* Transactions that are rolling back
+	* Sleeping queries still holding locks
 
 	To learn more, visit http://www.BrentOzar.com/askbrent/ where you can download
 	new versions for free, watch training videos on how it works, get more info on
@@ -39,6 +40,7 @@ AS
 
 	Known limitations of this version:
 	 - No support for SQL Server 2000 or compatibility mode 80.
+	 - Not all parameters are supported yet. Just wanted to finish the surface area.
 
 	Unknown limitations of this version:
 	 - None. Like Zombo.com, the only limit is yourself.
@@ -113,37 +115,8 @@ AS
 		@StockDetailsFooter = @LineFeed + ' -- ?>';
 
 
-/* If we're playing Magic SQL Ball, give them an answer. */
-IF @Question IS NOT NULL
-BEGIN
-	IF OBJECT_ID('tempdb..#BrentAnswers') IS NOT NULL 
-		DROP TABLE #BrentAnswers;
-	CREATE TABLE #BrentAnswers(Answer VARCHAR(200) NOT NULL);
-	INSERT INTO #BrentAnswers VALUES ('It sounds like a SAN problem.');
-	INSERT INTO #BrentAnswers VALUES ('You know what you need? Bacon.');
-	INSERT INTO #BrentAnswers VALUES ('Talk to the developers about that.');
-	INSERT INTO #BrentAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
-	INSERT INTO #BrentAnswers VALUES ('Have you tried adding an index?');
-	INSERT INTO #BrentAnswers VALUES ('Have you tried dropping an index?');
-	INSERT INTO #BrentAnswers VALUES ('You can''t prove anything.');
-	INSERT INTO #BrentAnswers VALUES ('If you watched our Tuesday webcasts, you''d already know the answer to that.');
-	INSERT INTO #BrentAnswers VALUES ('Please phrase the question in the form of an answer.');
-	INSERT INTO #BrentAnswers VALUES ('Outlook not so good. Access even worse.');
-	INSERT INTO #BrentAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
-	INSERT INTO #BrentAnswers VALUES ('Oooo, I read about that once.');
-	INSERT INTO #BrentAnswers VALUES ('I feel your pain.');
-	INSERT INTO #BrentAnswers VALUES ('http://LMGTFY.com');
-	INSERT INTO #BrentAnswers VALUES ('No comprende Ingles, senor.');
-	INSERT INTO #BrentAnswers VALUES ('I don''t have that problem on my Mac.');
-	INSERT INTO #BrentAnswers VALUES ('Is Priority Boost on?');
-	INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
-	INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
-	INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
-	INSERT INTO #BrentAnswers VALUES ('What do I look like, a Microsoft Certified Master? Oh, wait...');
-	INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
-	SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
-END
-ELSE /* IF @Question IS NOT NULL */
+/* If they didn't ask us an 8-ball question, do the real work: */
+IF @Question IS NULL
 BEGIN
 
 
@@ -267,9 +240,9 @@ BEGIN
 		1 AS Priority,
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Database File Growing' AS Finding,
-		'http://BrentOzar.com/go/backups' AS URL,
+		'http://BrentOzar.com/go/instant' AS URL,
 		@StockDetailsHeader + 'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		CAST(@StockWarningHeader + 'Unfortunately, you can''t stop this, but you can prevent it next time. Check out http://BrentOzar.com/go/instant for details.' + @StockWarningFooter AS XML) AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
@@ -344,6 +317,44 @@ BEGIN
 		FROM sys.dm_exec_query_stats 
 		ORDER BY creation_time	
 	END
+
+
+
+	/* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+	SELECT 8 AS CheckID,
+		50 AS Priority,
+		'Query Problems' AS FindingGroup,
+		'Sleeping Query with Open Transactions' AS Finding,
+		'http://BrentOzar.com/go/sleeping' AS URL,
+		@StockDetailsHeader + 'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
+		CAST(@StockWarningHeader + 'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		s.last_request_start_time AS StartTime,
+		s.login_name AS LoginName,
+		s.nt_user_name AS NTUserName,
+		s.original_login_name AS OriginalLoginName,
+		s.[program_name] AS ProgramName,
+		s.[host_name] AS HostName,
+		db.[resource_database_id] AS DatabaseID,
+		DB_NAME(db.resource_database_id) AS DatabaseName,
+		(SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+		1 AS OpenTransactionCount
+	FROM sys.dm_exec_sessions s
+	INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+	INNER JOIN (
+	SELECT DISTINCT request_session_id, resource_database_id
+	FROM    sys.dm_tran_locks
+	WHERE resource_type = N'DATABASE'
+	AND     request_mode = N'S'
+	AND     request_status = N'GRANT'
+	AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+	WHERE s.status = 'sleeping'
+	AND s.last_request_end_time < DATEADD(ss, -10, GETDATE())
+	AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id 
+	AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
+
+
+
 
 
 	/* End of checks. If we haven't waited ten seconds, wait. */
@@ -556,7 +567,8 @@ BEGIN
                     [Finding] ,
                     [URL] ,
                     CAST([Details] AS [XML]) AS Details,
-					[HowToStopIt]
+					[HowToStopIt],
+					[QueryText]
             FROM    #AskBrentResults
 			ORDER BY Priority ,
                     FindingsGroup ,
@@ -591,8 +603,38 @@ BEGIN
         END
 
     DROP TABLE #AskBrentResults;
-
 END /* IF @Question IS NOT NULL */
+ELSE
+/* We're playing Magic SQL 8 Ball, so give them an answer. */
+BEGIN
+	IF OBJECT_ID('tempdb..#BrentAnswers') IS NOT NULL 
+		DROP TABLE #BrentAnswers;
+	CREATE TABLE #BrentAnswers(Answer VARCHAR(200) NOT NULL);
+	INSERT INTO #BrentAnswers VALUES ('It sounds like a SAN problem.');
+	INSERT INTO #BrentAnswers VALUES ('You know what you need? Bacon.');
+	INSERT INTO #BrentAnswers VALUES ('Talk to the developers about that.');
+	INSERT INTO #BrentAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
+	INSERT INTO #BrentAnswers VALUES ('Have you tried adding an index?');
+	INSERT INTO #BrentAnswers VALUES ('Have you tried dropping an index?');
+	INSERT INTO #BrentAnswers VALUES ('You can''t prove anything.');
+	INSERT INTO #BrentAnswers VALUES ('If you watched our Tuesday webcasts, you''d already know the answer to that.');
+	INSERT INTO #BrentAnswers VALUES ('Please phrase the question in the form of an answer.');
+	INSERT INTO #BrentAnswers VALUES ('Outlook not so good. Access even worse.');
+	INSERT INTO #BrentAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
+	INSERT INTO #BrentAnswers VALUES ('Oooo, I read about that once.');
+	INSERT INTO #BrentAnswers VALUES ('I feel your pain.');
+	INSERT INTO #BrentAnswers VALUES ('http://LMGTFY.com');
+	INSERT INTO #BrentAnswers VALUES ('No comprende Ingles, senor.');
+	INSERT INTO #BrentAnswers VALUES ('I don''t have that problem on my Mac.');
+	INSERT INTO #BrentAnswers VALUES ('Is Priority Boost on?');
+	INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
+	INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
+	INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
+	INSERT INTO #BrentAnswers VALUES ('What do I look like, a Microsoft Certified Master? Oh, wait...');
+	INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
+	SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
+END
+
 SET NOCOUNT OFF;
 GO
 
