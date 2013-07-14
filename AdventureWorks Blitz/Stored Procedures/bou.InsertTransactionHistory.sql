@@ -1,3 +1,11 @@
+--******************
+-- (C) 2013, Brent Ozar Unlimited. 
+-- See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
+
+--This script suitable only for test purposes.
+--Do not run on production servers.
+--******************
+
 USE AdventureWorks2012;
 GO
 SET ANSI_NULLS ON

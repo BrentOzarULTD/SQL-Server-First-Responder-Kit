@@ -2,19 +2,18 @@
 if [catch {package require tclodbc 2.5.1} ] { error "Failed to load tclodbc - ODBC Library Error" }
 #EDITABLE OPTIONS##################################################
 set total_iterations 1000000;# Number of transactions before logging off
-set RAISEERROR "true" ;# Exit script on Oracle error (true or false)
-set KEYANDTHINK "false" ;# Time for user thinking and keying (true or false)
+set RAISEERROR "true" ;# Exit script on error (true or false)
 set CHECKPOINT "false" ;# Perform SQL Server checkpoint when complete (true or false)
 set rampup 0;  # Rampup time in minutes before first Transaction Count is taken
 set duration 1;  # Duration in minutes before second Transaction Count is taken
 set mode "Local" ;# HammerDB operational mode
 set authentication "sql";# Authentication Mode (WINDOWS or SQL)
-set server {.\sqlexpress};# Microsoft SQL Server Database Server
+set server {.\sqlexpress};# Microsoft SQL Server Instance Name
 set port "1433";# Microsoft SQL Server Port 
 set odbc_driver {SQL Server Native Client 11.0};# ODBC Driver
 set uid "sa";#User ID for SQL Server Authentication
 set pwd "Password23";#Password for SQL Server Authentication
-set database "AdventureWorks2012";# Database
+set database "AdventureWorks2012";# Database Name
 #EDITABLE OPTIONS##################################################
 #CHECK THREAD STATUS
 proc chk_thread {} {
@@ -165,17 +164,6 @@ proc gettimestamp { } {
 set tstamp [ clock format [ clock seconds ] -format "%Y-%m-%d %H:%M:%S" ]
 return $tstamp
 }
-#KEYING TIME
-proc keytime { keying } {
-after [ expr {$keying * 1000} ]
-return
-}
-#THINK TIME
-proc thinktime { thinking } {
-set thinkingtime [ expr {abs(round(log(rand()) * $thinking))} ]
-after [ expr {$thinkingtime * 1000} ]
-return
-}
 
 
 #uspGetManagerEmployees
@@ -259,6 +247,63 @@ lappend oput $op_params($or)
 odbc commit
 }
 
+#bou.SelectEmployeeDeptHistoryByShift
+proc SelectEmployeeDeptHistoryByShift { SelectEmployeeDeptHistoryByShift_st ShiftID RAISEERROR } {
+set ShiftID [ RandomNumber 1 3]
+
+if {[ catch {SelectEmployeeDeptHistoryByShift_st execute [ list $ShiftID ]} message]} {
+if { $RAISEERROR } {
+error "SelectEmployeeDeptHistoryByShift : $message"
+	} else {
+puts $message
+} } else {
+SelectEmployeeDeptHistoryByShift_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+}
+;
+}
+odbc commit
+}
+
+#bou.SelectTransactionHistoryByProduct
+proc SelectTransactionHistoryByProduct { SelectTransactionHistoryByProduct_st ProductID RAISEERROR } {
+set ProductID [ RandomNumber 316 999]
+
+if {[ catch {SelectTransactionHistoryByProduct_st execute [ list $ProductID ]} message]} {
+if { $RAISEERROR } {
+error "SelectTransactionHistoryByProduct : $message"
+	} else {
+puts $message
+} } else {
+SelectTransactionHistoryByProduct_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+}
+;
+}
+odbc commit
+}
+
+#bou.SelectTransactionHistoryByProductAndDate
+proc SelectTransactionHistoryByProductAndDate { SelectTransactionHistoryByProductAndDate_st ProductID TransactionDate RAISEERROR } {
+set ProductID [ RandomNumber 316 999]
+set TransactionDate [ gettimestamp ]
+
+if {[ catch {SelectTransactionHistoryByProductAndDate_st execute [ list $ProductID $TransactionDate ]} message]} {
+if { $RAISEERROR } {
+error "SelectTransactionHistoryByProductAndDate : $message"
+	} else {
+puts $message
+} } else {
+SelectTransactionHistoryByProductAndDate_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+}
+;
+}
+odbc commit
+}
 
 proc prep_statement { odbc statement_st } {
 switch $statement_st {
@@ -278,10 +323,23 @@ InsertTransactionHistory_st {
 odbc statement InsertTransactionHistory_st "EXEC bou.InsertTransactionHistory @ProductID = ?, @ReferenceOrderID = ?, @Quantity = ?, @ActualCost = ?" {INTEGER INTEGER INTEGER INTEGER} 
 return InsertTransactionHistory_st
 	}
+SelectEmployeeDeptHistoryByShift_st {
+odbc statement SelectEmployeeDeptHistoryByShift_st "EXEC bou.SelectEmployeeDeptHistoryByShift @ShiftID = ?" {TINYINT} 
+return SelectEmployeeDeptHistoryByShift_st
+	}
+SelectTransactionHistoryByProduct_st {
+odbc statement SelectTransactionHistoryByProduct_st "EXEC bou.SelectTransactionHistoryByProduct @ProductID = ?" {INTEGER} 
+return SelectTransactionHistoryByProduct_st
+	}
+SelectTransactionHistoryByProductAndDate_st {
+odbc statement SelectTransactionHistoryByProductAndDate_st "EXEC bou.SelectTransactionHistoryByProductAndDate @ProductID = ?, @TransactionDate = ?" {INTEGER TIMESTAMP} 
+return SelectTransactionHistoryByProductAndDate_st
+	}
+
     }
 }
 
-#RunAdventureWorks Hokey Pokey!!!#
+#Do the AdventureWorks Hokey Pokey.#
 
 #Initialize all variables
 set City [ randcity ]
@@ -290,6 +348,8 @@ set ProductID [ RandomNumber 318 999 ]
 set ReferenceOrderID [ RandomNumber 60000 80000 ]
 set Quantity [ RandomNumber 1 40 ]
 set ActualCost [ expr $Quantity * [ RandomNumber 1 16 ] ] 
+set ShiftID [ RandomNumber 1 3]
+set TransactionDate [ gettimestamp ]
 
 
 #Connect to a thing
@@ -309,6 +369,9 @@ foreach st {
 	SelectPersonByCity_st
 	InsertTransactionHistory_st
 	CustomerReport_st
+	SelectEmployeeDeptHistoryByShift_st
+	SelectTransactionHistoryByProduct_st
+	SelectTransactionHistoryByProductAndDate_st
 } { set $st [ prep_statement odbc $st ] }
 
 
@@ -316,7 +379,7 @@ foreach st {
 puts "Processing $total_iterations transactions without output suppressed..."
 for {set it 0} {$it < $total_iterations} {incr it} {
 if {  [ tsv::get application abort ]  } { break }
-set choice [ RandomNumber 1 50 ]
+set choice [ RandomNumber 1 65 ]
 if {$choice <= 10} {
 	uspGetManagerEmployees uspGetManagerEmployees_st $BusinessEntityID $RAISEERROR
 } elseif {$choice <= 20} {
@@ -326,14 +389,28 @@ if {$choice <= 10} {
 } elseif {$choice <= 40} {
 	CustomerReport CustomerReport_st $City $RAISEERROR
 } elseif {$choice <= 50} {
-	uspGetManagerEmployees uspGetManagerEmployees_st $BusinessEntityID $RAISEERROR
-	}
+	SelectEmployeeDeptHistoryByShift SelectEmployeeDeptHistoryByShift_st $ShiftID $RAISEERROR
+} elseif {$choice <= 55} {
+	SelectTransactionHistoryByProduct SelectTransactionHistoryByProduct_st $ProductID $RAISEERROR
+} elseif {$choice <= 65} {
+	SelectTransactionHistoryByProductAndDate SelectTransactionHistoryByProductAndDate_st $ProductID $TransactionDate $RAISEERROR
+}
 }
 odbc commit
+
+
+# Unprepare all statements
+# If you don't do this, you'll get 
+# weird errors/crashes when you cancel or re-run
 uspGetManagerEmployees_st drop 
 SelectPersonByCity_st drop 
 InsertTransactionHistory_st drop 
 CustomerReport_st drop 
+SelectEmployeeDeptHistoryByShift_st drop
+SelectTransactionHistoryByProduct_st drop
+SelectTransactionHistoryByProductAndDate_st drop
+
+# buh-bye
 odbc disconnect
 }
 }
