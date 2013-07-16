@@ -20,18 +20,18 @@ GO
 IF OBJECT_ID('bou.SelectTransactionHistoryByProduct')IS NULL
 	EXEC ('CREATE PROCEDURE bou.SelectTransactionHistoryByProduct AS RETURN 0');
 GO
---EXEC bou.SelectTransactionHistoryByProduct
 ALTER PROCEDURE [bou].[SelectTransactionHistoryByProduct]
 	@ProductID INT --316-999
 AS
 SET NOCOUNT ON;
 
 
-SELECT 
+SELECT TOP 5 
 	ReferenceOrderID, 
 	ReferenceOrderLineID
 FROM Production.TransactionHistory
-WHERE ProductId=@ProductId;
+WHERE ProductId=@ProductID
+ORDER BY TransactionDate DESC;
 
 GO
 

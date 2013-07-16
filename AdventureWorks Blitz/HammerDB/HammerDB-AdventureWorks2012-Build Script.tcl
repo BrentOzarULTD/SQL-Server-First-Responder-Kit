@@ -5,10 +5,10 @@ set total_iterations 1000000;# Number of transactions before logging off
 set RAISEERROR "true" ;# Exit script on error (true or false)
 set CHECKPOINT "false" ;# Perform SQL Server checkpoint when complete (true or false)
 set rampup 0;  # Rampup time in minutes before first Transaction Count is taken
-set duration 1;  # Duration in minutes before second Transaction Count is taken
+set duration 2;  # Duration in minutes before second Transaction Count is taken
 set mode "Local" ;# HammerDB operational mode
 set authentication "sql";# Authentication Mode (WINDOWS or SQL)
-set server {.\sqlexpress};# Microsoft SQL Server Instance Name
+set server {BUILDBOT\sql2012CS};# Microsoft SQL Server Instance Name
 set port "1433";# Microsoft SQL Server Port 
 set odbc_driver {SQL Server Native Client 11.0};# ODBC Driver
 set uid "sa";#User ID for SQL Server Authentication
@@ -158,11 +158,20 @@ set citynum  [ RandomNumber 0 9 ]
 set name $cityarr($citynum)
 return $name
 }
+#RANDOM STRING
+proc randAZazStr {len} { return [subst [string repeat {[format %c [expr {int(rand() * 26) + (int(rand() * 10) > 5 ? 97 : 65)}]]} $len]] }
 
 #TIMESTAMP
 proc gettimestamp { } {
 set tstamp [ clock format [ clock seconds ] -format "%Y-%m-%d %H:%M:%S" ]
 return $tstamp
+}
+
+#TIME IN 1997
+proc get1997 { } {
+set today [clock seconds]
+set past [ clock format [expr {$today - 5900 * 60 * 60 * 24}]	-format "%Y-%m-%d %H:%M:%S" ]
+return $past
 }
 
 
@@ -226,13 +235,12 @@ odbc commit
 }
 
 #InsertTransactionHistory
-proc InsertTransactionHistory { InsertTransactionHistory_st ProductID ReferenceOrderID Quantity ActualCost RAISEERROR } {
+proc InsertTransactionHistory { InsertTransactionHistory_st ProductID Quantity ActualCost RAISEERROR } {
 set ProductID [ RandomNumber 1 999 ]
-set ReferenceOrderID [ RandomNumber 60000 80000 ]
 set Quantity [ RandomNumber 1 40 ]
 set ActualCost [ expr $Quantity * [ RandomNumber 1 16 ] ] 
 
-if {[ catch {InsertTransactionHistory_st execute [ list $ProductID $ReferenceOrderID $Quantity $ActualCost ]} message]} {
+if {[ catch {InsertTransactionHistory_st execute [ list $ProductID $Quantity $ActualCost ]} message]} {
 if { $RAISEERROR } {
 error "InsertTransactionHistory : $message"
 	} else {
@@ -305,6 +313,26 @@ lappend oput $op_params($or)
 odbc commit
 }
 
+#bou.SelectTransactionHistoryByDateRange
+proc SelectTransactionHistoryByDateRange { SelectTransactionHistoryByDateRange_st TransactionDate RAISEERROR } {
+set TransactionDate [ get1997]
+
+if {[ catch {SelectTransactionHistoryByDateRange_st execute [ list $TransactionDate ]} message]} {
+if { $RAISEERROR } {
+error "SelectTransactionHistoryByDateRange : $message"
+	} else {
+puts $message
+} } else {
+SelectTransactionHistoryByDateRange_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+}
+;
+}
+odbc commit
+}
+
+
 proc prep_statement { odbc statement_st } {
 switch $statement_st {
 uspGetManagerEmployees_st {
@@ -320,7 +348,7 @@ odbc statement CustomerReport_st "EXEC bou.CustomerReport @City = ?" {{VARCHAR 2
 return CustomerReport_st
 	}	
 InsertTransactionHistory_st {
-odbc statement InsertTransactionHistory_st "EXEC bou.InsertTransactionHistory @ProductID = ?, @ReferenceOrderID = ?, @Quantity = ?, @ActualCost = ?" {INTEGER INTEGER INTEGER INTEGER} 
+odbc statement InsertTransactionHistory_st "EXEC bou.InsertTransactionHistory @ProductID = ?, @Quantity = ?, @ActualCost = ?" {INTEGER INTEGER INTEGER} 
 return InsertTransactionHistory_st
 	}
 SelectEmployeeDeptHistoryByShift_st {
@@ -335,6 +363,10 @@ SelectTransactionHistoryByProductAndDate_st {
 odbc statement SelectTransactionHistoryByProductAndDate_st "EXEC bou.SelectTransactionHistoryByProductAndDate @ProductID = ?, @TransactionDate = ?" {INTEGER TIMESTAMP} 
 return SelectTransactionHistoryByProductAndDate_st
 	}
+SelectTransactionHistoryByDateRange_st {
+odbc statement SelectTransactionHistoryByDateRange_st "EXEC bou.SelectTransactionHistoryByDateRange @TransactionDate = ?" {TIMESTAMP} 
+return SelectTransactionHistoryByDateRange_st
+	}
 
     }
 }
@@ -345,7 +377,6 @@ return SelectTransactionHistoryByProductAndDate_st
 set City [ randcity ]
 set BusinessEntityID [ RandomNumber 1 200 ]
 set ProductID [ RandomNumber 318 999 ]
-set ReferenceOrderID [ RandomNumber 60000 80000 ]
 set Quantity [ RandomNumber 1 40 ]
 set ActualCost [ expr $Quantity * [ RandomNumber 1 16 ] ] 
 set ShiftID [ RandomNumber 1 3]
@@ -372,6 +403,7 @@ foreach st {
 	SelectEmployeeDeptHistoryByShift_st
 	SelectTransactionHistoryByProduct_st
 	SelectTransactionHistoryByProductAndDate_st
+	SelectTransactionHistoryByDateRange_st
 } { set $st [ prep_statement odbc $st ] }
 
 
@@ -379,27 +411,54 @@ foreach st {
 puts "Processing $total_iterations transactions without output suppressed..."
 for {set it 0} {$it < $total_iterations} {incr it} {
 if {  [ tsv::get application abort ]  } { break }
-set choice [ RandomNumber 1 65 ]
-if {$choice <= 10} {
-	uspGetManagerEmployees uspGetManagerEmployees_st $BusinessEntityID $RAISEERROR
+set choice [ RandomNumber 1 55 ]
+if {$choice <= 5} {
+	SelectTransactionHistoryByDateRange SelectTransactionHistoryByDateRange_st $TransactionDate $RAISEERROR
 } elseif {$choice <= 20} {
-	InsertTransactionHistory InsertTransactionHistory_st $ProductID $ReferenceOrderID $Quantity $ActualCost $RAISEERROR
-} elseif {$choice <= 30} {
+	InsertTransactionHistory InsertTransactionHistory_st $ProductID $Quantity $ActualCost $RAISEERROR
+} elseif {$choice <= 25} {
 	SelectPersonByCity SelectPersonByCity_st $City $RAISEERROR
-} elseif {$choice <= 40} {
-	CustomerReport CustomerReport_st $City $RAISEERROR
-} elseif {$choice <= 50} {
+#} elseif {$choice <= 16} {
+# This has a magnificently high memory grant due to functions in joins
+#  Use this with 5+ virtual users if you want RESOURCE_SEMAPHORE
+#	CustomerReport CustomerReport_st $City $RAISEERROR
+} elseif {$choice <= 30} {
 	SelectEmployeeDeptHistoryByShift SelectEmployeeDeptHistoryByShift_st $ShiftID $RAISEERROR
-} elseif {$choice <= 55} {
+} elseif {$choice <= 35} {
 	SelectTransactionHistoryByProduct SelectTransactionHistoryByProduct_st $ProductID $RAISEERROR
-} elseif {$choice <= 65} {
+} elseif {$choice <= 40} {
 	SelectTransactionHistoryByProductAndDate SelectTransactionHistoryByProductAndDate_st $ProductID $TransactionDate $RAISEERROR
+} elseif {$choice <= 45} {
+	set query "SELECT TOP 100 SalesOrderID FROM Sales.SalesOrderHeader WHERE ShipDate IS NULL and OnlineOrderFlag=1 and Status <> 5"
+	if {[catch {odbc $query} err] } {
+		puts "Adhoc Query #1 Error!"
+   		puts [format "ERROR is ===\n%s\n===" $err]
+   	}
+} elseif {$choice <= 50} {
+	# This one will be very hard to see in the proc cache
+	# Because it gets unique compiles for every literal it's run with!
+	# Find with clear trace or by using plan_hash
+	set Letter [ RandomNumber 1 999 ]
+	set query "SELECT FirstName, MiddleName, LastName, City FROM Person.Person p JOIN Person.BusinessEntityAddress bea on p.BusinessEntityID=bea.BusinessEntityID
+join Person.Address a on a.AddressID=bea.AddressID WHERE p.BusinessEntityID= N'$Letter'"
+	if {[catch {odbc $query} err] } {
+		puts "Adhoc Query #2 Error!"
+   		puts [format "ERROR is ===\n%s\n===" $err]
+	}
+} elseif {$choice <= 55} {
+	# This one will be somewhat easier to see in the cache, but similar
+	set Letter [ randAZazStr 2 ]
+	set query "SELECT * FROM HumanResources.vEmployeeDepartment WHERE LastName like '$Letter%'"
+	if {[catch {odbc $query} err] } {
+		puts "Adhoc Query #2 Error!"
+   		puts [format "ERROR is ===\n%s\n===" $err]
+	}
 }
 }
 odbc commit
 
 
-# Unprepare all statements
+# Unprepare all prepared statements
 # If you don't do this, you'll get 
 # weird errors/crashes when you cancel or re-run
 uspGetManagerEmployees_st drop 
@@ -409,6 +468,7 @@ CustomerReport_st drop
 SelectEmployeeDeptHistoryByShift_st drop
 SelectTransactionHistoryByProduct_st drop
 SelectTransactionHistoryByProductAndDate_st drop
+SelectTransactionHistoryByDateRange_st drop
 
 # buh-bye
 odbc disconnect

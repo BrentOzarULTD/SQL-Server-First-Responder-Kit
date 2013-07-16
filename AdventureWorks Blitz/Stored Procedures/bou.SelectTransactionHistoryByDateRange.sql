@@ -17,23 +17,20 @@ IF (SELECT COUNT(*) FROM sys.schemas WHERE name='bou') = 0
 	EXEC ('CREATE SCHEMA bou AUTHORIZATION dbo');
 GO
 
-IF OBJECT_ID('bou.SelectTransactionHistoryByProductAndDate')IS NULL
-	EXEC ('CREATE PROCEDURE bou.SelectTransactionHistoryByProductAndDate AS RETURN 0');
+IF OBJECT_ID('bou.SelectTransactionHistoryByDateRange')IS NULL
+	EXEC ('CREATE PROCEDURE bou.SelectTransactionHistoryByDateRange AS RETURN 0');
 GO
-ALTER PROCEDURE bou.SelectTransactionHistoryByProductAndDate
-	@ProductID INT /*316-999*/,
-	@TransactionDate DATETIME /*2007-09-01 00:00:00.000	2013-07-14 08:36:55.543*/
+ALTER PROCEDURE [bou].[SelectTransactionHistoryByDateRange]
+	@TransactionDate DATETIME 
 AS
 SET NOCOUNT ON;
 
 SELECT 
-	ReferenceOrderID, 
-	ReferenceOrderLineID, 
 	TransactionType, 
-	Quantity, 
-	ActualCost
+	SUM(Quantity) AS TotalQuantity, 
+	SUM(ActualCost) AS TotalCost
 FROM Production.TransactionHistory
-WHERE 
-	CAST(TransactionDate AS DATE)=CAST(@TransactionDate AS DATE) 
-	AND ProductId=@ProductID;
+WHERE TransactionDate >= @TransactionDate
+GROUP BY TransactionType;
 GO
+
