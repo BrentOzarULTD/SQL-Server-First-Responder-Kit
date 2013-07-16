@@ -1468,6 +1468,7 @@ BEGIN;
 					FROM	#index_sanity i
 					JOIN	#index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	index_id NOT IN ( 0, 1 ) 
+							and i.is_unique = 0
 					OPTION	( RECOMPILE );
 
 				IF @percent_NC_indexes_unused >= 5 
@@ -1516,6 +1517,7 @@ BEGIN;
 						JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 						WHERE	i.total_reads=0
 								AND i.index_id NOT IN (0,1) /*NCs only*/
+								and i.is_unique = 0
 						ORDER BY i.schema_object_indexid
 						OPTION	( RECOMPILE );
 			END /*end checks only run when @filter <> 1*/
