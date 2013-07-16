@@ -28,8 +28,11 @@ SET NOCOUNT ON;
 SELECT 
 	TransactionType, 
 	SUM(Quantity) AS TotalQuantity, 
-	SUM(ActualCost) AS TotalCost
-FROM Production.TransactionHistory
+	SUM(ActualCost) AS TotalCost,
+	MAX(sh.ShipDate) AS LastShippedDate
+FROM Production.TransactionHistory th
+LEFT OUTER JOIN Sales.SalesOrderHeader sh on 
+	th.ReferenceOrderID=sh.SalesOrderID
 WHERE TransactionDate >= @TransactionDate
 GROUP BY TransactionType;
 GO

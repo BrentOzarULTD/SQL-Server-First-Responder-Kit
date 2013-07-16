@@ -30,7 +30,7 @@ GO
 :setvar ScriptDir "Y:\Git\CriticalCare\AdventureWorks Blitz\Stored Procedures"
 
 
---Create the stored procedures
+--Create some custom stored procedures
 :r $(ScriptDir)\bou.CustomerReport.sql
 :r $(ScriptDir)\bou.InsertTransactionHistory.sql
 :r $(ScriptDir)\bou.SelectEmployeeDeptHistoryByShift.sql
@@ -39,6 +39,9 @@ GO
 :r $(ScriptDir)\bou.SelectTransactionHistoryByProductAndDate.sql
 :r $(ScriptDir)\bou.SelectTransactionHistoryByDateRange.sql
 
+--Inflate!
+--This makes more queries go parallel 
+--(The optimizer considers page count)
 USE AdventureWorks2012;
 GO
 ALTER INDEX ALL ON [Production].[TransactionHistory] REBUILD  WITH (FILLFACTOR=10);

@@ -28,8 +28,12 @@ SET NOCOUNT ON;
 
 SELECT TOP 5 
 	ReferenceOrderID, 
-	ReferenceOrderLineID
-FROM Production.TransactionHistory
+	ReferenceOrderLineID,
+	sh.ShipDate,
+	sh.ShipMethodID
+FROM Production.TransactionHistory th
+LEFT OUTER JOIN Sales.SalesOrderHeader sh on 
+	th.ReferenceOrderID=sh.SalesOrderID
 WHERE ProductId=@ProductID
 ORDER BY TransactionDate DESC;
 
