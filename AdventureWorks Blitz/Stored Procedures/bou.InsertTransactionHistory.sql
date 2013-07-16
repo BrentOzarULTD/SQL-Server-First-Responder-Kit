@@ -23,38 +23,80 @@ GO
 
 ALTER PROCEDURE bou.InsertTransactionHistory
 	@ProductID int, --318-999
-	@ReferenceOrderID int,
 	@Quantity int,
 	@ActualCost money
 AS
 SET NOCOUNT ON;
 
-declare @rowcount INT,
-	@productid2 INT;
+DECLARE @rowcount INT,
+	@productid2 INT,
+	@AddressID int,
+	@CustomerID int,
+	@SalesOrderID int;
 
-SELECT @productid2=ISNULL(min(ProductID),999) from Production.Product where ProductID > @ProductID;
+
+BEGIN TRAN
+
+	SELECT @productid2=ISNULL(min(ProductID),999) from Production.Product where ProductID > @ProductID;
+
+	SELECT @CustomerID=MIN(CustomerID) from Sales.Customer 
+	WHERE 
+	 StoreID is null; /*Online Sale */
+
+	print @CustomerID;
+
+	SELECT @AddressID=ISNULL(MAX(a.AddressID),1) /*Cheating!*/
+	FROM Sales.Customer sc
+	join Person.Person p on sc.PersonID=p.BusinessEntityID
+	join Person.BusinessEntityAddress a on p.BusinessEntityID=a.BusinessEntityID
+	where sc.CustomerID=@CustomerID;
+
+	INSERT  [Sales].[SalesOrderHeader]
+			   ([RevisionNumber]
+			   ,[OrderDate]
+			   ,[DueDate]
+			   ,[OnlineOrderFlag]
+			   ,[CustomerID]
+			   ,[BillToAddressID]
+			   ,[ShipToAddressID]
+			   ,[ShipMethodID])
+		SELECT
+			   1,
+			   getdate(),
+				dateadd(dd,1,getdate()),
+			   1, 
+			   @CustomerID,
+			   @AddressID,
+			   @AddressID,
+			   2
+
+	SELECT @SalesOrderID=SCOPE_IDENTITY()
 
 
-INSERT INTO [Production].[TransactionHistory]
-           ([ProductID]
-           ,[ReferenceOrderID]
-           ,[ReferenceOrderLineID]
-           ,[TransactionDate]
-           ,[TransactionType]
-           ,[Quantity]
-           ,[ActualCost]
-           ,[ModifiedDate])
-     SELECT
-			@productid2,
-			@ReferenceOrderID,
-			0,
-			GETDATE(),
-			N'W',
-			@Quantity,
-			@ActualCost,
-			GETDATE();
+	INSERT INTO [Production].[TransactionHistory]
+			   ([ProductID]
+			   ,[ReferenceOrderID]
+			   ,[ReferenceOrderLineID]
+			   ,[TransactionDate]
+			   ,[TransactionType]
+			   ,[Quantity]
+			   ,[ActualCost]
+			   ,[ModifiedDate])
+		 SELECT
+				@productid2,
+				@SalesOrderID,
+				0,
+				GETDATE(),
+				N'W',
+				@Quantity,
+				@ActualCost,
+				GETDATE();
 
-	SET  @rowcount= @@ROWCOUNT;
-	SELECT  @rowcount;
+		SET  @rowcount= @@ROWCOUNT;
+		SELECT  @rowcount;
+
+
+
+COMMIT
 GO 
 
