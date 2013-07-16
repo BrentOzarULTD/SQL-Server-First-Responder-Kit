@@ -434,7 +434,7 @@ if {$choice <= 5} {
 		puts "Adhoc Query #1 Error!"
    		puts [format "ERROR is ===\n%s\n===" $err]
    	}
-} elseif {$choice <= 50} {
+} elseif {$choice <= 53} {
 	# This one will be very hard to see in the proc cache
 	# Because it gets unique compiles for every literal it's run with!
 	# Find with clear trace or by using plan_hash

@@ -31,9 +31,28 @@ SELECT
 	ReferenceOrderLineID, 
 	TransactionType, 
 	Quantity, 
-	ActualCost
-FROM Production.TransactionHistory
+	ActualCost,
+	th.ProductID,
+	th.ModifiedDate
+FROM Production.TransactionHistory th
+LEFT OUTER JOIN Sales.SalesOrderHeader sh on 
+	th.ReferenceOrderID=sh.SalesOrderID
 WHERE 
 	CAST(TransactionDate AS DATE)=CAST(@TransactionDate AS DATE) 
-	AND ProductId=@ProductID;
+	AND ProductId=@ProductID
+union
+SELECT 
+	ReferenceOrderID, 
+	ReferenceOrderLineID, 
+	TransactionType, 
+	Quantity, 
+	ActualCost,
+	th.ProductID,
+	th.ModifiedDate
+FROM Production.TransactionHistoryArchive th
+LEFT OUTER JOIN Sales.SalesOrderHeader sh on 
+	th.ReferenceOrderID=sh.SalesOrderID
+WHERE 
+	CAST(TransactionDate AS DATE)=CAST(@TransactionDate AS DATE) 
+	AND ProductId=@ProductID
 GO

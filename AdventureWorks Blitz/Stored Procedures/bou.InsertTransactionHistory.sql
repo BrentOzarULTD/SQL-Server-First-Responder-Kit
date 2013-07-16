@@ -95,6 +95,34 @@ BEGIN TRAN
 		SET  @rowcount= @@ROWCOUNT;
 		SELECT  @rowcount;
 
+        -- Return if inside an uncommittable transaction.
+        -- Data insertion/modification is not allowed when 
+        -- a transaction is in an uncommittable state.
+        IF XACT_STATE() = -1
+        BEGIN
+            PRINT 'Cannot log error since the current transaction is in an uncommittable state. ' 
+                + 'Rollback the transaction before executing uspLogError in order to successfully log error information.';
+            RETURN;
+        END
+
+        INSERT [dbo].[ErrorLog] 
+            (
+            [UserName], 
+            [ErrorNumber], 
+            [ErrorSeverity], 
+            [ErrorState], 
+            [ErrorProcedure], 
+            [ErrorMessage]
+            ) 
+        VALUES 
+            (
+            CONVERT(sysname, CURRENT_USER), 
+            'We did a thing!',
+            0,
+            0,
+            'bou.InsertTransactionHistory',
+            'We did a thing!'
+            );
 
 
 COMMIT
