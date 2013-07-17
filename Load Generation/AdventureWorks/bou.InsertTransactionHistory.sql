@@ -34,6 +34,11 @@ DECLARE @rowcount INT,
 	@CustomerID int,
 	@SalesOrderID int;
 
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRY
+
 
 BEGIN TRAN
 
@@ -119,14 +124,48 @@ BEGIN TRAN
         VALUES 
             (
             CONVERT(sysname, CURRENT_USER), 
-            'We did a thing!',
+            0,
             0,
             0,
             'bou.InsertTransactionHistory',
             'We did a thing!'
             );
 
+	COMMIT
+END TRY
+BEGIN CATCH
 
-COMMIT
+		--Record an error message
+        INSERT [dbo].[ErrorLog] 
+            (
+            [UserName], 
+            [ErrorNumber], 
+            [ErrorSeverity], 
+            [ErrorState], 
+            [ErrorProcedure], 
+            [ErrorMessage]
+            ) 
+		SELECT
+        ERROR_NUMBER() AS ErrorNumber
+        ,ERROR_SEVERITY() AS ErrorSeverity
+        ,ERROR_STATE() AS ErrorState
+        ,ERROR_PROCEDURE() AS ErrorProcedure
+        ,ERROR_LINE() AS ErrorLine
+        ,ERROR_MESSAGE() AS ErrorMessage;
+
+    IF (XACT_STATE()) = -1
+    BEGIN
+        ROLLBACK TRANSACTION;
+    END;
+
+    IF (XACT_STATE()) = 1
+    BEGIN
+        COMMIT TRANSACTION;   
+    END;
+
+SELECT @@ROWCOUNT;
+
+END CATCH;
+
 GO 
 

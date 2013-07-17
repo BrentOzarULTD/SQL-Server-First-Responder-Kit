@@ -8,7 +8,7 @@ set rampup 0;  # Rampup time in minutes before first Transaction Count is taken
 set duration 2;  # Duration in minutes before second Transaction Count is taken
 set mode "Local" ;# HammerDB operational mode
 set authentication "sql";# Authentication Mode (WINDOWS or SQL)
-set server {BUILDBOT\sql2012CS};# Microsoft SQL Server Instance Name
+set server {SQL2012VM02};# Microsoft SQL Server Instance Name
 set port "1433";# Microsoft SQL Server Port 
 set odbc_driver {SQL Server Native Client 11.0};# ODBC Driver
 set uid "sa";#User ID for SQL Server Authentication
@@ -359,6 +359,24 @@ lappend oput $op_params($or)
 odbc commit
 }
 
+#SelectContactType
+proc SelectContactType { SelectContactType_st RAISEERROR } {
+
+if {[ catch {SelectContactType_st execute } message]} {
+if { $RAISEERROR } {
+error "SelectContactType : $message"
+	} else {
+puts $message
+} } else {
+SelectContactType_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+
+}
+;
+}
+odbc commit
+}
 
 
 
@@ -399,8 +417,12 @@ return SelectTransactionHistoryByDateRange_st
 UpdateSalesOrderHeader_st {
 odbc statement UpdateSalesOrderHeader_st "EXEC bou.UpdateSalesOrderHeader @CustomerID=?" {INTEGER} 
 return UpdateSalesOrderHeader_st
+	}
+SelectContactType_st {
+odbc statement SelectContactType_st "EXEC bou.SelectContactType" 
+return SelectContactType_st
+	}
 }
-    }
 }
 
 #Do the AdventureWorks Hokey Pokey.#
@@ -439,6 +461,7 @@ foreach st {
 	SelectTransactionHistoryByProductAndDate_st
 	SelectTransactionHistoryByDateRange_st
 	UpdateSalesOrderHeader_st
+	SelectContactType_st
 } { set $st [ prep_statement odbc $st ] }
 
 
@@ -447,23 +470,25 @@ puts "Processing $total_iterations transactions without output suppressed..."
 for {set it 0} {$it < $total_iterations} {incr it} {
 if {  [ tsv::get application abort ]  } { break }
 set choice [ RandomNumber 1 100 ]
-if {$choice <= 10} {
+if {$choice <= 30} {
 	thinktimems 5
 	UpdateSalesOrderHeader UpdateSalesOrderHeader_st $CustomerID $RAISEERROR
-} elseif {$choice <= 50} {
+} elseif {$choice <= 60} {
+	SelectContactType SelectContactType_st $RAISEERROR
+} elseif {$choice <= 70} {
 	thinktimems 3
 	InsertTransactionHistory InsertTransactionHistory_st $ProductID $Quantity $ActualCost $RAISEERROR
-} elseif {$choice <= 50} {
+} elseif {$choice <= 80} {
 	thinktimems 4
 	SelectPersonByCity SelectPersonByCity_st $City $RAISEERROR
 #} elseif {$choice <= 27} {
 # This has a magnificently high memory grant due to functions in joins
 #  Use this with 5+ virtual users if you want RESOURCE_SEMAPHORE
 #	CustomerReport CustomerReport_st $City $RAISEERROR
-} elseif {$choice <= 60} {
+} elseif {$choice <= 90} {
 	thinktimems 2
 	SelectEmployeeDeptHistoryByShift SelectEmployeeDeptHistoryByShift_st $ShiftID $RAISEERROR
-} elseif {$choice <= 70} {
+} elseif {$choice <= 93} {
 	thinktimems 3
 	# This one will be very hard to see in the proc cache
 	# Because it gets unique compiles for every literal it's run with!
@@ -482,7 +507,7 @@ if {$choice <= 10} {
 #} elseif {$choice <= 80} {
 #	thinktimems 8
 #	SelectTransactionHistoryByProduct SelectTransactionHistoryByProduct_st $ProductID $RAISEERROR
-} elseif {$choice <= 90} {
+} elseif {$choice <= 96} {
 	thinktimems 3
 	SelectTransactionHistoryByProductAndDate SelectTransactionHistoryByProductAndDate_st $ProductID $TransactionDate $RAISEERROR
 } elseif {$choice <= 100} {
@@ -505,6 +530,7 @@ SelectTransactionHistoryByProduct_st drop
 SelectTransactionHistoryByProductAndDate_st drop
 SelectTransactionHistoryByDateRange_st drop
 UpdateSalesOrderHeader_st drop
+SelectContactType_st drop
 
 # buh-bye
 odbc disconnect

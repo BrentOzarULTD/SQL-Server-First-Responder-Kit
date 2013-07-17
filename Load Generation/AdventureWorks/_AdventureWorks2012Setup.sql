@@ -22,12 +22,12 @@ BEGIN
 	ALTER DATABASE AdventureWorks2012 set single_user with rollback immediate
 END
 RESTORE DATABASE AdventureWorks2012 from 
-	disk='C:\MSSQL11.SQL2012CS\MSSQL\Backup\AdventureWorks2012-Full Database Backup.bak' with replace,
-	move 'AdventureWorks2012_Data' to 'C:\MSSQL11.SQL2012CS\MSSQL\DATA\AdventureWorksBlitz_Data.mdf',
-	move 'AdventureWorks2012_Log' to 'C:\MSSQL11.SQL2012CS\MSSQL\DATA\AdventureWorksBlitz_log.ldf';
+	disk='S:\MSSQL\Backup\AdventureWorks2012-Full Database Backup.bak' with replace,
+	move 'AdventureWorks2012_Data' to 'S:\MSSQL\Data\AdventureWorksBlitz_Data.mdf',
+	move 'AdventureWorks2012_Log' to 'S:\MSSQL\Data\AdventureWorksBlitz_log.ldf';
 GO
 
-:setvar ScriptDir "Y:\Git\CriticalCare\AdventureWorks Blitz\Stored Procedures"
+:setvar ScriptDir "Y:\Git\CriticalCare\Load Generation\AdventureWorks\"
 
 
 --Create some custom stored procedures
@@ -39,6 +39,7 @@ GO
 :r $(ScriptDir)\bou.SelectTransactionHistoryByProductAndDate.sql
 :r $(ScriptDir)\bou.SelectTransactionHistoryByDateRange.sql
 :r $(ScriptDir)\bou.UpdateSalesOrderHeader.sql
+:r $(ScriptDir)\bou.SelectContactType.sql
 
 --Inflate!
 --This makes more queries go parallel 
