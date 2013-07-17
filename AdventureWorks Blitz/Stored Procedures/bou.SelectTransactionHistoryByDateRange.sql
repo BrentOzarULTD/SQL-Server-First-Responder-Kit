@@ -33,7 +33,7 @@ SELECT
 FROM Production.TransactionHistory th
 LEFT OUTER JOIN Sales.SalesOrderHeader sh on 
 	th.ReferenceOrderID=sh.SalesOrderID
-WHERE TransactionDate >= @TransactionDate
+WHERE cast(TransactionDate as date) = cast(@TransactionDate as date)
 GROUP BY TransactionType;
 GO
 

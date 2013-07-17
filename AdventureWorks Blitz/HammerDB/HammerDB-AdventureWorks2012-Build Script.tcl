@@ -174,6 +174,13 @@ set past [ clock format [expr {$today - 5900 * 60 * 60 * 24}]	-format "%Y-%m-%d 
 return $past
 }
 
+# thinktime
+proc thinktimems { thinking } {
+after $thinking
+return
+}
+
+
 
 #uspGetManagerEmployees
 proc uspGetManagerEmployees { uspGetManagerEmployees_st BusinessEntityID RAISEERROR } {
@@ -332,6 +339,28 @@ lappend oput $op_params($or)
 odbc commit
 }
 
+#UpdateSalesOrderHeader
+proc UpdateSalesOrderHeader { UpdateSalesOrderHeader_st CustomerID RAISEERROR } {
+set CustomerID [ RandomNumber 11000 30118]
+
+if {[ catch {UpdateSalesOrderHeader_st execute [ list $CustomerID ]} message]} {
+if { $RAISEERROR } {
+error "UpdateSalesOrderHeader : $message"
+	} else {
+puts $message
+} } else {
+UpdateSalesOrderHeader_st fetch op_params
+foreach or [array names op_params] {
+lappend oput $op_params($or)
+
+}
+;
+}
+odbc commit
+}
+
+
+
 
 proc prep_statement { odbc statement_st } {
 switch $statement_st {
@@ -367,7 +396,10 @@ SelectTransactionHistoryByDateRange_st {
 odbc statement SelectTransactionHistoryByDateRange_st "EXEC bou.SelectTransactionHistoryByDateRange @TransactionDate = ?" {TIMESTAMP} 
 return SelectTransactionHistoryByDateRange_st
 	}
-
+UpdateSalesOrderHeader_st {
+odbc statement UpdateSalesOrderHeader_st "EXEC bou.UpdateSalesOrderHeader @CustomerID=?" {INTEGER} 
+return UpdateSalesOrderHeader_st
+}
     }
 }
 
@@ -381,6 +413,8 @@ set Quantity [ RandomNumber 1 40 ]
 set ActualCost [ expr $Quantity * [ RandomNumber 1 16 ] ] 
 set ShiftID [ RandomNumber 1 3]
 set TransactionDate [ gettimestamp ]
+set CustomerID [ RandomNumber 11000 30118]
+
 
 
 #Connect to a thing
@@ -404,6 +438,7 @@ foreach st {
 	SelectTransactionHistoryByProduct_st
 	SelectTransactionHistoryByProductAndDate_st
 	SelectTransactionHistoryByDateRange_st
+	UpdateSalesOrderHeader_st
 } { set $st [ prep_statement odbc $st ] }
 
 
@@ -411,48 +446,48 @@ foreach st {
 puts "Processing $total_iterations transactions without output suppressed..."
 for {set it 0} {$it < $total_iterations} {incr it} {
 if {  [ tsv::get application abort ]  } { break }
-set choice [ RandomNumber 1 55 ]
-if {$choice <= 5} {
-	SelectTransactionHistoryByDateRange SelectTransactionHistoryByDateRange_st $TransactionDate $RAISEERROR
-} elseif {$choice <= 20} {
+set choice [ RandomNumber 1 100 ]
+if {$choice <= 10} {
+	thinktimems 5
+	UpdateSalesOrderHeader UpdateSalesOrderHeader_st $CustomerID $RAISEERROR
+} elseif {$choice <= 50} {
+	thinktimems 3
 	InsertTransactionHistory InsertTransactionHistory_st $ProductID $Quantity $ActualCost $RAISEERROR
-} elseif {$choice <= 25} {
+} elseif {$choice <= 50} {
+	thinktimems 4
 	SelectPersonByCity SelectPersonByCity_st $City $RAISEERROR
-#} elseif {$choice <= 16} {
+#} elseif {$choice <= 27} {
 # This has a magnificently high memory grant due to functions in joins
 #  Use this with 5+ virtual users if you want RESOURCE_SEMAPHORE
 #	CustomerReport CustomerReport_st $City $RAISEERROR
-} elseif {$choice <= 30} {
+} elseif {$choice <= 60} {
+	thinktimems 2
 	SelectEmployeeDeptHistoryByShift SelectEmployeeDeptHistoryByShift_st $ShiftID $RAISEERROR
-} elseif {$choice <= 35} {
-	SelectTransactionHistoryByProduct SelectTransactionHistoryByProduct_st $ProductID $RAISEERROR
-} elseif {$choice <= 40} {
-	SelectTransactionHistoryByProductAndDate SelectTransactionHistoryByProductAndDate_st $ProductID $TransactionDate $RAISEERROR
-} elseif {$choice <= 45} {
-	set query "SELECT TOP 100 SalesOrderID FROM Sales.SalesOrderHeader WHERE ShipDate IS NULL and OnlineOrderFlag=1 and Status <> 5"
+} elseif {$choice <= 70} {
+	thinktimems 3
+	# This one will be very hard to see in the proc cache
+	# Because it gets unique compiles for every literal it's run with!
+	# This will get constantly prepared and unprepared.
+	# Find with clear trace or by using plan_hash
+	set Letter [ RandomNumber 7 79 ]
+	set query "SELECT FirstName, isnull(MiddleName,'') as MiddleName, LastName, City FROM Person.Person p 
+	JOIN Person.BusinessEntityAddress bea on p.BusinessEntityID=bea.BusinessEntityID 
+	join Person.Address a on a.AddressID=bea.AddressID WHERE a.StateProvinceID=$Letter"
 	if {[catch {odbc $query} err] } {
 		puts "Adhoc Query #1 Error!"
    		puts [format "ERROR is ===\n%s\n===" $err]
-   	}
-} elseif {$choice <= 53} {
-	# This one will be very hard to see in the proc cache
-	# Because it gets unique compiles for every literal it's run with!
-	# Find with clear trace or by using plan_hash
-	set Letter [ RandomNumber 1 999 ]
-	set query "SELECT FirstName, MiddleName, LastName, City FROM Person.Person p JOIN Person.BusinessEntityAddress bea on p.BusinessEntityID=bea.BusinessEntityID
-join Person.Address a on a.AddressID=bea.AddressID WHERE p.BusinessEntityID= N'$Letter'"
-	if {[catch {odbc $query} err] } {
-		puts "Adhoc Query #2 Error!"
-   		puts [format "ERROR is ===\n%s\n===" $err]
+
+   	thinktimems 3
 	}
-} elseif {$choice <= 55} {
-	# This one will be somewhat easier to see in the cache, but similar
-	set Letter [ randAZazStr 2 ]
-	set query "SELECT * FROM HumanResources.vEmployeeDepartment WHERE LastName like '$Letter%'"
-	if {[catch {odbc $query} err] } {
-		puts "Adhoc Query #2 Error!"
-   		puts [format "ERROR is ===\n%s\n===" $err]
-	}
+#} elseif {$choice <= 80} {
+#	thinktimems 8
+#	SelectTransactionHistoryByProduct SelectTransactionHistoryByProduct_st $ProductID $RAISEERROR
+} elseif {$choice <= 90} {
+	thinktimems 3
+	SelectTransactionHistoryByProductAndDate SelectTransactionHistoryByProductAndDate_st $ProductID $TransactionDate $RAISEERROR
+} elseif {$choice <= 100} {
+	thinktimems 4
+	SelectTransactionHistoryByDateRange SelectTransactionHistoryByDateRange_st $TransactionDate $RAISEERROR
 }
 }
 odbc commit
@@ -469,6 +504,7 @@ SelectEmployeeDeptHistoryByShift_st drop
 SelectTransactionHistoryByProduct_st drop
 SelectTransactionHistoryByProductAndDate_st drop
 SelectTransactionHistoryByDateRange_st drop
+UpdateSalesOrderHeader_st drop
 
 # buh-bye
 odbc disconnect
