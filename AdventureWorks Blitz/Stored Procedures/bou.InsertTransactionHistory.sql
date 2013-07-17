@@ -59,7 +59,8 @@ BEGIN TRAN
 			   ,[CustomerID]
 			   ,[BillToAddressID]
 			   ,[ShipToAddressID]
-			   ,[ShipMethodID])
+			   ,[ShipMethodID]
+			   ,[Comment])
 		SELECT
 			   1,
 			   getdate(),
@@ -68,7 +69,8 @@ BEGIN TRAN
 			   @CustomerID,
 			   @AddressID,
 			   @AddressID,
-			   2
+			   2,
+			   cast('blah blah blah' as nchar(128))
 
 	SELECT @SalesOrderID=SCOPE_IDENTITY()
 

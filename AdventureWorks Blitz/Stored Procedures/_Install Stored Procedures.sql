@@ -38,18 +38,149 @@ GO
 :r $(ScriptDir)\bou.SelectTransactionHistoryByProduct.sql
 :r $(ScriptDir)\bou.SelectTransactionHistoryByProductAndDate.sql
 :r $(ScriptDir)\bou.SelectTransactionHistoryByDateRange.sql
+:r $(ScriptDir)\bou.UpdateSalesOrderHeader.sql
 
 --Inflate!
 --This makes more queries go parallel 
 --(The optimizer considers page count)
 USE AdventureWorks2012;
 GO
-ALTER INDEX ALL ON [Production].[TransactionHistory] REBUILD  WITH (FILLFACTOR=10);
-ALTER INDEX ALL ON [Person].[Address] REBUILD WITH (FILLFACTOR=10);
-ALTER INDEX ALL ON [Person].[Person] REBUILD WITH (FILLFACTOR=10);
-ALTER INDEX ALL ON [HumanResources].[EmployeeDepartmentHistory] REBUILD WITH (FILLFACTOR=10);
+INSERT INTO [Production].[TransactionHistory]
+           ([ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,[TransactionDate]
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost])
+select
+           [ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,DATEADD(yy,2,[TransactionDate])
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost]
+FROM [Production].[TransactionHistory]
+GO
+INSERT INTO [Production].[TransactionHistory]
+           ([ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,[TransactionDate]
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost])
+select
+           [ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,DATEADD(yy,3,[TransactionDate])
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost]
+FROM [Production].[TransactionHistory]
+GO
+INSERT INTO [Production].[TransactionHistory]
+           ([ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,[TransactionDate]
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost])
+select
+           [ProductID]
+           ,[ReferenceOrderID]
+           ,[ReferenceOrderLineID]
+           ,DATEADD(hh,26,[TransactionDate])
+           ,[TransactionType]
+           ,[Quantity]
+           ,[ActualCost]
+FROM [Production].[TransactionHistory]
+GO
+ALTER INDEX ALL ON [Production].[TransactionHistory] REBUILD WITH (FILLFACTOR=90);
+ALTER INDEX ALL ON [Person].[Address] REBUILD WITH (FILLFACTOR=70);
+ALTER INDEX ALL ON [Person].[Person] REBUILD WITH (FILLFACTOR=70);
+ALTER INDEX ALL ON [HumanResources].[EmployeeDepartmentHistory] REBUILD WITH (FILLFACTOR=80);
 
 GO
+
+--Modify a trigger 
+--Make it have an implicit conversion
+--This will get hit every time bou.UpdateSalesOrderHeader.sql is run
+
+ALTER TRIGGER [Sales].[uSalesOrderHeader] ON [Sales].[SalesOrderHeader] 
+AFTER UPDATE NOT FOR REPLICATION AS 
+BEGIN
+    DECLARE @Count int;
+
+    SET @Count = @@ROWCOUNT;
+    IF @Count = 0 
+        RETURN;
+
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        -- Update RevisionNumber for modification of any field EXCEPT the Status.
+        IF NOT UPDATE([Status])
+        BEGIN
+            UPDATE [Sales].[SalesOrderHeader]
+            SET [Sales].[SalesOrderHeader].[RevisionNumber] = 
+                [Sales].[SalesOrderHeader].[RevisionNumber] + 1
+            WHERE [Sales].[SalesOrderHeader].[SalesOrderID] IN 
+                (SELECT inserted.[SalesOrderID] FROM inserted);
+        END;
+
+        -- Update the SalesPerson SalesYTD when SubTotal is updated
+        IF UPDATE([SubTotal])
+        BEGIN
+            DECLARE @StartDate varchar(256),
+                    @EndDate varchar(256)
+
+            SET @StartDate = [dbo].[ufnGetAccountingStartDate]();
+            SET @EndDate = [dbo].[ufnGetAccountingEndDate]();
+
+            UPDATE [Sales].[SalesPerson]
+            SET [Sales].[SalesPerson].[SalesYTD] = 
+                (SELECT SUM([Sales].[SalesOrderHeader].[SubTotal])
+                FROM [Sales].[SalesOrderHeader] 
+                WHERE [Sales].[SalesPerson].[BusinessEntityID] = [Sales].[SalesOrderHeader].[SalesPersonID]
+                    AND ([Sales].[SalesOrderHeader].[Status] = 5) -- Shipped
+                    AND [Sales].[SalesOrderHeader].[OrderDate] BETWEEN @StartDate AND @EndDate)
+            WHERE [Sales].[SalesPerson].[BusinessEntityID] 
+                IN (SELECT DISTINCT inserted.[SalesPersonID] FROM inserted 
+                    WHERE inserted.[OrderDate] BETWEEN @StartDate AND @EndDate);
+
+            -- Update the SalesTerritory SalesYTD when SubTotal is updated
+            UPDATE [Sales].[SalesTerritory]
+            SET [Sales].[SalesTerritory].[SalesYTD] = 
+                (SELECT SUM([Sales].[SalesOrderHeader].[SubTotal])
+                FROM [Sales].[SalesOrderHeader] 
+                WHERE [Sales].[SalesTerritory].[TerritoryID] = [Sales].[SalesOrderHeader].[TerritoryID]
+                    AND ([Sales].[SalesOrderHeader].[Status] = 5) -- Shipped
+                    AND [Sales].[SalesOrderHeader].[OrderDate] BETWEEN @StartDate AND @EndDate)
+            WHERE [Sales].[SalesTerritory].[TerritoryID] 
+                IN (SELECT DISTINCT inserted.[TerritoryID] FROM inserted 
+                    WHERE inserted.[OrderDate] BETWEEN @StartDate AND @EndDate);
+        END;
+    END TRY
+    BEGIN CATCH
+        EXECUTE [dbo].[uspPrintError];
+
+        -- Rollback any active or uncommittable transactions before
+        -- inserting information in the ErrorLog
+        IF @@TRANCOUNT > 0
+        BEGIN
+            ROLLBACK TRANSACTION;
+        END
+
+        EXECUTE [dbo].[uspLogError];
+    END CATCH;
+END;
+
+GO
+
 
 --Do one read against small NC indexes
 --This keeps them from distracting in sp_BlitzIndex demos
