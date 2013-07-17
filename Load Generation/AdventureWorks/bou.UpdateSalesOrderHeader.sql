@@ -25,7 +25,6 @@ ALTER PROCEDURE bou.UpdateSalesOrderHeader
 	@CustomerID int
 AS
 SET NOCOUNT ON;
-
 SET XACT_ABORT ON;
 
 declare @rowcount int;
@@ -51,13 +50,13 @@ BEGIN TRY
         VALUES 
             (
             CONVERT(sysname, CURRENT_USER), 
-            'We did a thing!',
+            0,
             0,
             0,
             'bou.UpdateSalesOrderHeader',
             'We did a thing!'
             );
-		COMMIT TRANSACTION;
+		COMMIT;
 
 
 END TRY
