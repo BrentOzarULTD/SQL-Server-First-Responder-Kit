@@ -50,6 +50,7 @@ AS
 	Changes in v2 - July 22, 2013
 	 - Added @Seconds to control the sampling time.
 	 - Added @OutputEverything to return all work tables with no thresholds.
+	 - Added basic wait stats, file stats, Perfmon checks.
 
     Changes in v1 - July 11, 2013
 	 - Initial bug-filled release. We purposely left extra errors on here so
@@ -119,6 +120,7 @@ AS
 		FileID INT NOT NULL,
 		DatabaseName NVARCHAR(256) ,
 		FileLogicalName NVARCHAR(256) ,
+		TypeDesc NVARCHAR(60) ,
 		SizeOnDiskMB BIGINT ,
 		io_stall_read_ms BIGINT ,
 		num_of_reads BIGINT ,
@@ -187,7 +189,7 @@ BEGIN
 
 
 	INSERT INTO #FileStats (SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
-		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName)
+		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
 	SELECT GETDATE(),
 		mf.[database_id],
 		mf.[file_id],
@@ -200,7 +202,8 @@ BEGIN
 		vfs.io_stall_write_ms ,
 		vfs.num_of_writes ,
 		vfs.[num_of_bytes_written],
-		mf.physical_name
+		mf.physical_name,
+		mf.type_desc
 	FROM sys.dm_io_virtual_file_stats (NULL, NULL) AS vfs
 	INNER JOIN sys.master_files AS mf ON vfs.file_id = mf.file_id
 		AND vfs.database_id = mf.database_id
@@ -531,7 +534,7 @@ BEGIN
 	ORDER BY sum_wait_time_ms DESC;
 
 	INSERT INTO #FileStats (SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
-		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName)
+		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
 	SELECT GETDATE(),
 		mf.[database_id],
 		mf.[file_id],
@@ -544,7 +547,8 @@ BEGIN
 		vfs.io_stall_write_ms ,
 		vfs.num_of_writes ,
 		vfs.[num_of_bytes_written],
-		mf.physical_name
+		mf.physical_name,
+		mf.type_desc
 	FROM sys.dm_io_virtual_file_stats (NULL, NULL) AS vfs
 	INNER JOIN sys.master_files AS mf ON vfs.file_id = mf.file_id
 		AND vfs.database_id = mf.database_id
@@ -552,6 +556,7 @@ BEGIN
 		OR vfs.num_of_writes > 0;
 
 
+	/* Wait Stats - CheckID 6 */
 	/* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
 	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 	SELECT TOP 10 6 AS CheckID,
@@ -570,7 +575,49 @@ BEGIN
 	'DBMIRROR_EVENTS_QUEUE','DBMIRRORING_CMD','DISPATCHER_QUEUE_SEMAPHORE','BROKER_RECEIVE_WAITFOR','CLR_AUTO_EVENT',
 	'DIRTY_PAGE_POLL','CLR_SEMAPHORE','HADR_FILESTREAM_IOMGR_IOCOMPLETION','ONDEMAND_TASK_QUEUE','FT_IFTSHC_MUTEX',
 	'CLR_MANUAL_EVENT','SP_SERVER_DIAGNOSTICS_SLEEP','DBMIRROR_WORKER_QUEUE','DBMIRROR_DBM_EVENT')
-	ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC
+	ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
+
+	/* Server Performance - Slow Data File Reads - CheckID 11 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+	SELECT TOP 10 11 AS CheckID,
+		50 AS Priority,
+		'Server Performance' AS FindingGroup,
+		'Slow Data File Reads' AS Finding,
+		'http://BrentOzar.com/go/slow/' AS URL,
+		@StockDetailsHeader + 'File: ' + fNow.PhysicalName + @LineFeed 
+			+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed 
+			+ 'Seconds spent waiting on storage for these reads: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed 
+			+ 'Average read latency during the sample: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed 
+			+ 'Microsoft guidance for data file read speed: 20ms or less.' + @LineFeed + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		fNow.DatabaseID,
+		fNow.DatabaseName
+	FROM #FileStats fNow
+	INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_reads > fBase.num_of_reads AND fNow.io_stall_read_ms > (fBase.io_stall_read_ms + 1000)
+	WHERE (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) > 100
+		AND fNow.TypeDesc = 'ROWS'
+	ORDER BY (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) DESC;
+
+	/* Server Performance - Slow Log File Writes - CheckID 12 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+	SELECT TOP 10 12 AS CheckID,
+		50 AS Priority,
+		'Server Performance' AS FindingGroup,
+		'Slow Log File Writes' AS Finding,
+		'http://BrentOzar.com/go/slow/' AS URL,
+		@StockDetailsHeader + 'File: ' + fNow.PhysicalName + @LineFeed 
+			+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed 
+			+ 'Seconds spent waiting on storage for these writes: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed 
+			+ 'Average write latency during the sample: ' + CAST(((fNow.num_of_writes - fBase.num_of_writes) / (fNow.num_of_writes - fBase.num_of_writes) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed 
+			+ 'Microsoft guidance for log file write speed: 3ms or less.' + @LineFeed + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		fNow.DatabaseID,
+		fNow.DatabaseName
+	FROM #FileStats fNow
+	INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_writes > fBase.num_of_writes AND fNow.io_stall_write_ms > (fBase.io_stall_write_ms + 1000)
+	WHERE (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) > 100
+		AND fNow.TypeDesc = 'LOG'
+	ORDER BY (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) DESC;
 
 
 	/* If we didn't find anything, apologize. */
@@ -927,8 +974,9 @@ END
 SET NOCOUNT OFF;
 GO
 
-
+EXEC dbo.sp_AskBrent @Seconds = 1
+/* Other tests:
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
 EXEC dbo.sp_AskBrent @ExpertMode = 0;
 EXEC dbo.sp_AskBrent 'This is a test question';
-EXEC dbo.sp_AskBrent @Seconds = 1
+*/
