@@ -8,13 +8,13 @@ GO
 CREATE PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
-    @OutputType VARCHAR(20) = 'TABLE' ,
 	@ExpertMode TINYINT = 0 ,
+    @Seconds TINYINT = 10 ,
+    @OutputType VARCHAR(20) = 'TABLE' ,
 	@OutputEverything TINYINT = 0 ,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
-    @Seconds TINYINT = 10 ,
     @Version INT = NULL OUTPUT
     WITH EXECUTE AS CALLER
 AS 
@@ -22,7 +22,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_AskBrent (TM) v1 - July 11, 2013
+	sp_AskBrent (TM) v2 - July 11, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -134,7 +134,7 @@ AS
 	    + 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
 		+ 'This tool is meant as a shortcut to help generate scripts for DBAs.' + @LineFeed
 		+ 'It is not a substitute for database training and experience.' + @LineFeed
-		+ 'Now, having said that, here''s the script:' + @LineFeed + @LineFeed;
+		+ 'Now, having said that, here''s the details:' + @LineFeed + @LineFeed;
 
 	SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
 		@StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
@@ -468,6 +468,23 @@ BEGIN
 	WHERE r.status = 'rollback'
 
 
+	/* Server Performance - Page Life Expectancy Low - CheckID 10 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	SELECT 10 AS CheckID,
+		50 AS Priority,
+		'Server Performance' AS FindingGroup,
+		'Page Life Expectancy Low' AS Finding,
+		'http://BrentOzar.com/go/ple' AS URL,
+		@StockDetailsHeader + 'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed 
+			+ 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed 
+			+ 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
+		CAST(@StockWarningHeader + 'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' + @StockWarningFooter AS XML) AS HowToStopIt
+	FROM sys.dm_os_performance_counters c
+	WHERE object_name LIKE 'SQLServer:Buffer Manager%'
+	AND counter_name LIKE 'Page life expectancy%'
+	AND cntr_value < 300
+
+
 
 	/* End of checks. If we haven't waited @Seconds seconds, wait. */
 	IF GETDATE() < @FinishSampleTime
@@ -600,7 +617,7 @@ BEGIN
 				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com. ' + @LineFeed + '-- ?>'
 				);
 
-		SET @Version = 1;
+		SET @Version = 2;
 		INSERT  INTO #AskBrentResults
 				( CheckID ,
 				  Priority ,
@@ -612,7 +629,7 @@ BEGIN
 				)
 		VALUES  ( -1 ,
 				  0 ,
-				  'sp_AskBrent (TM) v1 July 11 2013' ,
+				  'sp_AskBrent (TM) v2 July 22 2013' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
 				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
@@ -914,4 +931,4 @@ GO
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
 EXEC dbo.sp_AskBrent @ExpertMode = 0;
 EXEC dbo.sp_AskBrent 'This is a test question';
-
+EXEC dbo.sp_AskBrent @Seconds = 1
