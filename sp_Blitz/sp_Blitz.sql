@@ -2850,7 +2850,7 @@ AS
 					      50, 
 					      ''Reliability'', 
 					      ''Full Text Indexes Not Updating'', 
-					      ''http://BrentOzar.com/go/trust'', 
+					      ''http://BrentOzar.com/go/fulltext'', 
 					      (''At least one full text index in this database has not been crawled in the last week.'') 
 					      from [?].sys.fulltext_indexes i WHERE i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())';
 					                        END
