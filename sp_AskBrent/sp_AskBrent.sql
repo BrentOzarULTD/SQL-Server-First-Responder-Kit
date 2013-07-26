@@ -880,15 +880,17 @@ BEGIN
 			and wd2.wait_time_ms-wd1.wait_time_ms > 0
 		ORDER BY [Wait Time (Seconds)] DESC;
 
+
 		-------------------------
 		--What happened: IO
 		-------------------------
 		;with max_batch as (
 		  select MAX(SampleTime) as high_sample
 		  from #FileStats
-		)
-		SELECT TOP 5
-			'PHYSICAL READS' as Pattern,
+		),
+		readstats as (
+			SELECT 'PHYSICAL READS' as Pattern,
+			ROW_NUMBER() over (order by stall.[Avg Stall (ms)] desc) as StallRank,
 			wd2.SampleTime as [Sample Time], 
 			datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
 			wd1.DatabaseName ,
@@ -900,41 +902,58 @@ BEGIN
 			  THEN CAST(( wd2.bytes_read - wd1.bytes_read)/1024./1024. AS NUMERIC(21,1)) 
 			  ELSE 0 
 			END AS [MB Read/Written],
-			CASE WHEN wd2.num_of_reads - wd1.num_of_reads > 0
-				THEN CAST(( wd2.io_stall_read_ms - wd1.io_stall_read_ms ) / ( 1.0 * ( wd2.num_of_reads - wd1.num_of_reads ) ) AS INT)
-				ELSE 0
-			END AS [Avg Stall (ms)] ,
+			stall.[Avg Stall (ms)],
 			wd1.PhysicalName AS [file physical name]
 		FROM max_batch mb
 			JOIN #FileStats wd2 ON mb.high_sample = wd2.SampleTime
 			JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
 			  AND wd1.DatabaseID = wd2.DatabaseID
 			  AND wd1.FileID = wd2.FileID
-		UNION ALL
-		SELECT TOP 5
+			CROSS APPLY 
+				(SELECT CASE WHEN wd2.num_of_reads - wd1.num_of_reads > 0
+					THEN CAST(( wd2.io_stall_read_ms - wd1.io_stall_read_ms ) / ( 1.0 * ( wd2.num_of_reads - wd1.num_of_reads ) ) AS INT)
+					ELSE 0
+				END AS [Avg Stall (ms)]) as stall
+
+		),
+		writestats as (
+			SELECT 
 			'PHYSICAL WRITES' as Pattern,
+			ROW_NUMBER() over (order by stall.[Avg Stall (ms)] desc) as StallRank,
 			wd2.SampleTime as [Sample Time], 
 			datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
 			wd1.DatabaseName ,
 			wd1.FileLogicalName AS [File Name],
 			UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
 			wd1.SizeOnDiskMB ,
-			( wd2.num_of_writes - wd1.num_of_writes ) AS [# Physical Writes],
+			( wd2.num_of_writes - wd1.num_of_writes ) AS [# Reads/Writes],
 			CASE WHEN wd2.num_of_writes - wd1.num_of_writes > 0
 			  THEN CAST(( wd2.bytes_written - wd1.bytes_written)/1024./1024. AS NUMERIC(21,1)) 
 			  ELSE 0 
-			END AS [MB written],
-			CASE WHEN wd2.num_of_writes - wd1.num_of_writes > 0
-				THEN CAST(( wd2.io_stall_write_ms - wd1.io_stall_write_ms ) / ( 1.0 * ( wd2.num_of_writes - wd1.num_of_writes ) ) AS INT)
-				ELSE 0
-			END AS [Avg Stall (ms)] ,
+			END AS [MB Read/Written],
+			stall.[Avg Stall (ms)],
 			wd1.PhysicalName AS [file physical name]
 		FROM max_batch mb
 			JOIN #FileStats wd2 ON mb.high_sample = wd2.SampleTime
 			JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
 			  AND wd1.DatabaseID = wd2.DatabaseID
 			  AND wd1.FileID = wd2.FileID
-		ORDER BY Pattern, [Avg Stall (ms)] DESC,  [MB Read/Written] DESC;
+			CROSS APPLY (
+				SELECT 
+					CASE WHEN wd2.num_of_writes - wd1.num_of_writes > 0
+				THEN CAST(( wd2.io_stall_write_ms - wd1.io_stall_write_ms ) / ( 1.0 * ( wd2.num_of_writes - wd1.num_of_writes ) ) AS INT)
+				ELSE 0
+				END AS [Avg Stall (ms)]) AS stall
+		)
+		SELECT 
+			Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+		from readstats
+		where StallRank <=5 and [MB Read/Written] > 0
+		union all
+		SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+		from writestats
+		where StallRank <=5 and [MB Read/Written] > 0
+			
 
 	END /* IF @OutputEverything = 1 */
 
