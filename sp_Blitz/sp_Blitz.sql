@@ -27,7 +27,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v25 - June 23, 2013
+	sp_Blitz (TM) v25 - August 2, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -57,9 +57,16 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
 
-	Changes in v25 - ???
+	Changes in v25 - August 2, 2013
+	 - Andrew Jarman was the first to catch a bug in check 70 for named instances.
 	 - David Todd suggested a tweak to make it easier to deploy this stored proc
 	   in other databases.
+	 - Added check for Adam Machanic's make_parallel function (115).
+	 - Added check for basic NUMA config (114).
+	 - Added check for backup compression defaulted to off (116), suggested by
+	   David Todd.
+	 - Added check for forced grants in sys.dm_exec_query_resource_semaphores,
+	   indicating memory pressure is affecting query performance (117).
 
     Changes in v24 - June 23, 2013
 	 - Alin Selicean @AlinSelicean:
@@ -2519,6 +2526,54 @@ AS
 		                            EXECUTE(@StringToExecute);
 		                END
 
+					IF NOT EXISTS ( SELECT 1
+	                                 FROM   #SkipChecks
+	                                 WHERE  DatabaseName IS NULL AND CheckID = 116 ) 
+	                BEGIN
+	                    INSERT  INTO #BlitzResults
+	                            ( CheckID ,
+	                              Priority ,
+	                              FindingsGroup ,
+	                              Finding ,
+	                              URL ,
+	                              Details
+	                            )
+	                            SELECT  116 AS CheckID ,
+	                                    200 AS Priority ,
+	                                    'Informational' AS FindingGroup ,
+	                                    'Backup Compression Default Off'  AS Finding ,
+	                                    'http://BrentOzar.com/go/backup' AS URL ,
+	                                    'Backup compression is included with SQL Server 2008R2 & newer, even in Standard Edition. We recommend turning backup compression on by default so that ad-hoc backups will get compressed.'
+										FROM sys.configurations
+										WHERE configuration_id = 1579 AND CAST(value_in_use AS INT) = 0
+
+	                END
+
+		            IF NOT EXISTS ( SELECT  1
+		                            FROM    #SkipChecks
+		                            WHERE   DatabaseName IS NULL AND CheckID = 117 ) 
+								AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
+		                BEGIN
+                            SET @StringToExecute = 'IF 0 < (SELECT SUM([forced_grant_count]) FROM sys.dm_exec_query_resource_semaphores WHERE [forced_grant_count] IS NOT NULL)
+                            INSERT INTO #BlitzResults 
+		                        (CheckID, 
+		                        Priority, 
+		                        FindingsGroup, 
+		                        Finding, 
+		                        URL, 
+		                        Details)
+		                  SELECT 117 AS CheckID, 
+		                  100 AS Priority, 
+		                  ''Performance'' AS FindingsGroup, 
+		                  ''Memory Pressure Affecting Queries'' AS Finding, 
+		                  ''http://BrentOzar.com/go/grants'' AS URL,
+		                  CAST(SUM(forced_grant_count) AS NVARCHAR(100)) + '' forced grants reported in the DMV sys.dm_exec_query_resource_semaphores, indicating memory pressure has affected query runtimes.''
+						  FROM sys.dm_exec_query_resource_semaphores WHERE [forced_grant_count] IS NOT NULL;'
+		                            EXECUTE(@StringToExecute);
+		                END
+
+
+
 
             
             IF @CheckUserDatabaseObjects = 1 
@@ -2855,6 +2910,28 @@ AS
 					      from [?].sys.fulltext_indexes i WHERE i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())';
 					                        END
 
+                    IF NOT EXISTS ( SELECT  1
+                                    FROM    #SkipChecks
+                                    WHERE   DatabaseName IS NULL AND CheckID = 115 ) 
+                        BEGIN
+                            EXEC dbo.sp_MSforeachdb 'USE [?]; 
+      INSERT INTO #BlitzResults 
+            (CheckID, 
+            DatabaseName,
+            Priority, 
+            FindingsGroup, 
+            Finding, 
+            URL, 
+            Details) 
+      SELECT 115, 
+      ''?'',
+      110, 
+      ''Performance'', 
+      ''Parallelism Rocket Surgery'', 
+      ''http://BrentOzar.com/go/makeparallel'', 
+      (''['' + DB_NAME() + ''] has a make_parallel function, indicating that an advanced developer may be manhandling SQL Server into forcing queries to go parallel.'') 
+      from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = ''make_parallel'' AND ROUTINE_TYPE = ''FUNCTION''';
+                        END
 
 
                 END /* IF @CheckUserDatabaseObjects = 1 */
@@ -3352,7 +3429,7 @@ AS
                     (@@SERVERNAME IS NOT NULL 
                     AND 
                     /* not a named instance */
-                    CHARINDEX(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR),'\') = 0
+					CHARINDEX('\',CAST(SERVERPROPERTY('ServerName') AS NVARCHAR)) = 0
                     AND
                     /* not clustered, when computername may be different than the servername */
                     SERVERPROPERTY('IsClustered') = 0
@@ -3779,6 +3856,32 @@ AS
                             EXECUTE(@StringToExecute);
                         END
 
+                    IF NOT EXISTS ( SELECT  1
+                                    FROM    #SkipChecks
+                                    WHERE   DatabaseName IS NULL AND CheckID = 114 )
+						BEGIN
+                            INSERT  INTO #BlitzResults
+                                    ( CheckID ,
+                                      Priority ,
+                                      FindingsGroup ,
+                                      Finding ,
+                                      URL ,
+                                      Details
+	                                )
+                                    SELECT  114 AS CheckID ,
+                                            250 AS Priority ,
+                                            'Server Info' AS FindingsGroup ,
+                                            'Hardware - NUMA Config' AS Finding ,
+                                            '' AS URL ,
+											'Node: ' + CAST(n.node_id AS NVARCHAR(10)) + ' State: ' + node_state_desc 
+											+ ' Online schedulers: ' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + ' Processor Group: ' + CAST(n.processor_group AS NVARCHAR(10)) 
+											+ ' Memory node: ' + CAST(n.memory_node_id AS NVARCHAR(10)) + ' Memory VAS Reserved GB: ' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
+									FROM sys.dm_os_nodes n
+									INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
+									WHERE n.node_state_desc NOT LIKE '%DAC%'
+									ORDER BY n.node_id
+						END
+
 
 	                    IF NOT EXISTS ( SELECT  1
 	                                    FROM    #SkipChecks
@@ -3860,7 +3963,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 24;
+            SET @Version = 25;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3872,7 +3975,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v24 June 23 2013' ,
+                      'sp_Blitz (TM) v25 August 2 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
