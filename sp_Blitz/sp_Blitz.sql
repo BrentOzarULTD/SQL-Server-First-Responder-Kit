@@ -27,7 +27,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v25 - August 2, 2013
+	sp_Blitz (TM) v26 - August 2, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -56,6 +56,10 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v26 - August 2, 2013
+	 - Whoops! Improved check 114 to skip SQL Server 2005, since the necessary
+	   DMVs don't exist there. Thanks, Conan Farrell.
 
 	Changes in v25 - August 2, 2013
 	 - Andrew Jarman was the first to catch a bug in check 70 for named instances.
@@ -3859,27 +3863,27 @@ AS
                     IF NOT EXISTS ( SELECT  1
                                     FROM    #SkipChecks
                                     WHERE   DatabaseName IS NULL AND CheckID = 114 )
-						BEGIN
-                            INSERT  INTO #BlitzResults
-                                    ( CheckID ,
-                                      Priority ,
-                                      FindingsGroup ,
-                                      Finding ,
-                                      URL ,
-                                      Details
-	                                )
+                        AND EXISTS ( SELECT *
+                                     FROM   sys.all_objects o
+                                     WHERE  o.name = 'dm_os_memory_nodes' )
+                        AND EXISTS ( SELECT *
+                                     FROM   sys.all_objects o
+                                     WHERE  o.name = 'dm_os_nodes' )
+                        BEGIN
+                            SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
                                     SELECT  114 AS CheckID ,
                                             250 AS Priority ,
-                                            'Server Info' AS FindingsGroup ,
-                                            'Hardware - NUMA Config' AS Finding ,
-                                            '' AS URL ,
-											'Node: ' + CAST(n.node_id AS NVARCHAR(10)) + ' State: ' + node_state_desc 
-											+ ' Online schedulers: ' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + ' Processor Group: ' + CAST(n.processor_group AS NVARCHAR(10)) 
-											+ ' Memory node: ' + CAST(n.memory_node_id AS NVARCHAR(10)) + ' Memory VAS Reserved GB: ' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
+                                            ''Server Info'' AS FindingsGroup ,
+                                            ''Hardware - NUMA Config'' AS Finding ,
+                                            '''' AS URL ,
+											''Node: '' + CAST(n.node_id AS NVARCHAR(10)) + '' State: '' + node_state_desc 
+											+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10)) 
+											+ '' Memory node: '' + CAST(n.memory_node_id AS NVARCHAR(10)) + '' Memory VAS Reserved GB: '' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
 									FROM sys.dm_os_nodes n
 									INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
-									WHERE n.node_state_desc NOT LIKE '%DAC%'
-									ORDER BY n.node_id
+									WHERE n.node_state_desc NOT LIKE ''%DAC%''
+									ORDER BY n.node_id'
+							EXECUTE(@StringToExecute);
 						END
 
 
@@ -3963,7 +3967,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 25;
+            SET @Version = 26;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3975,7 +3979,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v25 August 2 2013' ,
+                      'sp_Blitz (TM) v26 August 2 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
