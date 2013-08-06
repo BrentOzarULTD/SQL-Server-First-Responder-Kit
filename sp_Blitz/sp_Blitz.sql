@@ -27,7 +27,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v26 - August 2, 2013
+	sp_Blitz (TM) v27 - August 6, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -56,6 +56,9 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v27 - August 6, 2013
+	 - Whoops! Even more bug fixes in check 114. Thanks, Andy Jarman!
 
 	Changes in v26 - August 2, 2013
 	 - Whoops! Improved check 114 to skip SQL Server 2005, since the necessary
@@ -3868,7 +3871,9 @@ AS
                                      WHERE  o.name = 'dm_os_memory_nodes' )
                         AND EXISTS ( SELECT *
                                      FROM   sys.all_objects o
+                                     INNER JOIN sys.all_columns c ON o.object_id = c.object_id
                                      WHERE  o.name = 'dm_os_nodes' )
+                                	 	AND c.name = 'processor_group' ) 
                         BEGIN
                             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
                                     SELECT  114 AS CheckID ,
@@ -3967,7 +3972,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 26;
+            SET @Version = 27;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3979,7 +3984,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v26 August 2 2013' ,
+                      'sp_Blitz (TM) v27 August 6 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
