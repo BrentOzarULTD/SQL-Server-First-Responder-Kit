@@ -3872,7 +3872,7 @@ AS
                         AND EXISTS ( SELECT *
                                      FROM   sys.all_objects o
                                      INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-                                     WHERE  o.name = 'dm_os_nodes' )
+                                     WHERE  o.name = 'dm_os_nodes' 
                                 	 	AND c.name = 'processor_group' ) 
                         BEGIN
                             SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
