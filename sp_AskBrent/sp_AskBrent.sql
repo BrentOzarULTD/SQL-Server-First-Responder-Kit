@@ -11,7 +11,6 @@ CREATE PROCEDURE [dbo].[sp_AskBrent]
 	@ExpertMode TINYINT = 0 ,
     @Seconds TINYINT = 10 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
-	@OutputEverything TINYINT = 0 ,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
@@ -43,13 +42,16 @@ AS
 	Known limitations of this version:
 	 - No support for SQL Server 2000 or compatibility mode 80.
 	 - Not all parameters are supported yet. Just wanted to finish the surface area.
+	 - If a temp table called #CustomPerfmonCounters exists for any other session,
+	   but not our session, this stored proc will fail with an error saying the
+	   temp table #CustomPerfmonCounters doesn't exist.
 
 	Unknown limitations of this version:
 	 - None. Like Zombo.com, the only limit is yourself.
 
-	Changes in v2 - August 7, 2013
+	Changes in v2 - August 8, 2013
 	 - Added @Seconds to control the sampling time.
-	 - Added @OutputEverything to return all work tables with no thresholds.
+	 - @ExpertMode now returns all work tables with no thresholds.
 	 - Added basic wait stats, file stats, Perfmon checks.
 
     Changes in v1 - July 11, 2013
@@ -133,6 +135,77 @@ AS
 		avg_stall_write_ms INT
 	);
 
+    IF OBJECT_ID('tempdb..#PerfmonStats') IS NOT NULL 
+        DROP TABLE #PerfmonStats;
+	CREATE TABLE #PerfmonStats ( 
+		ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+		SampleTime DATETIME NOT NULL,
+		[object_name] NVARCHAR(128) NOT NULL,
+		[counter_name] NVARCHAR(128) NOT NULL,
+		[instance_name] NVARCHAR(128) NULL,
+		[cntr_value] BIGINT,
+		[cntr_type] INT NOT NULL
+	);
+
+    IF OBJECT_ID('tempdb..#PerfmonCounters') IS NOT NULL 
+        DROP TABLE #PerfmonCounters;
+	CREATE TABLE #PerfmonCounters ( 
+		ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+		[object_name] NVARCHAR(128) NOT NULL,
+		[counter_name] NVARCHAR(128) NOT NULL,
+		[instance_name] NVARCHAR(128) NULL
+	);
+
+
+	IF EXISTS (SELECT * 
+					FROM tempdb.sys.all_objects obj
+					INNER JOIN tempdb.sys.all_columns col1 ON obj.object_id = col1.object_id AND col1.name = 'object_name'
+					INNER JOIN tempdb.sys.all_columns col2 ON obj.object_id = col2.object_id AND col2.name = 'counter_name'
+					INNER JOIN tempdb.sys.all_columns col3 ON obj.object_id = col3.object_id AND col3.name = 'instance_name'
+					WHERE obj.name LIKE '%CustomPerfmonCounters%') 
+		BEGIN
+		SET @StringToExecute = 'INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) SELECT [object_name],[counter_name],[instance_name] FROM #CustomPerfmonCounters'
+        EXEC(@StringToExecute);
+		END
+	ELSE
+		BEGIN
+		/* Add our default Perfmon counters */
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Forwarded Records/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Page compression attempts/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Page Splits/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Skipped Ghosted Records/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Table Lock Escalations/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Worktables Created/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Page life expectancy', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Page reads/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Page writes/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Readahead pages/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Target pages', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Total pages', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Databases','', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Active Transactions','_Total')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Databases','Log Growths', '_Total')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Databases','Log Shrinks', '_Total')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Deprecated Features','Usage', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','Distributed Query', 'Execs in progress')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','DTC calls', 'Execs in progress')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','Extended Procedures', 'Execs in progress')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','OLEDB calls', 'Execs in progress')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','Active Temp Tables', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','Logins/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','Logouts/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','Mars Deadlocks', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','Processes blocked', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Number of Deadlocks/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Memory Manager','Memory Grants Pending', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Errors','Errors/sec', '_Total')
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Batch Requests/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Forced Parameterizations/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Guided plan executions/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Attention rate', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Compilations/sec', NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Re-Compilations/sec', NULL)
+		END
 
 	SET @StockWarningHeader = '<?ClickToSeeCommmand -- ' + @LineFeed + @LineFeed 
 	    + 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
@@ -150,7 +223,8 @@ IF @Question IS NULL
 BEGIN
 
 
-	/* Populate #WaitStats and #FileStats with DMV data. After we finish doing our checks, we'll take another sample and compare them. */
+	/* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. 
+		After we finish doing our checks, we'll take another sample and compare them. */
 	INSERT #WaitStats(SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
 	SELECT
 		GETDATE(),
@@ -212,7 +286,12 @@ BEGIN
 	WHERE vfs.num_of_reads > 0
 		OR vfs.num_of_writes > 0;
 
-
+	INSERT INTO #PerfmonStats (SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
+	SELECT GETDATE(), RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
+		FROM #PerfmonCounters counters
+		INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name = RTRIM(dmv.counter_name)
+			AND counters.[object_name] = RTRIM(dmv.[object_name])
+			AND (counters.[instance_name] IS NULL OR counters.[instance_name] = RTRIM(dmv.[instance_name]))
 
 	/* Maintenance Tasks Running - Backup Running - CheckID 1 */
 	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
@@ -496,7 +575,7 @@ BEGIN
 		WAITFOR TIME @FinishSampleTime;
 
 
-	/* Populate #WaitStats and #FileStats with DMV data. In a second, we'll compare these. */
+	/* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
 	INSERT #WaitStats(SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
 	SELECT
 		GETDATE(),
@@ -558,6 +637,13 @@ BEGIN
 		AND vfs.database_id = mf.database_id
 	WHERE vfs.num_of_reads > 0
 		OR vfs.num_of_writes > 0;
+
+	INSERT INTO #PerfmonStats (SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
+	SELECT GETDATE(), RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
+		FROM #PerfmonCounters counters
+		INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name = RTRIM(dmv.counter_name)
+			AND counters.[object_name] = RTRIM(dmv.[object_name])
+			AND (counters.[instance_name] IS NULL OR counters.[instance_name] = RTRIM(dmv.[instance_name]))
 
 	/* Set the latencies. We could do this with a CTE, but we're not ambitious today. */
 	UPDATE fNow
@@ -854,109 +940,116 @@ BEGIN
                     FindingsGroup ,
                     Finding ,
                     ID;
+
+			-------------------------
+			--What happened: #WaitStats
+			-------------------------
+			;with max_batch as (
+				select max(SampleTime) as SampleTime
+				from #WaitStats
+			)
+			SELECT
+				'WAIT STATS' as Pattern,
+				b.SampleTime as [Sample Ended],
+				datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
+				wd1.wait_type,
+				c.[Wait Time (Seconds)],
+				c.[Signal Wait Time (Seconds)],
+				CASE WHEN c.[Wait Time (Seconds)] > 0
+				 THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+				ELSE 0 END AS [Percent Signal Waits],
+				(wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
+				CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+				THEN
+					cast((wd2.wait_time_ms-wd1.wait_time_ms)/
+						(1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(10,1))
+				ELSE 0 END AS [Avg ms Per Wait]
+			FROM  max_batch b
+			JOIN #WaitStats wd2 on
+				wd2.SampleTime =b.SampleTime
+			JOIN #WaitStats wd1 ON 
+				wd1.wait_type=wd2.wait_type AND
+				wd2.SampleTime > wd1.SampleTime
+			CROSS APPLY (SELECT
+				cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(10,1)) as [Wait Time (Seconds)],
+				cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(10,1)) as [Signal Wait Time (Seconds)]) AS c
+			WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+				and wd2.wait_time_ms-wd1.wait_time_ms > 0
+			ORDER BY [Wait Time (Seconds)] DESC;
+
+
+			-------------------------
+			--What happened: #FileStats
+			-------------------------
+			WITH readstats as (
+				SELECT 'PHYSICAL READS' as Pattern,
+				ROW_NUMBER() over (order by wd2.avg_stall_read_ms desc) as StallRank,
+				wd2.SampleTime as [Sample Time], 
+				datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+				wd1.DatabaseName ,
+				wd1.FileLogicalName AS [File Name],
+				UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
+				wd1.SizeOnDiskMB ,
+				( wd2.num_of_reads - wd1.num_of_reads ) AS [# Reads/Writes],
+				CASE WHEN wd2.num_of_reads - wd1.num_of_reads > 0
+				  THEN CAST(( wd2.bytes_read - wd1.bytes_read)/1024./1024. AS NUMERIC(21,1)) 
+				  ELSE 0 
+				END AS [MB Read/Written],
+				wd2.avg_stall_read_ms AS [Avg Stall (ms)],
+				wd1.PhysicalName AS [file physical name]
+			FROM #FileStats wd2
+				JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
+				  AND wd1.DatabaseID = wd2.DatabaseID
+				  AND wd1.FileID = wd2.FileID
+			),
+			writestats as (
+				SELECT 
+				'PHYSICAL WRITES' as Pattern,
+				ROW_NUMBER() over (order by wd2.avg_stall_write_ms desc) as StallRank,
+				wd2.SampleTime as [Sample Time], 
+				datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+				wd1.DatabaseName ,
+				wd1.FileLogicalName AS [File Name],
+				UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
+				wd1.SizeOnDiskMB ,
+				( wd2.num_of_writes - wd1.num_of_writes ) AS [# Reads/Writes],
+				CASE WHEN wd2.num_of_writes - wd1.num_of_writes > 0
+				  THEN CAST(( wd2.bytes_written - wd1.bytes_written)/1024./1024. AS NUMERIC(21,1)) 
+				  ELSE 0 
+				END AS [MB Read/Written],
+				wd2.avg_stall_write_ms AS [Avg Stall (ms)],
+				wd1.PhysicalName AS [file physical name]
+			FROM #FileStats wd2
+				JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
+				  AND wd1.DatabaseID = wd2.DatabaseID
+				  AND wd1.FileID = wd2.FileID
+			)
+			SELECT 
+				Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+			from readstats
+			where StallRank <=5 and [MB Read/Written] > 0
+			union all
+			SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+			from writestats
+			where StallRank <=5 and [MB Read/Written] > 0;
+
+
+			-------------------------
+			--What happened: #PerfmonStats
+			-------------------------
+
+			SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name, 
+				pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
+				pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
+				pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
+				((1.0 * pLast.cntr_value - pFirst.cntr_value) / DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime)) AS ValuePerSecond
+				FROM #PerfmonStats pLast
+					INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
+					AND pLast.ID > pFirst.ID
+				ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name
         END
 
     DROP TABLE #AskBrentResults;
-
-	IF @OutputEverything = 1
-	BEGIN
-	
-		-------------------------
-		--What happened: Wait Stats
-		-------------------------
-		;with max_batch as (
-			select max(SampleTime) as SampleTime
-			from #WaitStats
-		)
-		SELECT
-			'WAIT STATS' as Pattern,
-			b.SampleTime as [Sample Ended],
-			datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
-			wd1.wait_type,
-			c.[Wait Time (Seconds)],
-			c.[Signal Wait Time (Seconds)],
-			CASE WHEN c.[Wait Time (Seconds)] > 0
-			 THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
-			ELSE 0 END AS [Percent Signal Waits],
-			(wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
-			CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-			THEN
-				cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-					(1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(10,1))
-			ELSE 0 END AS [Avg ms Per Wait]
-		FROM  max_batch b
-		JOIN #WaitStats wd2 on
-			wd2.SampleTime =b.SampleTime
-		JOIN #WaitStats wd1 ON 
-			wd1.wait_type=wd2.wait_type AND
-			wd2.SampleTime > wd1.SampleTime
-		CROSS APPLY (SELECT
-			cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(10,1)) as [Wait Time (Seconds)],
-			cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(10,1)) as [Signal Wait Time (Seconds)]) AS c
-		WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-			and wd2.wait_time_ms-wd1.wait_time_ms > 0
-		ORDER BY [Wait Time (Seconds)] DESC;
-
-
-		-------------------------
-		--What happened: IO
-		-------------------------
-		WITH readstats as (
-			SELECT 'PHYSICAL READS' as Pattern,
-			ROW_NUMBER() over (order by wd2.avg_stall_read_ms desc) as StallRank,
-			wd2.SampleTime as [Sample Time], 
-			datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
-			wd1.DatabaseName ,
-			wd1.FileLogicalName AS [File Name],
-			UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
-			wd1.SizeOnDiskMB ,
-			( wd2.num_of_reads - wd1.num_of_reads ) AS [# Reads/Writes],
-			CASE WHEN wd2.num_of_reads - wd1.num_of_reads > 0
-			  THEN CAST(( wd2.bytes_read - wd1.bytes_read)/1024./1024. AS NUMERIC(21,1)) 
-			  ELSE 0 
-			END AS [MB Read/Written],
-			wd2.avg_stall_read_ms AS [Avg Stall (ms)],
-			wd1.PhysicalName AS [file physical name]
-		FROM #FileStats wd2
-			JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
-			  AND wd1.DatabaseID = wd2.DatabaseID
-			  AND wd1.FileID = wd2.FileID
-		),
-		writestats as (
-			SELECT 
-			'PHYSICAL WRITES' as Pattern,
-			ROW_NUMBER() over (order by wd2.avg_stall_write_ms desc) as StallRank,
-			wd2.SampleTime as [Sample Time], 
-			datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
-			wd1.DatabaseName ,
-			wd1.FileLogicalName AS [File Name],
-			UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
-			wd1.SizeOnDiskMB ,
-			( wd2.num_of_writes - wd1.num_of_writes ) AS [# Reads/Writes],
-			CASE WHEN wd2.num_of_writes - wd1.num_of_writes > 0
-			  THEN CAST(( wd2.bytes_written - wd1.bytes_written)/1024./1024. AS NUMERIC(21,1)) 
-			  ELSE 0 
-			END AS [MB Read/Written],
-			wd2.avg_stall_write_ms AS [Avg Stall (ms)],
-			wd1.PhysicalName AS [file physical name]
-		FROM #FileStats wd2
-			JOIN #FileStats wd1 ON wd2.SampleTime > wd1.SampleTime
-			  AND wd1.DatabaseID = wd2.DatabaseID
-			  AND wd1.FileID = wd2.FileID
-		)
-		SELECT 
-			Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-		from readstats
-		where StallRank <=5 and [MB Read/Written] > 0
-		union all
-		SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-		from writestats
-		where StallRank <=5 and [MB Read/Written] > 0;
-			
-
-			
-
-	END /* IF @OutputEverything = 1 */
 
 
 END /* IF @Question IS NOT NULL */
@@ -994,7 +1087,7 @@ END
 SET NOCOUNT OFF;
 GO
 
-EXEC dbo.sp_AskBrent @Seconds = 5, @OutputEverything = 1, @ExpertMode = 1
+EXEC dbo.sp_AskBrent @Seconds = 5, @ExpertMode = 1
 
 /* Other tests:
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
