@@ -9,7 +9,7 @@ CREATE PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
 	@ExpertMode TINYINT = 0 ,
-    @Seconds TINYINT = 10 ,
+    @Seconds TINYINT = 5 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
@@ -49,7 +49,7 @@ AS
 	Unknown limitations of this version:
 	 - None. Like Zombo.com, the only limit is yourself.
 
-	Changes in v2 - August 8, 2013
+	Changes in v2 - August 9, 2013
 	 - Added @Seconds to control the sampling time.
 	 - @ExpertMode now returns all work tables with no thresholds.
 	 - Added basic wait stats, file stats, Perfmon checks.
@@ -111,12 +111,13 @@ AS
 
     IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL 
         DROP TABLE #WaitStats;
-	CREATE TABLE #WaitStats (wait_type NVARCHAR(60), wait_time_ms BIGINT, signal_wait_time_ms BIGINT, waiting_tasks_count BIGINT, SampleTime DATETIME);
+	CREATE TABLE #WaitStats (Pass TINYINT NOT NULL, wait_type NVARCHAR(60), wait_time_ms BIGINT, signal_wait_time_ms BIGINT, waiting_tasks_count BIGINT, SampleTime DATETIME);
 
     IF OBJECT_ID('tempdb..#FileStats') IS NOT NULL 
         DROP TABLE #FileStats;
 	CREATE TABLE #FileStats ( 
 		ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+		Pass TINYINT NOT NULL,
 		SampleTime DATETIME NOT NULL,
 		DatabaseID INT NOT NULL,
 		FileID INT NOT NULL,
@@ -139,12 +140,15 @@ AS
         DROP TABLE #PerfmonStats;
 	CREATE TABLE #PerfmonStats ( 
 		ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+		Pass TINYINT NOT NULL,
 		SampleTime DATETIME NOT NULL,
 		[object_name] NVARCHAR(128) NOT NULL,
 		[counter_name] NVARCHAR(128) NOT NULL,
 		[instance_name] NVARCHAR(128) NULL,
-		[cntr_value] BIGINT,
-		[cntr_type] INT NOT NULL
+		[cntr_value] BIGINT NULL,
+		[cntr_type] INT NOT NULL,
+		[value_delta] BIGINT NULL,
+		[value_per_second] DECIMAL(18,2) NULL
 	);
 
     IF OBJECT_ID('tempdb..#PerfmonCounters') IS NOT NULL 
@@ -186,7 +190,6 @@ AS
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Active Transactions','_Total')
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Databases','Log Growths', '_Total')
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Databases','Log Shrinks', '_Total')
-		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Deprecated Features','Usage', NULL)
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','Distributed Query', 'Execs in progress')
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','DTC calls', 'Execs in progress')
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Exec Statistics','Extended Procedures', 'Execs in progress')
@@ -225,9 +228,10 @@ BEGIN
 
 	/* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. 
 		After we finish doing our checks, we'll take another sample and compare them. */
-	INSERT #WaitStats(SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+	INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
 	SELECT
-		GETDATE(),
+		1 AS Pass,
+		GETDATE() AS SampleTime,
 		os.wait_type,
 		SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) as sum_wait_time_ms,
 		SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) as sum_signal_wait_time_ms,
@@ -260,13 +264,20 @@ BEGIN
 			'ONDEMAND_TASK_QUEUE',
 			'FT_IFTSHC_MUTEX',
 			'CLR_MANUAL_EVENT',
-			'SP_SERVER_DIAGNOSTICS_SLEEP')
+			'SP_SERVER_DIAGNOSTICS_SLEEP',
+			'HADR_CLUSAPI_CALL',
+			'HADR_LOGCAPTURE_WAIT',
+			'HADR_TIMER_TASK',
+			'HADR_WORK_QUEUE'
+		)
 	ORDER BY sum_wait_time_ms DESC;
 
 
-	INSERT INTO #FileStats (SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
+	INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
 		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
-	SELECT GETDATE(),
+	SELECT 
+		1 AS Pass,
+		GETDATE() AS SampleTime,
 		mf.[database_id],
 		mf.[file_id],
 		DB_NAME(vfs.database_id) AS [db_name], 
@@ -286,8 +297,9 @@ BEGIN
 	WHERE vfs.num_of_reads > 0
 		OR vfs.num_of_writes > 0;
 
-	INSERT INTO #PerfmonStats (SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
-	SELECT GETDATE(), RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
+	INSERT INTO #PerfmonStats (Pass, SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
+	SELECT 		1 AS Pass,
+		GETDATE() AS SampleTime, RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
 		FROM #PerfmonCounters counters
 		INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name = RTRIM(dmv.counter_name)
 			AND counters.[object_name] = RTRIM(dmv.[object_name])
@@ -516,6 +528,7 @@ BEGIN
 	AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
 	WHERE s.status = 'sleeping'
 	AND s.last_request_end_time < DATEADD(ss, -10, GETDATE())
+	AND s.open_transaction_count > 0
 	AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id 
 	AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
 
@@ -576,9 +589,10 @@ BEGIN
 
 
 	/* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
-	INSERT #WaitStats(SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+	INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
 	SELECT
-		GETDATE(),
+		2 AS Pass,
+		GETDATE() AS SampleTime,
 		os.wait_type,
 		SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) as sum_wait_time_ms,
 		SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) as sum_signal_wait_time_ms,
@@ -611,12 +625,18 @@ BEGIN
 			'ONDEMAND_TASK_QUEUE',
 			'FT_IFTSHC_MUTEX',
 			'CLR_MANUAL_EVENT',
-			'SP_SERVER_DIAGNOSTICS_SLEEP')
+			'SP_SERVER_DIAGNOSTICS_SLEEP',
+			'HADR_CLUSAPI_CALL',
+			'HADR_LOGCAPTURE_WAIT',
+			'HADR_TIMER_TASK',
+			'HADR_WORK_QUEUE'
+		)
 	ORDER BY sum_wait_time_ms DESC;
 
-	INSERT INTO #FileStats (SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
+	INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
 		num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
-	SELECT GETDATE(),
+	SELECT 		2 AS Pass,
+		GETDATE() AS SampleTime,
 		mf.[database_id],
 		mf.[file_id],
 		DB_NAME(vfs.database_id) AS [db_name], 
@@ -638,14 +658,16 @@ BEGIN
 	WHERE vfs.num_of_reads > 0
 		OR vfs.num_of_writes > 0;
 
-	INSERT INTO #PerfmonStats (SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
-	SELECT GETDATE(), RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
+	INSERT INTO #PerfmonStats (Pass, SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
+	SELECT 		2 AS Pass,
+		GETDATE() AS SampleTime,
+		RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
 		FROM #PerfmonCounters counters
 		INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name = RTRIM(dmv.counter_name)
 			AND counters.[object_name] = RTRIM(dmv.[object_name])
 			AND (counters.[instance_name] IS NULL OR counters.[instance_name] = RTRIM(dmv.[instance_name]))
 
-	/* Set the latencies. We could do this with a CTE, but we're not ambitious today. */
+	/* Set the latencies and averages. We could do this with a CTE, but we're not ambitious today. */
 	UPDATE fNow
 	SET avg_stall_read_ms = ((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads))
 	FROM #FileStats fNow
@@ -657,6 +679,13 @@ BEGIN
 	FROM #FileStats fNow
 	INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_writes > fBase.num_of_writes AND fNow.io_stall_write_ms > fBase.io_stall_write_ms
 	WHERE (fNow.num_of_writes - fBase.num_of_writes) > 0
+
+	UPDATE pNow
+		SET [value_delta] = pNow.cntr_value - pFirst.cntr_value,
+			[value_per_second] = ((1.0 * pNow.cntr_value - pFirst.cntr_value) / DATEDIFF(ss, pFirst.SampleTime, pNow.SampleTime)) 
+		FROM #PerfmonStats pNow
+			INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pNow.[object_name] AND pFirst.counter_name = pNow.counter_name AND (pFirst.instance_name = pNow.instance_name OR (pFirst.instance_name IS NULL AND pNow.instance_name IS NULL))
+				AND pNow.ID > pFirst.ID;
 
 
 	/* Wait Stats - CheckID 6 */
@@ -723,6 +752,78 @@ BEGIN
 	ORDER BY (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) DESC;
 
 
+	/* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	SELECT 13 AS CheckID,
+		1 AS Priority,
+		'SQL Server Internal Maintenance' AS FindingGroup,
+		'Log File Growing' AS Finding,
+		'http://BrentOzar.com/go/logsize' AS URL,
+		@StockDetailsHeader + 'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
+	FROM #PerfmonStats ps
+	WHERE ps.Pass = 2
+		AND object_name = 'SQLServer:Databases'
+		AND counter_name = 'Log Growths'
+		AND value_delta > 0
+
+
+	/* SQL Server Internal Maintenance - Log File Shrinking - CheckID 14 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	SELECT 14 AS CheckID,
+		1 AS Priority,
+		'SQL Server Internal Maintenance' AS FindingGroup,
+		'Log File Shrinking' AS Finding,
+		'http://BrentOzar.com/go/logsize' AS URL,
+		@StockDetailsHeader + 'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
+	FROM #PerfmonStats ps
+	WHERE ps.Pass = 2
+		AND object_name = 'SQLServer:Databases'
+		AND counter_name = 'Log Shrinks'
+		AND value_delta > 0
+
+	/* Query Problems - Compilations/Sec High - CheckID 15 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	SELECT 15 AS CheckID,
+		50 AS Priority,
+		'Query Problems' AS FindingGroup,
+		'Compilations/Sec High' AS Finding,
+		'http://BrentOzar.com/go/compile' AS URL,
+		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'Find out why plans are not being reused, and consider enabling Forced Parameterization. See the URL for more details.' + @StockWarningFooter AS XML) AS HowToStopIt
+	FROM #PerfmonStats ps
+		INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = 'SQLServer:SQL Statistics' AND psComp.counter_name = 'SQL Compilations/sec' AND psComp.value_delta > 0
+	WHERE ps.Pass = 2
+		AND ps.object_name = 'SQLServer:SQL Statistics'
+		AND ps.counter_name = 'Batch Requests/sec'
+		AND ps.value_delta > 0
+		AND (psComp.value_delta * 10) > ps.value_delta /* Compilations are more than 10% of batch requests per second */
+
+	/* Query Problems - Re-Compilations/Sec High - CheckID 16 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	SELECT 16 AS CheckID,
+		50 AS Priority,
+		'Query Problems' AS FindingGroup,
+		'Re-Compilations/Sec High' AS Finding,
+		'http://BrentOzar.com/go/recompile' AS URL,
+		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
+			+ 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
+		CAST(@StockWarningHeader + 'Find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' + @StockWarningFooter AS XML) AS HowToStopIt
+	FROM #PerfmonStats ps
+		INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = 'SQLServer:SQL Statistics' AND psComp.counter_name = 'SQL Re-Compilations/sec' AND psComp.value_delta > 0
+	WHERE ps.Pass = 2
+		AND ps.object_name = 'SQLServer:SQL Statistics'
+		AND ps.counter_name = 'Batch Requests/sec'
+		AND ps.value_delta > 0
+		AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
+
+
 	/* If we didn't find anything, apologize. */
 	IF NOT EXISTS (SELECT * FROM #AskBrentResults)
 	BEGIN
@@ -779,7 +880,7 @@ BEGIN
 				)
 		VALUES  ( -1 ,
 				  0 ,
-				  'sp_AskBrent (TM) v2 August 7 2013' ,
+				  'sp_AskBrent (TM) v2 August 9 2013' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
 				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
