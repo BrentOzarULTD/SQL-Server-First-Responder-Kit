@@ -27,7 +27,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v27 - August 6, 2013
+	sp_Blitz (TM) v28 - August 21, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -56,6 +56,13 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v28 - August 21, 2013
+	 - Tom Meyer improved several backup checks so that they'll work if the master
+	   and msdb databases have different collations, like if someone restores
+	   msdb from another server with a different collation. (Please don't do that.)
+	 - Fixed a bug in the VLF check that added a trailing space in the URL. This
+	   broke the PDF output in the Windows app.
 
 	Changes in v27 - August 6, 2013
 	 - Whoops! Even more bug fixes in check 114. Thanks, Andy Jarman!
@@ -416,7 +423,7 @@ AS
                                     + CAST(COALESCE(MAX(b.backup_finish_date),
                                                     ' never ') AS VARCHAR(200)) AS Details
                             FROM    master.sys.databases d
-                                    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name = b.database_name
+                                    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
                                                               AND b.type = 'D'
                                                               AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server */
                             WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
@@ -473,7 +480,7 @@ AS
                                                         WHERE CheckID IS NULL )
                                     AND NOT EXISTS ( SELECT *
                                                      FROM   msdb.dbo.backupset b
-                                                     WHERE  d.name = b.database_name
+                                                     WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
                                                             AND b.type = 'D'
                                                             AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server */)
 
@@ -523,7 +530,7 @@ AS
                                                         WHERE CheckID IS NULL )
                                     AND NOT EXISTS ( SELECT *
                                                      FROM   msdb.dbo.backupset b
-                                                     WHERE  d.name = b.database_name
+                                                     WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
                                                             AND b.type = 'L'
                                                             AND b.backup_finish_date >= DATEADD(dd,
                                                               -7, GETDATE()) );
@@ -621,9 +628,9 @@ AS
                                     INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id
                                                               AND bs.backup_start_date >= ( DATEADD(dd,
                                                               -14, GETDATE()) )
-                            WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) IN (
+                            WHERE   UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
                                     SELECT DISTINCT
-                                            UPPER(LEFT(mf.physical_name, 3))
+                                            UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
                                     FROM    sys.master_files AS mf )
                 END
 
@@ -2042,12 +2049,8 @@ AS
       ''Performance'' AS FindingsGroup ,
       ''Memory Dangerously Low'' AS Finding ,
       ''http://BrentOzar.com/go/max'' AS URL ,
-      ''Although available memory is ''
-        + CAST(( CAST(m.available_physical_memory_kb AS BIGINT)
-        / 1024 ) AS VARCHAR(20))
-        + '' megabytes, only ''
-        + CAST(( CAST(m.total_physical_memory_kb AS BIGINT) / 1024 ) AS VARCHAR(20))
-        + ''megabytes of memory are present.  As the server runs out of memory, there is danger of swapping to disk, which will kill performance.'' AS Details
+      ''The server has '' + CAST(( CAST(m.total_physical_memory_kb AS BIGINT) / 1024 ) AS VARCHAR(20)) + '' megabytes of physical memory, but only '' + CAST(( CAST(m.available_physical_memory_kb AS BIGINT) / 1024 ) AS VARCHAR(20))
+        + '' megabytes are available.  As the server runs out of memory, there is danger of swapping to disk, which will kill performance.'' AS Details
       FROM    sys.dm_os_sys_memory m
       WHERE   CAST(m.available_physical_memory_kb AS BIGINT) < 262144'
                             EXECUTE(@StringToExecute)
@@ -2506,7 +2509,7 @@ AS
 										OR (d.[state] = 0 AND d.[is_in_standby] = 1) )
 										AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh 
 										INNER JOIN msdb.dbo.backupset bs ON rh.backup_set_id = bs.backup_set_id
-										WHERE d.[name] = rh.destination_database_name
+										WHERE d.[name] COLLATE SQL_Latin1_General_CP1_CI_AS = rh.destination_database_name COLLATE SQL_Latin1_General_CP1_CI_AS
 										AND rh.restore_date >= DATEADD(dd, -2, GETDATE()))
 
 	                END
@@ -3369,7 +3372,7 @@ AS
         ,100                              
         ,''Performance''                              
         ,''High VLF Count''                              
-        ,''http://BrentOzar.com/go/vlf ''                              
+        ,''http://BrentOzar.com/go/vlf''                              
         ,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''  
         FROM #LogInfo2012
         WHERE EXISTS (SELECT name FROM master.sys.databases 
@@ -3972,7 +3975,7 @@ AS
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                     );
 
-            SET @Version = 27;
+            SET @Version = 28;
             INSERT  INTO #BlitzResults
                     ( CheckID ,
                       Priority ,
@@ -3984,7 +3987,7 @@ AS
                     )
             VALUES  ( -1 ,
                       0 ,
-                      'sp_Blitz (TM) v27 August 6 2013' ,
+                      'sp_Blitz (TM) v28 August 21 2013' ,
                       'From Brent Ozar Unlimited' ,
                       'http://www.BrentOzar.com/blitz/' ,
                       'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
