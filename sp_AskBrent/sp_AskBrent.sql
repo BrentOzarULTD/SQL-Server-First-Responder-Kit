@@ -1177,6 +1177,7 @@ BEGIN
 	INSERT INTO #BrentAnswers VALUES ('No comprende Ingles, senor.');
 	INSERT INTO #BrentAnswers VALUES ('I don''t have that problem on my Mac.');
 	INSERT INTO #BrentAnswers VALUES ('Is Priority Boost on?');
+	INSERT INTO #BrentAnswers VALUES ('Have you tried rebooting your machine?');
 	INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
 	INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
 	INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
