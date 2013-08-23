@@ -170,7 +170,7 @@ AS
 	IF @OutputType = 'SCHEMA'
 	BEGIN
 		SELECT @Version AS Version,
-		FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] [XML], [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT'
+		FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT'
 
 	END
 	ELSE /* IF @OutputType = 'SCHEMA' */
