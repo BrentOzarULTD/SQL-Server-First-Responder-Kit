@@ -1,5 +1,11 @@
 # sp_AskBrent Presentation Notes
 
+## Current To-Dos
+
+* In the plan cache output, handle encrypted code and plans.
+* Make sure the XML export works for plans. (Like if it's called from StackStatus)
+* Bail out of plan analysis if it takes too long, unless @ExpertMode is on.
+
 ## Presentation Flow
 
 * Talk about something (not sure if it's typical DBA challenges or what)
