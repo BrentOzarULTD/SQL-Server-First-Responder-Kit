@@ -26,7 +26,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@filter doesn't do anything unless @mode=0*/
 /*
-sp_BlitzIndex (TM) v2.0 - April 8, 2013
+sp_BlitzIndex (TM) v2.01 - May 26, 2013
 
 (C) 2013, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -47,6 +47,8 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last five versions):
+	May 26, 2013 (v2.01)
+		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
 		Set sp_blitz to default to current DB if database_name is not specified when called
 		Added @filter:  
@@ -215,7 +217,7 @@ BEGIN TRY
 					END
 		END
 
-		RAISERROR(N'Starting run. sp_BlitzIndex version 2.0 (May 15, 2013)', 0,1) WITH NOWAIT;
+		RAISERROR(N'Starting run. sp_BlitzIndex v2.01 - May 26, 2013', 0,1) WITH NOWAIT;
 
 		IF OBJECT_ID('tempdb..#index_sanity') IS NOT NULL 
 			DROP TABLE #index_sanity;
@@ -1209,7 +1211,7 @@ BEGIN
 		WHERE s.[object_id]=@object_id
 		UNION ALL
 		SELECT 				
-				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
+				N'sp_BlitzIndex v2.01 - May 26, 2013' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1319,7 +1321,7 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,
+		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex v2.01 - May 26, 2013' ,
 				N'From Brent Ozar Unlimited' ,   N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
@@ -1466,6 +1468,7 @@ BEGIN;
 					FROM	#index_sanity i
 					JOIN	#index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE	index_id NOT IN ( 0, 1 ) 
+							and i.is_unique = 0
 					OPTION	( RECOMPILE );
 
 				IF @percent_NC_indexes_unused >= 5 
@@ -1514,6 +1517,7 @@ BEGIN;
 						JOIN	#index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 						WHERE	i.total_reads=0
 								AND i.index_id NOT IN (0,1) /*NCs only*/
+								and i.is_unique = 0
 						ORDER BY i.schema_object_indexid
 						OPTION	( RECOMPILE );
 			END /*end checks only run when @filter <> 1*/
@@ -1550,7 +1554,7 @@ BEGIN;
 						SELECT	24 AS check_id, 
 								i.index_sanity_id, 
 								N'Index Hoarder' AS findings_group,
-								N'Wide clustered index' AS finding,
+								N'Wide clustered index (> 3 columns OR > 16 bytes)' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
 								CAST (i.count_key_columns AS NVARCHAR(10)) + N' columns with potential size of '
 									+ CAST(cc.sum_max_length AS NVARCHAR(10))
@@ -1676,6 +1680,32 @@ BEGIN;
 							AND calc1.non_string_or_lob_columns <= 1
 							AND cc.total_columns > 3
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
+			RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
+				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+											   secret_columns, index_usage_summary, index_size_summary )
+						SELECT	28 AS check_id, 
+								i.index_sanity_id, 
+								N'Index Hoarder' AS findings_group,
+								N'Non-Unique clustered index' AS finding,
+								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+								N'Uniquifiers will be required! Clustered index: ' + i.schema_object_name 
+									+ N' and all NC indexes. ' + 
+										(SELECT CAST(COUNT(*) AS NVARCHAR(23)) FROM #index_sanity i2 
+										WHERE i2.[object_id]=i.[object_id] AND i2.index_id <> 1
+										AND i2.is_disabled=0 AND i2.is_hypothetical=0)
+										+ N' NC indexes on the table.'
+									AS details,
+								i.index_definition,
+								secret_columns, 
+								i.index_usage_summary,
+								ip.index_size_summary
+						FROM	#index_sanity i
+						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
+						WHERE	index_id = 1 /* clustered only */
+								AND is_unique=0 /* not unique */
+						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
+
 
 		END
 		 ----------------------------------------
@@ -2395,7 +2425,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT	N'Database='+ @database_name,		
-				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
+				N'sp_BlitzIndex v2.01 - May 26, 2013' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2473,7 +2503,7 @@ BEGIN;
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 	N'Database=' + @database_name,			
-				N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
+				N'sp_BlitzIndex v2.01 - May 26, 2013' ,   
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2511,7 +2541,7 @@ BEGIN;
 		FROM #missing_indexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex version 2.0 (May 15, 2013)' ,   
+			N'sp_BlitzIndex v2.01 - May 26, 2013' ,   
 			N'From Brent Ozar Unlimited' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
