@@ -1496,6 +1496,7 @@ BEGIN;
 							FROM	#index_sanity i
 							JOIN	#index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 							WHERE	index_id NOT IN ( 0, 1 )
+									AND i.is_unique = 0
 									AND total_reads = 0
 							GROUP BY i.database_name 
 					OPTION	( RECOMPILE );
