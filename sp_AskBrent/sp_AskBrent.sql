@@ -5,6 +5,7 @@ IF OBJECT_ID('master.dbo.sp_AskBrent') IS NOT NULL
     DROP PROC dbo.sp_AskBrent;
 GO
 
+
 CREATE PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
@@ -52,6 +53,10 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v5 - September 16, 2013
+ - Enabled @Question again.
+ - Bail out of plan cache analysis if we're more than 10 seconds behind.
+
 Changes in v4 - August 25, 2013
  - Added plan cache analysis.
  - Fixed checkid 8 (sleeping query with open transactions) for SQL 2005/08/R2.
@@ -79,7 +84,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 4, @VersionDate = '2013/08/25'
+SELECT @Version = 5, @VersionDate = '2013/09/16'
 
 IF @OutputType = 'SCHEMA'
 BEGIN
@@ -745,103 +750,117 @@ BEGIN
 				AND pNow.ID > pFirst.ID;
 
 
-	INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-	SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
-		FROM sys.dm_exec_query_stats qs
-		WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));
+	/* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
+	IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0
+		BEGIN
+		
+			INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://BrentOzar.com/go/topqueries',
+				@StockDetailsHeader + 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
+		
+		END
+	ELSE /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
+		BEGIN
 
-	/* Get the totals for the entire plan cache */
-	INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
-	SELECT 0 AS Pass, GETDATE(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
-		FROM sys.dm_exec_query_stats qs;
+		INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+		SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+			FROM sys.dm_exec_query_stats qs
+			WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));
 
-	/* 
-	Pick the most resource-intensive queries to review. Update the Points field
-	in #QueryStats - if a query is in the top 10 for logical reads, CPU time,
-	duration, or execution, add 1 to its points.
-	*/
-	WITH qsTop AS (
-	SELECT TOP 10 qsNow.ID
-	FROM #QueryStats qsNow
-	  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
-	WHERE qsNow.total_elapsed_time > qsFirst.total_elapsed_time
-		AND qsNow.Pass = 2
-	ORDER BY (qsNow.total_elapsed_time - COALESCE(qsFirst.total_elapsed_time, 0)) DESC)
-	UPDATE #QueryStats
-		SET Points = Points + 1
-		FROM #QueryStats qs
-		INNER JOIN qsTop ON qs.ID = qsTop.ID;
+		/* Get the totals for the entire plan cache */
+		INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
+		SELECT 0 AS Pass, GETDATE(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
+			FROM sys.dm_exec_query_stats qs;
 
-	WITH qsTop AS (
-	SELECT TOP 10 qsNow.ID
-	FROM #QueryStats qsNow
-	  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
-	WHERE qsNow.total_logical_reads > qsFirst.total_logical_reads
-		AND qsNow.Pass = 2
-	ORDER BY (qsNow.total_logical_reads - COALESCE(qsFirst.total_logical_reads, 0)) DESC)
-	UPDATE #QueryStats
-		SET Points = Points + 1
-		FROM #QueryStats qs
-		INNER JOIN qsTop ON qs.ID = qsTop.ID;
-
-	WITH qsTop AS (
-	SELECT TOP 10 qsNow.ID
-	FROM #QueryStats qsNow
-	  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
-	WHERE qsNow.total_worker_time > qsFirst.total_worker_time
-		AND qsNow.Pass = 2
-	ORDER BY (qsNow.total_worker_time - COALESCE(qsFirst.total_worker_time, 0)) DESC)
-	UPDATE #QueryStats
-		SET Points = Points + 1
-		FROM #QueryStats qs
-		INNER JOIN qsTop ON qs.ID = qsTop.ID;
-
-	WITH qsTop AS (
-	SELECT TOP 10 qsNow.ID
-	FROM #QueryStats qsNow
-	  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
-	WHERE qsNow.execution_count > qsFirst.execution_count
-		AND qsNow.Pass = 2
-	ORDER BY (qsNow.execution_count - COALESCE(qsFirst.execution_count, 0)) DESC)
-	UPDATE #QueryStats
-		SET Points = Points + 1
-		FROM #QueryStats qs
-		INNER JOIN qsTop ON qs.ID = qsTop.ID;
-
-	/* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText)
-	SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://BrentOzar.com/go/topqueries',
-		@StockDetailsHeader + 'Query stats during the sample:' + @LineFeed +
-		'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
-		'Elapsed Time: ' + CAST(qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)) AS NVARCHAR(100)) + @LineFeed +
-		'CPU Time: ' + CAST(qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0)) AS NVARCHAR(100)) + @LineFeed +
-		'Logical Reads: ' + CAST(qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0)) AS NVARCHAR(100)) + @LineFeed +
-		'Logical Writes: ' + CAST(qsNow.total_logical_writes - (COALESCE(qsFirst.total_logical_writes, 0)) AS NVARCHAR(100)) + @LineFeed +
-		'CLR Time: ' + CAST(qsNow.total_clr_time - (COALESCE(qsFirst.total_clr_time, 0)) AS NVARCHAR(100)) + @LineFeed +
-		@LineFeed + @LineFeed + 'Query stats since ' + CONVERT(NVARCHAR(100), qsNow.creation_time ,121) + @LineFeed +
-		'Executions: ' + CAST(qsNow.execution_count AS NVARCHAR(100)) + 
-				CASE qsTotal.execution_count WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.execution_count / qsTotal.execution_count AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		'Elapsed Time: ' + CAST(qsNow.total_elapsed_time AS NVARCHAR(100)) + 
-				CASE qsTotal.total_elapsed_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_elapsed_time / qsTotal.total_elapsed_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		'CPU Time: ' + CAST(qsNow.total_worker_time AS NVARCHAR(100)) + 
-				CASE qsTotal.total_worker_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		'Logical Reads: ' + CAST(qsNow.total_logical_reads AS NVARCHAR(100)) +
-				CASE qsTotal.total_logical_reads WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		'Logical Writes: ' + CAST(qsNow.total_logical_writes AS NVARCHAR(100)) + 
-				CASE qsTotal.total_logical_writes WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_logical_writes / qsTotal.total_logical_writes AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		'CLR Time: ' + CAST(qsNow.total_clr_time AS NVARCHAR(100)) + 
-				CASE qsTotal.total_clr_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_clr_time / qsTotal.total_clr_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
-		--@LineFeed + @LineFeed + 'Query hash: ' + CAST(qsNow.query_hash AS NVARCHAR(100)) + @LineFeed +
-		--@LineFeed + @LineFeed + 'Query plan hash: ' + CAST(qsNow.query_plan_hash AS NVARCHAR(100)) + 
-		@LineFeed AS Details,
-		CAST(@StockWarningHeader + 'See the URL for tuning tips on why this query may be consuming resources.' + @StockWarningFooter AS XML) AS HowToStopIt,
-		qp.query_plan, st.text
+		/* 
+		Pick the most resource-intensive queries to review. Update the Points field
+		in #QueryStats - if a query is in the top 10 for logical reads, CPU time,
+		duration, or execution, add 1 to its points.
+		*/
+		WITH qsTop AS (
+		SELECT TOP 10 qsNow.ID
 		FROM #QueryStats qsNow
-			INNER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
-			LEFT OUTER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
-	        CROSS APPLY sys.dm_exec_sql_text(qsNow.sql_handle) AS st 
-	        CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
-		WHERE qsNow.Points > 0
+		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
+		WHERE qsNow.total_elapsed_time > qsFirst.total_elapsed_time
+			AND qsNow.Pass = 2
+		ORDER BY (qsNow.total_elapsed_time - COALESCE(qsFirst.total_elapsed_time, 0)) DESC)
+		UPDATE #QueryStats
+			SET Points = Points + 1
+			FROM #QueryStats qs
+			INNER JOIN qsTop ON qs.ID = qsTop.ID;
+
+		WITH qsTop AS (
+		SELECT TOP 10 qsNow.ID
+		FROM #QueryStats qsNow
+		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
+		WHERE qsNow.total_logical_reads > qsFirst.total_logical_reads
+			AND qsNow.Pass = 2
+		ORDER BY (qsNow.total_logical_reads - COALESCE(qsFirst.total_logical_reads, 0)) DESC)
+		UPDATE #QueryStats
+			SET Points = Points + 1
+			FROM #QueryStats qs
+			INNER JOIN qsTop ON qs.ID = qsTop.ID;
+
+		WITH qsTop AS (
+		SELECT TOP 10 qsNow.ID
+		FROM #QueryStats qsNow
+		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
+		WHERE qsNow.total_worker_time > qsFirst.total_worker_time
+			AND qsNow.Pass = 2
+		ORDER BY (qsNow.total_worker_time - COALESCE(qsFirst.total_worker_time, 0)) DESC)
+		UPDATE #QueryStats
+			SET Points = Points + 1
+			FROM #QueryStats qs
+			INNER JOIN qsTop ON qs.ID = qsTop.ID;
+
+		WITH qsTop AS (
+		SELECT TOP 10 qsNow.ID
+		FROM #QueryStats qsNow
+		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
+		WHERE qsNow.execution_count > qsFirst.execution_count
+			AND qsNow.Pass = 2
+		ORDER BY (qsNow.execution_count - COALESCE(qsFirst.execution_count, 0)) DESC)
+		UPDATE #QueryStats
+			SET Points = Points + 1
+			FROM #QueryStats qs
+			INNER JOIN qsTop ON qs.ID = qsTop.ID;
+
+		/* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
+		INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText)
+		SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://BrentOzar.com/go/topqueries',
+			@StockDetailsHeader + 'Query stats during the sample:' + @LineFeed +
+			'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
+			'Elapsed Time: ' + CAST(qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)) AS NVARCHAR(100)) + @LineFeed +
+			'CPU Time: ' + CAST(qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0)) AS NVARCHAR(100)) + @LineFeed +
+			'Logical Reads: ' + CAST(qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0)) AS NVARCHAR(100)) + @LineFeed +
+			'Logical Writes: ' + CAST(qsNow.total_logical_writes - (COALESCE(qsFirst.total_logical_writes, 0)) AS NVARCHAR(100)) + @LineFeed +
+			'CLR Time: ' + CAST(qsNow.total_clr_time - (COALESCE(qsFirst.total_clr_time, 0)) AS NVARCHAR(100)) + @LineFeed +
+			@LineFeed + @LineFeed + 'Query stats since ' + CONVERT(NVARCHAR(100), qsNow.creation_time ,121) + @LineFeed +
+			'Executions: ' + CAST(qsNow.execution_count AS NVARCHAR(100)) + 
+					CASE qsTotal.execution_count WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.execution_count / qsTotal.execution_count AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			'Elapsed Time: ' + CAST(qsNow.total_elapsed_time AS NVARCHAR(100)) + 
+					CASE qsTotal.total_elapsed_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_elapsed_time / qsTotal.total_elapsed_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			'CPU Time: ' + CAST(qsNow.total_worker_time AS NVARCHAR(100)) + 
+					CASE qsTotal.total_worker_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			'Logical Reads: ' + CAST(qsNow.total_logical_reads AS NVARCHAR(100)) +
+					CASE qsTotal.total_logical_reads WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			'Logical Writes: ' + CAST(qsNow.total_logical_writes AS NVARCHAR(100)) + 
+					CASE qsTotal.total_logical_writes WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_logical_writes / qsTotal.total_logical_writes AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			'CLR Time: ' + CAST(qsNow.total_clr_time AS NVARCHAR(100)) + 
+					CASE qsTotal.total_clr_time WHEN 0 THEN '' ELSE (' - Percent of Server Total: ' + CAST(CAST(100.0 * qsNow.total_clr_time / qsTotal.total_clr_time AS DECIMAL(6,2)) AS NVARCHAR(100)) + '%') END + @LineFeed +
+			--@LineFeed + @LineFeed + 'Query hash: ' + CAST(qsNow.query_hash AS NVARCHAR(100)) + @LineFeed +
+			--@LineFeed + @LineFeed + 'Query plan hash: ' + CAST(qsNow.query_plan_hash AS NVARCHAR(100)) + 
+			@LineFeed AS Details,
+			CAST(@StockWarningHeader + 'See the URL for tuning tips on why this query may be consuming resources.' + @StockWarningFooter AS XML) AS HowToStopIt,
+			qp.query_plan, st.text
+			FROM #QueryStats qsNow
+				INNER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
+				LEFT OUTER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
+				CROSS APPLY sys.dm_exec_sql_text(qsNow.sql_handle) AS st 
+				CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
+			WHERE qsNow.Points > 0
+
+		END /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
 	
 
 	/* Wait Stats - CheckID 6 */
@@ -1336,7 +1355,7 @@ BEGIN
 
 
 END /* IF @Question IS NULL */
-ELSE IF @Question IS NULL 
+ELSE IF @Question IS NOT NULL 
 
 /* We're playing Magic SQL 8 Ball, so give them an answer. */
 BEGIN
@@ -1374,6 +1393,7 @@ END /* ELSE IF @OutputType = 'SCHEMA' */
 
 SET NOCOUNT OFF;
 GO
+
 
 EXEC dbo.sp_AskBrent 
 
