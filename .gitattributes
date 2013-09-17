@@ -36,6 +36,8 @@
 *.XLS	binary
 *.XLSX	binary
 *.XLSX	binary
+*.PPT   binary
+*.PPTX  binary
 *.DOT	DIFF=ASTEXTPLAIN
 *.DOT	DIFF=ASTEXTPLAIN
 *.PDF	DIFF=ASTEXTPLAIN
