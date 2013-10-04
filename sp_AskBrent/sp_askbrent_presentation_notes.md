@@ -4,7 +4,6 @@
 
 * In the plan cache output, handle encrypted code and plans.
 * Make sure the XML export works for plans. (Like if it's called from StackStatus)
-* Bail out of plan analysis if it takes too long, unless @ExpertMode is on.
 
 Check size of plan cache vs TempDB space available before creating it into TempDB
 If TempDB space is limited or plan cache is large, only insert top 100 stats order by execution count DESC, logical reads DESC, CPU DESC, and duration DESC
