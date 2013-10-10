@@ -1,5 +1,7 @@
 # sp_AskBrent Presentation Notes
 
+* Run it via the DAC
+
 ## Current To-Dos
 
 * In the plan cache output, handle encrypted code and plans.
