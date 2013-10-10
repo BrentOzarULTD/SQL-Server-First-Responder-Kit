@@ -53,6 +53,10 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v6 - October 10, 2013
+ - Time travel enabled. Can log to database using the @Output* parameters, and
+   you can go back in time with the @AsOf parameter.
+
 Changes in v5 - September 16, 2013
  - Enabled @Question again.
  - Bail out of plan cache analysis if we're more than 10 seconds behind.
@@ -84,7 +88,23 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 5, @VersionDate = '2013/09/16'
+SELECT @Version = 6, @VersionDate = '2013/10/10'
+
+DECLARE @StringToExecute NVARCHAR(4000),
+	@OurSessionID INT = @@SPID,
+	@LineFeed NVARCHAR(10) = CHAR(13)+CHAR(10),
+	@StockWarningHeader NVARCHAR(500),
+	@StockWarningFooter NVARCHAR(100),
+	@StockDetailsHeader NVARCHAR(100),
+	@StockDetailsFooter NVARCHAR(100),
+	@StartSampleTime DATETIME = GETDATE(),
+	@FinishSampleTime DATETIME = DATEADD(ss, @Seconds, GETDATE());
+
+/* Sanitize our inputs */
+SELECT
+	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
+	@OutputTableName = QUOTENAME(@OutputTableName)
 
 IF @OutputType = 'SCHEMA'
 BEGIN
@@ -92,6 +112,26 @@ BEGIN
 	FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [HowToStopIt] NVARCHAR(MAX), [QueryPlan] XML, [QueryText] NVARCHAR(MAX)'
 
 END
+ELSE IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+BEGIN
+	/* They want to look into the past. */
+
+		SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CAST([Details] AS [XML]) AS Details,'
+			+ '[HowToStopIt], [CheckID], [StartTime], [LoginName], [NTUserName], [OriginalLoginName], [ProgramName], [HostName], [DatabaseID],'
+			+ '[DatabaseName], [OpenTransactionCount], [QueryPlan], [QueryText] FROM '
+			+ @OutputDatabaseName + '.'
+			+ @OutputSchemaName + '.'
+			+ @OutputTableName
+			+ ' WHERE CheckDate >= DATEADD(mi, -15, ''' + CAST(@AsOf AS NVARCHAR(100)) + ''')'
+			+ ' AND CheckDate <= DATEADD(mi, 15, ''' + CAST(@AsOf AS NVARCHAR(100)) + ''')'
+			+ ' /*ORDER BY CheckDate, Priority , FindingsGroup , Finding , Details*/;';
+		EXEC(@StringToExecute);
+
+
+END /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL */
 ELSE IF @Question IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
 
@@ -109,15 +149,6 @@ BEGIN
 	download that from http://www.BrentOzar.com/askbrent/documentation/ if you
 	want to build a tool that relies on the output of sp_AskBrent.
 	*/
-	DECLARE @StringToExecute NVARCHAR(4000),
-		@OurSessionID INT = @@SPID,
-		@LineFeed NVARCHAR(10) = CHAR(13)+CHAR(10),
-		@StockWarningHeader NVARCHAR(500),
-		@StockWarningFooter NVARCHAR(100),
-		@StockDetailsHeader NVARCHAR(100),
-		@StockDetailsFooter NVARCHAR(100),
-		@StartSampleTime DATETIME = GETDATE(),
-		@FinishSampleTime DATETIME = DATEADD(ss, @Seconds, GETDATE());
 
 	IF OBJECT_ID('tempdb..#AskBrentResults') IS NOT NULL 
 		DROP TABLE #AskBrentResults;
@@ -228,7 +259,6 @@ BEGIN
 	SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
 		@StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
 		@StockDetailsFooter = @LineFeed + ' -- ?>';
-
 
 	/* Build a list of queries that were run in the last 10 seconds.
 	   We're looking for the death-by-a-thousand-small-cuts scenario
@@ -765,7 +795,7 @@ BEGIN
 		INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
 		SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
 			FROM sys.dm_exec_query_stats qs
-			WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));
+			WHERE qs.last_execution_time >= @StartSampleTime;
 
 		/* Get the totals for the entire plan cache */
 		INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
@@ -858,7 +888,7 @@ BEGIN
 				LEFT OUTER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 				CROSS APPLY sys.dm_exec_sql_text(qsNow.sql_handle) AS st 
 				CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
-			WHERE qsNow.Points > 0
+			WHERE qsNow.Points > 0 AND st.text IS NOT NULL AND qp.query_plan IS NOT NULL
 
 		END /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
 	
@@ -976,7 +1006,7 @@ BEGIN
 	WHERE ps.Pass = 2
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec'
-		AND ps.value_delta > 0
+		AND ps.value_delta > 100 /* Ignore servers sitting idle */
 		AND (psComp.value_delta * 10) > ps.value_delta /* Compilations are more than 10% of batch requests per second */
 
 	/* Query Problems - Re-Compilations/Sec High - CheckID 16 */
@@ -995,7 +1025,7 @@ BEGIN
 	WHERE ps.Pass = 2
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec'
-		AND ps.value_delta > 0
+		AND ps.value_delta > 100 /* Ignore servers sitting idle */
 		AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
 
 
@@ -1043,7 +1073,6 @@ BEGIN
 				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com. ' + @LineFeed + '-- ?>'
 				);
 
-		SET @Version = 2;
 		INSERT  INTO #AskBrentResults
 				( CheckID ,
 				  Priority ,
@@ -1055,7 +1084,7 @@ BEGIN
 				)
 		VALUES  ( -1 ,
 				  0 ,
-				  'sp_AskBrent (TM) v2 August 9 2013' ,
+				  'sp_AskBrent (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
 				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
@@ -1088,14 +1117,24 @@ BEGIN
 				ServerName NVARCHAR(128), 
 				CheckDate DATETIME, 
 				AskBrentVersion INT,
-				Priority TINYINT ,
-				FindingsGroup VARCHAR(50) ,
-				Finding VARCHAR(200) ,
-				URL VARCHAR(200) ,
-				Details [XML] ,
-				HowToStopIt [XML] ,
-				QueryPlan [XML] NULL ,
-				CheckID INT ,
+				CheckID INT NOT NULL,
+				Priority TINYINT NOT NULL,
+				FindingsGroup VARCHAR(50) NOT NULL,
+				Finding VARCHAR(200) NOT NULL,
+				URL VARCHAR(200) NOT NULL,
+				Details NVARCHAR(4000) NULL,
+				HowToStopIt [XML] NULL,
+				QueryPlan [XML] NULL,
+				QueryText NVARCHAR(MAX) NULL,
+				StartTime DATETIME NULL,
+				LoginName NVARCHAR(128) NULL,
+				NTUserName NVARCHAR(128) NULL,
+				OriginalLoginName NVARCHAR(128) NULL,
+				ProgramName NVARCHAR(128) NULL,
+				HostName NVARCHAR(128) NULL,
+				DatabaseID INT NULL,
+				DatabaseName NVARCHAR(128) NULL,
+				OpenTransactionCount INT NULL,
 				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
 
 		EXEC(@StringToExecute);
@@ -1106,10 +1145,10 @@ BEGIN
 			+ @OutputDatabaseName + '.'
 			+ @OutputSchemaName + '.'
 			+ @OutputTableName
-			+ ' (ServerName, CheckDate, AskBrentVersion, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, CheckID) SELECT '''
+			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-			+ ', Priority, FindingsGroup, Finding, URL, Details, QueryPlan, CheckID FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1123,22 +1162,31 @@ BEGIN
 				ServerName NVARCHAR(128), 
 				CheckDate DATETIME, 
 				AskBrentVersion INT,
-				Priority TINYINT ,
-				FindingsGroup VARCHAR(50) ,
-				Finding VARCHAR(200) ,
-				URL VARCHAR(200) ,
-				Details [XML] ,
-				HowToStopIt [XML] ,
-				QueryPlan [XML] NULL ,
-				QueryText NVARCHAR(MAX) NULL ,
-				CheckID INT ,
+				CheckID INT NOT NULL,
+				Priority TINYINT NOT NULL,
+				FindingsGroup VARCHAR(50) NOT NULL,
+				Finding VARCHAR(200) NOT NULL,
+				URL VARCHAR(200) NOT NULL,
+				Details NVARCHAR(4000) NULL,
+				HowToStopIt [XML] NULL,
+				QueryPlan [XML] NULL,
+				QueryText NVARCHAR(MAX) NULL,
+				StartTime DATETIME NULL,
+				LoginName NVARCHAR(128) NULL,
+				NTUserName NVARCHAR(128) NULL,
+				OriginalLoginName NVARCHAR(128) NULL,
+				ProgramName NVARCHAR(128) NULL,
+				HostName NVARCHAR(128) NULL,
+				DatabaseID INT NULL,
+				DatabaseName NVARCHAR(128) NULL,
+				OpenTransactionCount INT NULL,
 				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
 			+ ' INSERT '
 			+ @OutputTableName
-			+ ' (ServerName, CheckDate, AskBrentVersion, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, CheckID) SELECT '''
+			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, Op) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-			+ ', Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, CheckID FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
