@@ -53,9 +53,10 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v6 - October 10, 2013
+Changes in v6 - October 11, 2013
  - Time travel enabled. Can log to database using the @Output* parameters, and
    you can go back in time with the @AsOf parameter.
+ - Bug fixing for SQL Server 2005 compatibility.
 
 Changes in v5 - September 16, 2013
  - Enabled @Question again.
@@ -88,23 +89,27 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 6, @VersionDate = '2013/10/10'
+SELECT @Version = 6, @VersionDate = '2013/10/11'
 
 DECLARE @StringToExecute NVARCHAR(4000),
-	@OurSessionID INT = @@SPID,
-	@LineFeed NVARCHAR(10) = CHAR(13)+CHAR(10),
+	@OurSessionID INT,
+	@LineFeed NVARCHAR(10),
 	@StockWarningHeader NVARCHAR(500),
 	@StockWarningFooter NVARCHAR(100),
 	@StockDetailsHeader NVARCHAR(100),
 	@StockDetailsFooter NVARCHAR(100),
-	@StartSampleTime DATETIME = GETDATE(),
-	@FinishSampleTime DATETIME = DATEADD(ss, @Seconds, GETDATE());
+	@StartSampleTime DATETIME,
+	@FinishSampleTime DATETIME;
 
 /* Sanitize our inputs */
 SELECT
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
-	@OutputTableName = QUOTENAME(@OutputTableName)
+	@OutputTableName = QUOTENAME(@OutputTableName),
+	@LineFeed = CHAR(13) + CHAR(10),
+	@StartSampleTime = GETDATE(),
+	@FinishSampleTime = DATEADD(ss, @Seconds, GETDATE()),
+	@OurSessionID = @@SPID;
 
 IF @OutputType = 'SCHEMA'
 BEGIN
@@ -267,10 +272,19 @@ BEGIN
 	   overall. We're going to build this list, and then after we
 	   finish our @Seconds sample, we'll compare our plan cache to
 	   this list to see what ran the most. */
-	INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, Points)
-	SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, 0
-		FROM sys.dm_exec_query_stats qs
-		WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()))
+
+	/* Populate #QueryStats. SQL 2005 doesn't have query hash or query plan hash. */
+	IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+		SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+									SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+									FROM sys.dm_exec_query_stats qs
+									WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+	ELSE
+		SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+									SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+									FROM sys.dm_exec_query_stats qs
+									WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+	EXEC(@StringToExecute);
 
 	IF EXISTS (SELECT * 
 					FROM tempdb.sys.all_objects obj
@@ -401,7 +415,7 @@ BEGIN
 			AND (counters.[instance_name] IS NULL OR counters.[instance_name] = RTRIM(dmv.[instance_name]))
 
 	/* Maintenance Tasks Running - Backup Running - CheckID 1 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
 	SELECT 1 AS CheckID,
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
@@ -413,7 +427,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -442,7 +455,7 @@ BEGIN
 
 
 	/* Maintenance Tasks Running - DBCC Running - CheckID 2 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
 	SELECT 2 AS CheckID,
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
@@ -454,7 +467,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -475,7 +487,7 @@ BEGIN
 
 
 	/* Maintenance Tasks Running - Restore Running - CheckID 3 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
 	SELECT 3 AS CheckID,
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
@@ -487,7 +499,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -508,7 +519,7 @@ BEGIN
 
 
 	/* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
 	SELECT 4 AS CheckID,
 		1 AS Priority,
 		'SQL Server Internal Maintenance' AS FindingGroup,
@@ -520,7 +531,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		NULL AS DatabaseID,
@@ -535,7 +545,7 @@ BEGIN
 
 
 	/* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
 	SELECT 5 AS CheckID,
 		1 AS Priority,
 		'Query Problems' AS FindingGroup,
@@ -551,7 +561,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -593,7 +602,7 @@ BEGIN
 
 
 	/* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
 	SELECT 8 AS CheckID,
 		50 AS Priority,
 		'Query Problems' AS FindingGroup,
@@ -604,7 +613,6 @@ BEGIN
 		s.last_request_start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -627,7 +635,7 @@ BEGIN
 
 
 	/* Query Problems - Query Rolling Back - CheckID 9 */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
 	SELECT 9 AS CheckID,
 		1 AS Priority,
 		'Query Problems' AS FindingGroup,
@@ -638,7 +646,6 @@ BEGIN
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
-		s.original_login_name AS OriginalLoginName,
 		s.[program_name] AS ProgramName,
 		s.[host_name] AS HostName,
 		db.[resource_database_id] AS DatabaseID,
@@ -792,10 +799,19 @@ BEGIN
 	ELSE /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
 		BEGIN
 
-		INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-		SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
-			FROM sys.dm_exec_query_stats qs
-			WHERE qs.last_execution_time >= @StartSampleTime;
+
+		/* Populate #QueryStats. SQL 2005 doesn't have query hash or query plan hash. */
+		IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+										WHERE qs.last_execution_time >= ''' + CAST(@StartSampleTime AS NVARCHAR(100)) + ''';';
+		ELSE
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+										WHERE qs.last_execution_time >= ''' + CAST(@StartSampleTime AS NVARCHAR(100)) + ''';';
+		EXEC(@StringToExecute);
 
 		/* Get the totals for the entire plan cache */
 		INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
