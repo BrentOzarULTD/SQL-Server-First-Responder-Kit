@@ -45,7 +45,6 @@ log, email your improvements & checks to Help@BrentOzar.com.
 
 Known limitations of this version:
  - No support for SQL Server 2000 or compatibility mode 80.
- - Not all parameters are supported yet. Just wanted to finish the surface area.
  - If a temp table called #CustomPerfmonCounters exists for any other session,
    but not our session, this stored proc will fail with an error saying the
    temp table #CustomPerfmonCounters doesn't exist.
