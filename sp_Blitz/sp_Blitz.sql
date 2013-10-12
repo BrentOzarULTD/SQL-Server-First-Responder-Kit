@@ -29,7 +29,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v29 - August 23, 2013
+	sp_Blitz (TM) v30 - Oct 12, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,6 +58,18 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v30 - October 12, 2013
+	 - Doug Lane @TheDougLane:
+		- Fixed bug in check 99 for unusual editions so that it doesn't alert
+		  on BI Edition, since that's the same as Standard Edition.
+		- Fixed bug in check 32 so that it won't alert on SSRS ReportServer
+		  database triggers, which are actually MS-shipped but aren't marked
+		  with the is_ms_shipped flag.
+	 - Ross Whitehead @RWhitehead99 fixed a bug in check 111 (broken log shipping) 
+	   so that it doesn't alert on database mirrors.
+	 - Russell Hart @Rus_Hart fixed a bug with the @VersionDate format that broke
+	   in British English language settings.
 
 	Changes in v29 - August 23, 2013
 	 - Added @OutputType = 'SCHEMA', which returns the version number and a list
@@ -165,7 +177,7 @@ AS
 
 	/*
 	*/
-	SELECT @Version = 29, @VersionDate = '2013/08/23'
+	SELECT @Version = 30, @VersionDate = '20131012'
 
 	IF @OutputType = 'SCHEMA'
 	BEGIN
@@ -2234,6 +2246,7 @@ AS
 								WHERE   CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
+										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Business Intelligence%'
 					END
 	            
 				IF NOT EXISTS ( SELECT  1
@@ -2530,6 +2543,8 @@ AS
 											'http://BrentOzar.com/go/shipping' AS URL ,
 											d.[name] + ' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.'
 											FROM [master].sys.databases d
+											INNER JOIN [master].sys.database_mirroring dm ON d.database_id = dm.database_id
+												AND dm.mirroring_role IS NULL
 											WHERE ( d.[state] = 1
 											OR (d.[state] = 0 AND d.[is_in_standby] = 1) )
 											AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh 
@@ -2635,7 +2650,7 @@ AS
 			''http://BrentOzar.com/go/trig'', 
 			(''The ['' + DB_NAME() + ''] database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') 
 			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id 
-			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0';
+			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0 AND DB_NAME() != ''ReportServer''';
 							END
 	            
 						IF NOT EXISTS ( SELECT  1
