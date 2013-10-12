@@ -175,8 +175,6 @@ AS
 	*/
 
 
-	/*
-	*/
 	SELECT @Version = 30, @VersionDate = '20131012'
 
 	IF @OutputType = 'SCHEMA'
