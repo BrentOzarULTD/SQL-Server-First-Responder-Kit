@@ -68,8 +68,8 @@ AS
 		  with the is_ms_shipped flag.
 	 - Ross Whitehead @RWhitehead99 fixed a bug in check 111 (broken log shipping) 
 	   so that it doesn't alert on database mirrors.
-	 - Russell Hart @Rus_Hart fixed a bug with the @VersionDate format that broke
-	   in British English language settings.
+	 - Russell Hart fixed a bug with the @VersionDate format that broke British
+	   English language settings.
 
 	Changes in v29 - August 23, 2013
 	 - Added @OutputType = 'SCHEMA', which returns the version number and a list
