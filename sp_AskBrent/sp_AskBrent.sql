@@ -52,6 +52,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v7 - October 18, 2013
+ - Updated many of the links to point to newly published pages.
+
 Changes in v6 - October 11, 2013
  - Time travel enabled. Can log to database using the @Output* parameters, and
    you can go back in time with the @AsOf parameter.
@@ -419,7 +422,7 @@ BEGIN
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
 		'Backup Running' AS Finding,
-		'http://BrentOzar.com/go/backups' AS URL,
+		'http://BrentOzar.com/askbrent/backups/' AS URL,
 		@StockDetailsHeader + 'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
@@ -459,7 +462,7 @@ BEGIN
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
 		'DBCC Running' AS Finding,
-		'http://BrentOzar.com/go/dbcc' AS URL,
+		'http://BrentOzar.com/askbrent/dbcc/' AS URL,
 		@StockDetailsHeader + 'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
@@ -491,7 +494,7 @@ BEGIN
 		1 AS Priority,
 		'Maintenance Tasks Running' AS FindingGroup,
 		'Restore Running' AS Finding,
-		'http://BrentOzar.com/go/backups' AS URL,
+		'http://BrentOzar.com/askbrent/backups/' AS URL,
 		@StockDetailsHeader + 'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
@@ -588,7 +591,7 @@ BEGIN
 			50 AS Priority,
 			'Query Problems' AS FindingGroup,
 			'Plan Cache Erased Recently' AS Finding,
-			'http://BrentOzar.com/go/freeprocccache' AS URL,
+			'http://BrentOzar.com/askbrent/plan-cache-erased-recently/' AS URL,
 			@StockDetailsHeader + 'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
 				+ 'This indicates that someone ran DBCC FREEPROCCACHE at that time,' + @LineFeed
 				+ 'Giving SQL Server temporary amnesia. Now, as queries come in,' + @LineFeed
@@ -606,7 +609,7 @@ BEGIN
 		50 AS Priority,
 		'Query Problems' AS FindingGroup,
 		'Sleeping Query with Open Transactions' AS Finding,
-		'http://BrentOzar.com/go/sleeping' AS URL,
+		'http://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
 		@StockDetailsHeader + 'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
 		CAST(@StockWarningHeader + 'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
 		s.last_request_start_time AS StartTime,
@@ -639,7 +642,7 @@ BEGIN
 		1 AS Priority,
 		'Query Problems' AS FindingGroup,
 		'Query Rolling Back' AS Finding,
-		'http://BrentOzar.com/go/rollback' AS URL,
+		'http://BrentOzar.com/askbrent/rollback/' AS URL,
 		@StockDetailsHeader + 'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
 		CAST(@StockWarningHeader + 'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' + @StockWarningFooter AS XML) AS HowToStopIt,
 		r.start_time AS StartTime,
@@ -669,7 +672,7 @@ BEGIN
 		50 AS Priority,
 		'Server Performance' AS FindingGroup,
 		'Page Life Expectancy Low' AS Finding,
-		'http://BrentOzar.com/go/ple' AS URL,
+		'http://BrentOzar.com/askbrent/page-life-expectancy/' AS URL,
 		@StockDetailsHeader + 'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed 
 			+ 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed 
 			+ 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
@@ -915,7 +918,7 @@ BEGIN
 		200 AS Priority,
 		'Wait Stats' AS FindingGroup,
 		wNow.wait_type AS Finding,
-		N'http://BrentOzar.com/waits/' + wNow.wait_type AS URL,
+		N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
 		@StockDetailsHeader + 'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CAST(@Seconds AS NVARCHAR(10)) + ' seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
 		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt
 	FROM #WaitStats wNow
@@ -978,7 +981,7 @@ BEGIN
 		1 AS Priority,
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Log File Growing' AS Finding,
-		'http://BrentOzar.com/go/logsize' AS URL,
+		'http://BrentOzar.com/askbrent/file-growing/' AS URL,
 		@StockDetailsHeader + 'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
 		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
@@ -995,7 +998,7 @@ BEGIN
 		1 AS Priority,
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Log File Shrinking' AS Finding,
-		'http://BrentOzar.com/go/logsize' AS URL,
+		'http://BrentOzar.com/askbrent/file-shrinking/' AS URL,
 		@StockDetailsHeader + 'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
 		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
@@ -1011,7 +1014,7 @@ BEGIN
 		50 AS Priority,
 		'Query Problems' AS FindingGroup,
 		'Compilations/Sec High' AS Finding,
-		'http://BrentOzar.com/go/compile' AS URL,
+		'http://BrentOzar.com/askbrent/compilations/' AS URL,
 		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
@@ -1030,7 +1033,7 @@ BEGIN
 		50 AS Priority,
 		'Query Problems' AS FindingGroup,
 		'Re-Compilations/Sec High' AS Finding,
-		'http://BrentOzar.com/go/recompile' AS URL,
+		'http://BrentOzar.com/askbrent/recompilations/' AS URL,
 		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
