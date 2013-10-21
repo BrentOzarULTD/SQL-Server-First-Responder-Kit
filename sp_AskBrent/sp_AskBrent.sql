@@ -52,8 +52,10 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v7 - October 18, 2013
+Changes in v7 - October 21, 2013
  - Updated many of the links to point to newly published pages.
+ - Performance tuning Check 8 (sleeping connections with open transactions).
+   Went from >1 minute at StackExchange to <10 seconds.
 
 Changes in v6 - October 11, 2013
  - Time travel enabled. Can log to database using the @Output* parameters, and
@@ -91,7 +93,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 6, @VersionDate = '2013/10/11'
+SELECT @Version = 7, @VersionDate = '2013/10/21'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@OurSessionID INT,
@@ -600,7 +602,7 @@ BEGIN
 			CAST(@StockWarningHeader + 'Find who did that, and stop them from doing it again.' + @StockWarningFooter AS XML) AS HowToStopIt
 		FROM sys.dm_exec_query_stats 
 		ORDER BY creation_time	
-	END
+	END;
 
 
 	/* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
@@ -620,8 +622,9 @@ BEGIN
 		db.[resource_database_id] AS DatabaseID,
 		DB_NAME(db.resource_database_id) AS DatabaseName,
 		(SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		1 AS OpenTransactionCount
-	FROM sys.dm_exec_sessions s
+		sessions_with_transactions.open_transaction_count AS OpenTransactionCount
+	FROM (SELECT session_id, SUM(open_transaction_count) AS open_transaction_count FROM sys.dm_exec_requests WHERE open_transaction_count > 0 GROUP BY session_id) AS sessions_with_transactions
+	INNER JOIN sys.dm_exec_sessions s ON sessions_with_transactions.session_id = s.session_id
 	INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
 	INNER JOIN (
 	SELECT DISTINCT request_session_id, resource_database_id
@@ -631,6 +634,7 @@ BEGIN
 	AND     request_status = N'GRANT'
 	AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
 	WHERE s.status = 'sleeping'
+	AND s.open_transaction_count > 0
 	AND s.last_request_end_time < DATEADD(ss, -10, GETDATE())
 	AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id 
 	AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
