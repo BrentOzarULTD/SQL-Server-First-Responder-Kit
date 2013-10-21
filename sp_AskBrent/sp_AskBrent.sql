@@ -52,6 +52,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v8 - October 21, 2013
+ - Whoops! Left an extra line in check 8 that failed on SQL 2005.
+
 Changes in v7 - October 21, 2013
  - Updated many of the links to point to newly published pages.
  - Performance tuning Check 8 (sleeping connections with open transactions).
@@ -93,7 +96,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 7, @VersionDate = '2013/10/21'
+SELECT @Version = 8, @VersionDate = '2013/10/21'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@OurSessionID INT,
@@ -634,7 +637,6 @@ BEGIN
 	AND     request_status = N'GRANT'
 	AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
 	WHERE s.status = 'sleeping'
-	AND s.open_transaction_count > 0
 	AND s.last_request_end_time < DATEADD(ss, -10, GETDATE())
 	AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id 
 	AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
