@@ -52,6 +52,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v9 - October 25, 2013
+ - Changed date format for British.
+
 Changes in v8 - October 21, 2013
  - Whoops! Left an extra line in check 8 that failed on SQL 2005.
 
@@ -96,7 +99,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 8, @VersionDate = '2013/10/21'
+SELECT @Version = 9, @VersionDate = '20131025'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@OurSessionID INT,
