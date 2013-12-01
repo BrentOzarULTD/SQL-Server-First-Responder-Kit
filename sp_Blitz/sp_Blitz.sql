@@ -65,8 +65,8 @@ AS
 	      skipping checks, plus improved performance while he was in there.
 	    - Improved check 106 (default trace file) so that it won't error out if
 	      the user doesn't have permissions on sys.traces.
-	    - Contributed code to help non-sysadmins run it by skipping checks easier.
-	      For details: http://www.brentozar.com/blitz/documentation/
+	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
+	  in the plan cache for key lookups.
 
 	Changes in v30 - October 12, 2013
 	 - Doug Lane @TheDougLane:
@@ -3251,7 +3251,36 @@ AS
 														 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<PlanAffectingConvert ConvertIssue="Cardinality Estimate" Expression="CONVERT_IMPLICIT%'
 							END
 
-		/* Look for missing indexes */
+							/* @cms4j, 29.11.2013: Look for RID or Key Lookups */
+							IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 118 ) 
+								BEGIN
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details ,
+											  QueryPlan ,
+											  QueryPlanFiltered
+											)
+											SELECT  118 AS CheckID ,
+													120 AS Priority ,
+													'Query Plans' AS FindingsGroup ,
+													'RID or Key Lookups' AS Finding ,
+													'http://BrentOzar.com/go/lookup' AS URL ,
+													'One of the top resource-intensive queries contains RID or Key Lookups. Try to avoid them by creating covering indexes.' AS Details ,
+													qs.query_plan ,
+													qs.query_plan_filtered
+											FROM    #dm_exec_query_stats qs
+											WHERE   COALESCE(qs.query_plan_filtered,
+															 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%Lookup="1"%'
+								END /* @cms4j, 29.11.2013: Look for RID or Key Lookups */
+
+
+						/* Look for missing indexes */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 65 ) 
@@ -3279,8 +3308,7 @@ AS
 														 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%MissingIndexGroup%'
 							END
 
-		/* Look for cursors */
-	                    
+						/* Look for cursors */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 66 ) 
