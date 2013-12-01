@@ -61,6 +61,7 @@ AS
 	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
 	  in the plan cache for key lookups.
 	- Ricky Lively added @Help to print inline help. I love his approach to it.
+	- Added check 119 for TDE certificates that have not been backed up recently.
 
 	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
 
@@ -576,6 +577,27 @@ AS
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
 					END
+
+
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 119 )
+						AND EXISTS ( SELECT *
+									 FROM   sys.all_objects o
+									 WHERE  o.name = 'dm_database_encryption_keys' ) 
+						BEGIN
+							SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, DatabaseName, URL, Details)
+								SELECT 119 AS CheckID,
+								1 AS Priority,
+								''Backup'' AS FindingsGroup,
+								''TDE Certificate Not Backed Up Recently'' AS Finding,
+								db_name(dek.database_id) AS DatabaseName,
+								''http://BrentOzar.com/go/tde'' AS URL,
+								''The certificate '' + c.name + '' is used to encrypt database '' + db_name(dek.database_id) + ''. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
+								FROM sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
+								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE())';
+							EXECUTE(@StringToExecute);
+						END
 
 
 				IF NOT EXISTS ( SELECT  1
