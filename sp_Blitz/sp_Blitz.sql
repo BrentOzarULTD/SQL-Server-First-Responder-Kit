@@ -29,7 +29,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	/*
-	sp_Blitz (TM) v30 - Oct 12, 2013
+	sp_Blitz (TM) v31 - Dec 1, 2013
     
 	(C) 2013, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,6 +58,15 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they'd be known.  Duh.)
+
+	Changes in v31 - December 1, 2013
+	 - Dick Baker, Ambrosetti Ltd (UK):
+	    - Fixed typos in checks 107-109 that looked for the wrong CheckID when
+	      skipping checks, plus improved performance while he was in there.
+	    - Improved check 106 (default trace file) so that it won't error out if
+	      the user doesn't have permissions on sys.traces.
+	    - Contributed code to help non-sysadmins run it by skipping checks easier.
+	      For details: http://www.brentozar.com/blitz/documentation/
 
 	Changes in v30 - October 12, 2013
 	 - Doug Lane @TheDougLane:
@@ -175,7 +184,7 @@ AS
 	*/
 
 
-	SELECT @Version = 30, @VersionDate = '20131012'
+	SELECT @Version = 31, @VersionDate = '20131201'
 
 	IF @OutputType = 'SCHEMA'
 	BEGIN
@@ -203,12 +212,6 @@ AS
 			,@curr_tracefilename NVARCHAR(500) 
 			,@base_tracefilename NVARCHAR(500) 
 			,@indx int ;
-
-		select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
-		set @curr_tracefilename = reverse(@curr_tracefilename);
-		select @indx = patindex('%\%', @curr_tracefilename) ;
-		set @curr_tracefilename = reverse(@curr_tracefilename) ;
-		set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
 			DROP TABLE #BlitzResults;
@@ -261,6 +264,18 @@ AS
 				FROM ' + QUOTENAME(@SkipChecksDatabase) + '.' + QUOTENAME(@SkipChecksSchema) + '.' + QUOTENAME(@SkipChecksTable)
 					+ ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'');'
 				EXEC(@StringToExecute)
+			END
+
+		IF NOT EXISTS ( SELECT  1
+							FROM    #SkipChecks
+							WHERE   DatabaseName IS NULL AND CheckID = 106 )
+							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
+			BEGIN
+					select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
+					set @curr_tracefilename = reverse(@curr_tracefilename);
+					select @indx = patindex('%\%', @curr_tracefilename) ;
+					set @curr_tracefilename = reverse(@curr_tracefilename) ;
+					set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 			END
 
 
@@ -2446,10 +2461,9 @@ AS
 
 
 
-					IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'THREADPOOL' ) > 5000
-						AND NOT EXISTS ( SELECT 1
+					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 102 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 107 ) 
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2470,10 +2484,9 @@ AS
 									GROUP BY wait_type
 						END
 
-					IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'RESOURCE_SEMAPHORE' ) > 5000
-						AND NOT EXISTS ( SELECT 1
+					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 102 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 108 ) 
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2495,10 +2508,9 @@ AS
 						END
 
 
-					IF ( SELECT SUM([wait_time_ms]) AS total_wait_ms FROM sys.[dm_os_wait_stats] WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE' ) > 5000
-						AND NOT EXISTS ( SELECT 1
+					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 102 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 109 ) 
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
