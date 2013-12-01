@@ -22,12 +22,15 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
+    @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	
+	SELECT @Version = 31, @VersionDate = '20131201'
+
+	IF @Help = 1 PRINT '
 	/*
 	sp_Blitz (TM) v31 - Dec 1, 2013
     
@@ -39,154 +42,44 @@ AS
 	the findings, and more.  To contribute code and see your name in the change
 	log, email your improvements & checks to Help@BrentOzar.com.
 
-	Sample execution call with the most common parameters:
-
-	EXEC [master].[dbo].[sp_Blitz]
-		@CheckUserDatabaseObjects = 1 ,
-		@CheckProcedureCache = 0 ,
-		@OutputType = 'TABLE' ,
-		@OutputProcedureCache = 0 ,
-		@CheckProcedureCacheFilter = NULL,
-		@CheckServerInfo = 1
-
 	Known limitations of this version:
 	 - No support for SQL Server 2000 or compatibility mode 80.
-	 - If a database name has a question mark in it, some tests will fail.  Gotta
+	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
-	   but does work the second time. (Hoo, boy, this will be fun to fix.)
+	   but does work the second time. (Hoo, boy, this will be fun to debug.)
 
 	Unknown limitations of this version:
-	 - None.  (If we knew them, they'd be known.  Duh.)
+	 - None.  (If we knew them, they would be known. Duh.)
 
 	Changes in v31 - December 1, 2013
 	 - Dick Baker, Ambrosetti Ltd (UK):
 	    - Fixed typos in checks 107-109 that looked for the wrong CheckID when
 	      skipping checks, plus improved performance while he was in there.
-	    - Improved check 106 (default trace file) so that it won't error out if
-	      the user doesn't have permissions on sys.traces.
+	    - Improved check 106 (default trace file) so that it will not error out
+	      if the user does not have permissions on sys.traces.
 	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
 	  in the plan cache for key lookups.
-
-	Changes in v30 - October 12, 2013
-	 - Doug Lane @TheDougLane:
-		- Fixed bug in check 99 for unusual editions so that it doesn't alert
-		  on BI Edition, since that's the same as Standard Edition.
-		- Fixed bug in check 32 so that it won't alert on SSRS ReportServer
-		  database triggers, which are actually MS-shipped but aren't marked
-		  with the is_ms_shipped flag.
-	 - Ross Whitehead @RWhitehead99 fixed a bug in check 111 (broken log shipping) 
-	   so that it doesn't alert on database mirrors.
-	 - Russell Hart fixed a bug with the @VersionDate format that broke British
-	   English language settings.
-
-	Changes in v29 - August 23, 2013
-	 - Added @OutputType = 'SCHEMA', which returns the version number and a list
-	   of columns for a CREATE TABLE definition for the default outputs. We don't
-	   include the actual CREATE TABLE part because you might want to use a table
-	   variable or whatever.
-	 - Added @OutputXMLasNVARCHAR. If 1, then the QueryPlan is outputted as an
-	   NVARCHAR(MAX) instead of XML. This helps if you want to insert the
-	   sp_Blitz results into a temp table. For instructions, visit:
-	   http://www.brentozar.com/blitz/documentation/
-
-	Changes in v28 - August 21, 2013
-	 - Tom Meyer improved several backup checks so that they'll work if the master
-	   and msdb databases have different collations, like if someone restores
-	   msdb from another server with a different collation. (Please don't do that.)
-	 - Fixed a bug in the VLF check that added a trailing space in the URL. This
-	   broke the PDF output in the Windows app.
-
-	Changes in v27 - August 6, 2013
-	 - Whoops! Even more bug fixes in check 114. Thanks, Andy Jarman!
-
-	Changes in v26 - August 2, 2013
-	 - Whoops! Improved check 114 to skip SQL Server 2005, since the necessary
-	   DMVs don't exist there. Thanks, Conan Farrell.
-
-	Changes in v25 - August 2, 2013
-	 - Andrew Jarman was the first to catch a bug in check 70 for named instances.
-	 - David Todd suggested a tweak to make it easier to deploy this stored proc
-	   in other databases.
-	 - Added check for Adam Machanic's make_parallel function (115).
-	 - Added check for basic NUMA config (114).
-	 - Added check for backup compression defaulted to off (116), suggested by
-	   David Todd.
-	 - Added check for forced grants in sys.dm_exec_query_resource_semaphores,
-	   indicating memory pressure is affecting query performance (117).
-
-    Changes in v24 - June 23, 2013
-	 - Alin Selicean @AlinSelicean:
-	   - debugged check 72 for non-aligned partitioned indexes.
-	   - improved check 70 for the @@servername variable.
-	 - Andreas Schubert debugged check 14 to remove duplicate results.
-	 - Josh Duewer added check 112 looking for change tracking.
-	 - Justin Dearing @Zippy1981 improved @OutputTableName to export the results
-	   to a global temp table.
-	 - Katie Vetter improved check 6 for jobs owned by <> SA, by removing the join
-	   to sys.server_principals and using a function for the name instead.
-	 - Kevin Frazier improved check 106 by removing extra copy/paste code.
-	 - Mike Eastland added check 111 looking for broken log shipping subscribers.
-	 - Added check 110 for memory nodes offline.
-	 - Added check 113 for full text indexes not crawled in the last week.
-	 - Changed VLF threshold from 50 to 1,000. We were getting a lot of questions
-	   about databases with 51-100 VLFs, and that's just not a real performance
-	   killer. To minimize false alarms, we cranked the threshold way up. Let's
-	   get you focused on making sure your databases are backed up first.
-	 - Fixed bugs in @SkipChecks tables. Man, there's no way any of you were
-	   using that thing, because it was chock full of nuts.
-	 - Added basic SQL Server 2014 compatibility.
-
-	Changes in v23 - June 2, 2013:
-	 - Katherine Villyard @geekg0dd3ss caught bug in check 72 (non-aligned 
-	   partitioned indexes) that wasn't honoring @CheckUserDatabaseObjects.
-	 - Paul Olson http://www.SQLsprawl.com wrote check 106 to show how much
-	   history is being kept in the default traces, and where they are. Only runs
-	   if @CheckServerInfo = 1.
-	 - Randall Stone suggested ignoring ReportServer% databases in the collation
-	   checks. Prior versions of the checks were only ignoring default name
-	   instances of SSRS.
-	 - Added checks for "poison" wait types: THREADPOOL, RESOURCE_SEMAPHORE, and
-	   RESOURCE_SEMAPHORE_QUERY_COMPILE. Any occurrence of these waits often
-	   indicates a killer performance issue. Checks 107-109.
-	 - Non-default sp_configure options used to be CheckID 22 for all possible
-	   sp_configure settings. Now we use the range 1,000-1,999 for sp_configure.
-	   This way, if you're writing a tool that outputs specific advice for each
-	   CheckID, you can get more specific with the advice based on which
-	   sp_configure option has been changed.
-	 - Fixed various typos.
-
-	Changes in v22 - May 6, 2013:
-	 - Fixed new v21 case sensitivity bug reported by several users.
-	 - Cleaned up some typos in script output.
-
-	Changes in v21 - April 25, 2013:
-	 - Easier readability - cleaned up the code with Red Gate SQL Prompt, plus
-	   added comments explaining what's happening.
-	 - Added @OutputDatabaseName, @OutputSchemaName, @OutputTableName. If set, the 
-	   #BlitzResults table is saved into that. Only outputs the check results, not
-	   the plan cache. Suggested by Robbert Hof and Andy Bassitt.
-	 - Alin Selicean @AlinSelicean:
-	   - Added check 100 looking for disabled remote access to the DAC.
-	   - Added check 101 looking for disabled CPU schedulers due to licensing or
-		 affinity masking.
-	 - Chris Leavitt coded check 103 looking for virtualization.
-	 - Mike Eastland suggested check 102 for databases in unusual states - suspect,
-	   recovering, emergency, etc.
-	 - Russell Hart coded check 104 looking for logins with CONTROL SERVER perms.
-	 - Added check 105 looking for extended stored procedures in master.
-	 - Moved temp table creation up to the top of the sproc while trying to fix an
-	   issue with offline databases. I like it up there, so leaving it. Didn't fix
-	   the issue, but ah well.
-	 - Moved the old changes to http://www.BrentOzar.com/blitz/changelog/
+	- Ricky Lively added @Help to print inline help. I love his approach to it.
 
 	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
-	*/
 
 
-	SELECT @Version = 31, @VersionDate = '20131201'
+	Parameter explanations:
 
-	IF @OutputType = 'SCHEMA'
+	@CheckUserDatabaseObjects	1=review user databases for triggers, heaps, etc. Takes more time for more databases and objects.
+	@CheckServerInfo			1=show server info like CPUs, memory, virtualization
+	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
+	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
+	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list
+	@IgnorePrioritiesBelow		100=ignore priorities below 100
+	@IgnorePrioritiesAbove		100=ignore priorities above 100
+	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
+
+
+	*/'
+	ELSE IF @OutputType = 'SCHEMA'
 	BEGIN
 		SELECT @Version AS Version,
 		FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT'
