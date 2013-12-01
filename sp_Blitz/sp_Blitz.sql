@@ -60,8 +60,11 @@ AS
 	      if the user does not have permissions on sys.traces.
 	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
 	  in the plan cache for key lookups.
+  	- Philip Dietrich added check 119 for TDE certificates that have not been 
+  	  backed up recently.
 	- Ricky Lively added @Help to print inline help. I love his approach to it.
-	- Added check 119 for TDE certificates that have not been backed up recently.
+	- Added check 120 looking for databases that have not had a full backup using
+	  the WITH CHECKSUM option in the last 30 days.
 
 	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
 
@@ -576,6 +579,46 @@ AS
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 120 ) 
+					BEGIN
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  DatabaseName ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT DISTINCT
+										120 AS CheckID ,
+										d.name AS DatabaseName ,
+										50 AS Priority ,
+										'Backup' AS FindingsGroup ,
+										'Backup Checksums Not Used' AS Finding ,
+										'http://BrentOzar.com/go/torn' AS URL ,
+										( 'The WITH CHECKSUM option is not being used on the full backups for this database. WITH CHECKSUM causes all existing page checksums to be checked - an easy way to catch some corruption quickly.' ) AS Details
+								FROM    master.sys.databases d
+								WHERE   d.recovery_model IN ( 1, 2 )
+										AND d.database_id NOT IN ( 2, 3 )
+										AND d.source_database_id IS NULL
+										AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+										AND d.is_in_standby = 0 /* Not a log shipping target database */
+										AND d.source_database_id IS NULL /* Excludes database snapshots */
+										AND d.name NOT IN ( SELECT DISTINCT
+																  DatabaseName
+															FROM  #SkipChecks
+															WHERE CheckID IS NULL )
+										AND NOT EXISTS ( SELECT *
+														 FROM   msdb.dbo.backupset b
+														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																AND b.type = 'D'
+																AND b.has_backup_checksums = 1
+																AND b.backup_finish_date >= DATEADD(dd, -30, GETDATE()) );
 					END
 
 
