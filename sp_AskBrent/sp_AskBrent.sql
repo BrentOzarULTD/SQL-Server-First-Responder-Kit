@@ -10,7 +10,7 @@ CREATE PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
 	@ExpertMode TINYINT = 0 ,
-    @Seconds TINYINT = 5 ,
+    @Seconds INT = 5 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
