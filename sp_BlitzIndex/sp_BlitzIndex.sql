@@ -18,10 +18,10 @@ EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzIndex
-	@database_name NVARCHAR(256) = null,
+	@database_name NVARCHAR(128) = null,
 	@mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
-	@schema_name NVARCHAR(256) = NULL, /*Requires table_name as well.*/
-	@table_name NVARCHAR(256) = NULL,  /*Requires schema_name as well.*/
+	@schema_name NVARCHAR(128) = NULL, /*Requires table_name as well.*/
+	@table_name NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
 		/*Note:@mode doesn't matter if you're specifying schema_name and @table_name.*/
 	@filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@filter doesn't do anything unless @mode=0*/
@@ -51,6 +51,7 @@ CHANGE LOG (last five versions):
 		Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
 			Added index_operational_stats info to table level output -- recent scans and lookups
 			Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
+			Changed db name, table name, index name to 128 length because users care.
 		Fixed tab in @schema_name= that made pasting into Excel awkward/wrong
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
@@ -273,10 +274,10 @@ BEGIN TRY
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
 			  [index_type] TINYINT NOT NULL,
-			  [database_name] NVARCHAR(256) NOT NULL ,
-			  [schema_name] NVARCHAR(256) NOT NULL ,
-			  [object_name] NVARCHAR(256) NOT NULL ,
-			  index_name NVARCHAR(256) NULL ,
+			  [database_name] NVARCHAR(128) NOT NULL ,
+			  [schema_name] NVARCHAR(128) NOT NULL ,
+			  [object_name] NVARCHAR(128) NOT NULL ,
+			  index_name NVARCHAR(128) NULL ,
 			  key_column_names NVARCHAR(MAX) NULL ,
 			  key_column_names_with_sort_order NVARCHAR(MAX) NULL ,
 			  key_column_names_with_sort_order_no_types NVARCHAR(MAX) NULL ,
@@ -395,9 +396,9 @@ BEGIN TRY
 
 		CREATE TABLE #missing_indexes
 			([object_id] INT NOT NULL,
-			[database_name] NVARCHAR(256) NOT NULL ,
-			[schema_name] NVARCHAR(256) NOT NULL ,
-			[table_name] NVARCHAR(256),
+			[database_name] NVARCHAR(128) NOT NULL ,
+			[schema_name] NVARCHAR(128) NOT NULL ,
+			[table_name] NVARCHAR(128),
 			[statement] NVARCHAR(512) NOT NULL,
 			magic_benefit_number AS (( user_seeks + user_scans ) * avg_total_user_cost * avg_user_impact),
 			avg_total_user_cost NUMERIC(29,1) NOT NULL,
