@@ -54,7 +54,8 @@ CHANGE LOG (last five versions):
 			Changed db name, table name, index name to 128 length because users care.
 			Fixed findings_group column length in #blitz_index_results (fixed issues for users w/ longer db names)
 			Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
-		Fixed tab in @schema_name= that made pasting into Excel awkward/wrong
+				Fixed extra tab in @schema_name= that made pasting into Excel awkward/wrong
+			Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
@@ -295,6 +296,7 @@ BEGIN TRY
 			  is_XML BIT NOT NULL,
 			  is_spatial BIT NOT NULL,
 			  is_NC_columnstore BIT NOT NULL,
+			  is_CX_columnstore BIT NOT NULL,
 			  is_disabled BIT NOT NULL ,
 			  is_hypothetical BIT NOT NULL ,
 			  is_padded BIT NOT NULL ,
@@ -555,6 +557,7 @@ BEGIN TRY
 						CASE when si.type = 3 THEN 1 ELSE 0 END AS is_XML,
 						CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
 						CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
+						CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
 						si.is_disabled,
 						si.is_hypothetical, 
 						si.is_padded, 
@@ -575,7 +578,8 @@ BEGIN TRY
 						LEFT JOIN sys.dm_db_index_usage_stats AS us WITH (NOLOCK) ON si.[object_id] = us.[object_id]
 																	   AND si.index_id = us.index_id
 																	   AND us.database_id = '+ CAST(@database_id AS NVARCHAR(10)) + '
-				WHERE	si.[type] IN ( 0, 1, 2, 3, 4, 6 ) /* Heaps, clustered, nonclustered, XML, spatial, NC Columnstore */ ' +
+				WHERE	si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
+				/* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
 				CASE WHEN @table_name IS NOT NULL THEN ' and so.name=' + QUOTENAME(@table_name,'''') + ' ' ELSE '' END + 
 		'OPTION	( RECOMPILE );
 		';
@@ -584,7 +588,7 @@ BEGIN TRY
 
 		RAISERROR (N'Inserting data into #index_sanity',0,1) WITH NOWAIT;
 		INSERT	#index_sanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-								index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, 
+								index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore,
 								is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
 								user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
 								create_date, modify_date )
@@ -811,6 +815,7 @@ BEGIN TRY
 		FROM	#index_partition_sanity ps
 				JOIN #index_sanity i ON ps.[object_id] = i.[object_id]
 										AND ps.index_id = i.index_id
+
 
 		RAISERROR (N'Inserting data into #index_sanity_size',0,1) WITH NOWAIT;
 		INSERT	#index_sanity_size ( [index_sanity_id], partition_count, total_rows, total_reserved_MB,
@@ -2055,13 +2060,16 @@ BEGIN;
 					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
 					WHERE i.is_XML = 1 OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 61: NC Columnstore indexes', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
 			INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	61 AS check_id, 
 							i.index_sanity_id,
 							N'Abnormal Psychology' AS findings_group,
-							N'NC Columnstore indexes' AS finding, 
+							CASE WHEN i.is_NC_columnstore=1
+								THEN N'NC Columnstore Index' 
+								ELSE N'Clustered Columnstore Index' 
+								END AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
 							i.schema_object_indexid AS details, 
 							i.index_definition,
@@ -2070,7 +2078,8 @@ BEGIN;
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#index_sanity AS i
 					JOIN #index_sanity_size sz ON i.index_sanity_id = sz.index_sanity_id
-					WHERE i.is_NC_columnstore = 1 OPTION	( RECOMPILE );
+					WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
+					OPTION	( RECOMPILE );
 
 
 			RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
@@ -2418,17 +2427,20 @@ BEGIN;
 			N'Workaholics' as findings_group,
 			N'Top recent accesses (index_op_stats)' as finding,
 			N'http://BrentOzar.com/go/Workaholics' AS URL,
-			REPLACE(CONVERT(NVARCHAR(50),cast((iss.total_range_scan_count + iss.total_singleton_lookup_count) AS MONEY),1),N'.00',N'') 
+			ISNULL(REPLACE(
+					CONVERT(NVARCHAR(50),cast((iss.total_range_scan_count + iss.total_singleton_lookup_count) AS MONEY),1),
+					N'.00',N'') 
 				+ N' uses of ' + i.schema_object_indexid + N'. '
 				+ REPLACE(CONVERT(NVARCHAR(50), CAST(iss.total_range_scan_count AS MONEY),1),N'.00',N'') + N' scans or seeks. '
 				+ REPLACE(CONVERT(NVARCHAR(50), CAST(iss.total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups. '
-				+ N'OpStatsFactor=' + cast(((((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB))/1000000.) as varchar(256)) as details,
+				+ N'OpStatsFactor=' + cast(((((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB))/1000000.) as varchar(256)),'') as details,
 			isnull(i.key_column_names_with_sort_order,'N/A') as index_definition,
 			isnull(i.secret_columns,'') as secret_columns,
 			i.index_usage_summary as index_usage_summary,
 			iss.index_size_summary as index_size_summary
 		FROM #index_sanity i
 		JOIN #index_sanity_size iss on i.index_sanity_id=iss.index_sanity_id
+		WHERE iss.total_range_scan_count IS NOT NULL
 		ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC;
 
 
@@ -2563,6 +2575,7 @@ BEGIN;
 				is_XML AS [Is XML],
 				is_spatial AS [Is Spatial],
 				is_NC_columnstore AS [Is NC Columnstore],
+				is_CX_columnstore AS [Is CX Columnstore],
 				is_disabled AS [Is Disabled], 
 				is_hypothetical AS [Is Hypothetical],
 				is_padded AS [Is Padded], 
