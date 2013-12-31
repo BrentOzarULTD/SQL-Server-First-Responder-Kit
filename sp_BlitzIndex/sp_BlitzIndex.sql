@@ -56,6 +56,7 @@ CHANGE LOG (last five versions):
 			Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
 				Fixed extra tab in @schema_name= that made pasting into Excel awkward/wrong
 			Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
+			Standardized underscores in create TSQL for missing indexes
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
@@ -1123,12 +1124,15 @@ BEGIN TRY
 						ELSE N''
 					END,
 				[create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
-					+ REPLACE(REPLACE(REPLACE(REPLACE(ISNULL(equality_columns,N'') 
-					+ ISNULL(inequality_columns,''),',',''),'[',''),']',''),' ','_') +
-					CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' + 
-					[statement] + N' (' + ISNULL(equality_columns,N'')+
-					CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END + 
-					CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
+					+ REPLACE(REPLACE(REPLACE(REPLACE(
+						ISNULL(equality_columns,N'')+ 
+						CASE when equality_columns is not null and inequality_columns is not null then N'_' else N'' END
+						+ ISNULL(inequality_columns,''),',','')
+						,'[',''),']',''),' ','_') 
+					+ CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' 
+					+ [statement] + N' (' + ISNULL(equality_columns,N'')
+					+ CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
+					+ CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
 					') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END,
 				[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
 					N', @schema_name=' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + N';'
@@ -1157,11 +1161,14 @@ BEGIN TRY
 								N'] PRIMARY KEY ' + 
 								CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
 								key_column_names_with_sort_order_no_types + N' )' 
-						ELSE /*Else not a PK */ 
+							WHEN is_CX_columnstore= 1 THEN
+								 N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name])
+						ELSE /*Else not a PK or cx columnstore */ 
 							N'CREATE ' + 
 							CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
 							CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
-							CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' ELSE N'' END +
+							CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' 
+							ELSE N'' END +
 							N'INDEX ['
 								 + index_name + N'] ON ' + 
 								QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
@@ -1744,6 +1751,7 @@ BEGIN;
 						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
 						WHERE	index_id = 1 /* clustered only */
 								AND is_unique=0 /* not unique */
+								AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 
