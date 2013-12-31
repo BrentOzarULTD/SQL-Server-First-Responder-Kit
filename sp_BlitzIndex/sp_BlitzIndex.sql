@@ -57,6 +57,7 @@ CHANGE LOG (last five versions):
 				Fixed extra tab in @schema_name= that made pasting into Excel awkward/wrong
 			Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
 			Standardized underscores in create TSQL for missing indexes
+			Better error message when running in table mode and the table isn't found.
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
@@ -105,12 +106,6 @@ CHANGE LOG (last five versions):
 		Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
 		Fixed bug where the partitioning key column was displayed in the key of aligned nonclustered indexes on partitioned tables
 		Added set options to the script so procedure is created with required settings for its use of computed columns
-	November 20, 2012 - @mode=2 now only returns index definition and usage. Added @mode=3 to return
-		missing index data detail only.
-	November 13, 2012 - Added secret_columns. This column shows key and included columns in 
-		non-clustered indexes that are based on whether the NC index is unique AND whether the base table is 
-		a heap, a unique clustered index, or a non-unique clustered index.
-		Changed parameter order so @database_name is first. Some people were confused.
 */
 AS 
 
@@ -222,8 +217,10 @@ BEGIN TRY
 			
 			IF @object_id IS NULL
 					BEGIN
-						SET @msg='Table or indexed view does not exist in specified database, please check parameters.'
-						RAISERROR(@msg,16,1);
+						SET @msg=N'Oh, this is awkward. I can''t find the table or indexed view you''re looking for in that database.' + CHAR(10) +
+							N'Please check your parameters.'
+						RAISERROR(@msg,1,1);
+						RETURN;
 					END
 		END
 
