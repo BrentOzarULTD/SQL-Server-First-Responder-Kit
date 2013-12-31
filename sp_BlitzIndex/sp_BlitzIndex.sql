@@ -47,6 +47,11 @@ Known limitations of this version:
  - Found something? Let us know at help@brentozar.com.
 
 CHANGE LOG (last five versions):
+	December 31, 2013 (v2.02)
+		Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
+			Added index_operational_stats info to table level output -- recent scans and lookups
+			Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
+		Fixed tab in @schema_name= that made pasting into Excel awkward/wrong
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
@@ -320,6 +325,8 @@ BEGIN TRY
 			  leaf_insert_count BIGINT NULL ,
 			  leaf_delete_count BIGINT NULL ,
 			  leaf_update_count BIGINT NULL ,
+			  range_scan_count BIGINT NULL ,
+			  singleton_lookup_count BIGINT NULL , 
 			  forwarded_fetch_count BIGINT NULL ,
 			  lob_fetch_in_pages BIGINT NULL ,
 			  lob_fetch_in_bytes BIGINT NULL ,
@@ -345,6 +352,8 @@ BEGIN TRY
 			  total_reserved_MB NUMERIC(29,2) NOT NULL ,
 			  total_reserved_LOB_MB NUMERIC(29,2) NOT NULL ,
 			  total_reserved_row_overflow_MB NUMERIC(29,2) NOT NULL ,
+			  total_range_scan_count BIGINT NULL,
+			  total_singleton_lookup_count BIGINT NULL,
 			  total_row_lock_count BIGINT NULL ,
 			  total_row_lock_wait_count BIGINT NULL ,
 			  total_row_lock_wait_in_ms BIGINT NULL ,
@@ -747,6 +756,8 @@ BEGIN TRY
 								os.leaf_insert_count, 
 								os.leaf_delete_count, 
 								os.leaf_update_count, 
+								os.range_scan_count, 
+								os.singleton_lookup_count,  
 								os.forwarded_fetch_count,
 								os.lob_fetch_in_pages, 
 								os.lob_fetch_in_bytes, 
@@ -783,8 +794,8 @@ BEGIN TRY
 		RAISERROR (N'Inserting data into #index_partition_sanity',0,1) WITH NOWAIT;
 		INSERT	#index_partition_sanity ( [object_id], index_id, partition_number, row_count, reserved_MB,
 										  reserved_LOB_MB, reserved_row_overflow_MB, leaf_insert_count,
-										  leaf_delete_count, leaf_update_count, forwarded_fetch_count,
-										  lob_fetch_in_pages, lob_fetch_in_bytes, row_overflow_fetch_in_pages,
+										  leaf_delete_count, leaf_update_count, range_scan_count, singleton_lookup_count,  
+										  forwarded_fetch_count, lob_fetch_in_pages, lob_fetch_in_bytes, row_overflow_fetch_in_pages,
 										  row_overflow_fetch_in_bytes, row_lock_count, row_lock_wait_count,
 										  row_lock_wait_in_ms, page_lock_count, page_lock_wait_count,
 										  page_lock_wait_in_ms, index_lock_promotion_attempt_count,
@@ -800,13 +811,16 @@ BEGIN TRY
 
 		RAISERROR (N'Inserting data into #index_sanity_size',0,1) WITH NOWAIT;
 		INSERT	#index_sanity_size ( [index_sanity_id], partition_count, total_rows, total_reserved_MB,
-									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_row_lock_count,
+									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
+									 total_singleton_lookup_count, total_row_lock_count,
 									 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
 									 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
 									 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
 									 total_index_lock_promotion_count, data_compression_desc )
 				SELECT	index_sanity_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
 						SUM(reserved_row_overflow_MB), 
+						SUM(range_scan_count),
+						SUM(singleton_lookup_count),
 						SUM(row_lock_count), 
 						SUM(row_lock_wait_count),
 						SUM(row_lock_wait_in_ms), 
@@ -965,7 +979,16 @@ BEGIN TRY
 			ELSE 0 END AS MONEY) ,
 		[index_usage_summary] AS N'Reads: ' + 
 			REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS money), 1), '.00', '')
-			+ N'; Writes:' + 
+			+ case when user_seeks + user_scans + user_lookups > 0 then
+				N' (' 
+					+ RTRIM(
+					CASE WHEN user_seeks > 0 then REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS money), 1), '.00', '') + N' seek ' ELSE N'' END
+					+ CASE WHEN user_scans > 0 then REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS money), 1), '.00', '') + N' scan '  ELSE N'' END
+					+ CASE WHEN user_lookups > 0 then  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS money), 1), '.00', '') + N' lookup' ELSE N'' END
+					)
+					+ N') '
+				else N' ' end 
+			+ N'Writes:' + 
 			REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS money), 1), '.00', ''),
 		[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
 			N', @schema_name=' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([object_name],'''') + N';'
@@ -999,7 +1022,7 @@ BEGIN TRY
 		WHERE tb.index_id = 0 /*Heaps-- these have the RID */
 			or (tb.index_id=1 and tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
-		RAISERROR (N'Add computed column to #index_sanity_size to simplify queries.',0,1) WITH NOWAIT;
+		RAISERROR (N'Add computed columns to #index_sanity_size to simplify queries.',0,1) WITH NOWAIT;
 		ALTER TABLE #index_sanity_size ADD 
 			  index_size_summary AS ISNULL(
 				CASE WHEN partition_count > 1
@@ -1023,7 +1046,13 @@ BEGIN TRY
 					N'; ' + CAST(CAST(total_reserved_row_overflow_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB Row Overflow'
 				ELSE ''
 				END ,
-					'Error- NULL in computed column'),
+					N'Error- NULL in computed column'),
+			index_op_stats AS ISNULL(
+				(
+					REPLACE(CONVERT(NVARCHAR(30),CAST(total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups; '
+					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_range_scan_count AS MONEY), 1),N'.00',N'') + N' scans/seeks; '
+					/* rows will only be in this dmv when data is in memory for the table */
+				), N'Table metadata not in memory'),
 			index_lock_wait_summary AS ISNULL(
 				CASE WHEN total_row_lock_wait_count = 0 and  total_page_lock_wait_count = 0 and
 					total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits.'
@@ -1094,7 +1123,7 @@ BEGIN TRY
 					CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
 					') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END,
 				[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
-					N', @schema_name=	' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + N';'
+					N', @schema_name=' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + N';'
 				;
 
 
@@ -1189,6 +1218,7 @@ BEGIN
 			s.index_definition, 
 			ISNULL(s.secret_columns,N'') AS secret_columns,
 			s.index_usage_summary, 
+			sz.index_op_stats,
 			ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
 			ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
 			s.is_referenced_by_foreign_key,
@@ -1215,14 +1245,15 @@ BEGIN
 				N'From Brent Ozar Unlimited' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				0 as display_order
 	)
 	SELECT 
 			schema_object_indexid AS [Details: schema.table.index(indexid)], 
 			index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
 			secret_columns AS [Secret Columns],
-			index_usage_summary AS [Usage], 
+			index_usage_summary AS [Usage Stats], 
+			index_op_stats as [Op Stats],
 			index_size_summary AS [Size],
 			index_lock_wait_summary AS [Lock Waits],
 			is_referenced_by_foreign_key AS [Referenced by FK?],
@@ -2001,7 +2032,7 @@ BEGIN;
 
 	END
 		 ----------------------------------------
-		--Abnormal Psychology : Check_id 60-69
+		--Abnormal Psychology : Check_id 60-79
 		----------------------------------------
 	BEGIN
 			RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
@@ -2337,6 +2368,65 @@ BEGIN;
 			OR [update_referential_action_desc] <> N'NO_ACTION'
 
 	END
+
+		 ----------------------------------------
+		--Workaholics: Check_id 80-89
+		----------------------------------------
+	BEGIN
+
+		RAISERROR(N'check_id 80: Most scanned indexes (index_usage_stats)', 0,1) WITH NOWAIT;
+		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+							   secret_columns, index_usage_summary, index_size_summary )
+
+		--Workaholics according to index_usage_stats
+		--This isn't perfect: it mentions the number of scans present in a plan
+		--A "scan" isn't necessarily a full scan, but hey, we gotta do the best with what we've got.
+		--in the case of things like indexed views, the operator might be in the plan but never executed
+		SELECT TOP 5 
+			80 AS check_id,
+			i.index_sanity_id as index_sanity_id,
+			N'Workaholics' as findings_group,
+			N'Scan-a-lots (index_usage_stats)' as finding,
+			N'http://BrentOzar.com/go/Workaholics' AS URL,
+			cast (i.user_scans as NVARCHAR(50)) + N' scans against ' + i.schema_object_indexid
+				+ N'. Latest scan: ' + ISNULL(cast(i.last_user_scan as nvarchar(128)),'?') + N'. ' 
+				+ N'ScanFactor=' + cast(((i.user_scans * iss.total_reserved_MB)/1000000.) as NVARCHAR(256)) as details,
+			isnull(i.key_column_names_with_sort_order,'N/A') as index_definition,
+			isnull(i.secret_columns,'') as secret_columns,
+			i.index_usage_summary as index_usage_summary,
+			iss.index_size_summary as index_size_summary
+		FROM #index_sanity i
+		JOIN #index_sanity_size iss on i.index_sanity_id=iss.index_sanity_id
+		ORDER BY  i.user_scans * iss.total_reserved_MB DESC;
+
+		RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
+		INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
+							   secret_columns, index_usage_summary, index_size_summary )
+		--Workaholics according to index_operational_stats
+		--This isn't perfect either: range_scan_count contains full scans, partial scans, even seeks in nested loop ops
+		--But this can help bubble up some most-accessed tables 
+		SELECT TOP 5 
+			81 as check_id,
+			i.index_sanity_id as index_sanity_id,
+			N'Workaholics' as findings_group,
+			N'Top recent accesses (index_op_stats)' as finding,
+			N'http://BrentOzar.com/go/Workaholics' AS URL,
+			REPLACE(CONVERT(NVARCHAR(50),cast((iss.total_range_scan_count + iss.total_singleton_lookup_count) AS MONEY),1),N'.00',N'') 
+				+ N' uses of ' + i.schema_object_indexid + N'. '
+				+ REPLACE(CONVERT(NVARCHAR(50), CAST(iss.total_range_scan_count AS MONEY),1),N'.00',N'') + N' scans or seeks. '
+				+ REPLACE(CONVERT(NVARCHAR(50), CAST(iss.total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups. '
+				+ N'OpStatsFactor=' + cast(((((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB))/1000000.) as varchar(256)) as details,
+			isnull(i.key_column_names_with_sort_order,'N/A') as index_definition,
+			isnull(i.secret_columns,'') as secret_columns,
+			i.index_usage_summary as index_usage_summary,
+			iss.index_size_summary as index_size_summary
+		FROM #index_sanity i
+		JOIN #index_sanity_size iss on i.index_sanity_id=iss.index_sanity_id
+		ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC;
+
+
+	END
+
 		 ----------------------------------------
 		--FINISHING UP
 		----------------------------------------
