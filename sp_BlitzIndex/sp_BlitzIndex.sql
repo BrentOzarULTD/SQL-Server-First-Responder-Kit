@@ -52,6 +52,7 @@ CHANGE LOG (last five versions):
 			Added index_operational_stats info to table level output -- recent scans and lookups
 			Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
 			Changed db name, table name, index name to 128 length because users care.
+			Fixed findings_group column length in #blitz_index_results (fixed issues for users w/ longer db names)
 		Fixed tab in @schema_name= that made pasting into Excel awkward/wrong
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
@@ -255,7 +256,7 @@ BEGIN TRY
 			  blitz_result_id INT IDENTITY PRIMARY KEY,
 			  check_id INT NOT NULL,
 			  index_sanity_id INT NULL,
-			  findings_group VARCHAR(50) NOT NULL,
+			  findings_group VARCHAR(4000) NOT NULL,
 			  finding VARCHAR(200) NOT NULL,
 			  URL VARCHAR(200) NOT NULL,
 			  details NVARCHAR(4000) NOT NULL,
