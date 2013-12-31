@@ -2391,7 +2391,8 @@ BEGIN;
 			N'Workaholics' as findings_group,
 			N'Scan-a-lots (index_usage_stats)' as finding,
 			N'http://BrentOzar.com/go/Workaholics' AS URL,
-			cast (i.user_scans as NVARCHAR(50)) + N' scans against ' + i.schema_object_indexid
+			REPLACE(CONVERT( NVARCHAR(50),CAST(i.user_scans AS MONEY),1),'.00','')
+				+ N' scans against ' + i.schema_object_indexid
 				+ N'. Latest scan: ' + ISNULL(cast(i.last_user_scan as nvarchar(128)),'?') + N'. ' 
 				+ N'ScanFactor=' + cast(((i.user_scans * iss.total_reserved_MB)/1000000.) as NVARCHAR(256)) as details,
 			isnull(i.key_column_names_with_sort_order,'N/A') as index_definition,
