@@ -53,6 +53,7 @@ CHANGE LOG (last five versions):
 			Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
 			Changed db name, table name, index name to 128 length because users care.
 			Fixed findings_group column length in #blitz_index_results (fixed issues for users w/ longer db names)
+			Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
 		Fixed tab in @schema_name= that made pasting into Excel awkward/wrong
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
@@ -470,7 +471,7 @@ BEGIN TRY
 					sc.object_id = si.object_id
 					and sc.index_id=si.index_id
 					AND sc.column_id=c.column_id
-				LEFT JOIN sys.identity_columns ic ON
+				LEFT JOIN ' + QUOTENAME(@database_name) + N'.sys.identity_columns ic ON
 					c.object_id=ic.object_id and
 					c.column_id=ic.column_id
 				JOIN ' + QUOTENAME(@database_name) + N'.sys.types st ON 
@@ -1510,9 +1511,9 @@ BEGIN;
 							SELECT	21 AS check_id, 
 									MAX(i.index_sanity_id) AS index_sanity_id, 
 									N'Index Hoarder' AS findings_group,
-									N'More than 5% of NC indexes are unused' AS finding,
+									N'More than 5 percent NC indexes are unused' AS finding,
 									N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-									CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N'% of NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') are unused. ' +
+									CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N' percent NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') unused. ' +
 									N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
 									i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
 									'' AS secret_columns, 
@@ -2224,6 +2225,7 @@ BEGIN;
 						FROM	#index_sanity i
 						JOIN	#index_columns ic on
 							i.object_id=ic.object_id
+							and i.index_id in (0,1) /* heaps and cx only */
 							and ic.is_identity=1
 							and ic.system_type_name in ('tinyint', 'smallint', 'int')
 						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
@@ -2273,6 +2275,7 @@ BEGIN;
 						FROM	#index_sanity i
 						JOIN	#index_columns ic on
 							i.object_id=ic.object_id
+							and i.index_id in (0,1) /* heaps and cx only */
 							and ic.is_identity=1
 							and ic.system_type_name in ('tinyint', 'smallint', 'int')
 						JOIN	#index_sanity_size ip ON i.index_sanity_id = ip.index_sanity_id
