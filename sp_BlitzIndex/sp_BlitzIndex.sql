@@ -2189,11 +2189,12 @@ BEGIN;
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
 						OPTION	( RECOMPILE );
 
-			RAISERROR(N'check_id 68: Identity columns within 30% of the end of range', 0,1) WITH NOWAIT;
+			RAISERROR(N'check_id 68: Identity columns within 30 percent of the end of range', 0,1) WITH NOWAIT;
 			-- Allowed Ranges: 
 				--int -2,147,483,648 to 2,147,483,647
 				--smallint -32,768 to 32,768
 				--tinyint 0 to 255
+
 				INSERT	#blitz_index_results ( check_id, index_sanity_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	68 AS check_id, 
@@ -2201,7 +2202,7 @@ BEGIN;
 								N'Abnormal Psychology' AS findings_group,
 								N'Identity column within ' + 									
 									CAST (calc1.percent_remaining as nvarchar(256))
-									+ N'% of end of range' AS finding,
+									+ N' percent  end of range' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
 								i.schema_object_name + N'.' +  QUOTENAME(ic.column_name)
 									+ N' is an identity with type ' + ic.system_type_name 
@@ -2242,7 +2243,7 @@ BEGIN;
 											WHEN 'tinyint' then ABS( 0 - (ISNULL(ic.last_value,ic.seed_value) + ic.increment_value)) / 255.*100
 											ELSE -1
 										END 
-								END AS NUMERIC(4,1)) AS percent_remaining
+								END AS NUMERIC(5,1)) AS percent_remaining
 								) as calc1
 						WHERE	i.index_id in (1,0)
 							and calc1.percent_remaining <= 30
