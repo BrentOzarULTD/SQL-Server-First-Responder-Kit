@@ -375,6 +375,8 @@ BEGIN TRY
 			  total_reserved_MB NUMERIC(29,2) NOT NULL ,
 			  total_reserved_LOB_MB NUMERIC(29,2) NOT NULL ,
 			  total_reserved_row_overflow_MB NUMERIC(29,2) NOT NULL ,
+			  total_leaf_delete_count BIGINT NULL,
+			  total_leaf_update_count BIGINT NULL,
 			  total_range_scan_count BIGINT NULL,
 			  total_singleton_lookup_count BIGINT NULL,
 			  total_row_lock_count BIGINT NULL ,
@@ -838,7 +840,7 @@ BEGIN TRY
 		RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
 		INSERT	#IndexSanitySize ( [index_sanity_id], partition_count, total_rows, total_reserved_MB,
 									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
-									 total_singleton_lookup_count, total_row_lock_count,
+									 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, total_row_lock_count,
 									 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
 									 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
 									 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
@@ -847,6 +849,8 @@ BEGIN TRY
 						SUM(reserved_row_overflow_MB), 
 						SUM(range_scan_count),
 						SUM(singleton_lookup_count),
+						SUM(leaf_delete_count), 
+						SUM(leaf_update_count),
 						SUM(row_lock_count), 
 						SUM(row_lock_wait_count),
 						SUM(row_lock_wait_in_ms), 
@@ -1077,6 +1081,8 @@ BEGIN TRY
 				(
 					REPLACE(CONVERT(NVARCHAR(30),CAST(total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups; '
 					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_range_scan_count AS MONEY), 1),N'.00',N'') + N' scans/seeks; '
+					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_delete_count AS MONEY), 1),N'.00',N'') + N' deletes; '
+					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_update_count AS MONEY), 1),N'.00',N'') + N' updates; '
 					/* rows will only be in this dmv when data is in memory for the table */
 				), N'Table metadata not in memory'),
 			index_lock_wait_summary AS ISNULL(
@@ -1974,7 +1980,8 @@ BEGIN;
 
 			RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
 			WITH	heaps_cte
-					  AS ( SELECT	[object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+					  AS ( SELECT	[object_id], 
+									SUM(forwarded_fetch_count) AS forwarded_fetch_count,
 									SUM(leaf_delete_count) AS leaf_delete_count
 						   FROM		#IndexPartitionSanity
 						   GROUP BY	[object_id]
