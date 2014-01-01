@@ -54,19 +54,20 @@ Known limitations of this version:
 
 CHANGE LOG (last five versions):
 	December 31, 2013 (v2.02)
+		Standardized calling parameters with sp_AskBrent™ and sp_BlitzIndex™. (@DatabaseName instead of @database_name, etc)
 		Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
-			Added index_operational_stats info to table level output -- recent scans and lookups
-			Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
-			Changed db name, table name, index name to 128 length because users care.
-			Fixed findings_group column length in #BlitzIndexResults (fixed issues for users w/ longer db names)
-			Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
-				Fixed extra tab in @SchemaName= that made pasting into Excel awkward/wrong
-			Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
-			Standardized underscores in create TSQL for missing indexes
-			Better error message when running in table mode and the table isn't found.
-			Added current timestamp to the header based on user request. (Didn't add startup time-- sorry! Too many things reset usage info, don't want to mislead anyone.)
-			Added fillfactor to index create statements.
-			Changed all index create statements to ONLINE=?, SORT_IN_TEMPDB=?. The user should decide at index create time what's right for them.
+		Added index_operational_stats info to table level output -- recent scans and lookups
+		Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
+		Changed db name, table name, index name to 128 length because users care.
+		Fixed findings_group column length in #BlitzIndexResults (fixed issues for users w/ longer db names)
+		Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
+			Fixed extra tab in @SchemaName= that made pasting into Excel awkward/wrong
+		Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
+		Standardized underscores in create TSQL for missing indexes
+		Better error message when running in table mode and the table isn't found.
+		Added current timestamp to the header based on user request. (Didn't add startup time-- sorry! Too many things reset usage info, don't want to mislead anyone.)
+		Added fillfactor to index create statements.
+		Changed all index create statements to ONLINE=?, SORT_IN_TEMPDB=?. The user should decide at index create time what's right for them.
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
