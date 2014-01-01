@@ -41,8 +41,10 @@ Usage examples:
 
 Known limitations of this version:
  - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
- - Index create statements are just to give you a rough idea of the syntax.
- --		Example: they do not include all the options the index may have been created with (padding, etc.)
+ - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
+ --		Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it's important for the user to understand if it's going to be offline and not just run a script.
+ --		Example 2: they do not include all the options the index may have been created with (padding, compression filegroup/partition scheme etc.)
+ --		(The compression and filegroup index create syntax isn't trivial because it's set at the partition level and isn't trivial to code. Two people have voted for wanting it so far.)
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
  - Found something? Let us know at help@brentozar.com.
 
@@ -63,6 +65,8 @@ CHANGE LOG (last five versions):
 			Standardized underscores in create TSQL for missing indexes
 			Better error message when running in table mode and the table isn't found.
 			Added current timestamp to the header based on user request. (Didn't add startup time-- sorry! Too many things reset usage info, don't want to mislead anyone.)
+			Added fillfactor to index create statements.
+			Changed all index create statements to ONLINE=?, SORT_IN_TEMPDB=?. The user should decide at index create time what's right for them.
 	May 26, 2013 (v2.01)
 		Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
 	May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
@@ -1137,7 +1141,12 @@ BEGIN TRY
 					+ [statement] + N' (' + ISNULL(equality_columns,N'')
 					+ CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
 					+ CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
-					') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END,
+					') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END
+					+ N' WITH (' 
+						+ N'FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?' 
+					+ N')'
+					+ N';'
+					,
 				[more_info] AS N'EXEC dbo.sp_BlitzIndex @database_name=' + QUOTENAME([database_name],'''') + 
 					N', @schema_name=' + QUOTENAME([schema_name],'''') + N', @table_name=' + QUOTENAME([table_name],'''') + N';'
 				;
@@ -1186,8 +1195,12 @@ BEGIN TRY
 										END
 									END /*End non-colunnstore case */ 
 								+ CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
-							END /*End Non-PK index CASE */ +
-						CASE WHEN (@SQLServerEdition =  3  AND is_NC_columnstore=0 ) THEN + N' WITH (ONLINE=ON);' ELSE N';' END
+							END /*End Non-PK index CASE */ 
+						+ N' WITH (' 
+							+ N'FILLFACTOR=' + CASE fill_factor when 0 then N'100' else CAST(fill_factor AS NVARCHAR(5)) END + ', '
+							+ N'ONLINE=?, SORT_IN_TEMPDB=?'
+						+ N')'
+						+ N';'
   					END /*End non-spatial and non-xml CASE */ 
 				END
 			END, '[Unknown Error]')
