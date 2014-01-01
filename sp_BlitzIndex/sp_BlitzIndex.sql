@@ -1162,7 +1162,7 @@ BEGIN TRY
 				THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
 				 + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
 			ELSE
-				CASE index_id WHEN 0 THEN N'(HEAP)' 
+				CASE index_id WHEN 0 THEN N'--I''m a Heap!' 
 				ELSE 
 					CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
 					ELSE 
@@ -1196,10 +1196,12 @@ BEGIN TRY
 									END /*End non-colunnstore case */ 
 								+ CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
 							END /*End Non-PK index CASE */ 
-						+ N' WITH (' 
-							+ N'FILLFACTOR=' + CASE fill_factor when 0 then N'100' else CAST(fill_factor AS NVARCHAR(5)) END + ', '
-							+ N'ONLINE=?, SORT_IN_TEMPDB=?'
-						+ N')'
+						+ CASE WHEN is_NC_columnstore=0 and is_CX_columnstore=0 then
+							N' WITH (' 
+								+ N'FILLFACTOR=' + CASE fill_factor when 0 then N'100' else CAST(fill_factor AS NVARCHAR(5)) END + ', '
+								+ N'ONLINE=?, SORT_IN_TEMPDB=?'
+							+ N')'
+						else N'' end
 						+ N';'
   					END /*End non-spatial and non-xml CASE */ 
 				END
