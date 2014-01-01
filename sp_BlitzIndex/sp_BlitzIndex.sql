@@ -379,6 +379,7 @@ BEGIN TRY
 			  total_leaf_update_count BIGINT NULL,
 			  total_range_scan_count BIGINT NULL,
 			  total_singleton_lookup_count BIGINT NULL,
+			  total_forwarded_fetch_count BIGINT NULL,
 			  total_row_lock_count BIGINT NULL ,
 			  total_row_lock_wait_count BIGINT NULL ,
 			  total_row_lock_wait_in_ms BIGINT NULL ,
@@ -840,7 +841,8 @@ BEGIN TRY
 		RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
 		INSERT	#IndexSanitySize ( [index_sanity_id], partition_count, total_rows, total_reserved_MB,
 									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
-									 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, total_row_lock_count,
+									 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
+									 total_forwarded_fetch_count,total_row_lock_count,
 									 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
 									 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
 									 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
@@ -851,6 +853,7 @@ BEGIN TRY
 						SUM(singleton_lookup_count),
 						SUM(leaf_delete_count), 
 						SUM(leaf_update_count),
+						SUM(forwarded_fetch_count),
 						SUM(row_lock_count), 
 						SUM(row_lock_wait_count),
 						SUM(row_lock_wait_in_ms), 
@@ -1083,6 +1086,10 @@ BEGIN TRY
 					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_range_scan_count AS MONEY), 1),N'.00',N'') + N' scans/seeks; '
 					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_delete_count AS MONEY), 1),N'.00',N'') + N' deletes; '
 					+ REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_update_count AS MONEY), 1),N'.00',N'') + N' updates; '
+					+ CASE WHEN ISNULL(total_forwarded_fetch_count,0) >0 THEN
+						REPLACE(CONVERT(NVARCHAR(30),CAST(total_forwarded_fetch_count AS MONEY), 1),N'.00',N'') + N' forward records fetched; '
+					ELSE N'' END
+
 					/* rows will only be in this dmv when data is in memory for the table */
 				), N'Table metadata not in memory'),
 			index_lock_wait_summary AS ISNULL(
