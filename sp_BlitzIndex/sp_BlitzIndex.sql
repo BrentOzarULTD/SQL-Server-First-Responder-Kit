@@ -1259,8 +1259,8 @@ BEGIN
 			s.index_sanity_id=ct.index_sanity_id
 		WHERE s.[object_id]=@object_id
 		UNION ALL
-		SELECT 				
-				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
+		SELECT 	N'Database ' + QUOTENAME(@database_name) + N' as of ' + convert(nvarchar(16),getdate(),121) + 			
+				N' (sp_BlitzIndex™ v2.02 - Jan 1, 2014)' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1371,7 +1371,9 @@ BEGIN;
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,
 										index_usage_summary, index_size_summary )
-		VALUES  ( 0 , N'Database=' + @database_name, N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,
+		VALUES  ( 0 , 
+				N'Database ' + QUOTENAME(@database_name) + N' as of ' + convert(nvarchar(16),getdate(),121), 
+				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,
 				N'From Brent Ozar Unlimited™' ,   N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
@@ -2464,8 +2466,8 @@ BEGIN;
 	BEGIN
 				INSERT	#blitz_index_results ( check_id, findings_group, finding, URL, details, index_definition,secret_columns,
 											   index_usage_summary, index_size_summary )
-				VALUES  ( 1000 , N'Database=' + @database_name,
-						N' Learn how to use this script at:' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+				VALUES  ( 1000 , N'Database ' + QUOTENAME(@database_name) + N' as of ' + convert(nvarchar(16),getdate(),121)	,
+						N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
 						N'Thanks from the Brent Ozar Unlimited™, LLC team.',
 						N'We hope you found this tool useful.',
 						N'If you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
@@ -2477,8 +2479,9 @@ BEGIN;
 		RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
 			
 		/*Return results.*/
-		SELECT br.findings_group + 
-			N': ' + br.finding AS [Finding], 
+		SELECT isnull(br.findings_group,N'') + 
+				CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+				+ br.finding AS [Finding], 
 			br.URL, 
 			br.details AS [Details: schema.table.index(indexid)], 
 			br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
@@ -2546,7 +2549,7 @@ BEGIN;
 		LEFT JOIN #index_sanity_size AS sz 
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
-		SELECT	N'Database='+ @database_name,		
+		SELECT	N'Database ' + QUOTENAME(@database_name) + N' as of ' + convert(nvarchar(16),getdate(),121)	,		
 				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
@@ -2625,7 +2628,7 @@ BEGIN;
 		FROM	#index_sanity AS i --left join here so we don't lose disabled nc indexes
 				LEFT JOIN #index_sanity_size AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
-		SELECT 	N'Database=' + @database_name,			
+		SELECT 	N'Database ' + QUOTENAME(@database_name) + N' as of ' + convert(nvarchar(16),getdate(),121)			
 				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
