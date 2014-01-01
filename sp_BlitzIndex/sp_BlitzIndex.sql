@@ -1251,6 +1251,7 @@ BEGIN
 			s.key_column_names,
 			s.index_definition, 
 			ISNULL(s.secret_columns,N'') AS secret_columns,
+			s.fill_factor,
 			s.index_usage_summary, 
 			sz.index_op_stats,
 			ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
@@ -1279,13 +1280,14 @@ BEGIN
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				0 as display_order
 	)
 	SELECT 
 			schema_object_indexid AS [Details: schema.table.index(indexid)], 
 			index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
 			secret_columns AS [Secret Columns],
+			fill_factor AS [Fillfactor],
 			index_usage_summary AS [Usage Stats], 
 			index_op_stats as [Op Stats],
 			index_size_summary AS [Size],
