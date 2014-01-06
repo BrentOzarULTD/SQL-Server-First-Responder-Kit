@@ -119,7 +119,8 @@ AS
 			,@indx int
 			,@query_result_separator CHAR(1)
 			,@EmailSubject NVARCHAR(255)
-			,@EmailBody NVARCHAR(MAX);
+			,@EmailBody NVARCHAR(MAX)
+			,@EmailAttachmentFilename NVARCHAR(255);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
 			DROP TABLE #BlitzResults;
@@ -327,7 +328,6 @@ AS
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 			@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 			@OutputTableName = QUOTENAME(@OutputTableName)
-
 
 
 		/* 
@@ -4079,7 +4079,55 @@ AS
 							@query_result_separator = @query_result_separator,
 							@query = @StringToExecute;
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
+					IF @CheckProcedureCache = 1
+					BEGIN
+						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
+						SELECT id, COALESCE(query_plan_filtered, query_plan) AS query_plan INTO ##BlitzResultsPlans FROM #dm_exec_query_stats;
+						DECLARE CursorPlans CURSOR FAST_FORWARD FOR
+							SELECT id
+							FROM #dm_exec_query_stats;
+						OPEN CursorPlans;
 
+						FETCH NEXT FROM CursorPlans INTO @indx;
+						WHILE @@FETCH_STATUS = 0
+							BEGIN
+								/* Build the email body */
+								SET @StringToExecute = 'SET NOCOUNT ON;SELECT ss.Result FROM ##BlitzResultsPlans p CROSS APPLY dbo.SplitString(CONVERT(NVARCHAR(MAX),p.query_plan),4000) ss WHERE p.id = ' + CAST(@indx AS VARCHAR(100)) + '; SET NOCOUNT OFF;';
+								SET @EmailSubject = 'sp_Blitz (TM) Plan Cache Results for ' + @@SERVERNAME + ' Query ID# ' + CAST(@indx AS VARCHAR(100));
+								SET @EmailBody = 'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. From Brent Ozar Unlimited: http://www.BrentOzar.com/blitz/';
+								SET @EmailAttachmentFilename =  CAST(@indx AS VARCHAR(100)) + '.sqlplan';
+								IF @EmailProfile IS NULL
+									EXEC msdb.dbo.sp_send_dbmail
+										@recipients = @EmailRecipients,
+										@subject = @EmailSubject,
+										@body = @EmailBody,
+										@query_attachment_filename = @EmailAttachmentFilename,
+										@attach_query_result_as_file = 1,
+										@query_result_header = 0,
+										@query_result_width = 32767,
+										@query_result_separator = @query_result_separator,
+										@query_no_truncate = 1,
+										@query = @StringToExecute;
+								ELSE
+									EXEC msdb.dbo.sp_send_dbmail
+										@profile_name = @EmailProfile,
+										@recipients = @EmailRecipients,
+										@subject = @EmailSubject,
+										@body = @EmailBody,
+										@query_attachment_filename = @EmailAttachmentFilename,
+										@attach_query_result_as_file = 1,
+										@query_result_header = 0,
+										@query_result_width = 32767,
+										@query_result_separator = @query_result_separator,
+										@query_no_truncate = 1,
+										@query = @StringToExecute;
+								FETCH NEXT FROM CursorPlans INTO @indx;
+							END
+						CLOSE CursorPlans;
+						DEALLOCATE CursorPlans;
+
+						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
+					END
 				END
 
 
