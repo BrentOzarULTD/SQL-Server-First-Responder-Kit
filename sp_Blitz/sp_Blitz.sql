@@ -4082,10 +4082,11 @@ AS
 					IF @CheckProcedureCache = 1
 					BEGIN
 						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
-						SELECT id, COALESCE(query_plan_filtered, query_plan) AS query_plan INTO ##BlitzResultsPlans FROM #dm_exec_query_stats;
+						SELECT id, COALESCE(query_plan_filtered, query_plan) AS query_plan INTO ##BlitzResultsPlans FROM #dm_exec_query_stats WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
 						DECLARE CursorPlans CURSOR FAST_FORWARD FOR
 							SELECT id
-							FROM #dm_exec_query_stats;
+							FROM #dm_exec_query_stats
+							WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
 						OPEN CursorPlans;
 
 						FETCH NEXT FROM CursorPlans INTO @indx;
@@ -4346,5 +4347,5 @@ EXEC [master].[dbo].[sp_Blitz]
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
 
-EXEC sp_Blitz @EmailRecipients = 'brento@brentozar.com'
+EXEC sp_Blitz @EmailRecipients = 'brento@brentozar.com', @CheckProcedureCache = 1
 */
