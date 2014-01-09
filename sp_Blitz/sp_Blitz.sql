@@ -22,19 +22,21 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
+    @EmailRecipients VARCHAR(MAX) = NULL ,
+    @EmailProfile SYSNAME = NULL ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 31, @VersionDate = '20131201'
+	SELECT @Version = 32, @VersionDate = '20140105'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v31 - Dec 1, 2013
+	sp_Blitz (TM) v32 - Jan 5, 2014
     
-	(C) 2013, Brent Ozar Unlimited. 
+	(C) 2014, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
 	To learn more, visit http://www.BrentOzar.com/blitz where you can download
@@ -51,6 +53,12 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+	Changes in v32 - January 5, 2014
+	 - Added @EmailRecipients and @EmailProfile parameters to send the results via
+	   Database Mail. Assumes that database mail is already configured correctly.
+     - Fixed a bug in checks 108 and 109 that showed poison waits even if they had
+	   0ms of wait time since restart.
 
 	Changes in v31 - December 1, 2013
 	 - Dick Baker, Ambrosetti Ltd (UK):
@@ -108,7 +116,11 @@ AS
 		DECLARE @StringToExecute NVARCHAR(4000)
 			,@curr_tracefilename NVARCHAR(500) 
 			,@base_tracefilename NVARCHAR(500) 
-			,@indx int ;
+			,@indx int
+			,@query_result_separator CHAR(1)
+			,@EmailSubject NVARCHAR(255)
+			,@EmailBody NVARCHAR(MAX)
+			,@EmailAttachmentFilename NVARCHAR(255);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
 			DROP TABLE #BlitzResults;
@@ -316,7 +328,6 @@ AS
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 			@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 			@OutputTableName = QUOTENAME(@OutputTableName)
-
 
 
 		/* 
@@ -2463,6 +2474,7 @@ AS
 									FROM sys.[dm_os_wait_stats] 
 									WHERE wait_type = 'RESOURCE_SEMAPHORE'
 									GROUP BY wait_type
+								    HAVING SUM([wait_time_ms]) > 5000
 						END
 
 
@@ -2487,6 +2499,7 @@ AS
 									FROM sys.[dm_os_wait_stats] 
 									WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE'
 									GROUP BY wait_type
+								    HAVING SUM([wait_time_ms]) > 5000
 						END
 
 
@@ -4029,6 +4042,95 @@ AS
 
 						);
 
+				IF @EmailRecipients IS NOT NULL 
+					BEGIN
+					/* Database mail won't work off a local temp table. I'm not happy about this hacky workaround either. */
+					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
+					SELECT * INTO ##BlitzResults FROM #BlitzResults;
+					SET @query_result_separator = char(9);
+					SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup, Finding, Details; SET NOCOUNT OFF;';
+					SET @EmailSubject = 'sp_Blitz (TM) Results for ' + @@SERVERNAME;
+					SET @EmailBody = 'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. From Brent Ozar Unlimited: http://www.BrentOzar.com/blitz/';
+					IF @EmailProfile IS NULL
+						EXEC msdb.dbo.sp_send_dbmail
+							@recipients = @EmailRecipients,
+							@subject = @EmailSubject,
+							@body = @EmailBody,
+							@query_attachment_filename = 'sp_Blitz-Results.csv',
+							@attach_query_result_as_file = 1,
+							@query_result_header = 1,
+							@query_result_width = 32767,
+							@append_query_error = 1,
+							@query_result_no_padding = 1,
+							@query_result_separator = @query_result_separator,
+							@query = @StringToExecute;
+					ELSE
+						EXEC msdb.dbo.sp_send_dbmail
+							@profile_name = @EmailProfile,
+							@recipients = @EmailRecipients,
+							@subject = @EmailSubject,
+							@body = @EmailBody,
+							@query_attachment_filename = 'sp_Blitz-Results.csv',
+							@attach_query_result_as_file = 1,
+							@query_result_header = 1,
+							@query_result_width = 32767,
+							@append_query_error = 1,
+							@query_result_no_padding = 1,
+							@query_result_separator = @query_result_separator,
+							@query = @StringToExecute;
+					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
+					IF @CheckProcedureCache = 1
+					BEGIN
+						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
+						SELECT id, COALESCE(query_plan_filtered, query_plan) AS query_plan INTO ##BlitzResultsPlans FROM #dm_exec_query_stats WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
+						DECLARE CursorPlans CURSOR FAST_FORWARD FOR
+							SELECT id
+							FROM #dm_exec_query_stats
+							WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
+						OPEN CursorPlans;
+
+						FETCH NEXT FROM CursorPlans INTO @indx;
+						WHILE @@FETCH_STATUS = 0
+							BEGIN
+								/* Build the email body */
+								SET @StringToExecute = 'SET NOCOUNT ON;SELECT ss.Result FROM ##BlitzResultsPlans p CROSS APPLY dbo.SplitString(CONVERT(NVARCHAR(MAX),p.query_plan),4000) ss WHERE p.id = ' + CAST(@indx AS VARCHAR(100)) + '; SET NOCOUNT OFF;';
+								SET @EmailSubject = 'sp_Blitz (TM) Plan Cache Results for ' + @@SERVERNAME + ' Query ID# ' + CAST(@indx AS VARCHAR(100));
+								SET @EmailBody = 'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. From Brent Ozar Unlimited: http://www.BrentOzar.com/blitz/';
+								SET @EmailAttachmentFilename =  CAST(@indx AS VARCHAR(100)) + '.sqlplan';
+								IF @EmailProfile IS NULL
+									EXEC msdb.dbo.sp_send_dbmail
+										@recipients = @EmailRecipients,
+										@subject = @EmailSubject,
+										@body = @EmailBody,
+										@query_attachment_filename = @EmailAttachmentFilename,
+										@attach_query_result_as_file = 1,
+										@query_result_header = 0,
+										@query_result_width = 32767,
+										@query_result_separator = @query_result_separator,
+										@query_no_truncate = 1,
+										@query = @StringToExecute;
+								ELSE
+									EXEC msdb.dbo.sp_send_dbmail
+										@profile_name = @EmailProfile,
+										@recipients = @EmailRecipients,
+										@subject = @EmailSubject,
+										@body = @EmailBody,
+										@query_attachment_filename = @EmailAttachmentFilename,
+										@attach_query_result_as_file = 1,
+										@query_result_header = 0,
+										@query_result_width = 32767,
+										@query_result_separator = @query_result_separator,
+										@query_no_truncate = 1,
+										@query = @StringToExecute;
+								FETCH NEXT FROM CursorPlans INTO @indx;
+							END
+						CLOSE CursorPlans;
+						DEALLOCATE CursorPlans;
+
+						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
+					END
+				END
+
 
 				/* @OutputTableName lets us export the results to a permanent table */
 				IF @OutputDatabaseName IS NOT NULL
@@ -4244,4 +4346,6 @@ EXEC [master].[dbo].[sp_Blitz]
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
+
+EXEC sp_Blitz @EmailRecipients = 'brento@brentozar.com', @CheckProcedureCache = 1
 */
