@@ -4,7 +4,7 @@
 ----------------------------------------
 -- Create havoc!
 ----------------------------------------
-USE AdventureWorks;
+USE AdventureWorks2012;
 
 
 --Create a non-unique clustered index
@@ -228,6 +228,20 @@ create table dbo.IdentityNegative (
 );
 GO
 
+--Create identity tables near the end of ranges
+IF OBJECT_ID('IdentityBigIntHigh') IS NULL
+create table dbo.IdentityBigIntHigh (
+	i bigint identity  (9223372036854775806,10) not null,
+	j char(10) default('foo') not null
+);
+GO
+IF OBJECT_ID('IdentityBigIntNegative') IS NULL
+create table dbo.IdentityBigIntNegative (
+	i bigint identity  (-9223372036854775806,10) not null,
+	j char(10) default('foo') not null
+);
+GO
+
 --create table with all but one column nullable
 --Also make it all varchar/nvarchar except one column
 IF OBJECT_ID('AddictedToNullsAndAllCharVarchar') IS NULL
@@ -255,21 +269,21 @@ GO
 -- TEST
 ----------------------------------------
 
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
 
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=1;
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=2;
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=1;
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=2;
 
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=1;
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
-EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3;
-GO
-EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
-EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
-GO
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=1;
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
+--EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3;
+--GO
+--EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
+--EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
+--GO
 
---Indexed view
-EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';
+----Indexed view
+--EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';
 
 
 --Duplicate indexes against
