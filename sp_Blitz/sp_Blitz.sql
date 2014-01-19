@@ -23,18 +23,18 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @EmailRecipients VARCHAR(MAX) = NULL ,
-    @EmailProfile SYSNAME = NULL ,
+    @EmailProfile sysname = NULL ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 32, @VersionDate = '20140105'
+	SELECT @Version = 32, @VersionDate = '20140119'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v32 - Jan 5, 2014
+	sp_Blitz (TM) v32 - Jan 19, 2014
     
 	(C) 2014, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -55,10 +55,23 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
 	Changes in v32 - January 5, 2014
+	 - Russell Hart fixed a bug in check 59 (Agent jobs without notifications).
 	 - Added @EmailRecipients and @EmailProfile parameters to send the results via
 	   Database Mail. Assumes that database mail is already configured correctly.
+	   Only sends the main results table, and it will not work well if you also
+	   try to use @CheckProcedureCache. Execution plans will not render in email.
      - Fixed a bug in checks 108 and 109 that showed poison waits even if they had
 	   0ms of wait time since restart.
+	 - Removed check 120 which warned about backups not using WITH CHECKSUM. We
+	   fell out of love with WITH CHECKSUM - turns out nobody uses it.
+	 - Added check 121 - Poison Wait Detected: Serializable Locking - looking for
+	   waits with %LCK%R%. Happens when a query uses a combination of lock hints
+	   that make the query serializable.
+	 - Added check 122 - User-Created Statistics In Place. There is nothing wrong
+	   with creating your own statistics, but it can cause an IO explosion when
+	   statistics are updated.
+	 - Added check 123 - Multiple Agent Jobs Starting Simultaneously. Ran into an
+	   issue where dozens of jobs started at the exact same time every hour.
 
 	Changes in v31 - December 1, 2013
 	 - Dick Baker, Ambrosetti Ltd (UK):
@@ -590,46 +603,6 @@ AS
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
-					END
-
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 120 ) 
-					BEGIN
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  DatabaseName ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT DISTINCT
-										120 AS CheckID ,
-										d.name AS DatabaseName ,
-										50 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Backup Checksums Not Used' AS Finding ,
-										'http://BrentOzar.com/go/torn' AS URL ,
-										( 'The WITH CHECKSUM option is not being used on the full backups for this database. WITH CHECKSUM causes all existing page checksums to be checked - an easy way to catch some corruption quickly.' ) AS Details
-								FROM    master.sys.databases d
-								WHERE   d.recovery_model IN ( 1, 2 )
-										AND d.database_id NOT IN ( 2, 3 )
-										AND d.source_database_id IS NULL
-										AND d.state <> 1 /* Not currently restoring, like log shipping databases */
-										AND d.is_in_standby = 0 /* Not a log shipping target database */
-										AND d.source_database_id IS NULL /* Excludes database snapshots */
-										AND d.name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-															FROM  #SkipChecks
-															WHERE CheckID IS NULL )
-										AND NOT EXISTS ( SELECT *
-														 FROM   msdb.dbo.backupset b
-														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND b.type = 'D'
-																AND b.has_backup_checksums = 1
-																AND b.backup_finish_date >= DATEADD(dd, -30, GETDATE()) );
 					END
 
 
@@ -1572,6 +1545,8 @@ AS
 											( 'Not all SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
 					END
 
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 59 ) 
@@ -1580,7 +1555,7 @@ AS
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 1
 											AND COALESCE(has_notification, 0) = 0
-											AND job_id IS NULL ) 
+											AND job_id IS NULL OR job_id = 0x) 
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -2451,6 +2426,7 @@ AS
 									FROM sys.[dm_os_wait_stats] 
 									WHERE wait_type = 'THREADPOOL'
 									GROUP BY wait_type
+								    HAVING SUM([wait_time_ms]) > 5000
 						END
 
 					IF NOT EXISTS ( SELECT 1
@@ -2501,6 +2477,32 @@ AS
 									GROUP BY wait_type
 								    HAVING SUM([wait_time_ms]) > 5000
 						END
+
+
+					IF NOT EXISTS ( SELECT 1
+										 FROM   #SkipChecks
+										 WHERE  DatabaseName IS NULL AND CheckID = 121 ) 
+						BEGIN
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT  121 AS CheckID ,
+											10 AS Priority ,
+											'Performance' AS FindingGroup ,
+											'Poison Wait Detected: Serializable Locking'  AS Finding ,
+											'http://BrentOzar.com/go/serializable' AS URL ,
+											CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. Queries are forcing serial operation (one query at a time) with lock hints.'
+									FROM sys.[dm_os_wait_stats] 
+									WHERE wait_type LIKE '%LCK%R%'
+									GROUP BY wait_type
+								    HAVING SUM([wait_time_ms]) > 5000
+						END
+
 
 
 						IF NOT EXISTS ( SELECT 1
@@ -2963,6 +2965,57 @@ AS
 		  (''['' + DB_NAME() + ''] has a make_parallel function, indicating that an advanced developer may be manhandling SQL Server into forcing queries to go parallel.'') 
 		  from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = ''make_parallel'' AND ROUTINE_TYPE = ''FUNCTION''';
 							END
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 122 ) 
+							BEGIN
+								/* SQL Server 2012 and newer uses temporary stats for AlwaysOn Availability Groups, and those show up as user-created */
+								IF EXISTS (SELECT * 
+									  FROM sys.all_columns c
+									  INNER JOIN sys.all_objects o ON c.object_id = o.object_id
+									  WHERE c.name = 'is_temporary' AND o.name = 'stats')
+
+										EXEC dbo.sp_MSforeachdb 'USE [?]; 
+												INSERT INTO #BlitzResults 
+													(CheckID, 
+													DatabaseName,
+													Priority, 
+													FindingsGroup, 
+													Finding, 
+													URL, 
+													Details) 
+												SELECT TOP 1 122, 
+												''?'',
+												200, 
+												''Performance'', 
+												''User-Created Statistics In Place'', 
+												''http://BrentOzar.com/go/userstats'', 
+												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'') 
+												from [?].sys.stats WHERE user_created = 1 AND is_temporary = 0';
+
+									ELSE
+										EXEC dbo.sp_MSforeachdb 'USE [?]; 
+												INSERT INTO #BlitzResults 
+													(CheckID, 
+													DatabaseName,
+													Priority, 
+													FindingsGroup, 
+													Finding, 
+													URL, 
+													Details) 
+												SELECT TOP 1 122, 
+												''?'',
+												200, 
+												''Performance'', 
+												''User-Created Statistics In Place'', 
+												''http://BrentOzar.com/go/userstats'', 
+												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'') 
+												from [?].sys.stats WHERE user_created = 1';
+
+
+							END /* IF NOT EXISTS ( SELECT  1 */
 
 
 					END /* IF @CheckUserDatabaseObjects = 1 */
@@ -3744,6 +3797,29 @@ AS
 								FROM    sys.configurations cr
 								WHERE   cr.value <> cr.value_in_use;
 					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 123 ) 
+					BEGIN
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT TOP 1 123 AS CheckID ,
+										200 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'Agent Jobs Starting Simultaneously' AS Finding ,
+										'http://BrentOzar.com/go/busyagent/' AS URL ,
+										( 'Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.' ) AS Details
+								FROM    msdb.dbo.sysjobactivity 
+								WHERE start_execution_date > DATEADD(dd, -14, GETDATE()) 
+								GROUP BY start_execution_date HAVING COUNT(*) > 1;
+					END
 	                    
 
 				IF @CheckServerInfo = 1 
@@ -4079,56 +4155,6 @@ AS
 							@query_result_separator = @query_result_separator,
 							@query = @StringToExecute;
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
-					IF @CheckProcedureCache = 1
-					BEGIN
-						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
-						SELECT id, COALESCE(query_plan_filtered, query_plan) AS query_plan INTO ##BlitzResultsPlans FROM #dm_exec_query_stats WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
-						DECLARE CursorPlans CURSOR FAST_FORWARD FOR
-							SELECT id
-							FROM #dm_exec_query_stats
-							WHERE COALESCE(query_plan_filtered, query_plan) IS NOT NULL;
-						OPEN CursorPlans;
-
-						FETCH NEXT FROM CursorPlans INTO @indx;
-						WHILE @@FETCH_STATUS = 0
-							BEGIN
-								/* Build the email body */
-								SET @StringToExecute = 'SET NOCOUNT ON;SELECT ss.Result FROM ##BlitzResultsPlans p CROSS APPLY dbo.SplitString(CONVERT(NVARCHAR(MAX),p.query_plan),4000) ss WHERE p.id = ' + CAST(@indx AS VARCHAR(100)) + '; SET NOCOUNT OFF;';
-								SET @EmailSubject = 'sp_Blitz (TM) Plan Cache Results for ' + @@SERVERNAME + ' Query ID# ' + CAST(@indx AS VARCHAR(100));
-								SET @EmailBody = 'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. From Brent Ozar Unlimited: http://www.BrentOzar.com/blitz/';
-								SET @EmailAttachmentFilename =  CAST(@indx AS VARCHAR(100)) + '.sqlplan';
-								IF @EmailProfile IS NULL
-									EXEC msdb.dbo.sp_send_dbmail
-										@recipients = @EmailRecipients,
-										@subject = @EmailSubject,
-										@body = @EmailBody,
-										@query_attachment_filename = @EmailAttachmentFilename,
-										@attach_query_result_as_file = 1,
-										@query_result_header = 0,
-										@query_result_width = 32767,
-										@query_result_separator = @query_result_separator,
-										@query_no_truncate = 1,
-										@query = @StringToExecute;
-								ELSE
-									EXEC msdb.dbo.sp_send_dbmail
-										@profile_name = @EmailProfile,
-										@recipients = @EmailRecipients,
-										@subject = @EmailSubject,
-										@body = @EmailBody,
-										@query_attachment_filename = @EmailAttachmentFilename,
-										@attach_query_result_as_file = 1,
-										@query_result_header = 0,
-										@query_result_width = 32767,
-										@query_result_separator = @query_result_separator,
-										@query_no_truncate = 1,
-										@query = @StringToExecute;
-								FETCH NEXT FROM CursorPlans INTO @indx;
-							END
-						CLOSE CursorPlans;
-						DEALLOCATE CursorPlans;
-
-						IF (OBJECT_ID('tempdb..##BlitzResultsPlans', 'U') IS NOT NULL) DROP TABLE ##BlitzResultsPlans;
-					END
 				END
 
 
@@ -4346,6 +4372,4 @@ EXEC [master].[dbo].[sp_Blitz]
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
-
-EXEC sp_Blitz @EmailRecipients = 'brento@brentozar.com', @CheckProcedureCache = 1
 */
