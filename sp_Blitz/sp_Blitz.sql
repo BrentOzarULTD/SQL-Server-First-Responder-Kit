@@ -54,7 +54,7 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-	Changes in v32 - January 5, 2014
+	Changes in v32 - January 19, 2014
 	 - Russell Hart fixed a bug in check 59 (Agent jobs without notifications).
 	 - Added @EmailRecipients and @EmailProfile parameters to send the results via
 	   Database Mail. Assumes that database mail is already configured correctly.
