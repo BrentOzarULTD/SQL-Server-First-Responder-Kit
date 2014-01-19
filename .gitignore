@@ -38,3 +38,5 @@ output.rtf
 
 *.zip
 ~*.*
+
+Thumbs.db
