@@ -30,11 +30,11 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 32, @VersionDate = '20140119'
+	SELECT @Version = 33, @VersionDate = '20140120'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v32 - Jan 19, 2014
+	sp_Blitz (TM) v33 - Jan 20, 2014
     
 	(C) 2014, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -53,6 +53,10 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+	Changes in v33 - January 20, 2014
+	 - Bob Klimes fixed a bug that Russell Hart introduced in v32, hahaha. Check
+	   59 was false-alarming on Agent jobs that actually had notifications.
 
 	Changes in v32 - January 19, 2014
 	 - Russell Hart fixed a bug in check 59 (Agent jobs without notifications).
@@ -1555,7 +1559,7 @@ AS
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 1
 											AND COALESCE(has_notification, 0) = 0
-											AND job_id IS NULL OR job_id = 0x) 
+											AND (job_id IS NULL OR job_id = 0x)) 
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
