@@ -34,7 +34,7 @@ AS
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v33 - Jan 20, 2014
+	sp_Blitz (TM) v34 - Jan 24, 2014
     
 	(C) 2014, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -53,6 +53,10 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+	
+	Changes in v34 - January 24, 2014
+	 - Kirby Richter @SqlKirby fixed a bug in check 75 (t-log sizes) that failed
+	   on really big transaction log files. (Not even gonna say how big.)
 
 	Changes in v33 - January 20, 2014
 	 - Bob Klimes fixed a bug that Russell Hart introduced in v32, hahaha. Check
@@ -3663,7 +3667,7 @@ AS
 												DatabaseName
 										FROM    #SkipChecks )
 										AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
-										AND a.size > ( SELECT   SUM(b.size)
+										AND a.size > ( SELECT   SUM(CAST(b.size AS BIGINT))
 													   FROM     sys.master_files b
 													   WHERE    a.database_id = b.database_id
 																AND b.type = 0
