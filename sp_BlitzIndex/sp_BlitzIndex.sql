@@ -14,17 +14,15 @@ GO
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
 	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
 GO
-EXEC sys.sp_MS_marksystemobject 'dbo.sp_BlitzIndex';
-GO
 
 ALTER PROCEDURE dbo.sp_BlitzIndex
 	@DatabaseName NVARCHAR(128) = null, /*Defaults to current DB if not specified*/
 	@Mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
 	@TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
-		/*Note:@mode doesn't matter if you're specifying schema_name and @TableName.*/
+		/*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
 	@Filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
-		/*Note:@Filter doesn't do anything unless @mode=0*/
+		/*Note:@Filter doesn't do anything unless @Mode=0*/
 /*
 sp_BlitzIndex™ v2.02 - Jan 1, 2014
 
@@ -176,21 +174,21 @@ BEGIN TRY
 		END    
 
 		--Validate parameters.
-		IF (@mode NOT IN (0,1,2,3))
+		IF (@Mode NOT IN (0,1,2,3))
 		BEGIN
-			SET @msg=N'Invalid @mode parameter. 0=diagnose, 1=summarize, 2=index detail, 3=missing index detail';
+			SET @msg=N'Invalid @Mode parameter. 0=diagnose, 1=summarize, 2=index detail, 3=missing index detail';
 			RAISERROR(@msg,16,1);
 		END
 
-		IF (@mode <> 0 AND @TableName IS NOT NULL)
+		IF (@Mode <> 0 AND @TableName IS NOT NULL)
 		BEGIN
-			SET @msg=N'Setting the @mode doesn''t change behavior if you supply @TableName. Use default @mode=0 to see table detail.';
+			SET @msg=N'Setting the @Mode doesn''t change behavior if you supply @TableName. Use default @Mode=0 to see table detail.';
 			RAISERROR(@msg,16,1);
 		END
 
-		IF ((@mode <> 0 OR @TableName IS NOT NULL) and @Filter <> 0)
+		IF ((@Mode <> 0 OR @TableName IS NOT NULL) and @Filter <> 0)
 		BEGIN
-			SET @msg=N'@Filter only appies when @mode=0 and @TableName is not specified. Please try again.';
+			SET @msg=N'@Filter only appies when @Mode=0 and @TableName is not specified. Please try again.';
 			RAISERROR(@msg,16,1);
 		END
 
@@ -1259,7 +1257,7 @@ END CATCH;
 BEGIN TRY
 ----------------------------------------
 --If @TableName is specified, just return information for that table.
---The @mode parameter doesn't matter if you're looking at a specific table.
+--The @Mode parameter doesn't matter if you're looking at a specific table.
 ----------------------------------------
 IF @TableName IS NOT NULL
 BEGIN
@@ -1400,12 +1398,12 @@ BEGIN
 END 
 
 --If @TableName is NOT specified...
---Act based on the @mode and @Filter. (@Filter applies only when @mode=0 "diagnose")
+--Act based on the @Mode and @Filter. (@Filter applies only when @Mode=0 "diagnose")
 ELSE
 BEGIN;
-	IF @mode=0 /* DIAGNOSE*/
+	IF @Mode=0 /* DIAGNOSE*/
 	BEGIN;
-		RAISERROR(N'@mode=0, we are diagnosing.', 0,1) WITH NOWAIT;
+		RAISERROR(N'@Mode=0, we are diagnosing.', 0,1) WITH NOWAIT;
 
 		RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
 		INSERT	#BlitzIndexResults ( check_id, findings_group, finding, URL, details, index_definition,
@@ -2537,11 +2535,11 @@ BEGIN;
 			br.index_sanity_id=ts.index_sanity_id
 		ORDER BY [check_id] ASC, blitz_result_id ASC, findings_group;
 
-	END; /* End @mode=0 (diagnose)*/
-	ELSE IF @mode=1 /*Summarize*/
+	END; /* End @Mode=0 (diagnose)*/
+	ELSE IF @Mode=1 /*Summarize*/
 	BEGIN
 	--This mode is to give some overall stats on the database.
-		RAISERROR(N'@mode=1, we are summarizing.', 0,1) WITH NOWAIT;
+		RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
 		SELECT 
 			CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
@@ -2600,12 +2598,12 @@ BEGIN;
 		ORDER BY [Display Order] ASC
 		OPTION (RECOMPILE);
 	   	
-	END /* End @mode=1 (summarize)*/
-	ELSE IF @mode=2 /*Index Detail*/
+	END /* End @Mode=1 (summarize)*/
+	ELSE IF @Mode=2 /*Index Detail*/
 	BEGIN
 		--This mode just spits out all the detail without filters.
 		--This supports slicing AND dicing in Excel
-		RAISERROR(N'@mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
+		RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
 		SELECT	database_name AS [Database Name], 
 				[schema_name] AS [Schema Name], 
@@ -2682,8 +2680,8 @@ BEGIN;
 		ORDER BY [Display Order] ASC, [Reserved MB] DESC
 		OPTION (RECOMPILE);
 
-	END /* End @mode=2 (index detail)*/
-	ELSE IF @mode=3 /*Missing index Detail*/
+	END /* End @Mode=2 (index detail)*/
+	ELSE IF @Mode=3 /*Missing index Detail*/
 	BEGIN
 		SELECT 
 			database_name AS [Database], 
@@ -2716,7 +2714,7 @@ BEGIN;
 			NULL, 0 as display_order
 		ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 
-	END /* End @mode=3 (index detail)*/
+	END /* End @Mode=3 (index detail)*/
 END
 END TRY
 BEGIN CATCH
