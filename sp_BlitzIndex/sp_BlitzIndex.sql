@@ -24,9 +24,9 @@ CREATE PROCEDURE dbo.sp_BlitzIndex
 	@Filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@Filter doesn't do anything unless @Mode=0*/
 /*
-sp_BlitzIndex™ v2.02 - Jan 30, 2014
+sp_BlitzIndex(TM) v2.02 - Jan 30, 2014
 
-(C) 2014, Brent Ozar Unlimited™. 
+(C) 2014, Brent Ozar Unlimited(TM). 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
 For help and how-to info, visit http://www.BrentOzar.com/BlitzIndex
@@ -46,13 +46,13 @@ Known limitations of this version:
  - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
  - Found something? Let us know at help@brentozar.com.
 
- Thanks for using sp_BlitzIndex™!
+ Thanks for using sp_BlitzIndex(TM)!
  Sincerely,
- The Humans of Brent Ozar Unlimited™
+ The Humans of Brent Ozar Unlimited(TM)
 
 CHANGE LOG (last five versions):
 	Jan 30, 2014 (v2.02)
-		Standardized calling parameters with sp_AskBrent™ and sp_BlitzIndex™. (@DatabaseName instead of @database_name, etc)
+		Standardized calling parameters with sp_AskBrent(TM) and sp_BlitzIndex(TM). (@DatabaseName instead of @database_name, etc)
 		Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
 		Added index_operational_stats info to table level output -- recent scans vs lookups
 		Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
@@ -242,7 +242,7 @@ BEGIN TRY
 					END
 		END
 
-		RAISERROR(N'Starting run. sp_BlitzIndex™ v2.02 - Jan 30, 2014', 0,1) WITH NOWAIT;
+		RAISERROR(N'Starting run. sp_BlitzIndex(TM) v2.02 - Jan 30, 2014', 0,1) WITH NOWAIT;
 
 		IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
 			DROP TABLE #IndexSanity;
@@ -1323,10 +1323,10 @@ BEGIN
 		WHERE s.[object_id]=@ObjectID
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) + 			
-				N' (sp_BlitzIndex™ v2.02 - Jan 30, 2014)' ,   
-				N'From Brent Ozar Unlimited™' ,   
+				N' (sp_BlitzIndex(TM) v2.02 - Jan 30, 2014)' ,   
+				N'From Brent Ozar Unlimited(TM)' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
-				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				N'Thanks from the Brent Ozar Unlimited(TM) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				0 as display_order
 	)
@@ -1437,9 +1437,9 @@ BEGIN;
 										index_usage_summary, index_size_summary )
 		VALUES  ( 0 , 
 				N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121), 
-				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,
-				N'From Brent Ozar Unlimited™' ,   N'http://BrentOzar.com/BlitzIndex' ,
-				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+				N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,
+				N'From Brent Ozar Unlimited(TM)' ,   N'http://BrentOzar.com/BlitzIndex' ,
+				N'Thanks from the Brent Ozar Unlimited(TM) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
 				);
 
@@ -2534,7 +2534,7 @@ BEGIN;
 											   index_usage_summary, index_size_summary )
 				VALUES  ( 1000 , N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)	,
 						N'' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-						N'Thanks from the Brent Ozar Unlimited™, LLC team.',
+						N'Thanks from the Brent Ozar Unlimited(TM), LLC team.',
 						N'We hope you found this tool useful.',
 						N'If you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 						, N'',N''
@@ -2616,10 +2616,10 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)	,		
-				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
-				N'From Brent Ozar Unlimited™' ,   
+				N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,   
+				N'From Brent Ozar Unlimited(TM)' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
-				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				N'Thanks from the Brent Ozar Unlimited(TM) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,0 as display_order
@@ -2695,10 +2695,10 @@ BEGIN;
 				LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)			
-				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
-				N'From Brent Ozar Unlimited™' ,   
+				N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,   
+				N'From Brent Ozar Unlimited(TM)' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
-				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+				N'Thanks from the Brent Ozar Unlimited(TM) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
@@ -2733,11 +2733,11 @@ BEGIN;
 		FROM #MissingIndexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
-			N'From Brent Ozar Unlimited™' ,   
+			N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,   
+			N'From Brent Ozar Unlimited(TM)' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
-			N'Thanks from the Brent Ozar Unlimited™ team. We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+			N'Thanks from the Brent Ozar Unlimited(TM) team. We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
 			NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 			NULL, 0 as display_order
 		ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
