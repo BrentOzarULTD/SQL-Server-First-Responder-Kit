@@ -534,16 +534,16 @@ BEGIN TRY
 					c.is_identity,
 					c.is_computed,
 					c.is_replicated,
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL as is_sparse' END + N',
-					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL as is_filestream' END + N'				
-				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.indexes si
-				JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_sparse' else N'NULL AS is_sparse' END + N',
+					' + case when @SQLServerProductVersion not like '9%' THEN N'c.is_filestream' else N'NULL AS is_filestream' END + N'				
+				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si
+				JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c ON
 					si.object_id=c.object_id
-				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns sc ON 
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS sc ON 
 					sc.object_id = si.object_id
 					and sc.index_id=si.index_id
 					AND sc.column_id=c.column_id
-				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types st ON 
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS st ON 
 					c.system_type_id=st.system_type_id
 					AND c.user_type_id=st.user_type_id
 				WHERE si.index_id not in (0,1) ' 
@@ -726,32 +726,37 @@ BEGIN TRY
 			  CHARINDEX('.',@SQLServerProductVersion,0)-1
 			  )) < 11 --Anything prior to 2012
 		BEGIN
+
+			RAISERROR (N'Using pre-2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+
 			--NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
 			--This is because of quirks prior to SQL Server 2012 with this DMV.
 			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-					SELECT	ps.object_id, 
-							ps.index_id, 
-							ps.partition_number, 
-							ps.row_count,
-							ps.reserved_page_count * 8. / 1024. AS reserved_MB,
-							ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
-							ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
-							os.leaf_insert_count, 
-							os.leaf_delete_count, 
-							os.leaf_update_count, 
-							os.forwarded_fetch_count,
-							os.lob_fetch_in_pages, 
-							os.lob_fetch_in_bytes, 
-							os.row_overflow_fetch_in_pages,
-							os.row_overflow_fetch_in_bytes, 
-							os.row_lock_count, 
-							os.row_lock_wait_count,
-							os.row_lock_wait_in_ms, 
-							os.page_lock_count, 
-							os.page_lock_wait_count, 
-							os.page_lock_wait_in_ms,
-							os.index_lock_promotion_attempt_count, 
-							os.index_lock_promotion_count, 
+						SELECT	ps.object_id, 
+								ps.index_id, 
+								ps.partition_number, 
+								ps.row_count,
+								ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+								ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+								ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								os.leaf_insert_count, 
+								os.leaf_delete_count, 
+								os.leaf_update_count, 
+								os.range_scan_count, 
+								os.singleton_lookup_count,  
+								os.forwarded_fetch_count,
+								os.lob_fetch_in_pages, 
+								os.lob_fetch_in_bytes, 
+								os.row_overflow_fetch_in_pages,
+								os.row_overflow_fetch_in_bytes, 
+								os.row_lock_count, 
+								os.row_lock_wait_count,
+								os.row_lock_wait_in_ms, 
+								os.page_lock_count, 
+								os.page_lock_wait_count, 
+								os.page_lock_wait_in_ms,
+								os.index_lock_promotion_attempt_count, 
+								os.index_lock_promotion_count, 
 							' + case when @SQLServerProductVersion not like '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
 					FROM	' + QUOTENAME(@DatabaseName) + '.sys.dm_db_partition_stats AS ps  
 					JOIN ' + QUOTENAME(@DatabaseName) + '.sys.partitions AS par on ps.partition_id=par.partition_id
@@ -771,6 +776,8 @@ BEGIN TRY
 		ELSE /* Otherwise use this syntax which takes advantage of OUTER APPLY on the os_partitions DMV. 
 		This performs much better on 2012 tables using 1000+ partitions. */
 		BEGIN
+		RAISERROR (N'Using 2012+ syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+
  		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						SELECT	ps.object_id, 
 								ps.index_id, 
@@ -818,20 +825,40 @@ BEGIN TRY
 			RAISERROR('@dsql is null',16,1);
 
 		RAISERROR (N'Inserting data into #IndexPartitionSanity',0,1) WITH NOWAIT;
-		INSERT	#IndexPartitionSanity ( [object_id], index_id, partition_number, row_count, reserved_MB,
-										  reserved_LOB_MB, reserved_row_overflow_MB, leaf_insert_count,
-										  leaf_delete_count, leaf_update_count, range_scan_count, singleton_lookup_count,  
-										  forwarded_fetch_count, lob_fetch_in_pages, lob_fetch_in_bytes, row_overflow_fetch_in_pages,
-										  row_overflow_fetch_in_bytes, row_lock_count, row_lock_wait_count,
-										  row_lock_wait_in_ms, page_lock_count, page_lock_wait_count,
-										  page_lock_wait_in_ms, index_lock_promotion_attempt_count,
-										  index_lock_promotion_count, data_compression_desc )
+		insert	#IndexPartitionSanity ( 
+											[object_id], 
+											index_id, 
+											partition_number, 
+											row_count, 
+											reserved_MB,
+										  reserved_LOB_MB, 
+										  reserved_row_overflow_MB, 
+										  leaf_insert_count,
+										  leaf_delete_count, 
+										  leaf_update_count, 
+										  range_scan_count,
+										  singleton_lookup_count,
+										  forwarded_fetch_count, 
+										  lob_fetch_in_pages, 
+										  lob_fetch_in_bytes, 
+										  row_overflow_fetch_in_pages,
+										  row_overflow_fetch_in_bytes, 
+										  row_lock_count, 
+										  row_lock_wait_count,
+										  row_lock_wait_in_ms, 
+										  page_lock_count, 
+										  page_lock_wait_count,
+										  page_lock_wait_in_ms, 
+										  index_lock_promotion_attempt_count,
+										  index_lock_promotion_count, 
+										  data_compression_desc )
 				EXEC sp_executesql @dsql;
+
 
 		RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 		UPDATE	#IndexPartitionSanity
 		SET		index_sanity_id = i.index_sanity_id
-		FROM	#IndexPartitionSanity ps
+		FROM #IndexPartitionSanity ps
 				JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
 										AND ps.index_id = i.index_id
 
@@ -867,11 +894,11 @@ BEGIN TRY
 						SUM(index_lock_promotion_attempt_count),
 						SUM(index_lock_promotion_count),
 						LEFT(MAX(data_compression_info.data_compression_rollup),8000)
-				FROM	#IndexPartitionSanity ipp
+				FROM #IndexPartitionSanity ipp
 				/* individual partitions can have distinct compression settings, just roll them into a list here*/
 				OUTER APPLY (SELECT STUFF((
 					SELECT	N', ' + data_compression_desc
-					FROM	#IndexPartitionSanity ipp2
+					FROM #IndexPartitionSanity ipp2
 					WHERE ipp.[object_id]=ipp2.[object_id]
 						AND ipp.[index_id]=ipp2.[index_id]
 					ORDER BY ipp2.partition_number
