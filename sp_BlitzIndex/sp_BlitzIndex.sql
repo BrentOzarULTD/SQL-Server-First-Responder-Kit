@@ -2465,6 +2465,7 @@ BEGIN;
 			iss.index_size_summary as index_size_summary
 		FROM #IndexSanity i
 		JOIN #IndexSanitySize iss on i.index_sanity_id=iss.index_sanity_id
+		WHERE isnull(i.user_scans,0) > 0
 		ORDER BY  i.user_scans * iss.total_reserved_MB DESC;
 
 		RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
@@ -2492,7 +2493,7 @@ BEGIN;
 			iss.index_size_summary as index_size_summary
 		FROM #IndexSanity i
 		JOIN #IndexSanitySize iss on i.index_sanity_id=iss.index_sanity_id
-		WHERE iss.total_range_scan_count IS NOT NULL
+		WHERE isnull(iss.total_range_scan_count,0)  > 0 or isnull(iss.total_singleton_lookup_count,0) > 0
 		ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC;
 
 
