@@ -24,7 +24,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@Filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@Filter doesn't do anything unless @Mode=0*/
 /*
-sp_BlitzIndex™ v2.02 - Jan 1, 2014
+sp_BlitzIndex™ v2.02 - Jan 30, 2014
 
 (C) 2014, Brent Ozar Unlimited™. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -51,12 +51,12 @@ Known limitations of this version:
  The Humans of Brent Ozar Unlimited™
 
 CHANGE LOG (last five versions):
-	December 31, 2013 (v2.02)
+	Jan 30, 2014 (v2.02)
 		Standardized calling parameters with sp_AskBrent™ and sp_BlitzIndex™. (@DatabaseName instead of @database_name, etc)
 		Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
-		Added index_operational_stats info to table level output -- recent scans and lookups
+		Added index_operational_stats info to table level output -- recent scans vs lookups
 		Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
-		Changed db name, table name, index name to 128 length because users care.
+		Changed db name, table name, index name to 128 length
 		Fixed findings_group column length in #BlitzIndexResults (fixed issues for users w/ longer db names)
 		Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
 			Fixed extra tab in @SchemaName= that made pasting into Excel awkward/wrong
@@ -242,7 +242,7 @@ BEGIN TRY
 					END
 		END
 
-		RAISERROR(N'Starting run. sp_BlitzIndex™ v2.02 - Jan 1, 2014', 0,1) WITH NOWAIT;
+		RAISERROR(N'Starting run. sp_BlitzIndex™ v2.02 - Jan 30, 2014', 0,1) WITH NOWAIT;
 
 		IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
 			DROP TABLE #IndexSanity;
@@ -1296,7 +1296,7 @@ BEGIN
 		WHERE s.[object_id]=@ObjectID
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) + 			
-				N' (sp_BlitzIndex™ v2.02 - Jan 1, 2014)' ,   
+				N' (sp_BlitzIndex™ v2.02 - Jan 30, 2014)' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -1410,7 +1410,7 @@ BEGIN;
 										index_usage_summary, index_size_summary )
 		VALUES  ( 0 , 
 				N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121), 
-				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,
+				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,
 				N'From Brent Ozar Unlimited™' ,   N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				, N'',N''
@@ -2588,7 +2588,7 @@ BEGIN;
 			ON i.index_sanity_id=sz.index_sanity_id 
 		UNION ALL
 		SELECT	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)	,		
-				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
+				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2667,7 +2667,7 @@ BEGIN;
 				LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)			
-				N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
+				N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
 				N'From Brent Ozar Unlimited™' ,   
 				N'http://BrentOzar.com/BlitzIndex' ,
 				N'Thanks from the Brent Ozar Unlimited™ team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
@@ -2705,7 +2705,7 @@ BEGIN;
 		FROM #MissingIndexes
 		UNION ALL
 		SELECT 				
-			N'sp_BlitzIndex™ v2.02 - Jan 1, 2014' ,   
+			N'sp_BlitzIndex™ v2.02 - Jan 30, 2014' ,   
 			N'From Brent Ozar Unlimited™' ,   
 			N'http://BrentOzar.com/BlitzIndex' ,
 			100000000000,
