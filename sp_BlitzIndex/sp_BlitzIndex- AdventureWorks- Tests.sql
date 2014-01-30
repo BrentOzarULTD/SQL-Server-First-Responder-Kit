@@ -255,6 +255,7 @@ create table dbo.AddictedToNullsAndAllCharVarchar (
 );
 GO
 
+
 IF OBJECT_ID('AllLob') IS NULL
 create table dbo.AllLob (
 	i int identity primary key,
@@ -265,11 +266,24 @@ create table dbo.AllLob (
 GO
 
 
+--createHEAP
+IF OBJECT_ID('Heapy') IS NULL
+create table dbo.Heapy (
+	j varchar(512) default 'foo'
+);
+GO
+
+INSERT dbo.Heapy DEFAULT VALUES
+GO 100
+
+DELETE FROM Heapy;
+
 ----------------------------------------
 -- TEST
 ----------------------------------------
 
-EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks';
+EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks';
+exec sp_BlitzIndex @TableName='Tally'
 
 EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @filter=1;
 EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @filter=2;
@@ -278,8 +292,8 @@ EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=1;
 EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=2;
 EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=3;
 --GO
-EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks', @schemaname=	'dbo', @tablename='OrdersDaily';
-EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks', @schemaname=	'Production', @tablename='Product';
+EXEC dbo.sp_BlitzIndex @DatabaseName='AdventureWorks', @schemaname=	'dbo', @tablename='OrdersDaily';
+EXEC dbo.sp_BlitzIndex @DatabaseName='AdventureWorks', @schemaname=	'Production', @tablename='Product';
 --GO
 
 ----Indexed view
