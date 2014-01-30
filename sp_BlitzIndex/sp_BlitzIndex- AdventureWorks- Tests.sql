@@ -269,21 +269,21 @@ GO
 -- TEST
 ----------------------------------------
 
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks';
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks';
 
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=1;
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @filter=2;
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @filter=1;
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @filter=2;
 
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=1;
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=2;
---EXEC master.dbo.sp_BlitzIndex @database_name='AdventureWorks', @mode=3;
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=1;
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=2;
+EXEC master.dbo.sp_BlitzIndex @databasename='AdventureWorks', @mode=3;
 --GO
---EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'dbo', @table_name='OrdersDaily';
---EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name=	'Production', @table_name='Product';
+EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks', @schemaname=	'dbo', @tablename='OrdersDaily';
+EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks', @schemaname=	'Production', @tablename='Product';
 --GO
 
 ----Indexed view
---EXEC dbo.sp_BlitzIndex @database_name='AdventureWorks', @schema_name='Production', @table_name='vProductAndDescription';
+EXEC dbo.sp_BlitzIndex @databasename='AdventureWorks', @schemaname='Production', @tablename='vProductAndDescription';
 
 
 --Duplicate indexes against
@@ -310,7 +310,7 @@ GO
 --Test a lot of partitions
 --You have to connect to just a 2012 instance to do this one
 --This will take around 15 seconds. That's not awesome, but it's better than 1 minute.
-EXEC dbo.sp_BlitzIndex @database_name='Partition5000';
-EXEC dbo.sp_BlitzIndex @database_name='Partition5000', @schema_name='dbo', @table_name='OrdersDaily';
+EXEC dbo.sp_BlitzIndex @databasename='Partition5000';
+EXEC dbo.sp_BlitzIndex @databasename='Partition5000', @schemaname='dbo', @tablename='OrdersDaily';
 
 --dbo.sp_WhoIsActive @get_outer_command=1
