@@ -724,13 +724,13 @@ BEGIN TRY
 
 		IF (SELECT LEFT(@SQLServerProductVersion,
 			  CHARINDEX('.',@SQLServerProductVersion,0)-1
-			  )) < 11 --Anything prior to 2012
+			  )) <> 11 --Anything other than 2012
 		BEGIN
 
-			RAISERROR (N'Using pre-2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+			RAISERROR (N'Using non-2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
 			--NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
-			--This is because of quirks prior to SQL Server 2012 with this DMV.
+			--This is because of quirks prior to SQL Server 2012 and in 2014 with this DMV.
 			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						SELECT	ps.object_id, 
 								ps.index_id, 
@@ -774,9 +774,9 @@ BEGIN TRY
 			';
 		END
 		ELSE /* Otherwise use this syntax which takes advantage of OUTER APPLY on the os_partitions DMV. 
-		This performs much better on 2012 tables using 1000+ partitions. */
+		This performs better on 2012 tables using 1000+ partitions. */
 		BEGIN
-		RAISERROR (N'Using 2012+ syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+		RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
  		SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						SELECT	ps.object_id, 
