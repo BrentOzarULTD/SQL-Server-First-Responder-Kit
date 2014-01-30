@@ -11,11 +11,11 @@ GO
 USE master;
 GO
 
-IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL 
-	EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;')
+IF OBJECT_ID('dbo.sp_BlitzIndex') IS NOT NULL 
+	DROP PROCEDURE dbo.sp_BlitzIndex;
 GO
 
-ALTER PROCEDURE dbo.sp_BlitzIndex
+CREATE PROCEDURE dbo.sp_BlitzIndex
 	@DatabaseName NVARCHAR(128) = null, /*Defaults to current DB if not specified*/
 	@Mode tinyint=0, /*0=diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail*/
 	@SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
