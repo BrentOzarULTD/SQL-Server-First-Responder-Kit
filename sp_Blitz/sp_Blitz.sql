@@ -30,11 +30,11 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS 
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 33, @VersionDate = '20140120'
+	SELECT @Version = 34, @VersionDate = '20140224'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v34 - Jan 24, 2014
+	sp_Blitz (TM) v34 - Feb 24, 2014
     
 	(C) 2014, Brent Ozar Unlimited. 
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -54,7 +54,9 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 	
-	Changes in v34 - January 24, 2014
+	Changes in v34 - February 24, 2014
+	 - Jason Pritchard fixed a bug in the plan cache analysis that did not return
+	   results when analyzing for high logical reads.
 	 - Kirby Richter @SqlKirby fixed a bug in check 75 (t-log sizes) that failed
 	   on really big transaction log files. (Not even gonna say how big.)
 
@@ -3093,6 +3095,7 @@ AS
 		  FROM queries qs
 		  LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
 		  WHERE qsCaught.sql_handle IS NULL;'
+										EXECUTE(@StringToExecute)
 									END
 
 								IF @CheckProcedureCacheFilter = 'ExecCount'
