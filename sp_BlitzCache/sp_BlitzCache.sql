@@ -382,6 +382,7 @@ CREATE TABLE #procs (
     PlanHandle varbinary(64),
     SqlHandle varbinary(64),
     QueryHash binary(8),
+    QueryPlanHash binary(8),
     StatementStartOffset int,
     StatementEndOffset int,
     MinReturnedRows bigint,
@@ -428,7 +429,7 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime, 
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, 
                     LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType, 
-                    TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash) ' ;
+                    TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash) ' ;
 
 SET @body += N'
 FROM   (SELECT *,
@@ -512,7 +513,8 @@ SELECT TOP (@top)
        t.t_TotalWrites,
        qs.sql_handle AS SqlHandle,
        qs.plan_handle AS PlanHandle,
-       NULL AS QueryHash '
+       NULL AS QueryHash,
+       NULL AS QueryPlanHash '
 
 
 SET @sql += @insert_list;
@@ -587,7 +589,8 @@ SET @sql += N'
        t.t_TotalWrites,
        qs.sql_handle AS SqlHandle,
        NULL AS PlanHandle,
-       qs.query_hash AS QueryHash '
+       qs.query_hash AS QueryHash,
+       qs.query_plan_hash AS QueryPlanHash '
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 SET @sql += @nl + @nl;
