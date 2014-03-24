@@ -45,6 +45,8 @@ KNOWN ISSUES:
 v2.0 - 2014-03-23
  - Created a stored procedure
  - Added write information
+ - Added option to export to a single table
+ - Corrected accidental exclusion of trigger information
 
 v1.4 - 2014-02-17
  - MOAR BUG FIXES
@@ -217,7 +219,8 @@ BEGIN
     UNION ALL
     SELECT N'Query Type',
            N'NVARCHAR(256)',
-           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
+           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".' + NCHAR(13) + NCHAR(10)
+             + N'If the first character of the Query Type column is an asterisk, this query has a parallel plan.'
 
     UNION ALL
     SELECT N'Query Text',
@@ -451,8 +454,9 @@ OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
-       ''#query_type#'' 
-         + COALESCE('': '' + OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN ''* '' ELSE '''' END 
+            + ''#query_type#'' 
+            + COALESCE('': '' + OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -515,7 +519,8 @@ SET @sql += @insert_list;
 
 SET @sql += N'
 SELECT TOP (@top)
-       ''Statement'' AS QueryType,
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN ''* '' ELSE '''' END
+            + ''Statement'' AS QueryType,
        COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
