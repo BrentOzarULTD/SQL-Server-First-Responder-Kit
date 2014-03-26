@@ -14,16 +14,10 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 
 /******************************************
+sp_BlitzCache (TM) 2014, Brent Ozar Unlimited.
 (C) 2014, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
-
-HOW TO USE THIS:
-
-Don't just hit F5. This script has 3 separate parts:
-Step 1. Populate a temp table
-Step 2. Report on the temp table with analysis 
-Step 3 (optional). Excel-friendly copy/paste version of #2.
 
 
 Description: Displays a server level view of the SQL Server plan cache.
@@ -557,7 +551,7 @@ SELECT TOP (@top)
        qs.statement_start_offset AS StatementStartOffset,
        qs.statement_end_offset AS StatementEndOffset, '
 
-IF (@v > 11) OR (@v >= 10.5 AND @build >= 2500)
+IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
 BEGIN
     SET @sql += N'
        qs.min_rows AS MinReturnedRows,
