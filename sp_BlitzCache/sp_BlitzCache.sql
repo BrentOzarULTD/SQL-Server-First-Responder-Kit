@@ -947,8 +947,7 @@ BEGIN
           + N' FROM #procs OPTION (RECOMPILE) '
     EXEC sp_executesql @insert_sql;
 
-    IF @hide_summary = 1
-        RETURN
+    RETURN
 END
 ELSE IF @export_to_excel = 1
 BEGIN
@@ -1013,7 +1012,7 @@ BEGIN
             @parameter_sniffing_warning_pct TINYINT = 5
 
     /* Build summary data */
-    IF EXISTS (SELECT COUNT(*) FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
+    IF EXISTS (SELECT 1/0 FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (1,
                 100,
@@ -1021,7 +1020,7 @@ BEGIN
                 NULL,
                 'Queries are being executed more than 1000 times per minute. This can put additional load on the server, even when queries are lightweight.') ;
 
-    IF EXISTS (SELECT COUNT(*)
+    IF EXISTS (SELECT 1/0
                FROM   #procs 
                WHERE  min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU
                       OR max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU
@@ -1033,8 +1032,49 @@ BEGIN
                 50,
                 'Parameterization',
                 NULL,
-                'There are signs of parameter sniffing. Investigate query patterns and tune code appropriately.') ;
+                'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
 
+    /* Forced execution plans */
+    IF EXISTS (SELECT 1/0 
+               FROM   #procs p
+                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
+               WHERE  pa.attribute = 'set_options'
+                      AND (CAST(pa.value AS INT) & 131072 = 131072
+                           OR CAST(pa.value AS INT) & 4 = 4)
+              )
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (3,
+                5,
+                'Execution Plans',
+                NULL,
+                'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
+
+    /* Cursors */
+    IF EXISTS (SELECT 1/0 
+               FROM   #procs p
+                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
+               WHERE  pa.attribute LIKE '%cursor%'
+                      AND CAST(pa.value AS INT) <> 0
+              )
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (4, 
+                200,
+                'Cursors',
+                NULL,
+                'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
+
+    IF EXISTS (SELECT 1/0 
+               FROM   #procs p
+                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
+               WHERE  pa.attribute = 'set_options'
+                      AND (CAST(pa.value AS INT) & 131072 = 131072)
+              )
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (5,
+                50,
+                'Parameterization',
+                NULL,
+                'Execution plans have been compiled with forced parameterization.') ;
 
     SELECT  CheckID,
             Priority,
