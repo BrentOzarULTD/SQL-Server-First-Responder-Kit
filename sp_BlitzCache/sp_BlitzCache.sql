@@ -428,7 +428,12 @@ CREATE TABLE #procs (
     TotalExecutionCountForType bigint,
     TotalWritesForType bigint,
     NumberOfPlans int,
-    NumberOfDistinctPlans int
+    NumberOfDistinctPlans int,
+    min_worker_time int,
+    max_worker_time int,
+    is_forced_plan bit,
+    is_forced_parameterized bit,
+    is_cursor bit
 );
 
 DECLARE @sql nvarchar(MAX) = N'',
@@ -457,7 +462,8 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime, 
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, 
                     LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType, 
-                    TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash) ' ;
+                    TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
+                    min_worker_time, max_worker_time) ' ;
 
 SET @body += N'
 FROM   (SELECT *,
@@ -546,7 +552,9 @@ SELECT TOP (@top)
        qs.sql_handle AS SqlHandle,
        qs.plan_handle AS PlanHandle,
        NULL AS QueryHash,
-       NULL AS QueryPlanHash '
+       NULL AS QueryPlanHash,
+       qs.min_worker_time,
+       qs.max_worker_time '
 
 
 SET @sql += @insert_list;
@@ -622,7 +630,9 @@ SET @sql += N'
        qs.sql_handle AS SqlHandle,
        NULL AS PlanHandle,
        qs.query_hash AS QueryHash,
-       qs.query_plan_hash AS QueryPlanHash '
+       qs.query_plan_hash AS QueryPlanHash,
+       qs.min_worker_time,
+       qs.max_worker_time '
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 SET @sql += @nl + @nl;
@@ -998,21 +1008,41 @@ END
 
 IF @hide_summary = 0
 BEGIN
+    /* TODO: Create a control table for these parameters */
+    DECLARE @execution_threshold INT = 1000 ,
+            @parameter_sniffing_warning_pct TINYINT = 5
+
     /* Build summary data */
-    IF EXISTS (SELECT COUNT(*) FROM #procs WHERE ExecutionsPerMinute > 1000)
+    IF EXISTS (SELECT COUNT(*) FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (1,
                 100,
                 'Execution Pattern',
                 NULL,
-                'Some queries are being executed more than 1000 times per minute. This can put load on the server, even when lightweight.');
+                'Queries are being executed more than 1000 times per minute. This can put additional load on the server, even when queries are lightweight.') ;
+
+    IF EXISTS (SELECT COUNT(*)
+               FROM   #procs 
+               WHERE  min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU
+                      OR max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU
+                      OR MinReturnedRows < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows
+                      OR MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows
+              )
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (2,
+                50,
+                'Parameterization',
+                NULL,
+                'There are signs of parameter sniffing. Investigate query patterns and tune code appropriately.') ;
+
 
     SELECT  CheckID,
             Priority,
             FindingsGroup,
             URL,
             Details
-    FROM    #results;
+    FROM    #results
+    ORDER BY Priority ASC;
 END
 
 
