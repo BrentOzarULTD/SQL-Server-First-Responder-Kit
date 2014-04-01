@@ -11,6 +11,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @output_database_name NVARCHAR(128) = NULL ,
     @output_schema_name NVARCHAR(256) = NULL ,
     @output_table_name NVARCHAR(256) = NULL ,
+    @duration_filter DECIMAL(38,4) = NULL,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 
 /******************************************
@@ -35,6 +36,9 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+
+v2.1 - 2014-04-30
+ - Added @duration_filter. Queries are now filtered during collection based on duration.
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -121,6 +125,11 @@ BEGIN
     SELECT N'@output_table_name',
            N'NVARCHAR(256)',
            N'Output table. If this does not exist, it will be created for you.'
+
+    UNION ALL
+    SELECT N'@duration_filter',
+           N'DECIMAL(38,4)',
+           N'Filters queries with an average duration (seconds) less than @duration_filter.'
 
     UNION ALL
     SELECT N'@whole_cache',
@@ -310,6 +319,12 @@ BEGIN
     RETURN
 END
 
+DECLARE @duration_filter_i INT;
+
+/* Change duration from seconds to microseconds */
+IF @duration_filter IS NOT NULL
+  SET @duration_filter_i = CAST((@duration_filter * 1000.0 * 1000.0) AS INT)
+
 SET @sort_order = LOWER(@sort_order);
 
 IF @sort_order NOT IN ('cpu', 'reads', 'writes', 'duration', 'executions')
@@ -403,6 +418,7 @@ DECLARE @sql nvarchar(MAX) = N'',
         @plans_triggers_select_list nvarchar(MAX) = N'',
         @body nvarchar(MAX) = N'',
         @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
+        @q nvarchar(1) = N'''',
         @pv varchar(20),
         @pos tinyint,
         @v decimal(6,2),
@@ -443,8 +459,12 @@ FROM   (SELECT *,
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
-WHERE  pa.attribute = ''dbid''
-ORDER BY #sortable# DESC
+WHERE  pa.attribute = ' + QUOTENAME('dbid', @q) + @nl
+
+IF @duration_filter IS NOT NULL
+  SET @body += N'       AND total_elapsed_time / execution_count > @min_duration ' + @nl
+
+SET @body += N'ORDER BY #sortable# DESC
 OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
@@ -664,7 +684,7 @@ SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 
 
-EXEC sp_executesql @sql, N'@top INT', @top;
+EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_i;
 
 
 
@@ -903,13 +923,17 @@ END
 ELSE IF @export_to_excel = 1
 BEGIN
     /* excel output */
+    UPDATE #procs
+    SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 100);
+
+    SET @sql = N'
     SELECT  ExecutionCount,
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
             PercentExecutionsByType AS [% Executions (Type)],    
             QueryType AS [Query Type],
             DatabaseName AS [Database Name],
-            SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 100) AS QueryText,
+            QueryText,
             TotalCPU AS [Total CPU],
             AverageCPU AS [Avg CPU],
             PercentCPU AS [CPU Weight],
@@ -936,18 +960,24 @@ BEGIN
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
             StatementEndOffset
-    FROM    #procs
-    ORDER BY CASE @sort_order WHEN 'cpu' THEN TotalCPU
-                              WHEN 'reads' THEN TotalReads
-                              WHEN 'writes' THEN TotalWrites
-                              WHEN 'duration' THEN TotalDuration
-                              WHEN 'executions' THEN ExecutionCount
-                              END DESC
-    OPTION (RECOMPILE) ;
+    FROM    #procs 
+    WHERE   1 = 1 ' + @nl
+
+    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+                              WHEN 'reads' THEN ' TotalReads '
+                              WHEN 'writes' THEN ' TotalWrites '
+                              WHEN 'duration' THEN ' TotalDuration '
+                              WHEN 'executions' THEN ' ExecutionCount '
+                              END + N' DESC '
+    
+    SET @sql += N' OPTION (RECOMPILE) ; '
+
+    EXEC sp_executesql @sql ;
 END
 ELSE
 BEGIN
     /* Default behavior is to display all results */
+    SET @sql = N'
     SELECT  ExecutionCount AS [# Executions],
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
@@ -986,13 +1016,17 @@ BEGIN
             StatementStartOffset,
             StatementEndOffset
     FROM    #procs
-    ORDER BY CASE @sort_order WHEN 'cpu' THEN TotalCPU
-                              WHEN 'reads' THEN TotalReads
-                              WHEN 'writes' THEN TotalWrites
-                              WHEN 'duration' THEN TotalDuration
-                              WHEN 'executions' THEN ExecutionCount
-                              END DESC
-    OPTION (RECOMPILE) ;
+    WHERE   1 = 1 ' + @nl
+
+    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+                              WHEN 'reads' THEN ' TotalReads '
+                              WHEN 'writes' THEN ' TotalWrites '
+                              WHEN 'duration' THEN ' TotalDuration '
+                              WHEN 'executions' THEN ' ExecutionCount '
+                              END + N' DESC '
+    SET @sql += N' OPTION (RECOMPILE) ; '
+
+    EXEC sp_executesql @sql ;
 END
 
 
