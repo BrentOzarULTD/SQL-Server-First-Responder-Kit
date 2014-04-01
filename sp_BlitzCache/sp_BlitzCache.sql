@@ -43,6 +43,9 @@ KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
 
+v2.1 - 2014-04-30
+ - Added @duration_filter. Queries are now filtered during collection based on duration.
+
 v2.0 - 2014-03-23
  - Created a stored procedure
  - Added write information
@@ -975,7 +978,7 @@ BEGIN
     
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql, N'@min_duration INT', @duration_filter_i;
+    EXEC sp_executesql @sql ;
 END
 ELSE
 BEGIN
@@ -1029,7 +1032,7 @@ BEGIN
                               END + N' DESC '
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql, N'@min_duration INT', @duration_filter_i;
+    EXEC sp_executesql @sql ;
 END
 
 
