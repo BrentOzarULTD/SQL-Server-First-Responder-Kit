@@ -12,6 +12,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @output_schema_name NVARCHAR(256) = NULL ,
     @output_table_name NVARCHAR(256) = NULL ,
     @duration_filter DECIMAL(38,4) = NULL,
+    @hide_summary BIT = 0,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 
 /******************************************
@@ -39,6 +40,8 @@ KNOWN ISSUES:
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
+ - Added results summary table and hide_summary parameter.
+ - Added check for > 1000 executions per minute.
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -130,6 +133,11 @@ BEGIN
     SELECT N'@duration_filter',
            N'DECIMAL(38,4)',
            N'Filters queries with an average duration (seconds) less than @duration_filter.'
+
+    UNION ALL
+    SELECT N'@hide_summary',
+           N'BIT',
+           N'Hides the findings summary result set.'
 
     UNION ALL
     SELECT N'@whole_cache',
@@ -334,7 +342,8 @@ SELECT @output_database_name = QUOTENAME(@output_database_name),
        @output_schema_name   = QUOTENAME(@output_schema_name),
        @output_table_name    = QUOTENAME(@output_table_name)
 
-
+IF OBJECT_ID('tempdb..#results') IS NOT NULL
+    DROP TABLE #results;
 
 IF OBJECT_ID('tempdb..#p') IS NOT NULL
     DROP TABLE #p;
@@ -344,6 +353,15 @@ IF OBJECT_ID('tempdb..#procs') IS NOT NULL
 
 IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
     DROP TABLE #checkversion;
+
+CREATE TABLE #results (
+    ID INT IDENTITY(1,1),
+    CheckID INT,
+    Priority TINYINT,
+    FindingsGroup VARCHAR(50),
+    URL VARCHAR(200),
+    Details VARCHAR(4000)
+);
 
 CREATE TABLE #p (
     SqlHandle varbinary(64),
@@ -919,6 +937,8 @@ BEGIN
           + N' FROM #procs OPTION (RECOMPILE) '
     EXEC sp_executesql @insert_sql;
 
+    IF @hide_summary = 1
+        RETURN
 END
 ELSE IF @export_to_excel = 1
 BEGIN
@@ -973,61 +993,80 @@ BEGIN
     SET @sql += N' OPTION (RECOMPILE) ; '
 
     EXEC sp_executesql @sql ;
+    RETURN
 END
-ELSE
+
+IF @hide_summary = 0
 BEGIN
-    /* Default behavior is to display all results */
-    SET @sql = N'
-    SELECT  ExecutionCount AS [# Executions],
-            ExecutionsPerMinute AS [Executions / Minute],
-            PercentExecutions AS [Execution Weight],
-            DatabaseName AS [Database],
-            TotalCPU AS [Total CPU],
-            AverageCPU AS [Avg CPU],
-            PercentCPU AS [CPU Weight],
-            TotalDuration AS [Total Duration],
-            AverageDuration AS [Avg Duration],
-            PercentDuration AS [Duration Weight],
-            TotalReads AS [Total Reads],
-            AverageReads AS [Average Reads],
-            PercentReads AS [Read Weight],
-            TotalWrites AS [Total Writes],
-            AverageWrites AS [Average Writes],
-            PercentWrites AS [Write Weight],
-            QueryType AS [Query Type],
-            QueryText AS [Query Text], 
-            PercentExecutionsByType AS [% Executions (Type)],
-            PercentCPUByType AS [% CPU (Type)],
-            PercentDurationByType AS [% Duration (Type)],
-            PercentReadsByType AS [% Reads (Type)],        
-            PercentWritesByType AS [% Writes (Type)],
-            TotalReturnedRows AS [Total Rows],
-            AverageReturnedRows AS [Avg Rows],
-            MinReturnedRows AS [Min Rows],
-            MaxReturnedRows AS [Max Rows],
-            NumberOfPlans AS [# Plans],
-            NumberOfDistinctPlans AS [# Distinct Plans],
-            PlanCreationTime AS [Created At],
-            LastExecutionTime AS [Last Execution],
-            QueryPlan AS [Query Plan],
-            PlanHandle AS [Plan Handle],
-            SqlHandle AS [SQL Handle],
-            QueryHash AS [Query Hash],
-            StatementStartOffset,
-            StatementEndOffset
-    FROM    #procs
-    WHERE   1 = 1 ' + @nl
+    /* Build summary data */
+    IF EXISTS (SELECT COUNT(*) FROM #procs WHERE ExecutionsPerMinute > 1000)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (1,
+                100,
+                'Execution Pattern',
+                NULL,
+                'Some queries are being executed more than 1000 times per minute. This can put load on the server, even when lightweight.');
 
-    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
-                              WHEN 'reads' THEN ' TotalReads '
-                              WHEN 'writes' THEN ' TotalWrites '
-                              WHEN 'duration' THEN ' TotalDuration '
-                              WHEN 'executions' THEN ' ExecutionCount '
-                              END + N' DESC '
-    SET @sql += N' OPTION (RECOMPILE) ; '
-
-    EXEC sp_executesql @sql ;
+    SELECT  CheckID,
+            Priority,
+            FindingsGroup,
+            URL,
+            Details
+    FROM    #results;
 END
+
+
+/* Default behavior is to display all results */
+SET @sql = N'
+SELECT  ExecutionCount AS [# Executions],
+        ExecutionsPerMinute AS [Executions / Minute],
+        PercentExecutions AS [Execution Weight],
+        DatabaseName AS [Database],
+        TotalCPU AS [Total CPU],
+        AverageCPU AS [Avg CPU],
+        PercentCPU AS [CPU Weight],
+        TotalDuration AS [Total Duration],
+        AverageDuration AS [Avg Duration],
+        PercentDuration AS [Duration Weight],
+        TotalReads AS [Total Reads],
+        AverageReads AS [Average Reads],
+        PercentReads AS [Read Weight],
+        TotalWrites AS [Total Writes],
+        AverageWrites AS [Average Writes],
+        PercentWrites AS [Write Weight],
+        QueryType AS [Query Type],
+        QueryText AS [Query Text], 
+        PercentExecutionsByType AS [% Executions (Type)],
+        PercentCPUByType AS [% CPU (Type)],
+        PercentDurationByType AS [% Duration (Type)],
+        PercentReadsByType AS [% Reads (Type)],        
+        PercentWritesByType AS [% Writes (Type)],
+        TotalReturnedRows AS [Total Rows],
+        AverageReturnedRows AS [Avg Rows],
+        MinReturnedRows AS [Min Rows],
+        MaxReturnedRows AS [Max Rows],
+        NumberOfPlans AS [# Plans],
+        NumberOfDistinctPlans AS [# Distinct Plans],
+        PlanCreationTime AS [Created At],
+        LastExecutionTime AS [Last Execution],
+        QueryPlan AS [Query Plan],
+        PlanHandle AS [Plan Handle],
+        SqlHandle AS [SQL Handle],
+        QueryHash AS [Query Hash],
+        StatementStartOffset,
+        StatementEndOffset
+FROM    #procs
+WHERE   1 = 1 ' + @nl
+
+SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+                            WHEN 'reads' THEN ' TotalReads '
+                            WHEN 'writes' THEN ' TotalWrites '
+                            WHEN 'duration' THEN ' TotalDuration '
+                            WHEN 'executions' THEN ' ExecutionCount '
+                            END + N' DESC '
+SET @sql += N' OPTION (RECOMPILE) ; '
+
+EXEC sp_executesql @sql ;
 
 
 GO
