@@ -1,7 +1,7 @@
 USE [master];
 GO
 
-IF OBJECT_ID('dbo.sp_Blitz') IS NOT NULL 
+IF OBJECT_ID('dbo.sp_Blitz') IS NOT NULL
     DROP PROC dbo.sp_Blitz;
 GO
 
@@ -24,19 +24,20 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
+	@SummaryMode TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
-AS 
+AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 34, @VersionDate = '20140224'
+	SELECT @Version = 34, @VersionDate = '20140402'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v34 - Feb 24, 2014
-    
-	(C) 2014, Brent Ozar Unlimited. 
+	sp_Blitz (TM) v34 - April 2, 2014
+
+	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
 	To learn more, visit http://www.BrentOzar.com/blitz where you can download
@@ -53,12 +54,23 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
-	
-	Changes in v34 - February 24, 2014
+
+	Changes in v34 - April 2, 2014
 	 - Jason Pritchard fixed a bug in the plan cache analysis that did not return
 	   results when analyzing for high logical reads.
 	 - Kirby Richter @SqlKirby fixed a bug in check 75 (t-log sizes) that failed
 	   on really big transaction log files. (Not even gonna say how big.)
+	 - Oleg Ivashov improved check 94 (jobs without failure emails) to exclude
+	   SSRS jobs.
+	 - Added @SummaryMode parameter to return only one result set per finding.
+	 - Added check 124 for Performance: Deadlocks Happening Daily. Looks for more
+	   than 10 deadlocks per day.
+	 - Moved check 121 for Performance: Serializable Locking to be lower
+	   priority (down to 100 from 10) and only triggers when more than 10
+	   minutes of the wait have happened since startup.
+	 - Changed checks 107-109 for Poison Waits to have higher thresholds, now
+	   looking at more than 5 seconds per hour of server uptime. Been up for 10
+	   hours, we look for 50 seconds, that kind of thing.
 
 	Changes in v33 - January 20, 2014
 	 - Bob Klimes fixed a bug that Russell Hart introduced in v32, hahaha. Check
@@ -91,7 +103,7 @@ AS
 	      if the user does not have permissions on sys.traces.
 	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
 	  in the plan cache for key lookups.
-  	- Philip Dietrich added check 119 for TDE certificates that have not been 
+  	- Philip Dietrich added check 119 for TDE certificates that have not been
   	  backed up recently.
 	- Ricky Lively added @Help to print inline help. I love his approach to it.
 	- Added check 120 looking for databases that have not had a full backup using
@@ -137,15 +149,15 @@ AS
 		see why it can help shortly.
 		*/
 		DECLARE @StringToExecute NVARCHAR(4000)
-			,@curr_tracefilename NVARCHAR(500) 
-			,@base_tracefilename NVARCHAR(500) 
+			,@curr_tracefilename NVARCHAR(500)
+			,@base_tracefilename NVARCHAR(500)
 			,@indx int
 			,@query_result_separator CHAR(1)
 			,@EmailSubject NVARCHAR(255)
 			,@EmailBody NVARCHAR(MAX)
 			,@EmailAttachmentFilename NVARCHAR(255);
 
-		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
 		CREATE TABLE #BlitzResults
 			(
@@ -172,12 +184,12 @@ AS
 		want to skip. This part of the code checks those parameters, gets the list,
 		and then saves those in a temp table. As we run each check, we'll see if we
 		need to skip it.
-		
+
 		Really anal-retentive users will note that the @SkipChecksServer parameter is
 		not used. YET. We added that parameter in so that we could avoid changing the
 		stored proc's surface area (interface) later.
 		*/
-		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL
 			DROP TABLE #SkipChecks;
 		CREATE TABLE #SkipChecks
 			(
@@ -189,7 +201,7 @@ AS
 
 		IF @SkipChecksTable IS NOT NULL
 			AND @SkipChecksSchema IS NOT NULL
-			AND @SkipChecksDatabase IS NOT NULL 
+			AND @SkipChecksDatabase IS NOT NULL
 			BEGIN
 				SET @StringToExecute = 'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
 				SELECT DISTINCT DatabaseName, CheckID, ServerName
@@ -211,11 +223,11 @@ AS
 			END
 
 
-		/* 
+		/*
 		That's the end of the SkipChecks stuff.
 		The next several tables are used by various checks later.
 		*/
-		IF OBJECT_ID('tempdb..#ConfigurationDefaults') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#ConfigurationDefaults') IS NOT NULL
 			DROP TABLE #ConfigurationDefaults;
 		CREATE TABLE #ConfigurationDefaults
 			(
@@ -224,7 +236,7 @@ AS
 			  CheckID INT
 			);
 
-		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL
 			DROP TABLE #DBCCs;
 		CREATE TABLE #DBCCs
 			(
@@ -238,7 +250,7 @@ AS
 			)
 
 
-		IF OBJECT_ID('tempdb..#LogInfo2012') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#LogInfo2012') IS NOT NULL
 			DROP TABLE #LogInfo2012;
 		CREATE TABLE #LogInfo2012
 			(
@@ -252,7 +264,7 @@ AS
 			  CreateLSN NUMERIC(38)
 			);
 
-		IF OBJECT_ID('tempdb..#LogInfo') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#LogInfo') IS NOT NULL
 			DROP TABLE #LogInfo;
 		CREATE TABLE #LogInfo
 			(
@@ -265,7 +277,7 @@ AS
 			  CreateLSN NUMERIC(38)
 			);
 
-		IF OBJECT_ID('tempdb..#partdb') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#partdb') IS NOT NULL
 			DROP TABLE #partdb;
 		CREATE TABLE #partdb
 			(
@@ -274,7 +286,7 @@ AS
 			  type_desc NVARCHAR(128)
 			)
 
-		IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 			DROP TABLE #TraceStatus;
 		CREATE TABLE #TraceStatus
 			(
@@ -284,7 +296,7 @@ AS
 			  Session BIT
 			);
 
-		IF OBJECT_ID('tempdb..#driveInfo') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#driveInfo') IS NOT NULL
 			DROP TABLE #driveInfo;
 		CREATE TABLE #driveInfo
 			(
@@ -293,7 +305,7 @@ AS
 			)
 
 
-		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL 
+		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
 			DROP TABLE #dm_exec_query_stats;
 		CREATE TABLE #dm_exec_query_stats
 			(
@@ -343,7 +355,7 @@ AS
 
 
 		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
-		IF @OutputType = 'CSV' 
+		IF @OutputType = 'CSV'
 			SET @CheckProcedureCache = 0;
 
 		/* Sanitize our inputs */
@@ -353,7 +365,7 @@ AS
 			@OutputTableName = QUOTENAME(@OutputTableName)
 
 
-		/* 
+		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
 		First, let's make sure we're actually supposed to do checks on this server.
 		The user could have passed in a SkipChecks table that specified to skip ALL
@@ -364,7 +376,7 @@ AS
 													 WHERE  DatabaseName IS NULL
 															AND CheckID IS NULL ) )
 			 OR ( @SkipChecksTable IS NULL )
-		   ) 
+		   )
 			BEGIN
 
 				/*
@@ -374,7 +386,7 @@ AS
 				*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 1 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 1 )
 					BEGIN
 
 						/*
@@ -415,13 +427,13 @@ AS
 																  DatabaseName
 															FROM  #SkipChecks
 															WHERE CheckID IS NULL )
-										/* 
+										/*
 										The above NOT IN filters out the databases we're not supposed to check.
 										*/
 								GROUP BY d.name
 								HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
 																  -7, GETDATE());
-						/* 
+						/*
 						And there you have it. The rest of this stored procedure works the same
 						way: it asks:
 						- Should I skip this check?
@@ -467,17 +479,17 @@ AS
 
 					END
 
-				/* 
+				/*
 				And that's the end of CheckID #1.
 
 				CheckID #2 is a little simpler because it only involves one query, and it's
 				more typical for queries that people contribute. But keep reading, because
 				the next check gets more complex again.
 				*/
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 2 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 2 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -518,36 +530,36 @@ AS
 					END
 
 
-				/* 
+				/*
 				Next up, we've got CheckID 8. (These don't have to go in order.) This one
 				won't work on SQL Server 2005 because it relies on a new DMV that didn't
 				exist prior to SQL Server 2008. This means we have to check the SQL Server
-				version first, then build a dynamic string with the query we want to run:			
+				version first, then build a dynamic string with the query we want to run:
 				*/
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 8 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 8 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, Priority, 
-							FindingsGroup, 
-							Finding, URL, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID, Priority,
+							FindingsGroup,
+							Finding, URL,
 							Details)
-					  SELECT 8 AS CheckID, 
-					  150 AS Priority, 
-					  ''Security'' AS FindingsGroup, 
-					  ''Server Audits Running'' AS Finding, 
+					  SELECT 8 AS CheckID,
+					  150 AS Priority,
+					  ''Security'' AS FindingsGroup,
+					  ''Server Audits Running'' AS Finding,
 					  ''http://BrentOzar.com/go/audits'' AS URL,
 					  (''SQL Server built-in audit functionality is being used by server audit: '' + [name]) AS Details FROM sys.dm_server_audit_status'
 								EXECUTE(@StringToExecute)
 							END;
 					END
 
-				/* 
+				/*
 				But what if you need to run a query in every individual database?
 				Check out CheckID 99 below. Yes, it uses sp_MSforeachdb, and no,
 				we're not happy about that. sp_MSforeachdb is known to have a lot
@@ -561,7 +573,7 @@ AS
 				*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 99 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 99 )
 					BEGIN
 						EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''http://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
 					END
@@ -586,7 +598,7 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 93 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 93 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -621,7 +633,7 @@ AS
 									WHERE   DatabaseName IS NULL AND CheckID = 119 )
 						AND EXISTS ( SELECT *
 									 FROM   sys.all_objects o
-									 WHERE  o.name = 'dm_database_encryption_keys' ) 
+									 WHERE  o.name = 'dm_database_encryption_keys' )
 						BEGIN
 							SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, DatabaseName, URL, Details)
 								SELECT 119 AS CheckID,
@@ -639,7 +651,7 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 3 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -664,10 +676,10 @@ AS
 																  GETDATE())
 								ORDER BY backup_set_id ASC;
 					END
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 4 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 4 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -689,11 +701,11 @@ AS
 										AND l.name <> SUSER_SNAME(0x01)
 										AND l.denylogin = 0;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 5 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 5 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -718,7 +730,7 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 104 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 104 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( [CheckID] ,
@@ -743,11 +755,11 @@ AS
 												AND p.[class] = 100
 												AND p.[type] = 'CL' )
 										AND pri.[name] NOT LIKE '##%##'
-					END    
-	        
+					END
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 6 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 6 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -769,11 +781,11 @@ AS
 								WHERE   j.enabled = 1
 										AND SUSER_SNAME(j.owner_sid) <> SUSER_SNAME(0x01);
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 7 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 7 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -796,84 +808,84 @@ AS
 								WHERE   OBJECTPROPERTY(OBJECT_ID(ROUTINE_NAME),
 													   'ExecIsStartup') = 1;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 9 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 9 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
+						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, 
-							Priority, 
-							FindingsGroup, 
-							Finding, 
-							URL, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID,
+							Priority,
+							FindingsGroup,
+							Finding,
+							URL,
 							Details)
-					  SELECT 9 AS CheckID, 
-					  200 AS Priority, 
-					  ''Surface Area'' AS FindingsGroup, 
-					  ''Endpoints Configured'' AS Finding, 
+					  SELECT 9 AS CheckID,
+					  200 AS Priority,
+					  ''Surface Area'' AS FindingsGroup,
+					  ''Endpoints Configured'' AS Finding,
 					  ''http://BrentOzar.com/go/endpoints/'' AS URL,
 					  (''SQL Server endpoints are configured.  These can be used for database mirroring or Service Broker, but if you do not need them, avoid leaving them enabled.  Endpoint name: '' + [name]) AS Details FROM sys.endpoints WHERE type <> 2'
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 10 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 10 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, 
-							Priority, 
-							FindingsGroup, 
-							Finding, 
-							URL, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID,
+							Priority,
+							FindingsGroup,
+							Finding,
+							URL,
 							Details)
-					  SELECT 10 AS CheckID, 
-					  100 AS Priority, 
-					  ''Performance'' AS FindingsGroup, 
-					  ''Resource Governor Enabled'' AS Finding, 
+					  SELECT 10 AS CheckID,
+					  100 AS Priority,
+					  ''Performance'' AS FindingsGroup,
+					  ''Resource Governor Enabled'' AS Finding,
 					  ''http://BrentOzar.com/go/rg'' AS URL,
 					  (''Resource Governor is enabled.  Queries may be throttled.  Make sure you understand how the Classifier Function is configured.'') AS Details FROM sys.resource_governor_configuration WHERE is_enabled = 1'
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 11 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 11 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
+						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, 
-							Priority, 
-							FindingsGroup, 
-							Finding, 
-							URL, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID,
+							Priority,
+							FindingsGroup,
+							Finding,
+							URL,
 							Details)
-					  SELECT 11 AS CheckID, 
-					  100 AS Priority, 
-					  ''Performance'' AS FindingsGroup, 
-					  ''Server Triggers Enabled'' AS Finding, 
+					  SELECT 11 AS CheckID,
+					  100 AS Priority,
+					  ''Performance'' AS FindingsGroup,
+					  ''Server Triggers Enabled'' AS Finding,
 					  ''http://BrentOzar.com/go/logontriggers/'' AS URL,
 					  (''Server Trigger ['' + [name] ++ ''] is enabled, so it runs every time someone logs in.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details FROM sys.server_triggers WHERE is_disabled = 0 AND is_ms_shipped = 0'
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 12 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 12 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -898,11 +910,11 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 13 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 13 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -927,41 +939,41 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks );
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 14 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 14 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%' 
+						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID,
 							DatabaseName,
-							Priority, 
-							FindingsGroup, 
-							Finding, 
-							URL, 
+							Priority,
+							FindingsGroup,
+							Finding,
+							URL,
 							Details)
-					  SELECT 14 AS CheckID, 
+					  SELECT 14 AS CheckID,
 					  [name] as DatabaseName,
-					  50 AS Priority, 
-					  ''Reliability'' AS FindingsGroup, 
-					  ''Page Verification Not Optimal'' AS Finding, 
+					  50 AS Priority,
+					  ''Reliability'' AS FindingsGroup,
+					  ''Page Verification Not Optimal'' AS Finding,
 					  ''http://BrentOzar.com/go/torn'' AS URL,
 					  (''Database ['' + [name] + ''] has '' + [page_verify_option_desc] + '' for page verification.  SQL Server may have a harder time recognizing and recovering from storage corruption.  Consider using CHECKSUM instead.'') COLLATE database_default AS Details
-					  FROM sys.databases 
-					  WHERE page_verify_option < 2 
+					  FROM sys.databases
+					  WHERE page_verify_option < 2
 					  AND name <> ''tempdb''
 					  and name not in (select distinct DatabaseName from #SkipChecks)'
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 15 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 15 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -986,10 +998,10 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 16 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 16 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1014,11 +1026,11 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 17 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 17 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1043,11 +1055,11 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 18 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 18 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1071,10 +1083,10 @@ AS
 										AND name NOT IN ( SELECT  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 19 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 19 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1103,10 +1115,10 @@ AS
 										OR is_distributor = 1;
 					END
 
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 20 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 20 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1131,38 +1143,38 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks )
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 21 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 21 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-							(CheckID, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+							(CheckID,
 							DatabaseName,
-							Priority, 
-							FindingsGroup, 
-							Finding, 
-							URL, 
+							Priority,
+							FindingsGroup,
+							Finding,
+							URL,
 							Details)
 					  SELECT 21 AS CheckID,
-					  [name] as DatabaseName, 
-					  20 AS Priority, 
-					  ''Encryption'' AS FindingsGroup, 
-					  ''Database Encrypted'' AS Finding, 
+					  [name] as DatabaseName,
+					  20 AS Priority,
+					  ''Encryption'' AS FindingsGroup,
+					  ''Database Encrypted'' AS Finding,
 					  ''http://BrentOzar.com/go/tde'' AS URL,
-					  (''Database ['' + [name] + ''] has Transparent Data Encryption enabled.  Make absolutely sure you have backed up the certificate and private key, or else you will not be able to restore this database.'') AS Details 
-					  FROM sys.databases 
+					  (''Database ['' + [name] + ''] has Transparent Data Encryption enabled.  Make absolutely sure you have backed up the certificate and private key, or else you will not be able to restore this database.'') AS Details
+					  FROM sys.databases
 					  WHERE is_encrypted = 1
 					  and name not in (select distinct DatabaseName from #SkipChecks)'
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	    
-				/* 
+
+				/*
 				Believe it or not, SQL Server doesn't track the default values
 				for sp_configure options! We'll make our own list here.
 				*/
@@ -1240,13 +1252,13 @@ AS
 				IF EXISTS ( SELECT  *
 							FROM    sys.configurations
 							WHERE   name = 'min server memory (MB)'
-									AND value_in_use IN ( 0, 16 ) ) 
+									AND value_in_use IN ( 0, 16 ) )
 					INSERT  INTO #ConfigurationDefaults
 							SELECT  'min server memory (MB)' ,
 									CAST(value_in_use AS BIGINT), 1036
 							FROM    sys.configurations
 							WHERE   name = 'min server memory (MB)'
-				ELSE 
+				ELSE
 					INSERT  INTO #ConfigurationDefaults
 					VALUES  ( 'min server memory (MB)', 0, 1036 );
 				INSERT  INTO #ConfigurationDefaults
@@ -1315,21 +1327,21 @@ AS
 				VALUES  ( 'contained database authentication', 0, 1068 );
 				/* SQL Server 2012 also changes a configuration default */
 				IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
-					OR @@VERSION LIKE '%Microsoft SQL Server 2008%' 
-					BEGIN 
+					OR @@VERSION LIKE '%Microsoft SQL Server 2008%'
+					BEGIN
 						INSERT  INTO #ConfigurationDefaults
 						VALUES  ( 'remote login timeout (s)', 20, 1069 );
 					END
-				ELSE 
+				ELSE
 					BEGIN
 						INSERT  INTO #ConfigurationDefaults
 						VALUES  ( 'remote login timeout (s)', 10, 1070 );
 					END
 
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 22 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 22 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1356,11 +1368,11 @@ AS
 																  AND cdUsed.DefaultValue = cr.value_in_use
 								WHERE   cdUsed.name IS NULL;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 24 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 24 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1385,11 +1397,11 @@ AS
 										AND DB_NAME(database_id) IN ( 'master',
 																  'model', 'msdb' );
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 25 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 25 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1415,11 +1427,11 @@ AS
 								WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
 										AND DB_NAME(database_id) = 'tempdb';
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 26 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 26 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1449,11 +1461,11 @@ AS
 												DatabaseName
 										FROM    #SkipChecks )
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 27 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 27 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1477,11 +1489,11 @@ AS
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 28 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 28 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1503,11 +1515,11 @@ AS
 								FROM    msdb.sys.tables
 								WHERE   is_ms_shipped = 0;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 29 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 29 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1529,16 +1541,16 @@ AS
 								FROM    model.sys.tables
 								WHERE   is_ms_shipped = 0;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 30 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 30 )
 					BEGIN
 						IF ( SELECT COUNT(*)
 							 FROM   msdb.dbo.sysalerts
 							 WHERE  severity BETWEEN 19 AND 25
-						   ) < 7 
+						   ) < 7
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1559,13 +1571,13 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 59 ) 
-					BEGIN   
+								WHERE   DatabaseName IS NULL AND CheckID = 59 )
+					BEGIN
 						IF EXISTS ( SELECT  *
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 1
 											AND COALESCE(has_notification, 0) = 0
-											AND (job_id IS NULL OR job_id = 0x)) 
+											AND (job_id IS NULL OR job_id = 0x))
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1581,14 +1593,14 @@ AS
 											'http://BrentOzar.com/go/alert' AS URL ,
 											( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
 					END
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 96 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 96 )
 					BEGIN
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   message_id IN ( 823, 824, 825 ) ) 
+										WHERE   message_id IN ( 823, 824, 825 ) )
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1604,15 +1616,15 @@ AS
 											'http://BrentOzar.com/go/alert' AS URL ,
 											( 'SQL Server Agent alerts do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 61 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 61 )
 					BEGIN
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   severity BETWEEN 19 AND 25 ) 
+										WHERE   severity BETWEEN 19 AND 25 )
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1632,11 +1644,11 @@ AS
 		--check for disabled alerts
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 98 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 98 )
 					BEGIN
 						IF EXISTS ( SELECT  name
 									FROM    msdb.dbo.sysalerts
-									WHERE   enabled = 0 ) 
+									WHERE   enabled = 0 )
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1656,14 +1668,14 @@ AS
 									WHERE   enabled = 0
 					END
 
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 31 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 31 )
 					BEGIN
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
-										WHERE   enabled = 1 ) 
+										WHERE   enabled = 1 )
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -1679,49 +1691,49 @@ AS
 											'http://BrentOzar.com/go/op' AS URL ,
 											( 'No SQL Server Agent operators (emails) have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
 					END
-	    
-	        
+
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 33 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 33 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults 
-					(CheckID, 
-					DatabaseName, 
-					Priority, 
-					FindingsGroup, 
-					Finding, 
-					URL, 
-					Details) 
-		  SELECT DISTINCT 33, 
-		  db_name(), 
-		  200, 
-		  ''Licensing'', 
-		  ''Enterprise Edition Features In Use'', 
-		  ''http://BrentOzar.com/go/ee'', 
-		  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'') 
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+					(CheckID,
+					DatabaseName,
+					Priority,
+					FindingsGroup,
+					Finding,
+					URL,
+					Details)
+		  SELECT DISTINCT 33,
+		  db_name(),
+		  200,
+		  ''Licensing'',
+		  ''Enterprise Edition Features In Use'',
+		  ''http://BrentOzar.com/go/ee'',
+		  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'')
 		  FROM [?].sys.dm_db_persisted_sku_features';
 							END;
 					END
-	    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 34 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 34 )
 					BEGIN
 						IF EXISTS ( SELECT  *
 									FROM    sys.all_objects
-									WHERE   name = 'dm_db_mirroring_auto_page_repair' ) 
+									WHERE   name = 'dm_db_mirroring_auto_page_repair' )
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-				(CheckID, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
 				Details)
 		  SELECT DISTINCT
 		  34 AS CheckID ,
@@ -1740,19 +1752,19 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 89 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 89 )
 					BEGIN
 						IF EXISTS ( SELECT  *
 									FROM    sys.all_objects
-									WHERE   name = 'dm_hadr_auto_page_repair' ) 
+									WHERE   name = 'dm_hadr_auto_page_repair' )
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-				(CheckID, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
 				Details)
 		  SELECT DISTINCT
 		  89 AS CheckID ,
@@ -1769,22 +1781,22 @@ AS
 							END;
 					END
 
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 90 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 90 )
 					BEGIN
 						IF EXISTS ( SELECT  *
 									FROM    msdb.sys.all_objects
-									WHERE   name = 'suspect_pages' ) 
+									WHERE   name = 'suspect_pages' )
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-				(CheckID, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
 				Details)
 		  SELECT DISTINCT
 		  90 AS CheckID ,
@@ -1801,10 +1813,10 @@ AS
 							END;
 					END
 
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 36 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 36 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1828,10 +1840,10 @@ AS
 																  AND fs.[file_id] = mf.[file_id]
 								WHERE   ( io_stall_read_ms / ( 1.0 + num_of_reads ) ) > 100;
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 37 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 37 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1856,15 +1868,15 @@ AS
 								WHERE   ( io_stall_write_ms / ( 1.0
 																+ num_of_writes ) ) > 20;
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 40 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 40 )
 					BEGIN
 						IF ( SELECT COUNT(*)
 							 FROM   tempdb.sys.database_files
 							 WHERE  type_desc = 'ROWS'
-						   ) = 1 
+						   ) = 1
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -1885,62 +1897,62 @@ AS
 										);
 							END;
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 41 ) 
-					BEGIN   
-						EXEC dbo.sp_MSforeachdb 'use [?]; 
-		  INSERT INTO #BlitzResults 
-		  (CheckID, 
-		  DatabaseName, 
-		  Priority, 
-		  FindingsGroup, 
-		  Finding, 
-		  URL, 
-		  Details) 
+								WHERE   DatabaseName IS NULL AND CheckID = 41 )
+					BEGIN
+						EXEC dbo.sp_MSforeachdb 'use [?];
+		  INSERT INTO #BlitzResults
+		  (CheckID,
+		  DatabaseName,
+		  Priority,
+		  FindingsGroup,
+		  Finding,
+		  URL,
+		  Details)
 		  SELECT 41,
 		  ''?'',
-		  100, 
-		  ''Performance'', 
-		  ''Multiple Log Files on One Drive'', 
-		  ''http://BrentOzar.com/go/manylogs'', 
-		  (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'') 
-		  FROM [?].sys.database_files WHERE type_desc = ''LOG'' 
-			AND ''?'' <> ''[tempdb]'' 
-		  GROUP BY LEFT(physical_name, 1) 
+		  100,
+		  ''Performance'',
+		  ''Multiple Log Files on One Drive'',
+		  ''http://BrentOzar.com/go/manylogs'',
+		  (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
+		  FROM [?].sys.database_files WHERE type_desc = ''LOG''
+			AND ''?'' <> ''[tempdb]''
+		  GROUP BY LEFT(physical_name, 1)
 		  HAVING COUNT(*) > 1';
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 42 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 42 )
 					BEGIN
-						EXEC dbo.sp_MSforeachdb 'use [?]; 
-			INSERT INTO #BlitzResults 
-			(CheckID, 
+						EXEC dbo.sp_MSforeachdb 'use [?];
+			INSERT INTO #BlitzResults
+			(CheckID,
 			DatabaseName,
-			Priority, 
-			FindingsGroup, 
-			Finding, 
-			URL, 
-			Details) 
-			SELECT DISTINCT 42, 
-			''?'', 
-			100, 
-			''Performance'', 
-			''Uneven File Growth Settings in One Filegroup'', 
+			Priority,
+			FindingsGroup,
+			Finding,
+			URL,
+			Details)
+			SELECT DISTINCT 42,
+			''?'',
+			100,
+			''Performance'',
+			''Uneven File Growth Settings in One Filegroup'',
 			''http://BrentOzar.com/go/grow'',
-			(''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'') 
-			FROM [?].sys.database_files 
-			WHERE type_desc = ''ROWS'' 
-			GROUP BY data_space_id 
+			(''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'')
+			FROM [?].sys.database_files
+			WHERE type_desc = ''ROWS''
+			GROUP BY data_space_id
 			HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1';
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 44 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 44 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1961,10 +1973,10 @@ AS
 								WHERE   counter = 'order hint'
 										AND occurrence > 1
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 45 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 45 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1985,10 +1997,10 @@ AS
 								WHERE   counter = 'join hint'
 										AND occurrence > 1
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 49 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 49 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2014,13 +2026,13 @@ AS
 										INNER JOIN sys.linked_logins l ON s.server_id = l.server_id
 								WHERE   s.is_linked = 1
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 50 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 50 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		  SELECT  50 AS CheckID ,
@@ -2039,13 +2051,13 @@ AS
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	        
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 51 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 51 )
 					BEGIN
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		  SELECT  51 AS CheckID ,
@@ -2060,10 +2072,10 @@ AS
 								EXECUTE(@StringToExecute)
 							END;
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 53 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 53 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2082,10 +2094,10 @@ AS
 										'This is a node in a cluster.' AS Details
 								FROM    sys.dm_os_cluster_nodes
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 55 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 55 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2110,10 +2122,10 @@ AS
 																  DatabaseName
 														  FROM    #SkipChecks );
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 57 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 57 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2135,10 +2147,10 @@ AS
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
 								WHERE   sched.freq_type = 64;
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 58 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 58 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2166,33 +2178,33 @@ AS
 															FROM  #SkipChecks )
 										AND d.name NOT LIKE 'ReportServer%'
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 82 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 82 )
 					BEGIN
-						EXEC sp_MSforeachdb 'use [?]; 
-		INSERT INTO #BlitzResults 
-		(CheckID, 
+						EXEC sp_MSforeachdb 'use [?];
+		INSERT INTO #BlitzResults
+		(CheckID,
 		DatabaseName,
-		Priority, 
-		FindingsGroup, 
-		Finding, 
+		Priority,
+		FindingsGroup,
+		Finding,
 		URL, Details)
-		SELECT  DISTINCT 82 AS CheckID, 
+		SELECT  DISTINCT 82 AS CheckID,
 		''?'' as DatabaseName,
-		100 AS Priority, 
-		''Performance'' AS FindingsGroup, 
-		''File growth set to percent'', 
+		100 AS Priority,
+		''Performance'' AS FindingsGroup,
+		''File growth set to percent'',
 		''http://brentozar.com/go/percentgrowth'' AS URL,
 		''The ['' + DB_NAME() + ''] database is using percent filegrowth settings. This can lead to out of control filegrowth.''
-		FROM    [?].sys.database_files 
+		FROM    [?].sys.database_files
 		WHERE   is_percent_growth = 1 ';
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 97 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 97 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2215,10 +2227,10 @@ AS
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Business Intelligence%'
 					END
-	            
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 62 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 62 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2254,7 +2266,7 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 94 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 94 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2280,7 +2292,8 @@ AS
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
-										AND j.notify_page_operator_id = 0        
+										AND j.notify_page_operator_id = 0
+										AND j.category_id <> 100 /* Exclude SSRS category */
 					END
 
 
@@ -2290,7 +2303,7 @@ AS
 									AND value_in_use = 0 )
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
-									 WHERE  DatabaseName IS NULL AND CheckID = 100 ) 
+									 WHERE  DatabaseName IS NULL AND CheckID = 100 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2314,7 +2327,7 @@ AS
 							WHERE   is_online = 0 )
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
-									 WHERE  DatabaseName IS NULL AND CheckID = 101 ) 
+									 WHERE  DatabaseName IS NULL AND CheckID = 101 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2335,7 +2348,7 @@ AS
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 110 ) 
+									WHERE   DatabaseName IS NULL AND CheckID = 110 )
 								AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_os_memory_nodes')
 						BEGIN
 							SET @StringToExecute = 'IF EXISTS (SELECT  *
@@ -2365,7 +2378,7 @@ AS
 							WHERE   state > 1 )
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
-									 WHERE  DatabaseName IS NULL AND CheckID = 102 ) 
+									 WHERE  DatabaseName IS NULL AND CheckID = 102 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2391,7 +2404,7 @@ AS
 							FROM    master.sys.extended_procedures )
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
-									 WHERE  DatabaseName IS NULL AND CheckID = 105 ) 
+									 WHERE  DatabaseName IS NULL AND CheckID = 105 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2417,7 +2430,7 @@ AS
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 107 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 107 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2433,15 +2446,15 @@ AS
 											'Poison Wait Detected: THREADPOOL'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
 											CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
-									FROM sys.[dm_os_wait_stats] 
+									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'THREADPOOL'
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > 5000
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 						END
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 108 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 108 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2457,16 +2470,16 @@ AS
 											'Poison Wait Detected: RESOURCE_SEMAPHORE'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
 											CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
-									FROM sys.[dm_os_wait_stats] 
+									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'RESOURCE_SEMAPHORE'
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > 5000
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 						END
 
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 109 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 109 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2482,16 +2495,16 @@ AS
 											'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
 											CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. This wait often indicates killer performance problems.'
-									FROM sys.[dm_os_wait_stats] 
+									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE'
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > 5000
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 						END
 
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 121 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 121 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2502,22 +2515,22 @@ AS
 									  Details
 									)
 									SELECT  121 AS CheckID ,
-											10 AS Priority ,
+											100 AS Priority ,
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: Serializable Locking'  AS Finding ,
 											'http://BrentOzar.com/go/serializable' AS URL ,
-											CAST(SUM([wait_time_ms]) AS VARCHAR(100)) + ' milliseconds of this wait have been recorded. Queries are forcing serial operation (one query at a time) with lock hints.'
-									FROM sys.[dm_os_wait_stats] 
+											CAST(SUM([wait_time_ms]) / 1000 AS VARCHAR(100)) + ' seconds of this wait have been recorded. Queries are forcing serial operation (one query at a time) with lock hints.'
+									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type LIKE '%LCK%R%'
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > 5000
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 						END
 
 
 
 						IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 111 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 111 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2540,7 +2553,7 @@ AS
 												AND dm.mirroring_role IS NULL
 											WHERE ( d.[state] = 1
 											OR (d.[state] = 0 AND d.[is_in_standby] = 1) )
-											AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh 
+											AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh
 											INNER JOIN msdb.dbo.backupset bs ON rh.backup_set_id = bs.backup_set_id
 											WHERE d.[name] COLLATE SQL_Latin1_General_CP1_CI_AS = rh.destination_database_name COLLATE SQL_Latin1_General_CP1_CI_AS
 											AND rh.restore_date >= DATEADD(dd, -2, GETDATE()))
@@ -2550,20 +2563,20 @@ AS
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 112 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 112 )
 									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'change_tracking_databases')
 							BEGIN
-								SET @StringToExecute = 'INSERT INTO #BlitzResults 
-									(CheckID, 
-									Priority, 
-									FindingsGroup, 
-									Finding, 
-									URL, 
+								SET @StringToExecute = 'INSERT INTO #BlitzResults
+									(CheckID,
+									Priority,
+									FindingsGroup,
+									Finding,
+									URL,
 									Details)
-							  SELECT 112 AS CheckID, 
-							  100 AS Priority, 
-							  ''Performance'' AS FindingsGroup, 
-							  ''Change Tracking Enabled'' AS Finding, 
+							  SELECT 112 AS CheckID,
+							  100 AS Priority,
+							  ''Performance'' AS FindingsGroup,
+							  ''Change Tracking Enabled'' AS Finding,
 							  ''http://BrentOzar.com/go/tracking'' AS URL,
 							  ( d.[name] + '' has change tracking enabled. This is not a default setting, and it has some performance overhead. It keeps track of changes to rows in tables that have change tracking turned on.'' ) AS Details FROM sys.change_tracking_databases AS ctd INNER JOIN sys.databases AS d ON ctd.database_id = d.database_id';
 										EXECUTE(@StringToExecute);
@@ -2571,7 +2584,7 @@ AS
 
 						IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 116 ) 
+										 WHERE  DatabaseName IS NULL AND CheckID = 116 )
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2594,21 +2607,21 @@ AS
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 117 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 117 )
 									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
 							BEGIN
 								SET @StringToExecute = 'IF 0 < (SELECT SUM([forced_grant_count]) FROM sys.dm_exec_query_resource_semaphores WHERE [forced_grant_count] IS NOT NULL)
-								INSERT INTO #BlitzResults 
-									(CheckID, 
-									Priority, 
-									FindingsGroup, 
-									Finding, 
-									URL, 
+								INSERT INTO #BlitzResults
+									(CheckID,
+									Priority,
+									FindingsGroup,
+									Finding,
+									URL,
 									Details)
-							  SELECT 117 AS CheckID, 
-							  100 AS Priority, 
-							  ''Performance'' AS FindingsGroup, 
-							  ''Memory Pressure Affecting Queries'' AS Finding, 
+							  SELECT 117 AS CheckID,
+							  100 AS Priority,
+							  ''Performance'' AS FindingsGroup,
+							  ''Memory Pressure Affecting Queries'' AS Finding,
 							  ''http://BrentOzar.com/go/grants'' AS URL,
 							  CAST(SUM(forced_grant_count) AS NVARCHAR(100)) + '' forced grants reported in the DMV sys.dm_exec_query_resource_semaphores, indicating memory pressure has affected query runtimes.''
 							  FROM sys.dm_exec_query_resource_semaphores WHERE [forced_grant_count] IS NOT NULL;'
@@ -2617,289 +2630,309 @@ AS
 
 
 
-
-	            
-				IF @CheckUserDatabaseObjects = 1 
-					BEGIN
-	              
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 32 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 124 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-			INSERT INTO #BlitzResults 
-			(CheckID, 
+								INSERT INTO #BlitzResults
+									(CheckID,
+									Priority,
+									FindingsGroup,
+									Finding,
+									URL,
+									Details)
+								SELECT 124, 100, 'Performance', 'Deadlocks Happening Daily', 'http://BrentOzar.com/go/deadlocks',
+									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup.' AS Details
+								FROM sys.dm_os_performance_counters p
+									INNER JOIN sys.databases d ON d.name = 'tempdb'
+								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
+									AND RTRIM(p.instance_name) = '_Total'
+									AND p.cntr_value > 0
+									AND (1.0 * p.cntr_value / datediff(DD,create_date,CURRENT_TIMESTAMP)) > 10;
+							END
+
+
+				IF @CheckUserDatabaseObjects = 1
+					BEGIN
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 32 )
+							BEGIN
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+			INSERT INTO #BlitzResults
+			(CheckID,
 			DatabaseName,
-			Priority, 
-			FindingsGroup, 
-			Finding, 
-			URL, 
-			Details) 
-			SELECT DISTINCT 32, 
-			''?'', 
-			110, 
-			''Performance'', 
-			''Triggers on Tables'', 
-			''http://BrentOzar.com/go/trig'', 
-			(''The ['' + DB_NAME() + ''] database has triggers on the '' + s.name + ''.'' + o.name + '' table.'') 
-			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id 
+			Priority,
+			FindingsGroup,
+			Finding,
+			URL,
+			Details)
+			SELECT DISTINCT 32,
+			''?'',
+			110,
+			''Performance'',
+			''Triggers on Tables'',
+			''http://BrentOzar.com/go/trig'',
+			(''The ['' + DB_NAME() + ''] database has triggers on the '' + s.name + ''.'' + o.name + '' table.'')
+			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id
 			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0 AND DB_NAME() != ''ReportServer''';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 38 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 38 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-			INSERT INTO #BlitzResults 
-			(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+			INSERT INTO #BlitzResults
+			(CheckID,
 			DatabaseName,
-			Priority, 
-			FindingsGroup, 
-			Finding, 
-			URL, 
-			Details) 
+			Priority,
+			FindingsGroup,
+			Finding,
+			URL,
+			Details)
 		  SELECT DISTINCT 38,
-		  ''?'', 
-		  110, 
-		  ''Performance'', 
-		  ''Active Tables Without Clustered Indexes'', 
-		  ''http://BrentOzar.com/go/heaps'', 
-		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that are being actively queried.'') 
-		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id 
-		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id 
-		  INNER JOIN sys.databases sd ON sd.name = ''?'' 
-		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id 
-		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL 
+		  ''?'',
+		  110,
+		  ''Performance'',
+		  ''Active Tables Without Clustered Indexes'',
+		  ''http://BrentOzar.com/go/heaps'',
+		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that are being actively queried.'')
+		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
+		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+		  INNER JOIN sys.databases sd ON sd.name = ''?''
+		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
+		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL
 		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 39 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 39 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-			INSERT INTO #BlitzResults 
-			(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+			INSERT INTO #BlitzResults
+			(CheckID,
 			DatabaseName,
-			Priority, 
-			FindingsGroup, 
-			Finding, 
-			URL, 
-			Details) 
-		  SELECT DISTINCT 39, 
+			Priority,
+			FindingsGroup,
+			Finding,
+			URL,
+			Details)
+		  SELECT DISTINCT 39,
 		  ''?'',
-		  110, 
-		  ''Performance'', 
-		  ''Inactive Tables Without Clustered Indexes'', 
-		  ''http://BrentOzar.com/go/heaps'', 
-		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'') 
-		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id 
-		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id 
-		  INNER JOIN sys.databases sd ON sd.name = ''?'' 
-		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id 
-		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL 
+		  110,
+		  ''Performance'',
+		  ''Inactive Tables Without Clustered Indexes'',
+		  ''http://BrentOzar.com/go/heaps'',
+		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'')
+		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
+		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+		  INNER JOIN sys.databases sd ON sd.name = ''?''
+		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
+		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL
 		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 46 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 46 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
-				DatabaseName, 
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
-		  SELECT 46, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
+				DatabaseName,
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
+		  SELECT 46,
 		  ''?'',
-		  100,  
-		  ''Performance'', 
-		  ''Leftover Fake Indexes From Wizards'', 
-		  ''http://BrentOzar.com/go/hypo'', 
-		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'') 
-		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id 
+		  100,
+		  ''Performance'',
+		  ''Leftover Fake Indexes From Wizards'',
+		  ''http://BrentOzar.com/go/hypo'',
+		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'')
+		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_hypothetical = 1';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 47 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 47 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
-		  SELECT 47, 
-		  ''?'', 
-		  100, 
-		  ''Performance'', 
-		  ''Indexes Disabled'', 
-		  ''http://BrentOzar.com/go/ixoff'', 
-		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is disabled.  This index is not actually helping performance and should either be enabled or removed.'') 
-		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
+		  SELECT 47,
+		  ''?'',
+		  100,
+		  ''Performance'',
+		  ''Indexes Disabled'',
+		  ''http://BrentOzar.com/go/ixoff'',
+		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is disabled.  This index is not actually helping performance and should either be enabled or removed.'')
+		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_disabled = 1';
 							END
-	    
-	            
+
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 48 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 48 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
 		  SELECT DISTINCT 48,
-		  ''?'', 
-		  100, 
-		  ''Performance'', 
-		  ''Foreign Keys Not Trusted'', 
-		  ''http://BrentOzar.com/go/trust'', 
-		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') 
-		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id 
+		  ''?'',
+		  100,
+		  ''Performance'',
+		  ''Foreign Keys Not Trusted'',
+		  ''http://BrentOzar.com/go/trust'',
+		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
+		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 56 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 56 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
 		  SELECT 56,
-		  ''?'', 
-		  100, 
-		  ''Performance'', 
-		  ''Check Constraint Not Trusted'', 
-		  ''http://BrentOzar.com/go/trust'', 
-		  (''The check constraint ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'') 
-		  from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id 
-		  INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id 
+		  ''?'',
+		  100,
+		  ''Performance'',
+		  ''Check Constraint Not Trusted'',
+		  ''http://BrentOzar.com/go/trust'',
+		  (''The check constraint ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is not trusted - meaning, it was disabled, data was changed, and then the constraint was enabled again.  Simply enabling the constraint is not enough for the optimizer to use this constraint - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
+		  from [?].sys.check_constraints i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id
+		  INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 95 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 95 )
 							BEGIN
 								IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-									AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%' 
+									AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 									BEGIN
-										EXEC dbo.sp_MSforeachdb 'USE [?]; 
-			INSERT INTO #BlitzResults 
-				  (CheckID, 
+										EXEC dbo.sp_MSforeachdb 'USE [?];
+			INSERT INTO #BlitzResults
+				  (CheckID,
 				  DatabaseName,
-				  Priority, 
-				  FindingsGroup, 
-				  Finding, 
-				  URL, 
-				  Details) 
+				  Priority,
+				  FindingsGroup,
+				  Finding,
+				  URL,
+				  Details)
 			SELECT TOP 1 95 AS CheckID,
-			''?'' as DatabaseName, 
-			110 AS Priority, 
-			''Performance'' AS FindingsGroup, 
-			''Plan Guides Enabled'' AS Finding, 
-			''http://BrentOzar.com/go/guides'' AS URL, 
-			(''Database ['' + DB_NAME() + ''] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details 
+			''?'' as DatabaseName,
+			110 AS Priority,
+			''Performance'' AS FindingsGroup,
+			''Plan Guides Enabled'' AS Finding,
+			''http://BrentOzar.com/go/guides'' AS URL,
+			(''Database ['' + DB_NAME() + ''] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details
 			FROM [?].sys.plan_guides WHERE is_disabled = 0'
 									END;
 							END
-	              
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 60 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 60 )
 							BEGIN
-								EXEC sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
 				Details)
-		  SELECT  DISTINCT 60 AS CheckID, 
+		  SELECT  DISTINCT 60 AS CheckID,
 		  ''?'' as DatabaseName,
-		  100 AS Priority, 
-		  ''Performance'' AS FindingsGroup, 
-		  ''Fill Factor Changed'', 
+		  100 AS Priority,
+		  ''Performance'' AS FindingsGroup,
+		  ''Fill Factor Changed'',
 		  ''http://brentozar.com/go/fillfactor'' AS URL,
 		  ''The ['' + DB_NAME() + ''] database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
-		  FROM    [?].sys.indexes 
+		  FROM    [?].sys.indexes
 		  WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 78 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 78 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
-		  SELECT 78, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
+		  SELECT 78,
 		  ''?'',
-		  100, 
-		  ''Performance'', 
-		  ''Stored Procedure WITH RECOMPILE'', 
-		  ''http://BrentOzar.com/go/recompile'', 
-		  (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'') 
+		  100,
+		  ''Performance'',
+		  ''Stored Procedure WITH RECOMPILE'',
+		  ''http://BrentOzar.com/go/recompile'',
+		  (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'')
 		  from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
 							END
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 86 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 86 )
 							BEGIN
 								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 							END
 
 
 							/*Check for non-aligned indexes in partioned databases*/
-	                  
+
 										IF NOT EXISTS ( SELECT  1
 														FROM    #SkipChecks
-														WHERE   DatabaseName IS NULL AND CheckID = 72 ) 
+														WHERE   DatabaseName IS NULL AND CheckID = 72 )
 											BEGIN
-												EXEC dbo.sp_MSforeachdb 'USE [?]; 
+												EXEC dbo.sp_MSforeachdb 'USE [?];
 								insert into #partdb(dbname, objectname, type_desc)
 								SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
-								FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id 
+								FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id
 								JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
 								LEFT OUTER JOIN sys.dm_db_index_usage_stats AS s ON i.object_id = s.object_id AND i.index_id = s.index_id AND s.database_id = DB_ID()
 								WHERE  o.type = ''u''
 								 -- Clustered and Non-Clustered indexes
-								AND i.type IN (1, 2) 
-								AND o.object_id in 
+								AND i.type IN (1, 2)
+								AND o.object_id in
 								  (
-									SELECT a.object_id from 
+									SELECT a.object_id from
 									  (SELECT ob.object_id, ds.type_desc from sys.objects ob JOIN sys.indexes ind on ind.object_id = ob.object_id join sys.data_spaces ds on ds.data_space_id = ind.data_space_id
 									  GROUP BY ob.object_id, ds.type_desc ) a group by a.object_id having COUNT (*) > 1
 								  )'
@@ -2932,96 +2965,96 @@ AS
 
 											IF NOT EXISTS ( SELECT  1
 															FROM    #SkipChecks
-															WHERE   DatabaseName IS NULL AND CheckID = 113 ) 
+															WHERE   DatabaseName IS NULL AND CheckID = 113 )
 												BEGIN
-													EXEC dbo.sp_MSforeachdb 'USE [?]; 
-							  INSERT INTO #BlitzResults 
-									(CheckID, 
+													EXEC dbo.sp_MSforeachdb 'USE [?];
+							  INSERT INTO #BlitzResults
+									(CheckID,
 									DatabaseName,
-									Priority, 
-									FindingsGroup, 
-									Finding, 
-									URL, 
-									Details) 
+									Priority,
+									FindingsGroup,
+									Finding,
+									URL,
+									Details)
 							  SELECT DISTINCT 113,
-							  ''?'', 
-							  50, 
-							  ''Reliability'', 
-							  ''Full Text Indexes Not Updating'', 
-							  ''http://BrentOzar.com/go/fulltext'', 
-							  (''At least one full text index in this database has not been crawled in the last week.'') 
+							  ''?'',
+							  50,
+							  ''Reliability'',
+							  ''Full Text Indexes Not Updating'',
+							  ''http://BrentOzar.com/go/fulltext'',
+							  (''At least one full text index in this database has not been crawled in the last week.'')
 							  from [?].sys.fulltext_indexes i WHERE i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())';
 												END
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 115 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 115 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
-		  INSERT INTO #BlitzResults 
-				(CheckID, 
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+		  INSERT INTO #BlitzResults
+				(CheckID,
 				DatabaseName,
-				Priority, 
-				FindingsGroup, 
-				Finding, 
-				URL, 
-				Details) 
-		  SELECT 115, 
+				Priority,
+				FindingsGroup,
+				Finding,
+				URL,
+				Details)
+		  SELECT 115,
 		  ''?'',
-		  110, 
-		  ''Performance'', 
-		  ''Parallelism Rocket Surgery'', 
-		  ''http://BrentOzar.com/go/makeparallel'', 
-		  (''['' + DB_NAME() + ''] has a make_parallel function, indicating that an advanced developer may be manhandling SQL Server into forcing queries to go parallel.'') 
+		  110,
+		  ''Performance'',
+		  ''Parallelism Rocket Surgery'',
+		  ''http://BrentOzar.com/go/makeparallel'',
+		  (''['' + DB_NAME() + ''] has a make_parallel function, indicating that an advanced developer may be manhandling SQL Server into forcing queries to go parallel.'')
 		  from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME = ''make_parallel'' AND ROUTINE_TYPE = ''FUNCTION''';
 							END
 
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 122 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 122 )
 							BEGIN
 								/* SQL Server 2012 and newer uses temporary stats for AlwaysOn Availability Groups, and those show up as user-created */
-								IF EXISTS (SELECT * 
+								IF EXISTS (SELECT *
 									  FROM sys.all_columns c
 									  INNER JOIN sys.all_objects o ON c.object_id = o.object_id
 									  WHERE c.name = 'is_temporary' AND o.name = 'stats')
 
-										EXEC dbo.sp_MSforeachdb 'USE [?]; 
-												INSERT INTO #BlitzResults 
-													(CheckID, 
+										EXEC dbo.sp_MSforeachdb 'USE [?];
+												INSERT INTO #BlitzResults
+													(CheckID,
 													DatabaseName,
-													Priority, 
-													FindingsGroup, 
-													Finding, 
-													URL, 
-													Details) 
-												SELECT TOP 1 122, 
+													Priority,
+													FindingsGroup,
+													Finding,
+													URL,
+													Details)
+												SELECT TOP 1 122,
 												''?'',
-												200, 
-												''Performance'', 
-												''User-Created Statistics In Place'', 
-												''http://BrentOzar.com/go/userstats'', 
-												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'') 
+												200,
+												''Performance'',
+												''User-Created Statistics In Place'',
+												''http://BrentOzar.com/go/userstats'',
+												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'')
 												from [?].sys.stats WHERE user_created = 1 AND is_temporary = 0';
 
 									ELSE
-										EXEC dbo.sp_MSforeachdb 'USE [?]; 
-												INSERT INTO #BlitzResults 
-													(CheckID, 
+										EXEC dbo.sp_MSforeachdb 'USE [?];
+												INSERT INTO #BlitzResults
+													(CheckID,
 													DatabaseName,
-													Priority, 
-													FindingsGroup, 
-													Finding, 
-													URL, 
-													Details) 
-												SELECT TOP 1 122, 
+													Priority,
+													FindingsGroup,
+													Finding,
+													URL,
+													Details)
+												SELECT TOP 1 122,
 												''?'',
-												200, 
-												''Performance'', 
-												''User-Created Statistics In Place'', 
-												''http://BrentOzar.com/go/userstats'', 
-												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'') 
+												200,
+												''Performance'',
+												''User-Created Statistics In Place'',
+												''http://BrentOzar.com/go/userstats'',
+												(''['' + DB_NAME() + ''] has user-created statistics. This indicates that someone is being a rocket scientist with the stats, and might actually be slowing things down, especially during stats updates.'')
 												from [?].sys.stats WHERE user_created = 1';
 
 
@@ -3030,12 +3063,12 @@ AS
 
 					END /* IF @CheckUserDatabaseObjects = 1 */
 
-				IF @CheckProcedureCache = 1 
+				IF @CheckProcedureCache = 1
 					BEGIN
-	        
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 35 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 35 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3066,10 +3099,10 @@ AS
 
 
 		  /* Set up the cache tables. Different on 2005 since it doesn't support query_hash, query_plan_hash. */
-						IF @@VERSION LIKE '%Microsoft SQL Server 2005%' 
+						IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
 								IF @CheckProcedureCacheFilter = 'CPU'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
@@ -3084,7 +3117,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'Reads'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
@@ -3099,7 +3132,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'ExecCount'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
@@ -3114,7 +3147,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'Duration'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
 			AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
@@ -3130,11 +3163,11 @@ AS
 
 							END;
 						IF @@VERSION LIKE '%Microsoft SQL Server 2008%'
-							OR @@VERSION LIKE '%Microsoft SQL Server 2012%' 
-							OR @@VERSION LIKE '%Microsoft SQL Server 2014%' 
+							OR @@VERSION LIKE '%Microsoft SQL Server 2012%'
+							OR @@VERSION LIKE '%Microsoft SQL Server 2014%'
 							BEGIN
 								IF @CheckProcedureCacheFilter = 'CPU'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
@@ -3149,7 +3182,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'Reads'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
@@ -3164,7 +3197,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'ExecCount'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
@@ -3179,7 +3212,7 @@ AS
 									END
 
 								IF @CheckProcedureCacheFilter = 'Duration'
-									OR @CheckProcedureCacheFilter IS NULL 
+									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
 										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time],[query_hash],[query_plan_hash])
 		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time],qs.[query_hash],qs.[query_plan_hash]
@@ -3200,7 +3233,7 @@ AS
 										CROSS APPLY sys.dm_exec_text_query_plan(qs.plan_handle,
 																  qs.statement_start_offset,
 																  qs.statement_end_offset)
-										AS qp 
+										AS qp
 
 							END;
 
@@ -3229,10 +3262,10 @@ AS
 								OR text LIKE '%#BlitzResults%'
 
 		/* Look for implicit conversions */
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 63 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 63 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3258,10 +3291,10 @@ AS
 												AND COALESCE(qs.query_plan_filtered,
 															 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%PhysicalOp="Index Scan"%'
 							END
-	            
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 64 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 64 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3289,7 +3322,7 @@ AS
 							/* @cms4j, 29.11.2013: Look for RID or Key Lookups */
 							IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
-											WHERE   DatabaseName IS NULL AND CheckID = 118 ) 
+											WHERE   DatabaseName IS NULL AND CheckID = 118 )
 								BEGIN
 									INSERT  INTO #BlitzResults
 											( CheckID ,
@@ -3318,7 +3351,7 @@ AS
 						/* Look for missing indexes */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 65 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 65 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3346,7 +3379,7 @@ AS
 						/* Look for cursors */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 66 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 66 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3370,12 +3403,12 @@ AS
 										WHERE   COALESCE(qs.query_plan_filtered,
 														 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<StmtCursor%'
 							END
-	    
+
 		/* Look for scalar user-defined functions */
-	                    
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 67 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 67 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3399,19 +3432,19 @@ AS
 										WHERE   COALESCE(qs.query_plan_filtered,
 														 CAST(qs.query_plan AS NVARCHAR(MAX))) LIKE '%<UserDefinedFunction%'
 							END
-	    
+
 					END /* IF @CheckProcedureCache = 1 */
 
 		/*Check for the last good DBCC CHECKDB date */
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 68 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 68 )
 					BEGIN
 						EXEC sp_MSforeachdb N'USE [?];
 		INSERT #DBCCs
-			(ParentObject, 
-			Object, 
-			Field, 
+			(ParentObject,
+			Object,
+			Field,
 			Value)
 		EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
 		UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL;';
@@ -3460,77 +3493,77 @@ AS
 					END
 
 		/*Check for high VLF count: this will omit any database snapshots*/
-	                    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 69 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 69 )
 					BEGIN
 						IF @@VERSION LIKE 'Microsoft SQL Server 2012%' OR @@VERSION LIKE 'Microsoft SQL Server 2014%'
 							BEGIN
-								EXEC sp_MSforeachdb N'USE [?];    
-		  INSERT INTO #LogInfo2012 
-		  EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
-		  IF    @@ROWCOUNT > 999            
+								EXEC sp_MSforeachdb N'USE [?];
+		  INSERT INTO #LogInfo2012
+		  EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
+		  IF    @@ROWCOUNT > 999
 		  BEGIN
-			INSERT  INTO #BlitzResults                        
-			( CheckID   
-			,DatabaseName                      
-			,Priority                          
-			,FindingsGroup                          
-			,Finding                          
-			,URL                          
-			,Details)                  
-			SELECT      69 
-			,DB_NAME()                             
-			,100                              
-			,''Performance''                              
-			,''High VLF Count''                              
-			,''http://BrentOzar.com/go/vlf''                              
-			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''  
+			INSERT  INTO #BlitzResults
+			( CheckID
+			,DatabaseName
+			,Priority
+			,FindingsGroup
+			,Finding
+			,URL
+			,Details)
+			SELECT      69
+			,DB_NAME()
+			,100
+			,''Performance''
+			,''High VLF Count''
+			,''http://BrentOzar.com/go/vlf''
+			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''
 			FROM #LogInfo2012
-			WHERE EXISTS (SELECT name FROM master.sys.databases 
-					WHERE source_database_id is null) ;            
-		  END                       
+			WHERE EXISTS (SELECT name FROM master.sys.databases
+					WHERE source_database_id is null) ;
+		  END
 		TRUNCATE TABLE #LogInfo2012;'
 								DROP TABLE #LogInfo2012;
 							END
 						ELSE
 							BEGIN
-								EXEC sp_MSforeachdb N'USE [?];    
-		  INSERT INTO #LogInfo 
-		  EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';      
-		  IF    @@ROWCOUNT > 999            
+								EXEC sp_MSforeachdb N'USE [?];
+		  INSERT INTO #LogInfo
+		  EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
+		  IF    @@ROWCOUNT > 999
 		  BEGIN
-			INSERT  INTO #BlitzResults                        
-			( CheckID 
-			,DatabaseName                         
-			,Priority                          
-			,FindingsGroup                          
-			,Finding                          
-			,URL                          
-			,Details)                  
+			INSERT  INTO #BlitzResults
+			( CheckID
+			,DatabaseName
+			,Priority
+			,FindingsGroup
+			,Finding
+			,URL
+			,Details)
 			SELECT      69
-			,DB_NAME()                              
-			,100                              
-			,''Performance''                              
-			,''High VLF Count''                              
-			,''http://BrentOzar.com/go/vlf''                              
-			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''  
+			,DB_NAME()
+			,100
+			,''Performance''
+			,''High VLF Count''
+			,''http://BrentOzar.com/go/vlf''
+			,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''
 			FROM #LogInfo
-			WHERE EXISTS (SELECT name FROM master.sys.databases 
-			WHERE source_database_id is null);            
-		  END                       
+			WHERE EXISTS (SELECT name FROM master.sys.databases
+			WHERE source_database_id is null);
+		  END
 		  TRUNCATE TABLE #LogInfo;'
 								DROP TABLE #LogInfo;
 							END
 					END
-		/*Verify that the servername is set */          
-	/*Verify that the servername is set */          
+		/*Verify that the servername is set */
+	/*Verify that the servername is set */
 			IF NOT EXISTS ( SELECT  1
 							FROM    #SkipChecks
-							WHERE   DatabaseName IS NULL AND CheckID = 70 ) 
+							WHERE   DatabaseName IS NULL AND CheckID = 70 )
 				BEGIN
-					IF @@SERVERNAME IS NULL 
+					IF @@SERVERNAME IS NULL
 						BEGIN
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -3549,8 +3582,8 @@ AS
 						END;
 
 					IF  /* @@SERVERNAME IS set */
-						(@@SERVERNAME IS NOT NULL 
-						AND 
+						(@@SERVERNAME IS NOT NULL
+						AND
 						/* not a named instance */
 						CHARINDEX('\',CAST(SERVERPROPERTY('ServerName') AS NVARCHAR)) = 0
 						AND
@@ -3576,11 +3609,11 @@ AS
 											'The @@Servername is different than the computer name, which may trigger certificate errors.' AS Details
 						END;
 
-				END    
-		/*Check to see if a failsafe operator has been configured*/   
+				END
+		/*Check to see if a failsafe operator has been configured*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 73 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 73 )
 					BEGIN
 
 						DECLARE @AlertInfo TABLE
@@ -3614,11 +3647,11 @@ AS
 								FROM    @AlertInfo
 								WHERE   FailSafeOperator IS NULL;
 					END
-	    
+
 		/*Identify globally enabled trace flags*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 74 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 74 )
 					BEGIN
 						INSERT  INTO #TraceStatus
 								EXEC ( ' DBCC TRACESTATUS(-1) WITH NO_INFOMSGS'
@@ -3640,11 +3673,11 @@ AS
 										+ ' is enabled globally.' AS Details
 								FROM    #TraceStatus T
 					END
-	    
-		/*Check for transaction log file larger than data file */             
+
+		/*Check for transaction log file larger than data file */
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 75 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 75 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3680,11 +3713,11 @@ AS
 										FROM    sys.databases
 										WHERE   source_database_id IS NULL )
 					END
-	    
-		/*Check for collation conflicts between user databases and tempdb */          
+
+		/*Check for collation conflicts between user databases and tempdb */
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 76 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 76 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3717,10 +3750,10 @@ AS
 																  name = 'tempdb'
 															  )
 					END
-	                    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 77 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 77 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3749,10 +3782,10 @@ AS
 																  FROM
 																  #SkipChecks )
 					END
-	                    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 79 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 79 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3775,17 +3808,17 @@ AS
 								WHERE   step.command LIKE N'%SHRINKDATABASE%'
 										OR step.command LIKE N'%SHRINKFILE%'
 					END
-	                    
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 80 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 80 )
 					BEGIN
 						EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
 					END
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 81 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 81 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3811,7 +3844,7 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 123 ) 
+								WHERE   DatabaseName IS NULL AND CheckID = 123 )
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3827,22 +3860,22 @@ AS
 										'Agent Jobs Starting Simultaneously' AS Finding ,
 										'http://BrentOzar.com/go/busyagent/' AS URL ,
 										( 'Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.' ) AS Details
-								FROM    msdb.dbo.sysjobactivity 
-								WHERE start_execution_date > DATEADD(dd, -14, GETDATE()) 
+								FROM    msdb.dbo.sysjobactivity
+								WHERE start_execution_date > DATEADD(dd, -14, GETDATE())
 								GROUP BY start_execution_date HAVING COUNT(*) > 1;
 					END
-	                    
 
-				IF @CheckServerInfo = 1 
+
+				IF @CheckServerInfo = 1
 					BEGIN
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 83 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 83 )
 							BEGIN
 								IF EXISTS ( SELECT  *
 											FROM    sys.all_objects
-											WHERE   name = 'dm_server_services' ) 
+											WHERE   name = 'dm_server_services' )
 									BEGIN
 										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT  83 AS CheckID ,
@@ -3850,22 +3883,22 @@ AS
 				''Server Info'' AS FindingsGroup ,
 				''Services'' AS Finding ,
 				'''' AS URL ,
-				N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.'' 
+				N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.''
 				FROM sys.dm_server_services;'
 										EXECUTE(@StringToExecute);
 									END
 							END
 
-			/* Check 84 - SQL Server 2012 */              
+			/* Check 84 - SQL Server 2012 */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 84 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 84 )
 							BEGIN
 								IF EXISTS ( SELECT  *
 											FROM    sys.all_objects o
 													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
 											WHERE   o.name = 'dm_os_sys_info'
-													AND c.name = 'physical_memory_kb' ) 
+													AND c.name = 'physical_memory_kb' )
 									BEGIN
 										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 			SELECT  84 AS CheckID ,
@@ -3883,7 +3916,7 @@ AS
 											FROM    sys.all_objects o
 													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
 											WHERE   o.name = 'dm_os_sys_info'
-													AND c.name = 'physical_memory_in_bytes' ) 
+													AND c.name = 'physical_memory_in_bytes' )
 									BEGIN
 										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 			SELECT  84 AS CheckID ,
@@ -3897,10 +3930,10 @@ AS
 									END
 							END
 
-		                
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 85 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 85 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3932,7 +3965,7 @@ AS
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 88 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 88 )
 							BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -3954,7 +3987,7 @@ AS
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 92 ) 
+										WHERE   DatabaseName IS NULL AND CheckID = 92 )
 							BEGIN
 								INSERT  INTO #driveInfo
 										( drive, SIZE )
@@ -3988,7 +4021,7 @@ AS
 										 FROM   sys.all_objects o
 												INNER JOIN sys.all_columns c ON o.object_id = c.object_id
 										 WHERE  o.name = 'dm_os_sys_info'
-												AND c.name = 'virtual_machine_type_desc' ) 
+												AND c.name = 'virtual_machine_type_desc' )
 							BEGIN
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT 103 AS CheckID,
@@ -4011,8 +4044,8 @@ AS
 							AND EXISTS ( SELECT *
 										 FROM   sys.all_objects o
 										 INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-										 WHERE  o.name = 'dm_os_nodes' 
-                                	 		AND c.name = 'processor_group' ) 
+										 WHERE  o.name = 'dm_os_nodes'
+                                	 		AND c.name = 'processor_group' )
 							BEGIN
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 										SELECT  114 AS CheckID ,
@@ -4020,8 +4053,8 @@ AS
 												''Server Info'' AS FindingsGroup ,
 												''Hardware - NUMA Config'' AS Finding ,
 												'''' AS URL ,
-												''Node: '' + CAST(n.node_id AS NVARCHAR(10)) + '' State: '' + node_state_desc 
-												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10)) 
+												''Node: '' + CAST(n.node_id AS NVARCHAR(10)) + '' State: '' + node_state_desc
+												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10))
 												+ '' Memory node: '' + CAST(n.memory_node_id AS NVARCHAR(10)) + '' Memory VAS Reserved GB: '' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
 										FROM sys.dm_os_nodes n
 										INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
@@ -4036,7 +4069,7 @@ AS
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )
 											AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
 							BEGIN
-		
+
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -4045,12 +4078,12 @@ AS
 										  URL ,
 										  Details
 										)
-										SELECT  
-												 106 AS CheckID 
-												,250 AS Priority 
-												,'Server Info' AS FindingsGroup 
-												,'Default Trace Contents' AS Finding 
-												,'http://BrentOzar.com/go/trace' AS URL 
+										SELECT
+												 106 AS CheckID
+												,250 AS Priority
+												,'Server Info' AS FindingsGroup
+												,'Default Trace Contents' AS Finding
+												,'http://BrentOzar.com/go/trace' AS URL
 												,'The default trace holds '+cast(DATEDIFF(hour,MIN(StartTime),GETDATE())as varchar)+' hours of data'
 												+' between '+cast(Min(StartTime) as varchar)+' and '+cast(GETDATE()as varchar)
 												+('. The default trace files are located in: '+left( @curr_tracefilename,len(@curr_tracefilename) - @indx)
@@ -4066,25 +4099,25 @@ AS
 
 
 				/* Delete priorites they wanted to skip. */
-				IF @IgnorePrioritiesAbove IS NOT NULL 
+				IF @IgnorePrioritiesAbove IS NOT NULL
 					DELETE  #BlitzResults
 					WHERE   [Priority] > @IgnorePrioritiesAbove AND CheckID <> -1;
-		
-				IF @IgnorePrioritiesBelow IS NOT NULL 
+
+				IF @IgnorePrioritiesBelow IS NOT NULL
 					DELETE  #BlitzResults
 					WHERE   [Priority] < @IgnorePrioritiesBelow AND CheckID <> -1;
 
 				/* Delete checks they wanted to skip. */
-				IF @SkipChecksTable IS NOT NULL 
-					BEGIN 
+				IF @SkipChecksTable IS NOT NULL
+					BEGIN
 						DELETE  FROM #BlitzResults
 						WHERE   DatabaseName IN ( SELECT    DatabaseName
-												  FROM      #SkipChecks 
+												  FROM      #SkipChecks
 												  WHERE CheckID IS NULL
 												  AND (ServerName IS NULL OR ServerName = SERVERPROPERTY('ServerName')));
 						DELETE  FROM #BlitzResults
 						WHERE   CheckID IN ( SELECT    CheckID
-												  FROM      #SkipChecks 
+												  FROM      #SkipChecks
 												  WHERE DatabaseName IS NULL
 												  AND (ServerName IS NULL OR ServerName = SERVERPROPERTY('ServerName')));
 						DELETE r FROM #BlitzResults r
@@ -4092,9 +4125,22 @@ AS
 												  AND (ServerName IS NULL OR ServerName = SERVERPROPERTY('ServerName'));
 					END
 
+				/* Add summary mode */
+				IF @SummaryMode > 0
+					BEGIN
+					UPDATE #BlitzResults
+					  SET Finding = br.Finding + ' (' + CAST(brTotals.recs AS NVARCHAR(20)) + ')'
+					  FROM #BlitzResults br
+						INNER JOIN (SELECT FindingsGroup, Finding, Priority, COUNT(*) AS recs FROM #BlitzResults GROUP BY FindingsGroup, Finding, Priority) brTotals ON br.FindingsGroup = brTotals.FindingsGroup AND br.Finding = brTotals.Finding AND br.Priority = brTotals.Priority
+						WHERE brTotals.recs > 1;
 
+					DELETE br
+					  FROM #BlitzResults br
+					  WHERE EXISTS (SELECT * FROM #BlitzResults brLower WHERE br.FindingsGroup = brLower.FindingsGroup AND br.Finding = brLower.Finding AND br.Priority = brLower.Priority AND br.ID > brLower.ID);
 
-				/* Add credits for the nice folks who put so much time into building and maintaining this for free: */                    
+					END
+
+				/* Add credits for the nice folks who put so much time into building and maintaining this for free: */
 				INSERT  INTO #BlitzResults
 						( CheckID ,
 						  Priority ,
@@ -4129,7 +4175,7 @@ AS
 
 						);
 
-				IF @EmailRecipients IS NOT NULL 
+				IF @EmailRecipients IS NOT NULL
 					BEGIN
 					/* Database mail won't work off a local temp table. I'm not happy about this hacky workaround either. */
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
@@ -4175,7 +4221,7 @@ AS
 					AND @OutputTableName IS NOT NULL
 					AND EXISTS ( SELECT *
 								 FROM   sys.databases
-								 WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
+								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 					BEGIN
 						SET @StringToExecute = 'USE '
 							+ @OutputDatabaseName
@@ -4190,9 +4236,9 @@ AS
 							+ @OutputTableName + ''') CREATE TABLE '
 							+ @OutputSchemaName + '.'
 							+ @OutputTableName
-							+ ' (ID INT IDENTITY(1,1) NOT NULL, 
-								ServerName NVARCHAR(128), 
-								CheckDate DATETIME, 
+							+ ' (ID INT IDENTITY(1,1) NOT NULL,
+								ServerName NVARCHAR(128),
+								CheckDate DATETIME,
 								BlitzVersion INT,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
@@ -4225,9 +4271,9 @@ AS
 							+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 							+ 'CREATE TABLE '
 							+ @OutputTableName
-							+ ' (ID INT IDENTITY(1,1) NOT NULL, 
-								ServerName NVARCHAR(128), 
-								CheckDate DATETIME, 
+							+ ' (ID INT IDENTITY(1,1) NOT NULL,
+								ServerName NVARCHAR(128),
+								CheckDate DATETIME,
 								BlitzVersion INT,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
@@ -4254,20 +4300,20 @@ AS
 
 
 				DECLARE @separator AS VARCHAR(1);
-				IF @OutputType = 'RSV' 
+				IF @OutputType = 'RSV'
 					SET @separator = CHAR(31);
-				ELSE 
+				ELSE
 					SET @separator = ',';
 
-				IF @OutputType = 'COUNT' 
+				IF @OutputType = 'COUNT'
 					BEGIN
 						SELECT  COUNT(*) AS Warnings
 						FROM    #BlitzResults
 					END
-				ELSE 
-					IF @OutputType IN ( 'CSV', 'RSV' ) 
+				ELSE
+					IF @OutputType IN ( 'CSV', 'RSV' )
 						BEGIN
-				
+
 							SELECT  Result = CAST([Priority] AS NVARCHAR(100))
 									+ @separator + CAST(CheckID AS NVARCHAR(100))
 									+ @separator + COALESCE([FindingsGroup],
@@ -4299,7 +4345,7 @@ AS
 									Finding ,
 									Details;
 						END
-					ELSE 
+					ELSE
 						BEGIN
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
@@ -4320,7 +4366,7 @@ AS
 				DROP TABLE #BlitzResults;
 
 				IF @OutputProcedureCache = 1
-					AND @CheckProcedureCache = 1 
+					AND @CheckProcedureCache = 1
 					SELECT TOP 20
 							total_worker_time / execution_count AS AvgCPU ,
 							total_worker_time AS TotalCPU ,
