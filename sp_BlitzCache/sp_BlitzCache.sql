@@ -433,7 +433,9 @@ CREATE TABLE #procs (
     max_worker_time int,
     is_forced_plan bit,
     is_forced_parameterized bit,
-    is_cursor bit
+    is_cursor bit,
+    is_parallel bit,
+    QueryPlanCost float
 );
 
 DECLARE @sql nvarchar(MAX) = N'',
@@ -449,12 +451,14 @@ DECLARE @sql nvarchar(MAX) = N'',
 
 
 INSERT INTO #checkversion (version) 
-SELECT CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128));
+SELECT CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128))
+OPTION (RECOMPILE);
  
 
 SELECT @v = maj_version ,
        @build = build 
-FROM   #checkversion ;
+FROM   #checkversion 
+OPTION (RECOMPILE);
 
 SET @insert_list += N'
 INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType, 
@@ -463,7 +467,7 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, 
                     LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType, 
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
-                    min_worker_time, max_worker_time) ' ;
+                    min_worker_time, max_worker_time, is_parallel) ' ;
 
 SET @body += N'
 FROM   (SELECT *,
@@ -554,7 +558,8 @@ SELECT TOP (@top)
        NULL AS QueryHash,
        NULL AS QueryPlanHash,
        qs.min_worker_time,
-       qs.max_worker_time '
+       qs.max_worker_time,
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END'
 
 
 SET @sql += @insert_list;
@@ -632,7 +637,8 @@ SET @sql += N'
        qs.query_hash AS QueryHash,
        qs.query_plan_hash AS QueryPlanHash,
        qs.min_worker_time,
-       qs.max_worker_time '
+       qs.max_worker_time,
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END'
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 SET @sql += @nl + @nl;
@@ -699,6 +705,7 @@ FROM    (SELECT  SqlHandle,
                  ROW_NUMBER() OVER (PARTITION BY SqlHandle ORDER BY #sortable# DESC) AS rn
          FROM    #procs) AS x
 WHERE x.rn = 1
+OPTION (RECOMPILE);
 ';
 
 SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'TotalCPU'
@@ -841,7 +848,14 @@ OPTION (RECOMPILE) ;
 
 UPDATE #procs
 SET NumberOfDistinctPlans = distinct_plan_count,
-    NumberOfPlans = number_of_plans
+    NumberOfPlans = number_of_plans,
+    QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN 
+        QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                         sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
+        ELSE  
+        QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                         sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
+        END 
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1009,7 +1023,15 @@ IF @hide_summary = 0
 BEGIN
     /* TODO: Create a control table for these parameters */
     DECLARE @execution_threshold INT = 1000 ,
-            @parameter_sniffing_warning_pct TINYINT = 5
+            @parameter_sniffing_warning_pct TINYINT = 5,
+            @ctp_threshold_pct TINYINT = 10
+
+    DECLARE @ctp INT ;
+
+    SELECT  @ctp = CAST(value AS INT)
+    FROM    sys.configurations 
+    WHERE   name = 'cost threshold for parallelism' 
+    OPTION (RECOMPILE);
 
     /* Build summary data */
     IF EXISTS (SELECT 1/0 FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
@@ -1076,13 +1098,34 @@ BEGIN
                 NULL,
                 'Execution plans have been compiled with forced parameterization.') ;
 
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  p.is_parallel = 1)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (6,
+                200,
+                'Execution Plans',
+                NULL,
+                'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (7,
+                200,
+                'Execution Plans',
+                NULL,
+                'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.')
+
     SELECT  CheckID,
             Priority,
             FindingsGroup,
             URL,
             Details
     FROM    #results
-    ORDER BY Priority ASC;
+    ORDER BY Priority ASC
+    OPTION (RECOMPILE);
 END
 
 
@@ -1119,6 +1162,7 @@ SELECT  ExecutionCount AS [# Executions],
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
+        QueryPlanCost AS [Query Plan Cost],
         QueryPlan AS [Query Plan],
         PlanHandle AS [Plan Handle],
         SqlHandle AS [SQL Handle],
