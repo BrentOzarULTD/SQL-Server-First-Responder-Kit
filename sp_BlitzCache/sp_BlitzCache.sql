@@ -750,6 +750,7 @@ UPDATE #procs
 SET     PercentCPU = y.PercentCPU,
         PercentDuration = y.PercentDuration,
         PercentReads = y.PercentReads,
+        PercentWrites = y.PercentWrites,
         PercentExecutions = y.PercentExecutions,
         ExecutionsPerMinute = y.ExecutionsPerMinute,
         /* Strip newlines and tabs. Tabs are replaced with multiple spaces
@@ -758,11 +759,17 @@ SET     PercentCPU = y.PercentCPU,
         QueryText = REPLACE(REPLACE(REPLACE(QueryText, @cr, ' '), @lf, ' '), @tab, '  ')
 FROM (
     SELECT  PlanHandle,
-            CAST((100. * TotalCPU) / @total_cpu AS MONEY) AS PercentCPU,
-            CAST((100. * TotalDuration) / @total_duration AS MONEY) AS PercentDuration,
-            CAST((100. * TotalReads) / @total_reads AS MONEY) AS PercentReads,
-            CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) AS PercentExecutions,
-            CASE  DATEDIFF(mi, PlanCreationTime, LastExecutionTime)
+            CASE @total_cpu WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalCPU) / @total_cpu AS MONEY) END AS PercentCPU,
+            CASE @total_duration WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalDuration) / @total_duration AS MONEY) END AS PercentDuration,
+            CASE @total_reads WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalReads) / @total_reads AS MONEY) END AS PercentReads,
+            CASE @total_writes WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalWrites) / @total_writes AS MONEY) END AS PercentWrites,   
+            CASE @total_execution_count WHEN 0 THEN 0
+                 ELSE CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) END AS PercentExecutions,
+            CASE DATEDIFF(mi, PlanCreationTime, LastExecutionTime)
                 WHEN 0 THEN 0
                 ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS money) 
             END AS ExecutionsPerMinute
@@ -771,6 +778,7 @@ FROM (
                 TotalCPU,
                 TotalDuration,
                 TotalReads,
+                TotalWrites,
                 ExecutionCount,
                 PlanCreationTime,
                 LastExecutionTime
@@ -780,6 +788,7 @@ FROM (
                 TotalCPU,
                 TotalDuration,
                 TotalReads,
+                TotalWrites,
                 ExecutionCount,
                 PlanCreationTime,
                 LastExecutionTime
@@ -805,12 +814,17 @@ SET     PercentCPU = y.PercentCPU,
 FROM (
     SELECT  DatabaseName,
             SqlHandle,
-            QueryHash,            
-            CAST((100. * TotalCPU) / @total_cpu AS MONEY) AS PercentCPU,
-            CAST((100. * TotalDuration) / @total_duration AS MONEY) AS PercentDuration,
-            CAST((100. * TotalReads) / @total_reads AS MONEY) AS PercentReads,
-            CAST((100. * TotalWrites) / @total_writes AS MONEY) AS PercentWrites,
-            CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) AS PercentExecutions,
+            QueryHash,
+            CASE @total_cpu WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalCPU) / @total_cpu AS MONEY) END AS PercentCPU,
+            CASE @total_duration WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalDuration) / @total_duration AS MONEY) END AS PercentDuration,
+            CASE @total_reads WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalReads) / @total_reads AS MONEY) END AS PercentReads,
+            CASE @total_writes WHEN 0 THEN 0
+                 ELSE CAST((100. * TotalWrites) / @total_writes AS MONEY) END AS PercentWrites,            
+            CASE @total_execution_count WHEN 0 THEN 0
+                 ELSE CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) END AS PercentExecutions,
             CASE  DATEDIFF(mi, PlanCreationTime, LastExecutionTime)
                 WHEN 0 THEN 0
                 ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS money) 
