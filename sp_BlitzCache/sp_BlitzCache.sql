@@ -1036,7 +1036,8 @@ BEGIN
     /* TODO: Create a control table for these parameters */
     DECLARE @execution_threshold INT = 1000 ,
             @parameter_sniffing_warning_pct TINYINT = 5,
-            @ctp_threshold_pct TINYINT = 10
+            @ctp_threshold_pct TINYINT = 10,
+            @long_running_query_warning_seconds INT = 300
 
     DECLARE @ctp INT ;
 
@@ -1139,6 +1140,18 @@ BEGIN
                 'Execution Plans',
                 NULL,
                 'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  p.AverageDuration > (@long_running_query_warning_seconds * 1000 * 1000))
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (9,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with an average duration longer than '
+                + @long_running_query_warning_seconds
+                + ' second(s). These queries should be investigated for additional tuning options') ;
 
     SELECT  CheckID,
             Priority,
