@@ -497,9 +497,7 @@ OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
-       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN ''* '' ELSE '''' END 
-            + ''#query_type#'' 
-            + COALESCE('': '' + OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -566,8 +564,7 @@ SET @sql += @insert_list;
 
 SET @sql += N'
 SELECT TOP (@top)
-       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN ''* '' ELSE '''' END
-            + ''Statement'' AS QueryType,
+       ''Statement'' AS QueryType,
        COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -987,8 +984,9 @@ BEGIN
     SELECT  ExecutionCount,
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
-            PercentExecutionsByType AS [% Executions (Type)],    
-            QueryType AS [Query Type],
+            PercentExecutionsByType AS [% Executions (Type)],
+            CASE is_parallel WHEN 1 THEN ''*'' ELSE '''' END + 
+              QueryType AS [Query Type],
             DatabaseName AS [Database Name],
             QueryText,
             TotalCPU AS [Total CPU],
@@ -1130,7 +1128,17 @@ BEGIN
                 200,
                 'Execution Plans',
                 NULL,
-                'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.')
+                'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  p.query_plan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)') > 0)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (8,
+                50,
+                'Execution Plans',
+                NULL,
+                'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
 
     SELECT  CheckID,
             Priority,
