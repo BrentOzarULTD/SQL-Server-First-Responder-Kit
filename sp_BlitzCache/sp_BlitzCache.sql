@@ -42,6 +42,8 @@ v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
  - Added results summary table and hide_summary parameter.
  - Added check for > 1000 executions per minute.
+ - Added check for queries with missing indexes.
+ - Added check for queries with warnings in the execution plan.
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -435,7 +437,8 @@ CREATE TABLE #procs (
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
-    QueryPlanCost float
+    QueryPlanCost float,
+    missing_index_count int
 );
 
 DECLARE @sql nvarchar(MAX) = N'',
@@ -866,7 +869,9 @@ SET NumberOfDistinctPlans = distinct_plan_count,
         ELSE  
         QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
                          sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
-        END 
+        END,
+    missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+    count(//p:MissingIndexGroup)')
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1152,6 +1157,16 @@ BEGIN
                 'Queries found with an average duration longer than '
                 + @long_running_query_warning_seconds
                 + ' second(s). These queries should be investigated for additional tuning options') ;
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  p.missing_index_count > 0)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (10,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with missing indexes.');
 
     SELECT  CheckID,
             Priority,
