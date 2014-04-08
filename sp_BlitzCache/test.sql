@@ -1,3 +1,7 @@
+EXEC sp_BlitzCache @results = 'narrow'
+EXEC sp_BlitzCache @results = 'simple'
+EXEC sp_BlitzCache @results = 'expert'
+
 EXEC sp_BlitzCache @sort_order = 'cpu'
 EXEC sp_BlitzCache @sort_order = 'reads'
 EXEC sp_BlitzCache @sort_order = 'writes'
