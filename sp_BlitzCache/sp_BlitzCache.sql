@@ -505,7 +505,7 @@ OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
-       OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -876,7 +876,7 @@ SET NumberOfDistinctPlans = distinct_plan_count,
                          sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
         END,
     missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-    count(//p:MissingIndexGroup)')
+    count(//p:MissingIndexGroup)', 'int')
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1143,7 +1143,7 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  p.query_plan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)') > 0)
+               WHERE  p.QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)', 'int') > 0)
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (8,
                 50,
@@ -1160,7 +1160,7 @@ BEGIN
                 'Performance',
                 NULL,
                 'Queries found with an average duration longer than '
-                + @long_running_query_warning_seconds
+                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
 
     IF EXISTS (SELECT 1/0
@@ -1182,7 +1182,7 @@ BEGIN
                 'Performance',
                 NULL,
                 'Queries found with a max worker time greater than '
-                + @long_running_query_warning_seconds
+                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options');
 
     SELECT  CheckID,
