@@ -44,6 +44,11 @@ v2.1 - 2014-04-30
  - Added check for > 1000 executions per minute.
  - Added check for queries with missing indexes.
  - Added check for queries with warnings in the execution plan.
+ - Added check for queries using cursors.
+ - Query cost will be displayed next to the execution plan for a query.
+ - Added a check for plan guides and forced plans.
+ - An asterisk will be displayed next to the name of queries that have gone parallel.
+ - Added a check for parallel plans.
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -1167,6 +1172,18 @@ BEGIN
                 'Performance',
                 NULL,
                 'Queries found with missing indexes.');
+
+    IF EXISTS (SELECT 1/0
+               FROM #procs p
+               WHERE p.max_worker_time > @long_running_query_warning_seconds)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (11,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with a max worker time greater than '
+                + @long_running_query_warning_seconds
+                + ' second(s). These queries should be investigated for additional tuning options');
 
     SELECT  CheckID,
             Priority,
