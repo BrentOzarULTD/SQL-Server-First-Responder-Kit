@@ -50,6 +50,7 @@ v2.1 - 2014-04-30
  - Added a check for plan guides and forced plans.
  - An asterisk will be displayed next to the name of queries that have gone parallel.
  - Added a check for parallel plans.
+ - Added @results parameter - options are 'narrow', 'simple', and 'expert'
 
 v2.0 - 2014-03-23
  - Created a stored procedure
