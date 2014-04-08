@@ -436,14 +436,16 @@ CREATE TABLE #procs (
     TotalWritesForType bigint,
     NumberOfPlans int,
     NumberOfDistinctPlans int,
-    min_worker_time int,
-    max_worker_time int,
+    min_worker_time bigint,
+    max_worker_time bigint,
     is_forced_plan bit,
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
     QueryPlanCost float,
-    missing_index_count int
+    missing_index_count int,
+    min_elapsed_time bigint,
+    max_elapsed_time bigint
 );
 
 DECLARE @sql nvarchar(MAX) = N'',
@@ -475,7 +477,7 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, 
                     LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType, 
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
-                    min_worker_time, max_worker_time, is_parallel) ' ;
+                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time) ' ;
 
 SET @body += N'
 FROM   (SELECT *,
@@ -565,7 +567,9 @@ SELECT TOP (@top)
        NULL AS QueryPlanHash,
        qs.min_worker_time,
        qs.max_worker_time,
-       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END'
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
+       qs.min_elapsed_time,
+       qs.max_elapsed_time '
 
 
 SET @sql += @insert_list;
@@ -643,7 +647,9 @@ SET @sql += N'
        qs.query_plan_hash AS QueryPlanHash,
        qs.min_worker_time,
        qs.max_worker_time,
-       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END'
+       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
+       qs.min_elapsed_time,
+       qs.max_worker_time '
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 SET @sql += @nl + @nl;
@@ -1182,6 +1188,18 @@ BEGIN
                 'Performance',
                 NULL,
                 'Queries found with a max worker time greater than '
+                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
+                + ' second(s). These queries should be investigated for additional tuning options');
+
+    IF EXISTS (SELECT 1/0
+               FROM #procs p
+               WHERE p.max_elapsed_time > @long_running_query_warning_seconds)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (12,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with a max elapsed time greater than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options');
 
