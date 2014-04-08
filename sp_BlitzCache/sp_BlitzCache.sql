@@ -42,6 +42,13 @@ v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
  - Added results summary table and hide_summary parameter.
  - Added check for > 1000 executions per minute.
+ - Added check for queries with missing indexes.
+ - Added check for queries with warnings in the execution plan.
+ - Added check for queries using cursors.
+ - Query cost will be displayed next to the execution plan for a query.
+ - Added a check for plan guides and forced plans.
+ - An asterisk will be displayed next to the name of queries that have gone parallel.
+ - Added a check for parallel plans.
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -435,7 +442,8 @@ CREATE TABLE #procs (
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
-    QueryPlanCost float
+    QueryPlanCost float,
+    missing_index_count int
 );
 
 DECLARE @sql nvarchar(MAX) = N'',
@@ -497,7 +505,7 @@ OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
-       OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -866,7 +874,9 @@ SET NumberOfDistinctPlans = distinct_plan_count,
         ELSE  
         QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
                          sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
-        END 
+        END,
+    missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+    count(//p:MissingIndexGroup)', 'int')
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1133,7 +1143,7 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  p.query_plan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)') > 0)
+               WHERE  p.QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)', 'int') > 0)
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (8,
                 50,
@@ -1150,8 +1160,30 @@ BEGIN
                 'Performance',
                 NULL,
                 'Queries found with an average duration longer than '
-                + @long_running_query_warning_seconds
+                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs p
+               WHERE  p.missing_index_count > 0)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (10,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with missing indexes.');
+
+    IF EXISTS (SELECT 1/0
+               FROM #procs p
+               WHERE p.max_worker_time > @long_running_query_warning_seconds)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (11,
+                50,
+                'Performance',
+                NULL,
+                'Queries found with a max worker time greater than '
+                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
+                + ' second(s). These queries should be investigated for additional tuning options');
 
     SELECT  CheckID,
             Priority,
