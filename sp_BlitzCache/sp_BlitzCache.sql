@@ -8,6 +8,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @sort_order VARCHAR(10) = 'CPU',
     @use_triggers_anyway BIT = NULL,
     @export_to_excel BIT = 0,
+    @results VARCHAR(10) = 'simple',
     @output_database_name NVARCHAR(128) = NULL ,
     @output_schema_name NVARCHAR(256) = NULL ,
     @output_table_name NVARCHAR(256) = NULL ,
@@ -120,7 +121,12 @@ BEGIN
     SELECT N'@export_to_excel',
            N'BIT',
            N'Prepare output for exporting to Excel. Newlines and additional whitespace are removed from query text and the execution plan is not displayed.'
-           
+
+    UNION ALL
+    SELECT N'@results',
+           N'VARCHAR(10)',
+           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines the columns that will be displayed in the detailed analysis of the plan cache.'
+    
     UNION ALL
     SELECT N'@output_database_name',
            N'NVARCHAR(128)',
@@ -507,7 +513,7 @@ OPTION(RECOMPILE);'
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
-       COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       ''Procedure: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        total_worker_time / execution_count AS AvgCPU ,
        total_worker_time AS TotalCPU ,
@@ -902,7 +908,6 @@ OPTION (RECOMPILE) ;
 
 
 
-
 IF @output_database_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
@@ -1214,9 +1219,52 @@ BEGIN
 END
 
 
-/* Default behavior is to display all results */
-SET @sql = N'
-SELECT  ExecutionCount AS [# Executions],
+
+DECLARE @columns NVARCHAR(MAX) = N'' ;
+
+IF LOWER(@results) = 'narrow'
+BEGIN
+    SET @columns = N' DatabaseName AS [Database],
+    QueryText AS [Query Text],
+    QueryType AS [Query Type],
+    ExecutionCount AS [# Executions],
+    AverageCPU AS [Average CPU],
+    AverageDuration AS [Average Duration],
+    AverageReads AS [Average Reads],
+    AverageWrites AS [Average Writes],
+    AverageReturnedRows AS [Average Rows Returned],
+    PlanCreationTime AS [Created At],
+    LastExecutionTime AS [Last Execution],
+    QueryPlan AS [Query] ';
+END
+ELSE IF LOWER(@results) = 'simple'
+BEGIN
+    SET @columns = N' DatabaseName AS [Database],
+    QueryText AS [Query Text],
+    QueryType AS [Query Type],
+    ExecutionCount AS [# Executions],
+    ExecutionsPerMinute AS [Executions / Minute],
+    PercentExecutions AS [Execution Weight],
+    TotalCPU AS [Total CPU],
+    AverageCPU AS [Avg CPU],
+    PercentCPU AS [CPU Weight],
+    TotalDuration AS [Total Duration],
+    AverageDuration AS [Avg Duration],
+    PercentDuration AS [Duration Weight],
+    TotalReads AS [Total Reads],
+    AverageReads AS [Avg Reads],
+    PercentReads AS [Read Weight],
+    TotalWrites AS [Total Writes],
+    AverageWrites AS [Avg Writes],
+    PercentWrites AS [Write Weight],
+    AverageReturnedRows AS [Average Rows],
+    PlanCreationTime AS [Created At],
+    LastExecutionTime AS [Last Execution],
+    QueryPlan AS [Query Plan] ';
+END
+ELSE
+BEGIN
+   SET @columns = N' ExecutionCount AS [# Executions],
         ExecutionsPerMinute AS [Executions / Minute],
         PercentExecutions AS [Execution Weight],
         DatabaseName AS [Database],
@@ -1247,13 +1295,20 @@ SELECT  ExecutionCount AS [# Executions],
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
-        QueryPlanCost AS [Query Plan Cost],
+        QueryPlanCost AS [Query Plan Cost], 
         QueryPlan AS [Query Plan],
         PlanHandle AS [Plan Handle],
         SqlHandle AS [SQL Handle],
         QueryHash AS [Query Hash],
         StatementStartOffset,
-        StatementEndOffset
+        StatementEndOffset ';
+END
+
+
+
+/* Default behavior is to display all results */
+SET @sql = N'
+SELECT  ' + @columns + @nl + N'
 FROM    #procs
 WHERE   1 = 1 ' + @nl
 
