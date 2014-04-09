@@ -52,6 +52,7 @@ v2.1 - 2014-04-30
  - Added a check for parallel plans.
  - Added @results parameter - options are 'narrow', 'simple', and 'expert'
  - Added a check for plans using a downlevel cardinality estimator
+ - Added checks for plans with implicit conversions or plan affecting convert warnings
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -1221,7 +1222,24 @@ BEGIN
                 'Cardinality',
                 NULL,
                 'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
-                
+
+    IF EXISTS (SELECT 1/0
+               FROM #procs p
+               WHERE p.QueryPlan.exist(
+                 'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                 //p:PlanAffectingConvert/@Expression
+                 [contains(., "CONVERT_IMPLICIT")]') = 1
+               OR  p.QueryPlan.exist(
+                 'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                 //p:RelOp//ScalarOperator/@ScalarString
+                 [contains(., "CONVERT_IMPLICIT")]') = 1
+    )
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        VALUES (14,
+                50,
+                'Performance',
+                'http://brentozar.com/go/implicit',
+                'One or more queries are comparing two fields that are not of the same data type.') ;
 
     SELECT  CheckID,
             Priority,
