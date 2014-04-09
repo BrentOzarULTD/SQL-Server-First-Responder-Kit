@@ -53,6 +53,7 @@ v2.1 - 2014-04-30
  - Added @results parameter - options are 'narrow', 'simple', and 'expert'
  - Added a check for plans using a downlevel cardinality estimator
  - Added checks for plans with implicit conversions or plan affecting convert warnings
+ - Added check for queries with spill warnings
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -1241,6 +1242,22 @@ BEGIN
                 'http://brentozar.com/go/implicit',
                 'One or more queries are comparing two fields that are not of the same data type.') ;
 
+    /* Check for queries with spills */
+    DECLARE @spill_level INT = 0;
+    SELECT @spill_level =
+           p.QueryPlan.value(
+             'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+             max(//p:SpillToTempDb/@SpillLevel)', 'int')
+    FROM   #plans p
+
+    IF @spill_level > 0
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (15,
+            10,
+            'Performance',
+            NULL,
+            'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally. The max spill level is ' + CAST(@spill_level AS VARCHAR(3)) + '.') ;
+                
     SELECT  CheckID,
             Priority,
             FindingsGroup,
