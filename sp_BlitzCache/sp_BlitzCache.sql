@@ -1248,7 +1248,7 @@ BEGIN
            p.QueryPlan.value(
              'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
              max(//p:SpillToTempDb/@SpillLevel)', 'int')
-    FROM   #plans p
+    FROM   #procs p
 
     IF @spill_level > 0
     INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
