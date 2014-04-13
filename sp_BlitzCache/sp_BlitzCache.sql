@@ -1,3 +1,6 @@
+USE master;
+GO
+
 IF OBJECT_ID('dbo.sp_BlitzCache') IS NULL 
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzCache AS RETURN 0;')
 GO
