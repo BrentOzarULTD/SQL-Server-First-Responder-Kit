@@ -1094,7 +1094,7 @@ BEGIN
         VALUES (2,
                 50,
                 'Parameterization',
-                NULL,
+                'http://www.brentozar.com/blitzcache/parameter-sniffing/',
                 'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
 
     /* Forced execution plans */
@@ -1109,7 +1109,7 @@ BEGIN
         VALUES (3,
                 5,
                 'Execution Plans',
-                NULL,
+                'http://www.brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
     /* Cursors */
@@ -1123,7 +1123,7 @@ BEGIN
         VALUES (4, 
                 200,
                 'Cursors',
-                NULL,
+                'http://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
                 'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
 
     IF EXISTS (SELECT 1/0 
@@ -1136,7 +1136,7 @@ BEGIN
         VALUES (5,
                 50,
                 'Parameterization',
-                NULL,
+                'http://www.brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced parameterization.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1146,7 +1146,7 @@ BEGIN
         VALUES (6,
                 200,
                 'Execution Plans',
-                NULL,
+                'http://www.brentozar.com/blitzcache/parallel-plans-detected/',
                 'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1156,7 +1156,7 @@ BEGIN
         VALUES (7,
                 200,
                 'Execution Plans',
-                NULL,
+                'http://www.brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
                 'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1224,7 +1224,7 @@ BEGIN
         VALUES (13,
                 200,
                 'Cardinality',
-                NULL,
+                'http://www.brentozar.com/blitzcache/legacy-cardinality-estimator/',
                 'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
 
     IF EXISTS (SELECT 1/0
