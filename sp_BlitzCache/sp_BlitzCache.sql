@@ -1080,8 +1080,10 @@ BEGIN
         VALUES (1,
                 100,
                 'Execution Pattern',
-                NULL,
-                'Queries are being executed more than 1000 times per minute. This can put additional load on the server, even when queries are lightweight.') ;
+                ' http://www.brentozar.com/blitzcache/frequently-executed-queries/',
+                'Queries are being executed more than '
+                + CAST (@execution_threshold AS VARCHAR(5))
+                + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
 
     IF EXISTS (SELECT 1/0
                FROM   #procs 
@@ -1166,7 +1168,7 @@ BEGIN
         VALUES (8,
                 50,
                 'Execution Plans',
-                NULL,
+                'http://www.brentozar.com/blitzcache/query-plan-warnings/',
                 'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
 
     IF EXISTS (SELECT 1/0
