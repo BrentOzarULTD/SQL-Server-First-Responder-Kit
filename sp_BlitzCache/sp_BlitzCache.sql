@@ -1178,7 +1178,7 @@ BEGIN
         VALUES (9,
                 50,
                 'Performance',
-                NULL,
+                'http://www.brentozar.com/blitzcache/long-running-queries/',
                 'Queries found with an average duration longer than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
@@ -1190,7 +1190,7 @@ BEGIN
         VALUES (10,
                 50,
                 'Performance',
-                NULL,
+                'http://www.brentozar.com/blitzcache/missing-index-request/',
                 'Queries found with missing indexes.');
 
     IF EXISTS (SELECT 1/0
@@ -1200,7 +1200,7 @@ BEGIN
         VALUES (11,
                 50,
                 'Performance',
-                NULL,
+                'http://www.brentozar.com/blitzcache/long-running-queries/',
                 'Queries found with a max worker time greater than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options');
@@ -1212,7 +1212,7 @@ BEGIN
         VALUES (12,
                 50,
                 'Performance',
-                NULL,
+                'http://www.brentozar.com/blitzcache/long-running-queries/',
                 'Queries found with a max elapsed time greater than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options');
@@ -1260,7 +1260,7 @@ BEGIN
     VALUES (15,
             10,
             'Performance',
-            NULL,
+            'http://www.brentozar.com/blitzcache/tempdb-spills/',
             'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally. The max spill level is ' + CAST(@spill_level AS VARCHAR(3)) + '.') ;
                 
     SELECT  CheckID,
