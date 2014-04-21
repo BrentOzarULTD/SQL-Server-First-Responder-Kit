@@ -54,7 +54,7 @@
 *.LDF  BINARY
 
 # T-SQL files
-*.sql 	-text
+*.sql 	eol=crlf merge=union
 
 # prevent unwanted files from bloating the zip distribution package
 BlitzBuilder/ export-ignore
