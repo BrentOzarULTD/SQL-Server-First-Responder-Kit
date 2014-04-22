@@ -1006,7 +1006,7 @@ ELSE IF @export_to_excel = 1
 BEGIN
     /* excel output */
     UPDATE #procs
-    SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 100);
+    SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000);
 
     SET @sql = N'
     SELECT  ExecutionCount,
