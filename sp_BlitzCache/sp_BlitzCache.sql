@@ -1319,10 +1319,12 @@ BEGIN
 END
 ELSE
 BEGIN
-   SET @columns = N' ExecutionCount AS [# Executions],
+   SET @columns = N' DatabaseName AS [Database],
+        QueryText AS [Query Text],
+        QueryType AS [Query Type],
+        ExecutionCount AS [# Executions],
         ExecutionsPerMinute AS [Executions / Minute],
         PercentExecutions AS [Execution Weight],
-        DatabaseName AS [Database],
         TotalCPU AS [Total CPU],
         AverageCPU AS [Avg CPU],
         PercentCPU AS [CPU Weight],
@@ -1335,8 +1337,6 @@ BEGIN
         TotalWrites AS [Total Writes],
         AverageWrites AS [Average Writes],
         PercentWrites AS [Write Weight],
-        QueryType AS [Query Type],
-        QueryText AS [Query Text], 
         PercentExecutionsByType AS [% Executions (Type)],
         PercentCPUByType AS [% CPU (Type)],
         PercentDurationByType AS [% Duration (Type)],
