@@ -997,19 +997,19 @@ END
 /* Populate warnings */
 UPDATE #procs
 SET    Warnings = SUBSTRING(
-                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan'
-                       WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization'
-                       WHEN is_cursor = 1 THEN ', Cursor'
-                       WHEN is_parallel = 1 THEN ', Parallel'
-                       WHEN near_parallel = 1 THEN ', Nearly Parallel'
-                       WHEN frequent_execution = 1 THEN ', Frequent Execution'
-                       WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing'
-                       WHEN plan_warnings = 1 THEN ', Plan Warnings'
-                       WHEN long_running = 1 THEN ', Long Running Query'
-                       WHEN downlevel_estimator = 1 THEN ', Downlevel CE'
-                       WHEN implicit_conversions = 1 THEN ', Implicit Conversions'
-                       WHEN tempdb_spill =1 THEN ', TempDB Spills'
-                       END, 2, 200000)
+                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
+                  CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
+                  CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
+                  CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
+                  CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
+                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
+                  CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
+                  CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
+                  CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
+                  CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
+                  CASE WHEN tempdb_spill =1 THEN ', TempDB Spills' ELSE '' END
+                  , 2, 200000)
                   
 
 
