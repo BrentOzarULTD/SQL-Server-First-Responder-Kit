@@ -460,6 +460,14 @@ CREATE TABLE #procs (
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
+    frequent_execution bit,
+    parameter_sniffing bit,
+    near_parallel bit,
+    plan_warnings bit,
+    long_running bit,
+    downlevel_estimator bit,
+    implicit_conversions bit,
+    tempdb_spill bit,
     QueryPlanCost float,
     missing_index_count int,
     min_elapsed_time bigint,
@@ -890,6 +898,7 @@ WHERE   #procs.SqlHandle = y.SqlHandle
 OPTION (RECOMPILE) ;
 
 
+
 UPDATE #procs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
@@ -911,6 +920,97 @@ GROUP BY QueryHash
 ) AS x 
 WHERE #procs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
+
+
+
+/* TODO: Create a control table for these parameters */
+DECLARE @execution_threshold INT = 1000 ,
+        @parameter_sniffing_warning_pct TINYINT = 5,
+        @ctp_threshold_pct TINYINT = 10,
+        @long_running_query_warning_seconds INT = 300
+
+DECLARE @ctp INT ;
+
+SELECT  @ctp = CAST(value AS INT)
+FROM    sys.configurations 
+WHERE   name = 'cost threshold for parallelism' 
+OPTION (RECOMPILE);
+
+
+
+/* Update to populate checks columns */
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE #procs
+SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold THEN 1 END ,
+       parameter_sniffing = CASE WHEN min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
+                                 WHEN max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
+                                 WHEN MinReturnedRows < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1
+                                 WHEN MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1 END ,
+       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp THEN 1 END,
+       plan_warnings = CASE WHEN QueryPlan.value('count(//p:Warnings)', 'int') > 0 THEN 1 END,
+       long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
+                           WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
+                           WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ,
+       implicit_conversions = CASE WHEN QueryPlan.exist('
+                                        //p:RelOp//ScalarOperator/@ScalarString
+                                        [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
+                                   WHEN QueryPlan.exist('
+                                        //p:PlanAffectingConvert/@Expression
+                                        [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
+                                   END ,
+       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END
+
+
+
+/* Set options checks */                            
+UPDATE p
+SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
+                                      END ,
+       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
+                             WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1
+                             END
+FROM   #procs p
+       CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
+WHERE  pa.attribute = 'set_options' ;
+
+
+
+/* Cursor checks */
+UPDATE p
+SET    is_cursor = CASE WHEN CAST(pa.value AS INT) <> 0 THEN 1 END
+FROM   #procs p
+       CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
+WHERE  pa.attribute LIKE '%cursor%' ;
+
+
+
+/* Downlevel cardinality estimator */
+IF @v >= 12
+BEGIN
+    WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+    UPDATE #procs
+    SET    downlevel_estimator = CASE WHEN QueryPlan.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END
+END
+
+
+
+/* Populate warnings */
+UPDATE #procs
+SET    Warnings = SUBSTRING(
+                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan'
+                       WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization'
+                       WHEN is_cursor = 1 THEN ', Cursor'
+                       WHEN is_parallel = 1 THEN ', Parallel'
+                       WHEN near_parallel = 1 THEN ', Nearly Parallel'
+                       WHEN frequent_execution = 1 THEN ', Frequent Execution'
+                       WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing'
+                       WHEN plan_warnings = 1 THEN ', Plan Warnings'
+                       WHEN long_running = 1 THEN ', Long Running Query'
+                       WHEN downlevel_estimator = 1 THEN ', Downlevel CE'
+                       WHEN implicit_conversions = 1 THEN ', Implicit Conversions'
+                       WHEN tempdb_spill =1 THEN ', TempDB Spills'
+                       END, 2, 200000)
+                  
 
 
 
@@ -1068,18 +1168,7 @@ END
 
 IF @hide_summary = 0
 BEGIN
-    /* TODO: Create a control table for these parameters */
-    DECLARE @execution_threshold INT = 1000 ,
-            @parameter_sniffing_warning_pct TINYINT = 5,
-            @ctp_threshold_pct TINYINT = 10,
-            @long_running_query_warning_seconds INT = 300
 
-    DECLARE @ctp INT ;
-
-    SELECT  @ctp = CAST(value AS INT)
-    FROM    sys.configurations 
-    WHERE   name = 'cost threshold for parallelism' 
-    OPTION (RECOMPILE);
 
     /* Build summary data */
     IF EXISTS (SELECT 1/0 FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
