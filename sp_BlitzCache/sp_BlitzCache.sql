@@ -57,6 +57,8 @@ v2.1 - 2014-04-30
  - Added a check for plans using a downlevel cardinality estimator
  - Added checks for plans with implicit conversions or plan affecting convert warnings
  - Added check for queries with spill warnings
+ - Consolidated warning detection into a smaller number of T-SQL statements
+ - Added a Warnings column
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -1171,7 +1173,9 @@ BEGIN
 
 
     /* Build summary data */
-    IF EXISTS (SELECT 1/0 FROM #procs WHERE ExecutionsPerMinute > @execution_threshold)
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE frequent_execution =1)
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (1,
                 100,
@@ -1182,11 +1186,8 @@ BEGIN
                 + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
 
     IF EXISTS (SELECT 1/0
-               FROM   #procs 
-               WHERE  min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU
-                      OR max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU
-                      OR MinReturnedRows < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows
-                      OR MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows
+               FROM   #procs
+               WHERE  parameter_sniffing = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (2,
@@ -1197,11 +1198,8 @@ BEGIN
 
     /* Forced execution plans */
     IF EXISTS (SELECT 1/0 
-               FROM   #procs p
-                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-               WHERE  pa.attribute = 'set_options'
-                      AND (CAST(pa.value AS INT) & 131072 = 131072
-                           OR CAST(pa.value AS INT) & 4 = 4)
+               FROM   #procs
+               WHERE  is_forced_parameterized = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (3,
@@ -1212,10 +1210,8 @@ BEGIN
 
     /* Cursors */
     IF EXISTS (SELECT 1/0 
-               FROM   #procs p
-                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-               WHERE  pa.attribute LIKE '%cursor%'
-                      AND CAST(pa.value AS INT) <> 0
+               FROM   #procs 
+               WHERE  is_cursor = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (4, 
@@ -1225,10 +1221,8 @@ BEGIN
                 'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
 
     IF EXISTS (SELECT 1/0 
-               FROM   #procs p
-                      CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-               WHERE  pa.attribute = 'set_options'
-                      AND (CAST(pa.value AS INT) & 131072 = 131072)
+               FROM   #procs 
+               WHERE  is_forced_parameterized = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (5,
@@ -1239,7 +1233,8 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  p.is_parallel = 1)
+               WHERE  p.is_parallel = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (6,
                 200,
@@ -1249,7 +1244,8 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp)
+               WHERE  near_parallel = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (7,
                 200,
@@ -1259,7 +1255,8 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  p.QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";count(//p:Warnings)', 'int') > 0)
+               WHERE  plan_warnings = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (8,
                 50,
@@ -1269,13 +1266,14 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
-               WHERE  p.AverageDuration > (@long_running_query_warning_seconds * 1000 * 1000))
+               WHERE  long_running = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (9,
                 50,
                 'Performance',
                 'http://www.brentozar.com/blitzcache/long-running-queries/',
-                'Queries found with an average duration longer than '
+                'Long running queries have beend found. These are queries with an average duration longer than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
 
@@ -1290,34 +1288,9 @@ BEGIN
                 'Queries found with missing indexes.');
 
     IF EXISTS (SELECT 1/0
-               FROM #procs p
-               WHERE p.max_worker_time > @long_running_query_warning_seconds)
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
-        VALUES (11,
-                50,
-                'Performance',
-                'http://www.brentozar.com/blitzcache/long-running-queries/',
-                'Queries found with a max worker time greater than '
-                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
-                + ' second(s). These queries should be investigated for additional tuning options');
-
-    IF EXISTS (SELECT 1/0
-               FROM #procs p
-               WHERE p.max_elapsed_time > @long_running_query_warning_seconds)
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
-        VALUES (12,
-                50,
-                'Performance',
-                'http://www.brentozar.com/blitzcache/long-running-queries/',
-                'Queries found with a max elapsed time greater than '
-                + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
-                + ' second(s). These queries should be investigated for additional tuning options');
-
-    IF @v >= 12 AND EXISTS(
-       SELECT 1/0
-       FROM #procs p
-       WHERE p.QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan"; min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < @v * 10
-    )
+               FROM   #procs p
+               WHERE  p.downlevel_estimator = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (13,
                 200,
@@ -1327,15 +1300,8 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM #procs p
-               WHERE p.QueryPlan.exist(
-                 'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-                 //p:PlanAffectingConvert/@Expression
-                 [contains(., "CONVERT_IMPLICIT")]') = 1
-               OR  p.QueryPlan.exist(
-                 'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-                 //p:RelOp//ScalarOperator/@ScalarString
-                 [contains(., "CONVERT_IMPLICIT")]') = 1
-    )
+               WHERE implicit_conversions = 1
+              )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
         VALUES (14,
                 50,
@@ -1343,21 +1309,17 @@ BEGIN
                 'http://brentozar.com/go/implicit',
                 'One or more queries are comparing two fields that are not of the same data type.') ;
 
-    /* Check for queries with spills */
-    DECLARE @spill_level INT = 0;
-    SELECT @spill_level =
-           p.QueryPlan.value(
-             'declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-             max(//p:SpillToTempDb/@SpillLevel)', 'int')
-    FROM   #procs p
-
-    IF @spill_level > 0
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  tempdb_spill = 1
+              )
     INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
     VALUES (15,
             10,
             'Performance',
             'http://www.brentozar.com/blitzcache/tempdb-spills/',
-            'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally. The max spill level is ' + CAST(@spill_level AS VARCHAR(3)) + '.') ;
+            'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
+                
                 
     SELECT  CheckID,
             Priority,
