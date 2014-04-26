@@ -59,6 +59,7 @@ v2.1 - 2014-04-30
  - Added check for queries with spill warnings
  - Consolidated warning detection into a smaller number of T-SQL statements
  - Added a Warnings column
+ - Added "busy loops" check
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -470,6 +471,7 @@ CREATE TABLE #procs (
     downlevel_estimator bit,
     implicit_conversions bit,
     tempdb_spill bit,
+    busy_loops bit,
     QueryPlanCost float,
     missing_index_count int,
     min_elapsed_time bigint,
@@ -960,7 +962,33 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                         //p:PlanAffectingConvert/@Expression
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
-       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END
+       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;
+
+
+
+/* Checks that require examining individual plan nodes, as opposed to
+   the entire plan
+ */
+
+-- WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+-- UPDATE p
+-- SET    busy_loops = CASE WHEN ((n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0) / 100.0) > n.value('@EstimateRows', 'float') THEN 1 END
+-- FROM   #procs p
+--        OUTER APPLY QueryPlan.nodes('//*') AS q(n)
+-- WHERE  n.value('local-name(.)', 'nvarchar(100)') = N'RelOp' ;
+
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE p
+SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END
+FROM   #procs p
+       JOIN (
+            SELECT qs.SqlHandle,
+                   n.value('@EstimateRows', 'float') AS estimated_rows ,
+                   n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0 AS estimated_executions
+            FROM   #procs qs
+                   OUTER APPLY qs.QueryPlan.nodes('//*') AS q(n)
+       ) AS x ON p.SqlHandle = x.SqlHandle
 
 
 
@@ -991,7 +1019,7 @@ IF @v >= 12
 BEGIN
     WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
     UPDATE #procs
-    SET    downlevel_estimator = CASE WHEN QueryPlan.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END
+    SET    downlevel_estimator = CASE WHEN QueryPlan.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END ;
 END
 
 
@@ -999,6 +1027,7 @@ END
 /* Populate warnings */
 UPDATE #procs
 SET    Warnings = SUBSTRING(
+                  CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
                   CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
@@ -1011,7 +1040,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tempdb_spill =1 THEN ', TempDB Spills' ELSE '' END
-                  , 2, 200000)
+                  , 2, 200000) ;
                   
 
 
@@ -1319,6 +1348,17 @@ BEGIN
             'Performance',
             'http://www.brentozar.com/blitzcache/tempdb-spills/',
             'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  busy_loops = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (16,
+            10,
+            'Performance',
+            'http://www.brentozar.com/blitzcache/busy-loops/',
+            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');               
+               
                 
                 
     SELECT  CheckID,
