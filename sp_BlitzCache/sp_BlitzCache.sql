@@ -472,6 +472,11 @@ CREATE TABLE #procs (
     implicit_conversions bit,
     tempdb_spill bit,
     busy_loops bit,
+    tvf_join bit,
+    tvf_estimate bit,
+    compile_timeout bit,
+    compile_memory_limit_exceeded bit,
+    warning_no_join_predicate bit,
     QueryPlanCost float,
     missing_index_count int,
     min_elapsed_time bigint,
@@ -962,33 +967,40 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                         //p:PlanAffectingConvert/@Expression
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
-       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;
+       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;       
 
 
 
 /* Checks that require examining individual plan nodes, as opposed to
    the entire plan
  */
-
--- WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
--- UPDATE p
--- SET    busy_loops = CASE WHEN ((n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0) / 100.0) > n.value('@EstimateRows', 'float') THEN 1 END
--- FROM   #procs p
---        OUTER APPLY QueryPlan.nodes('//*') AS q(n)
--- WHERE  n.value('local-name(.)', 'nvarchar(100)') = N'RelOp' ;
-
-
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
-SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END
+SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
+       tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
+       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END
 FROM   #procs p
        JOIN (
             SELECT qs.SqlHandle,
                    n.value('@EstimateRows', 'float') AS estimated_rows ,
-                   n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0 AS estimated_executions
+                   n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0 AS estimated_executions ,
+                   n.query('.').exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
+                   n.query('.').exist('//p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning
             FROM   #procs qs
-                   OUTER APPLY qs.QueryPlan.nodes('//*') AS q(n)
-       ) AS x ON p.SqlHandle = x.SqlHandle
+                   OUTER APPLY qs.QueryPlan.nodes('//p:RelOp') AS q(n)
+       ) AS x ON p.SqlHandle = x.SqlHandle ;
+
+
+
+/* Check for timeout plan termination */
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE p
+SET    compile_timeout = CASE WHEN n.query('.').exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
+       compile_memory_limit_exceeded = CASE WHEN n.query('.').exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END
+FROM   #procs p
+       CROSS APPLY p.QueryPlan.nodes('//p:StmtSimple') AS q(n) ;
+             
+
 
 
 
@@ -1027,6 +1039,9 @@ END
 /* Populate warnings */
 UPDATE #procs
 SET    Warnings = SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
+                  CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
+                  CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
@@ -1034,12 +1049,13 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
                   CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
-                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
                   CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
+                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN tempdb_spill =1 THEN ', TempDB Spills' ELSE '' END
+                  CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
+                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END
                   , 2, 200000) ;
                   
 
@@ -1357,10 +1373,50 @@ BEGIN
             10,
             'Performance',
             'http://www.brentozar.com/blitzcache/busy-loops/',
-            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');               
-               
-                
-                
+            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  tvf_join = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (17,
+            50,
+            'Performance',
+            'http://www.brentozar.com/blitzcache/tvf-join/',
+            'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  compile_timeout = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (18,
+            50,
+            'Execution Plans',
+            'http://www.brentozar.com/blitzcache/compile-timeout/',
+            'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  compile_memory_limit_exceeded = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (19,
+            50,
+            'Execution Plans',
+            'http://www.brentozar.com/blitzcache/compile-memory-limit-exceeded/',
+            'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');            
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  warning_no_join_predicate = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (20,
+            10,
+            'Execution Plans',
+            'http://www.brentozar.com/blitzcache/no-join-predicate/',
+            'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
+            
+
+
     SELECT  CheckID,
             Priority,
             FindingsGroup,
