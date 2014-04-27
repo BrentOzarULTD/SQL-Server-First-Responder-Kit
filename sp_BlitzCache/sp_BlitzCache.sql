@@ -1039,6 +1039,7 @@ END
 /* Populate warnings */
 UPDATE #procs
 SET    Warnings = SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
                   CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
@@ -1049,7 +1050,6 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
                   CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
                   CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
-                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END
                   CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
@@ -1407,14 +1407,14 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
-               WHERE  compile_memory_limit_exceeded = 1)
+               WHERE  warning_no_join_predicate = 1)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
-    VALUES (20
+    VALUES (20,
             10,
             'Execution Plans',
             'http://www.brentozar.com/blitzcache/no-join-predicate/',
             'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
-
+            
 
 
     SELECT  CheckID,
