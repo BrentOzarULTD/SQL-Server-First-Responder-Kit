@@ -472,6 +472,8 @@ CREATE TABLE #procs (
     implicit_conversions bit,
     tempdb_spill bit,
     busy_loops bit,
+    tvf_join bit,
+    tvf_estimate bit,
     QueryPlanCost float,
     missing_index_count int,
     min_elapsed_time bigint,
@@ -962,33 +964,27 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                         //p:PlanAffectingConvert/@Expression
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
-       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;
+       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;       
 
 
 
 /* Checks that require examining individual plan nodes, as opposed to
    the entire plan
  */
-
--- WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
--- UPDATE p
--- SET    busy_loops = CASE WHEN ((n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0) / 100.0) > n.value('@EstimateRows', 'float') THEN 1 END
--- FROM   #procs p
---        OUTER APPLY QueryPlan.nodes('//*') AS q(n)
--- WHERE  n.value('local-name(.)', 'nvarchar(100)') = N'RelOp' ;
-
-
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
-SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END
+SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END,
+       tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END
 FROM   #procs p
        JOIN (
             SELECT qs.SqlHandle,
                    n.value('@EstimateRows', 'float') AS estimated_rows ,
-                   n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0 AS estimated_executions
+                   n.value('@EstimateRewinds', 'float') + n.value('@EstimateRebinds', 'float') + 1.0 AS estimated_executions ,
+                   n.query('.').exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join
             FROM   #procs qs
-                   OUTER APPLY qs.QueryPlan.nodes('//*') AS q(n)
+                   OUTER APPLY qs.QueryPlan.nodes('//p:RelOp') AS q(n)
        ) AS x ON p.SqlHandle = x.SqlHandle
+
 
 
 
@@ -1039,7 +1035,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN tempdb_spill =1 THEN ', TempDB Spills' ELSE '' END
+                  CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
+                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END 
                   , 2, 200000) ;
                   
 
@@ -1357,7 +1354,17 @@ BEGIN
             10,
             'Performance',
             'http://www.brentozar.com/blitzcache/busy-loops/',
-            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');               
+            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  tvf_join = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (17,
+            50,
+            'Performance',
+            'http://www.brentozar.com/blitzcache/tvf-join/',
+            'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
                
                 
                 
