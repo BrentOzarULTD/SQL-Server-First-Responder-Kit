@@ -1478,10 +1478,12 @@ SET NOCOUNT OFF;
 GO
 
 
+/* How to run it:
 EXEC dbo.sp_AskBrent 
 
-/* Other tests:
+With extra diagnostic info:
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
-EXEC dbo.sp_AskBrent @ExpertMode = 0;
+
+In Ask a Question mode:
 EXEC dbo.sp_AskBrent 'This is a test question';
 */
