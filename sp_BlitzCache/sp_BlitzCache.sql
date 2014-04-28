@@ -1061,6 +1061,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END
+                  CASE WHEN NumberOfPlans <> NumberOfDistinctPlans THEN ', Multiple Plans' ELSE '' END
                   , 2, 200000) ;
                   
 
@@ -1419,7 +1420,16 @@ BEGIN
             'Execution Plans',
             'http://www.brentozar.com/blitzcache/no-join-predicate/',
             'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
-            
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  NumberOfPlans <> NumberOfDistinctPlans)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    VALUES (21,
+            200,
+            'Execution Plans',
+            'http://www.brentozar.com/blitzcache/multiple-plans/',
+            'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
 
 
     SELECT  CheckID,
