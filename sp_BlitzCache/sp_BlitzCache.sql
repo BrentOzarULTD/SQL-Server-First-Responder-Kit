@@ -937,7 +937,7 @@ OPTION (RECOMPILE) ;
 DECLARE @execution_threshold INT = 1000 ,
         @parameter_sniffing_warning_pct TINYINT = 5,
         @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds INT = 3,
+        @long_running_query_warning_seconds INT = 300,
 		@long_running_query_warning_seconds_i INT
 
 IF @long_running_query_warning_seconds IS NOT NULL
