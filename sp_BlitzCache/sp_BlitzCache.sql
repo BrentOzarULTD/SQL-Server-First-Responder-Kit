@@ -60,6 +60,7 @@ v2.1 - 2014-04-30
  - Consolidated warning detection into a smaller number of T-SQL statements
  - Added a Warnings column
  - Added "busy loops" check
+ - Fixed bug where long-running query threshold was 300 microseconds, not seconds
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -936,7 +937,11 @@ OPTION (RECOMPILE) ;
 DECLARE @execution_threshold INT = 1000 ,
         @parameter_sniffing_warning_pct TINYINT = 5,
         @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds INT = 300
+        @long_running_query_warning_seconds INT = 3,
+		@long_running_query_warning_seconds_i INT
+
+IF @long_running_query_warning_seconds IS NOT NULL
+  SET @long_running_query_warning_seconds_i = CAST((@long_running_query_warning_seconds * 1000.0 * 1000.0) AS INT);
 
 DECLARE @ctp INT ;
 
@@ -957,9 +962,9 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                  WHEN MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1 END ,
        near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp THEN 1 END,
        plan_warnings = CASE WHEN QueryPlan.value('count(//p:Warnings)', 'int') > 0 THEN 1 END,
-       long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
-                           WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
-                           WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ,
+       long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds_i THEN 1
+                           WHEN max_worker_time > @long_running_query_warning_seconds_i THEN 1
+                           WHEN max_elapsed_time > @long_running_query_warning_seconds_i THEN 1 END ,
        implicit_conversions = CASE WHEN QueryPlan.exist('
                                         //p:RelOp//ScalarOperator/@ScalarString
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
