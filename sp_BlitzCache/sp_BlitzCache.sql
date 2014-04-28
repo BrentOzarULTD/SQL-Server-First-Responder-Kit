@@ -1524,7 +1524,7 @@ END
 
 /* Default behavior is to display all results */
 SET @sql = N'
-SELECT  ' + @columns + @nl + N'
+SELECT  TOP (@top) ' + @columns + @nl + N'
 FROM    #procs
 WHERE   1 = 1 ' + @nl
 
@@ -1536,7 +1536,7 @@ SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                             END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
-EXEC sp_executesql @sql ;
+EXEC sp_executesql @sql, N'@top INT', @top ;
 
 
 GO
