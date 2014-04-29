@@ -468,6 +468,7 @@ CREATE TABLE #procs (
     parameter_sniffing bit,
     near_parallel bit,
     plan_warnings bit,
+    plan_multiple_plans bit,
     long_running bit,
     downlevel_estimator bit,
     implicit_conversions bit,
@@ -920,7 +921,8 @@ SET NumberOfDistinctPlans = distinct_plan_count,
                          sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
         END,
     missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-    count(//p:MissingIndexGroup)', 'int')
+    count(//p:MissingIndexGroup)', 'int') ,
+    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1060,8 +1062,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
-                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END
-                  CASE WHEN NumberOfPlans <> NumberOfDistinctPlans THEN ', Multiple Plans' ELSE '' END
+                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END
                   , 2, 200000) ;
                   
 
@@ -1423,7 +1425,7 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
-               WHERE  NumberOfPlans <> NumberOfDistinctPlans)
+               WHERE  plan_multiple_plans = 1)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
     VALUES (21,
             200,
