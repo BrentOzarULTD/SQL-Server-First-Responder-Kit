@@ -1052,6 +1052,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes' ELSE '' END +
                   CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
