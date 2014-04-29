@@ -356,7 +356,10 @@ BEGIN
     RETURN
 END
 
-DECLARE @duration_filter_i INT;
+DECLARE @duration_filter_i INT,
+        @msg NVARCHAR(4000) ;
+
+RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 
 /* Change duration from seconds to microseconds */
 IF @duration_filter IS NOT NULL
@@ -498,6 +501,8 @@ DECLARE @sql nvarchar(MAX) = N'',
         @build int;
 
 
+RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
+
 INSERT INTO #checkversion (version) 
 SELECT CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128))
 OPTION (RECOMPILE);
@@ -507,6 +512,8 @@ SELECT @v = maj_version ,
        @build = build 
 FROM   #checkversion 
 OPTION (RECOMPILE);
+
+RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
 INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType, 
@@ -715,6 +722,8 @@ SET @sql += @nl + @nl;
  ******************************************************************************/
 IF @use_triggers_anyway = 1 OR @v >= 11
 BEGIN
+   RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
+   
    /* Trigger level information from the plan cache */
    SET @sql += @insert_list ;
 
@@ -768,6 +777,7 @@ SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 
 
+RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_i;
 
 
@@ -776,6 +786,7 @@ EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_
  * Yes, there's a flaw - this doesn't include anything outside of our @top 
  * metric.
  */
+RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
 DECLARE @total_duration BIGINT,
         @total_cpu BIGINT,
         @total_reads BIGINT,
@@ -955,6 +966,8 @@ OPTION (RECOMPILE);
 
 
 /* Update to populate checks columns */
+RAISERROR('Checking for query level SQL Server issues.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE #procs
 SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold THEN 1 END ,
@@ -981,6 +994,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 /* Checks that require examining individual plan nodes, as opposed to
    the entire plan
  */
+RAISERROR('Scanning individual plan nodes for query issues.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
@@ -1000,6 +1015,8 @@ FROM   #procs p
 
 
 /* Check for timeout plan termination */
+RAISERROR('Checking for plan compilation timeouts.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    compile_timeout = CASE WHEN n.query('.').exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
@@ -1009,7 +1026,7 @@ FROM   #procs p
              
 
 
-
+RAISERROR('Checking for forced parameterization and cursors.', 0, 1) WITH NOWAIT;
 
 /* Set options checks */                            
 UPDATE p
@@ -1036,12 +1053,16 @@ WHERE  pa.attribute LIKE '%cursor%' ;
 /* Downlevel cardinality estimator */
 IF @v >= 12
 BEGIN
+    RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
+    
     WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
     UPDATE #procs
     SET    downlevel_estimator = CASE WHEN QueryPlan.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END ;
 END
 
 
+
+RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 
 /* Populate warnings */
 UPDATE #procs
@@ -1081,6 +1102,8 @@ IF @output_database_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
 BEGIN
+    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
+    
     /* send results to a table */
     DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
     
@@ -1167,6 +1190,8 @@ BEGIN
 END
 ELSE IF @export_to_excel = 1
 BEGIN
+    RAISERROR('Displaying results with Excel formatting (no plans).', 0, 1) WITH NOWAIT;
+    
     /* excel output */
     UPDATE #procs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000);
@@ -1225,7 +1250,7 @@ END
 
 IF @hide_summary = 0
 BEGIN
-
+    RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
     /* Build summary data */
     IF EXISTS (SELECT 1/0
@@ -1448,6 +1473,8 @@ END
 
 
 
+RAISERROR('Displaying analysis of plan cache.', 0, 1) WITH NOWAIT;
+
 DECLARE @columns NVARCHAR(MAX) = N'' ;
 
 IF LOWER(@results) = 'narrow'
@@ -1536,7 +1563,6 @@ END
 
 
 
-/* Default behavior is to display all results */
 SET @sql = N'
 SELECT  TOP (@top) ' + @columns + @nl + N'
 FROM    #procs
