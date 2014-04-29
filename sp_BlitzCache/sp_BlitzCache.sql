@@ -1172,7 +1172,8 @@ BEGIN
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000);
 
     SET @sql = N'
-    SELECT  ExecutionCount,
+    SELECT  TOP (@top)
+            ExecutionCount,
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
             PercentExecutionsByType AS [% Executions (Type)],
@@ -1218,7 +1219,7 @@ BEGIN
     
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql ;
+    EXEC sp_executesql @sql, N'@top INT', @top ;
     RETURN
 END
 
