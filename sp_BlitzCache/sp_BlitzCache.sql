@@ -1177,10 +1177,10 @@ BEGIN
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
             PercentExecutionsByType AS [% Executions (Type)],
-            CASE is_parallel WHEN 1 THEN ''*'' ELSE '''' END + 
-              QueryType AS [Query Type],
+            QueryType AS [Query Type],
             DatabaseName AS [Database Name],
             QueryText,
+            Warnings,
             TotalCPU AS [Total CPU],
             AverageCPU AS [Avg CPU],
             PercentCPU AS [CPU Weight],
