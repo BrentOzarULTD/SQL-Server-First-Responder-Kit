@@ -1482,6 +1482,7 @@ BEGIN
     SET @columns = N' DatabaseName AS [Database],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
+    Warnings AS [Warnings],
     ExecutionCount AS [# Executions],
     AverageCPU AS [Average CPU],
     AverageDuration AS [Average Duration],
