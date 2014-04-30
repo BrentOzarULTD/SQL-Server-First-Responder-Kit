@@ -948,7 +948,9 @@ OPTION (RECOMPILE) ;
 
 /* TODO: Create a control table for these parameters */
 DECLARE @execution_threshold INT = 1000 ,
-        @parameter_sniffing_warning_pct TINYINT = 5,
+        @parameter_sniffing_warning_pct TINYINT = 30,
+        /* This is in average reads */
+        @parameter_sniffing_io_threshold BIGINT = 100000 ,
         @ctp_threshold_pct TINYINT = 10,
         @long_running_query_warning_seconds INT = 300,
 		@long_running_query_warning_seconds_i INT
@@ -971,11 +973,15 @@ RAISERROR('Checking for query level SQL Server issues.', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE #procs
 SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold THEN 1 END ,
-       parameter_sniffing = CASE WHEN min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
-                                 WHEN max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
-                                 WHEN MinReturnedRows < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1
-                                 WHEN MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1 END ,
-       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp THEN 1 END,
+       parameter_sniffing = CASE WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND min_worker_time < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageCPU) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND max_worker_time > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageCPU) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND MinReturnedRows < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND MaxReturnedRows > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1 END ,
+       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
        plan_warnings = CASE WHEN QueryPlan.value('count(//p:Warnings)', 'int') > 0 THEN 1 END,
        long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds_i THEN 1
                            WHEN max_worker_time > @long_running_query_warning_seconds_i THEN 1
