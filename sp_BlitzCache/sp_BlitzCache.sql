@@ -31,7 +31,7 @@ Description: Displays a server level view of the SQL Server plan cache.
 Output: One result set is presented that contains data from the statement, 
 procedure, and trigger stats DMVs.
 
-To learn more, visit http://www.brentozar.com/responder/get-top-resource-consuming-queries/ 
+To learn more, visit http://brentozar.com/responder/get-top-resource-consuming-queries/ 
 where you can download new versions for free, watch training videos on
 how it works, get more info on the findings, and more. To contribute 
 code and see your name in the change log, email your improvements & 
@@ -1268,7 +1268,7 @@ BEGIN
                 100,
                 'Execution Pattern',
                 'Frequently Executed Queries',
-                'http://www.brentozar.com/blitzcache/frequently-executed-queries/',
+                'http://brentozar.com/blitzcache/frequently-executed-queries/',
                 'Queries are being executed more than '
                 + CAST (@execution_threshold AS VARCHAR(5))
                 + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
@@ -1282,7 +1282,7 @@ BEGIN
                 50,
                 'Parameterization',
                 'Parameter Sniffing',
-                'http://www.brentozar.com/blitzcache/parameter-sniffing/',
+                'http://brentozar.com/blitzcache/parameter-sniffing/',
                 'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
 
     /* Forced execution plans */
@@ -1295,7 +1295,7 @@ BEGIN
                 5,
                 'Parameterization',
                 'Forced Parameterization',
-                'http://www.brentozar.com/blitzcache/forced-parameterization/',
+                'http://brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
     /* Cursors */
@@ -1308,7 +1308,7 @@ BEGIN
                 200,
                 'Cursors',
                 'Cursors',
-                'http://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
+                'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                 'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
 
     IF EXISTS (SELECT 1/0 
@@ -1320,7 +1320,7 @@ BEGIN
                 50,
                 'Parameterization',
                 'Forced Parameterization',
-                'http://www.brentozar.com/blitzcache/forced-parameterization/',
+                'http://brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced parameterization.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1332,7 +1332,7 @@ BEGIN
                 200,
                 'Execution Plans',
                 'Parallelism',
-                'http://www.brentozar.com/blitzcache/parallel-plans-detected/',
+                'http://brentozar.com/blitzcache/parallel-plans-detected/',
                 'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1344,7 +1344,7 @@ BEGIN
                 200,
                 'Execution Plans',
                 'Nearly Parallel',
-                'http://www.brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
+                'http://brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
                 'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1356,7 +1356,7 @@ BEGIN
                 50,
                 'Execution Plans',
                 'Query Plan Warnings',
-                'http://www.brentozar.com/blitzcache/query-plan-warnings/',
+                'http://brentozar.com/blitzcache/query-plan-warnings/',
                 'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1368,7 +1368,7 @@ BEGIN
                 50,
                 'Performance',
                 'Long Running Queries',
-                'http://www.brentozar.com/blitzcache/long-running-queries/',
+                'http://brentozar.com/blitzcache/long-running-queries/',
                 'Long running queries have beend found. These are queries with an average duration longer than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
@@ -1381,7 +1381,7 @@ BEGIN
                 50,
                 'Performance',
                 'Missing Index Request',
-                'http://www.brentozar.com/blitzcache/missing-index-request/',
+                'http://brentozar.com/blitzcache/missing-index-request/',
                 'Queries found with missing indexes.');
 
     IF EXISTS (SELECT 1/0
@@ -1393,7 +1393,7 @@ BEGIN
                 200,
                 'Cardinality',
                 'Legacy Cardinality Estimator in Use',
-                'http://www.brentozar.com/blitzcache/legacy-cardinality-estimator/',
+                'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
                 'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
 
     IF EXISTS (SELECT 1/0
@@ -1417,7 +1417,7 @@ BEGIN
             10,
             'Performance',
             'TempDB Spills',
-            'http://www.brentozar.com/blitzcache/tempdb-spills/',
+            'http://brentozar.com/blitzcache/tempdb-spills/',
             'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
 
     IF EXISTS (SELECT 1/0
@@ -1428,7 +1428,7 @@ BEGIN
             10,
             'Performance',
             'Frequently executed operators',
-            'http://www.brentozar.com/blitzcache/busy-loops/',
+            'http://brentozar.com/blitzcache/busy-loops/',
             'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
 
     IF EXISTS (SELECT 1/0
@@ -1439,7 +1439,7 @@ BEGIN
             50,
             'Performance',
             'Joining to table valued functions',
-            'http://www.brentozar.com/blitzcache/tvf-join/',
+            'http://brentozar.com/blitzcache/tvf-join/',
             'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
 
     IF EXISTS (SELECT 1/0
@@ -1450,7 +1450,7 @@ BEGIN
             50,
             'Execution Plans',
             'Compilation timeout',
-            'http://www.brentozar.com/blitzcache/compile-timeout/',
+            'http://brentozar.com/blitzcache/compile-timeout/',
             'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
 
     IF EXISTS (SELECT 1/0
@@ -1461,7 +1461,7 @@ BEGIN
             50,
             'Execution Plans',
             'Copmilation memory limit exceeded',
-            'http://www.brentozar.com/blitzcache/compile-memory-limit-exceeded/',
+            'http://brentozar.com/blitzcache/compile-memory-limit-exceeded/',
             'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');            
 
     IF EXISTS (SELECT 1/0
@@ -1472,7 +1472,7 @@ BEGIN
             10,
             'Execution Plans',
             'No join predicate',
-            'http://www.brentozar.com/blitzcache/no-join-predicate/',
+            'http://brentozar.com/blitzcache/no-join-predicate/',
             'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
 
     IF EXISTS (SELECT 1/0
@@ -1483,7 +1483,7 @@ BEGIN
             200,
             'Execution Plans',
             'Multiple execution plans',
-            'http://www.brentozar.com/blitzcache/multiple-plans/',
+            'http://brentozar.com/blitzcache/multiple-plans/',
             'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
 
 
