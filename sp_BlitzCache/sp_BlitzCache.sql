@@ -1506,6 +1506,7 @@ DECLARE @columns NVARCHAR(MAX) = N'' ;
 IF LOWER(@results) = 'narrow'
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+    QueryPlanCost AS [Cost],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
     Warnings AS [Warnings],
@@ -1522,6 +1523,7 @@ END
 ELSE IF LOWER(@results) = 'simple'
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+    QueryPlanCost AS [Cost],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
     Warnings AS [Warnings],
