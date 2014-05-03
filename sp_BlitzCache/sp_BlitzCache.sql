@@ -8,7 +8,7 @@ GO
 ALTER PROCEDURE dbo.sp_BlitzCache
     @get_help BIT = 0,
     @top INT = 50, 
-    @sort_order VARCHAR(10) = 'CPU',
+    @sort_order VARCHAR(50) = 'CPU',
     @use_triggers_anyway BIT = NULL,
     @export_to_excel BIT = 0,
     @results VARCHAR(10) = 'simple',
@@ -41,6 +41,9 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+
+v2.2
+ - Added sorting on averages
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
@@ -121,7 +124,7 @@ BEGIN
     UNION ALL           
     SELECT N'@sort_order',
            N'VARCHAR(10)',
-           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions".'
+           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total.'
            
     UNION ALL
     SELECT N'@use_triggers_anyway',
@@ -365,9 +368,10 @@ RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 IF @duration_filter IS NOT NULL
   SET @duration_filter_i = CAST((@duration_filter * 1000.0 * 1000.0) AS INT)
 
-SET @sort_order = LOWER(@sort_order);
+SET @sort_order = REPLACE(REPLACE(LOWER(@sort_order), 'average', 'avg'), '.', '');
 
-IF @sort_order NOT IN ('cpu', 'reads', 'writes', 'duration', 'executions')
+IF @sort_order NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+                       'duration', 'avg duration', 'executions', 'avg executions')
   SET @sort_order = 'cpu';
 
 SELECT @output_database_name = QUOTENAME(@output_database_name),
@@ -736,13 +740,22 @@ END
 
 
 
-DECLARE @sort NVARCHAR(30);
+DECLARE @sort NVARCHAR(MAX);
 
 SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
                                 WHEN 'reads' THEN 'total_logical_reads'
                                 WHEN 'writes' THEN 'total_logical_writes'
                                 WHEN 'duration' THEN 'total_elapsed_time'
                                 WHEN 'executions' THEN 'execution_count'
+                                /* And now the averages */
+                                WHEN 'avg cpu' THEN 'total_worker_time / execution_count'
+                                WHEN 'avg reads' THEN 'total_logical_reads / execution_count'
+                                WHEN 'avg writes' THEN 'total_logical_writes / execution_count'
+                                WHEN 'avg duration' THEN 'total_elapsed_time / execution_count'
+                                WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
+            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
+            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
+            END'
                END ;
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
@@ -772,6 +785,14 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'TotalCPU'
                                 WHEN 'writes' THEN 'TotalWrites'
                                 WHEN 'duration' THEN 'TotalDuration'
                                 WHEN 'executions' THEN 'ExecutionCount'
+                                WHEN 'avg cpu' THEN 'TotalCPU / ExecutionCount'
+                                WHEN 'avg reads' THEN 'TotalReads / ExecutionCount'
+                                WHEN 'avg writes' THEN 'TotalWrites / ExecutionCount'
+                                WHEN 'avg duration' THEN 'TotalDuration / ExecutionCount'
+                                WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
+            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
+            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
+            END'
                END ;
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
@@ -1247,6 +1268,11 @@ BEGIN
                               WHEN 'writes' THEN ' TotalWrites '
                               WHEN 'duration' THEN ' TotalDuration '
                               WHEN 'executions' THEN ' ExecutionCount '
+                              WHEN 'avg cpu' THEN 'AverageCPU'
+                              WHEN 'avg reads' THEN 'AverageReads'
+                              WHEN 'avg writes' THEN 'AverageWrites'
+                              WHEN 'avg duration' THEN 'AverageDuration'
+                              WHEN 'avg executions' THEN 'ExecutionsPerMinute'
                               END + N' DESC '
     
     SET @sql += N' OPTION (RECOMPILE) ; '
@@ -1598,11 +1624,16 @@ FROM    #procs
 WHERE   1 = 1 ' + @nl
 
 SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
-                            WHEN 'reads' THEN ' TotalReads '
-                            WHEN 'writes' THEN ' TotalWrites '
-                            WHEN 'duration' THEN ' TotalDuration '
-                            WHEN 'executions' THEN ' ExecutionCount '
-                            END + N' DESC '
+                                                WHEN 'reads' THEN ' TotalReads '
+                                                WHEN 'writes' THEN ' TotalWrites '
+                                                WHEN 'duration' THEN ' TotalDuration '
+                                                WHEN 'executions' THEN ' ExecutionCount '
+                                                WHEN 'avg cpu' THEN 'AverageCPU'
+                                                WHEN 'avg reads' THEN 'AverageReads'
+                                                WHEN 'avg writes' THEN 'AverageWrites'
+                                                WHEN 'avg duration' THEN 'AverageDuration'
+                                                WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+                               END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
 EXEC sp_executesql @sql, N'@top INT', @top ;
