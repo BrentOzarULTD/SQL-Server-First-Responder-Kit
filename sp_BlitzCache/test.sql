@@ -26,8 +26,33 @@ EXEC sp_BlitzCache @sort_order = 'average execution', @export_to_excel = 1
 EXEC sp_BlitzCache @sort_order = 'avg execution', @export_to_excel = 1
 
 
+
+/* Testing output to table mode */
 IF OBJECT_ID('tempdb.dbo.blitzcache') IS NOT NULL
     DROP TABLE tempdb.dbo.blitzcache
 
-EXEC sp_BlitzCache @output_database_name = 'tempdb', @output_schema_name = 'dbo', @output_table_name = 'blitzcache'
+EXEC sp_BlitzCache @output_database_name = 'tempdb',
+                   @output_schema_name = 'dbo',
+                   @output_table_name = 'blitzcache' ;
 
+
+
+/* Test sp_BlitzCache with a configuration table */
+IF OBJECT_ID('tempdb.dbo.blitzcache_config') IS NOT NULL
+   DROP TABLE tempdb.dbo.blitzcache_config;
+
+CREATE TABLE tempdb.dbo.blitzcache_config
+(
+       parameter_name VARCHAR(100) ,
+       value DECIMAL(38, 0)
+);
+
+INSERT INTO tempdb.dbo.blitzcache_config VALUES ('frequent execution threshold', 1);
+INSERT INTO tempdb.dbo.blitzcache_config VALUES ('parameter sniffing variance percent', 1);
+INSERT INTO tempdb.dbo.blitzcache_config VALUES ('parameter sniffing io threshold', 1);
+INSERT INTO tempdb.dbo.blitzcache_config VALUES ('cost threshold for parallelism warning', 1);
+INSERT INTO tempdb.dbo.blitzcache_config VALUES ('long running query warning (seconds)', 0);
+
+EXEC sp_BlitzCache @configuration_database_name = 'tempdb',
+                   @configuration_schema_name = 'dbo',
+                   @configuration_table_name = 'blitzcache_config' ;
