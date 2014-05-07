@@ -31,7 +31,7 @@ Description: Displays a server level view of the SQL Server plan cache.
 Output: One result set is presented that contains data from the statement, 
 procedure, and trigger stats DMVs.
 
-To learn more, visit http://www.brentozar.com/responder/get-top-resource-consuming-queries/ 
+To learn more, visit http://brentozar.com/responder/get-top-resource-consuming-queries/ 
 where you can download new versions for free, watch training videos on
 how it works, get more info on the findings, and more. To contribute 
 code and see your name in the change log, email your improvements & 
@@ -60,6 +60,7 @@ v2.1 - 2014-04-30
  - Consolidated warning detection into a smaller number of T-SQL statements
  - Added a Warnings column
  - Added "busy loops" check
+ - Fixed bug where long-running query threshold was 300 microseconds, not seconds
 
 v2.0 - 2014-03-23
  - Created a stored procedure
@@ -355,7 +356,10 @@ BEGIN
     RETURN
 END
 
-DECLARE @duration_filter_i INT;
+DECLARE @duration_filter_i INT,
+        @msg NVARCHAR(4000) ;
+
+RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 
 /* Change duration from seconds to microseconds */
 IF @duration_filter IS NOT NULL
@@ -387,6 +391,7 @@ CREATE TABLE #results (
     CheckID INT,
     Priority TINYINT,
     FindingsGroup VARCHAR(50),
+    Finding VARCHAR(200),
     URL VARCHAR(200),
     Details VARCHAR(4000)
 );
@@ -467,6 +472,7 @@ CREATE TABLE #procs (
     parameter_sniffing bit,
     near_parallel bit,
     plan_warnings bit,
+    plan_multiple_plans bit,
     long_running bit,
     downlevel_estimator bit,
     implicit_conversions bit,
@@ -496,6 +502,8 @@ DECLARE @sql nvarchar(MAX) = N'',
         @build int;
 
 
+RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
+
 INSERT INTO #checkversion (version) 
 SELECT CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128))
 OPTION (RECOMPILE);
@@ -505,6 +513,8 @@ SELECT @v = maj_version ,
        @build = build 
 FROM   #checkversion 
 OPTION (RECOMPILE);
+
+RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
 INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType, 
@@ -713,6 +723,8 @@ SET @sql += @nl + @nl;
  ******************************************************************************/
 IF @use_triggers_anyway = 1 OR @v >= 11
 BEGIN
+   RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
+   
    /* Trigger level information from the plan cache */
    SET @sql += @insert_list ;
 
@@ -766,6 +778,7 @@ SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 
 
+RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_i;
 
 
@@ -774,6 +787,7 @@ EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_
  * Yes, there's a flaw - this doesn't include anything outside of our @top 
  * metric.
  */
+RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
 DECLARE @total_duration BIGINT,
         @total_cpu BIGINT,
         @total_reads BIGINT,
@@ -919,7 +933,8 @@ SET NumberOfDistinctPlans = distinct_plan_count,
                          sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float') 
         END,
     missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-    count(//p:MissingIndexGroup)', 'int')
+    count(//p:MissingIndexGroup)', 'int') ,
+    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -934,9 +949,15 @@ OPTION (RECOMPILE) ;
 
 /* TODO: Create a control table for these parameters */
 DECLARE @execution_threshold INT = 1000 ,
-        @parameter_sniffing_warning_pct TINYINT = 5,
+        @parameter_sniffing_warning_pct TINYINT = 30,
+        /* This is in average reads */
+        @parameter_sniffing_io_threshold BIGINT = 100000 ,
         @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds INT = 300
+        @long_running_query_warning_seconds INT = 300,
+    @long_running_query_warning_seconds_i INT
+
+IF @long_running_query_warning_seconds IS NOT NULL
+  SET @long_running_query_warning_seconds_i = CAST((@long_running_query_warning_seconds * 1000.0 * 1000.0) AS INT);
 
 DECLARE @ctp INT ;
 
@@ -948,18 +969,24 @@ OPTION (RECOMPILE);
 
 
 /* Update to populate checks columns */
+RAISERROR('Checking for query level SQL Server issues.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE #procs
 SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold THEN 1 END ,
-       parameter_sniffing = CASE WHEN min_worker_time < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
-                                 WHEN max_worker_time > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageCPU THEN 1
-                                 WHEN MinReturnedRows < (1 - (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1
-                                 WHEN MaxReturnedRows > (1 + (@parameter_sniffing_warning_pct / 100)) * AverageReturnedRows THEN 1 END ,
-       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100)) AND @ctp THEN 1 END,
+       parameter_sniffing = CASE WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND min_worker_time < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageCPU) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND max_worker_time > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageCPU) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND MinReturnedRows < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1
+                                 WHEN AverageReads > @parameter_sniffing_io_threshold
+                                      AND MaxReturnedRows > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1 END ,
+       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
        plan_warnings = CASE WHEN QueryPlan.value('count(//p:Warnings)', 'int') > 0 THEN 1 END,
-       long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
-                           WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
-                           WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ,
+       long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds_i THEN 1
+                           WHEN max_worker_time > @long_running_query_warning_seconds_i THEN 1
+                           WHEN max_elapsed_time > @long_running_query_warning_seconds_i THEN 1 END ,
        implicit_conversions = CASE WHEN QueryPlan.exist('
                                         //p:RelOp//ScalarOperator/@ScalarString
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
@@ -974,6 +1001,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 /* Checks that require examining individual plan nodes, as opposed to
    the entire plan
  */
+RAISERROR('Scanning individual plan nodes for query issues.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
@@ -993,6 +1022,8 @@ FROM   #procs p
 
 
 /* Check for timeout plan termination */
+RAISERROR('Checking for plan compilation timeouts.', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    compile_timeout = CASE WHEN n.query('.').exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
@@ -1002,7 +1033,7 @@ FROM   #procs p
              
 
 
-
+RAISERROR('Checking for forced parameterization and cursors.', 0, 1) WITH NOWAIT;
 
 /* Set options checks */                            
 UPDATE p
@@ -1029,12 +1060,16 @@ WHERE  pa.attribute LIKE '%cursor%' ;
 /* Downlevel cardinality estimator */
 IF @v >= 12
 BEGIN
+    RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
+    
     WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
     UPDATE #procs
     SET    downlevel_estimator = CASE WHEN QueryPlan.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END ;
 END
 
 
+
+RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 
 /* Populate warnings */
 UPDATE #procs
@@ -1045,6 +1080,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes' ELSE '' END +
                   CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -1055,7 +1091,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
-                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END
+                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END
                   , 2, 200000) ;
                   
 
@@ -1072,6 +1109,8 @@ IF @output_database_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
 BEGIN
+    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
+    
     /* send results to a table */
     DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
     
@@ -1158,19 +1197,22 @@ BEGIN
 END
 ELSE IF @export_to_excel = 1
 BEGIN
+    RAISERROR('Displaying results with Excel formatting (no plans).', 0, 1) WITH NOWAIT;
+    
     /* excel output */
     UPDATE #procs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000);
 
     SET @sql = N'
-    SELECT  ExecutionCount,
+    SELECT  TOP (@top)
+            ExecutionCount,
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
             PercentExecutionsByType AS [% Executions (Type)],
-            CASE is_parallel WHEN 1 THEN ''*'' ELSE '''' END + 
-              QueryType AS [Query Type],
+            QueryType AS [Query Type],
             DatabaseName AS [Database Name],
             QueryText,
+            Warnings,
             TotalCPU AS [Total CPU],
             AverageCPU AS [Avg CPU],
             PercentCPU AS [CPU Weight],
@@ -1209,23 +1251,24 @@ BEGIN
     
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql ;
+    EXEC sp_executesql @sql, N'@top INT', @top ;
     RETURN
 END
 
 IF @hide_summary = 0
 BEGIN
-
+    RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
     /* Build summary data */
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE frequent_execution =1)
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (1,
                 100,
                 'Execution Pattern',
-                ' http://www.brentozar.com/blitzcache/frequently-executed-queries/',
+                'Frequently Executed Queries',
+                'http://brentozar.com/blitzcache/frequently-executed-queries/',
                 'Queries are being executed more than '
                 + CAST (@execution_threshold AS VARCHAR(5))
                 + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
@@ -1234,11 +1277,12 @@ BEGIN
                FROM   #procs
                WHERE  parameter_sniffing = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (2,
                 50,
                 'Parameterization',
-                'http://www.brentozar.com/blitzcache/parameter-sniffing/',
+                'Parameter Sniffing',
+                'http://brentozar.com/blitzcache/parameter-sniffing/',
                 'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
 
     /* Forced execution plans */
@@ -1246,11 +1290,12 @@ BEGIN
                FROM   #procs
                WHERE  is_forced_parameterized = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (3,
                 5,
-                'Execution Plans',
-                'http://www.brentozar.com/blitzcache/forced-parameterization/',
+                'Parameterization',
+                'Forced Parameterization',
+                'http://brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
     /* Cursors */
@@ -1258,66 +1303,72 @@ BEGIN
                FROM   #procs 
                WHERE  is_cursor = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (4, 
                 200,
                 'Cursors',
-                'http://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
+                'Cursors',
+                'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                 'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
 
     IF EXISTS (SELECT 1/0 
                FROM   #procs 
                WHERE  is_forced_parameterized = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (5,
                 50,
                 'Parameterization',
-                'http://www.brentozar.com/blitzcache/forced-parameterization/',
+                'Forced Parameterization',
+                'http://brentozar.com/blitzcache/forced-parameterization/',
                 'Execution plans have been compiled with forced parameterization.') ;
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  p.is_parallel = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (6,
                 200,
                 'Execution Plans',
-                'http://www.brentozar.com/blitzcache/parallel-plans-detected/',
+                'Parallelism',
+                'http://brentozar.com/blitzcache/parallel-plans-detected/',
                 'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  near_parallel = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (7,
                 200,
                 'Execution Plans',
-                'http://www.brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
+                'Nearly Parallel',
+                'http://brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
                 'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  plan_warnings = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (8,
                 50,
                 'Execution Plans',
-                'http://www.brentozar.com/blitzcache/query-plan-warnings/',
+                'Query Plan Warnings',
+                'http://brentozar.com/blitzcache/query-plan-warnings/',
                 'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  long_running = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (9,
                 50,
                 'Performance',
-                'http://www.brentozar.com/blitzcache/long-running-queries/',
+                'Long Running Queries',
+                'http://brentozar.com/blitzcache/long-running-queries/',
                 'Long running queries have beend found. These are queries with an average duration longer than '
                 + CAST(@long_running_query_warning_seconds AS VARCHAR(3))
                 + ' second(s). These queries should be investigated for additional tuning options') ;
@@ -1325,32 +1376,35 @@ BEGIN
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  p.missing_index_count > 0)
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (10,
                 50,
                 'Performance',
-                'http://www.brentozar.com/blitzcache/missing-index-request/',
+                'Missing Index Request',
+                'http://brentozar.com/blitzcache/missing-index-request/',
                 'Queries found with missing indexes.');
 
     IF EXISTS (SELECT 1/0
                FROM   #procs p
                WHERE  p.downlevel_estimator = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (13,
                 200,
                 'Cardinality',
-                'http://www.brentozar.com/blitzcache/legacy-cardinality-estimator/',
+                'Legacy Cardinality Estimator in Use',
+                'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
                 'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
 
     IF EXISTS (SELECT 1/0
                FROM #procs p
                WHERE implicit_conversions = 1
               )
-        INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+        INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (14,
                 50,
                 'Performance',
+                'Implicit Conversions',
                 'http://brentozar.com/go/implicit',
                 'One or more queries are comparing two fields that are not of the same data type.') ;
 
@@ -1358,68 +1412,84 @@ BEGIN
                FROM   #procs
                WHERE  tempdb_spill = 1
               )
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (15,
             10,
             'Performance',
-            'http://www.brentozar.com/blitzcache/tempdb-spills/',
+            'TempDB Spills',
+            'http://brentozar.com/blitzcache/tempdb-spills/',
             'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE  busy_loops = 1)
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (16,
             10,
             'Performance',
-            'http://www.brentozar.com/blitzcache/busy-loops/',
+            'Frequently executed operators',
+            'http://brentozar.com/blitzcache/busy-loops/',
             'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE  tvf_join = 1)
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (17,
             50,
             'Performance',
-            'http://www.brentozar.com/blitzcache/tvf-join/',
+            'Joining to table valued functions',
+            'http://brentozar.com/blitzcache/tvf-join/',
             'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE  compile_timeout = 1)
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (18,
             50,
             'Execution Plans',
-            'http://www.brentozar.com/blitzcache/compile-timeout/',
+            'Compilation timeout',
+            'http://brentozar.com/blitzcache/compile-timeout/',
             'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE  compile_memory_limit_exceeded = 1)
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (19,
             50,
             'Execution Plans',
-            'http://www.brentozar.com/blitzcache/compile-memory-limit-exceeded/',
+            'Copmilation memory limit exceeded',
+            'http://brentozar.com/blitzcache/compile-memory-limit-exceeded/',
             'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');            
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
                WHERE  warning_no_join_predicate = 1)
-    INSERT INTO #results (CheckID, Priority, FindingsGroup, URL, Details)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (20,
             10,
             'Execution Plans',
-            'http://www.brentozar.com/blitzcache/no-join-predicate/',
+            'No join predicate',
+            'http://brentozar.com/blitzcache/no-join-predicate/',
             'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
-            
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  plan_multiple_plans = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    VALUES (21,
+            200,
+            'Execution Plans',
+            'Multiple execution plans',
+            'http://brentozar.com/blitzcache/multiple-plans/',
+            'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
 
 
-    SELECT  CheckID,
-            Priority,
+    SELECT  Priority,
             FindingsGroup,
+            Finding,
             URL,
             Details
     FROM    #results
@@ -1429,13 +1499,17 @@ END
 
 
 
+RAISERROR('Displaying analysis of plan cache.', 0, 1) WITH NOWAIT;
+
 DECLARE @columns NVARCHAR(MAX) = N'' ;
 
 IF LOWER(@results) = 'narrow'
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+    QueryPlanCost AS [Cost],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
+    Warnings AS [Warnings],
     ExecutionCount AS [# Executions],
     AverageCPU AS [Average CPU],
     AverageDuration AS [Average Duration],
@@ -1449,6 +1523,7 @@ END
 ELSE IF LOWER(@results) = 'simple'
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+    QueryPlanCost AS [Cost],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
     Warnings AS [Warnings],
@@ -1517,9 +1592,8 @@ END
 
 
 
-/* Default behavior is to display all results */
 SET @sql = N'
-SELECT  ' + @columns + @nl + N'
+SELECT  TOP (@top) ' + @columns + @nl + N'
 FROM    #procs
 WHERE   1 = 1 ' + @nl
 
@@ -1531,7 +1605,7 @@ SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                             END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
-EXEC sp_executesql @sql ;
+EXEC sp_executesql @sql, N'@top INT', @top ;
 
 
 GO
