@@ -55,6 +55,7 @@ Unknown limitations of this version:
 Changes in v10 - Jan 22, 2014
  - Added some new SQL 2014 harmless wait stats like 
    QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP.
+ - Raised compilations/sec and recompilations/sec thresholds to 100/sec.
 
 Changes in v9 - Nov 3, 2013
  - Changed date format to accommodate the British. They gave us Gordon Ramsay,
@@ -1040,7 +1041,7 @@ BEGIN
 	WHERE ps.Pass = 2
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec'
-		AND ps.value_delta > 100 /* Ignore servers sitting idle */
+		AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
 		AND (psComp.value_delta * 10) > ps.value_delta /* Compilations are more than 10% of batch requests per second */
 
 	/* Query Problems - Re-Compilations/Sec High - CheckID 16 */
@@ -1059,7 +1060,7 @@ BEGIN
 	WHERE ps.Pass = 2
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec'
-		AND ps.value_delta > 100 /* Ignore servers sitting idle */
+		AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
 		AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
 
 
