@@ -403,9 +403,9 @@ DECLARE @duration_filter_i INT,
 
 RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 
-/* Change duration from seconds to microseconds */
+/* Change duration from seconds to milliseconds */
 IF @duration_filter IS NOT NULL
-  SET @duration_filter_i = CAST((@duration_filter * 1000.0 * 1000.0) AS INT)
+  SET @duration_filter_i = CAST((@duration_filter * 1000.0) AS INT)
 
 SET @sort_order = REPLACE(REPLACE(LOWER(@sort_order), 'average', 'avg'), '.', '');
 
@@ -465,13 +465,13 @@ CREATE TABLE #configuration (
 CREATE TABLE #procs (
     QueryType nvarchar(256),
     DatabaseName sysname,
-    AverageCPU bigint,
-    AverageCPUPerMinute money,
-    TotalCPU bigint,
+    AverageCPU decimal(38,4),
+    AverageCPUPerMinute decimal(38,4),
+    TotalCPU decimal(38,4),
     PercentCPUByType money,
     PercentCPU money,
-    AverageDuration bigint,
-    TotalDuration bigint,
+    AverageDuration decimal(38,4),
+    TotalDuration decimal(38,4),
     PercentDuration money,
     PercentDurationByType money,
     AverageReads bigint,
@@ -587,16 +587,16 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
 
 SET @body += N'
 FROM   (SELECT *,
-               CAST((CASE WHEN DATEDIFF(second, cached_time, GETDATE()) > 0 And execution_count > 1
+               CAST((CASE WHEN DATEDIFF(second, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(second, cached_time, GETDATE()) / 60.0
                           ELSE NULL END) as MONEY) as age_minutes,
-               CAST((CASE WHEN DATEDIFF(second, cached_time, last_execution_time) > 0 And execution_count > 1
+               CAST((CASE WHEN DATEDIFF(second, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(second, cached_time, last_execution_time) / 60.0
                           ELSE Null END) as MONEY) as age_minutes_lifetime
         FROM   sys.#view#) AS qs
        CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
-                         SUM(total_elapsed_time) AS t_TotalElapsed,
-                         SUM(total_worker_time) AS t_TotalWorker,
+                         SUM(total_elapsed_time) / 1000.0 AS t_TotalElapsed,
+                         SUM(total_worker_time) / 1000.0 AS t_TotalWorker,
                          SUM(total_logical_reads) AS t_TotalReads,
                          SUM(total_logical_writes) AS t_TotalWrites
                   FROM   sys.#view#) AS t
@@ -606,7 +606,7 @@ FROM   (SELECT *,
 WHERE  pa.attribute = ' + QUOTENAME('dbid', @q) + @nl
 
 IF @duration_filter IS NOT NULL
-  SET @body += N'       AND total_elapsed_time / execution_count > @min_duration ' + @nl
+  SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl
 
 SET @body += N'ORDER BY #sortable# DESC
 OPTION(RECOMPILE);'
@@ -615,17 +615,17 @@ SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
        ''Procedure: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
-       total_worker_time / execution_count AS AvgCPU ,
-       total_worker_time AS TotalCPU ,
+       (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
+       (total_worker_time / 1000.0) AS TotalCPU ,
        CASE WHEN total_worker_time = 0 THEN 0
             WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.cached_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST(total_worker_time / COALESCE(age_minutes, DATEDIFF(mi, qs.cached_time, qs.last_execution_time)) AS MONEY)
+            ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.cached_time, qs.last_execution_time)) AS MONEY)
             END AS AverageCPUPerMinute ,
        CASE WHEN t.t_TotalWorker = 0 THEN 0
-            ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+            ELSE CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY)
             END AS PercentCPUByType,
        CASE WHEN t.t_TotalElapsed = 0 THEN 0
-            ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+            ELSE CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY)
             END AS PercentDurationByType,
        CASE WHEN t.t_TotalReads = 0 THEN 0
             ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
@@ -633,8 +633,8 @@ SELECT TOP (@top)
        CASE WHEN t.t_TotalExecs = 0 THEN 0
             ELSE CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY)
             END AS PercentExecutionsByType,
-       total_elapsed_time / execution_count AS AvgDuration ,
-       total_elapsed_time AS TotalDuration ,
+       (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
+       (total_elapsed_time / 1000.0) AS TotalDuration ,
        total_logical_reads / execution_count AS AvgReads ,
        total_logical_reads AS TotalReads ,
        execution_count AS ExecutionCount ,
@@ -671,11 +671,11 @@ SELECT TOP (@top)
        qs.plan_handle AS PlanHandle,
        NULL AS QueryHash,
        NULL AS QueryPlanHash,
-       qs.min_worker_time,
-       qs.max_worker_time,
+       qs.min_worker_time / 1000.0,
+       qs.max_worker_time / 1000.0,
        CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
-       qs.min_elapsed_time,
-       qs.max_elapsed_time '
+       qs.min_elapsed_time / 1000.0,
+       qs.max_elapsed_time / 1000.0 '
 
 
 SET @sql += @insert_list;
@@ -684,18 +684,18 @@ SET @sql += N'
 SELECT TOP (@top)
        ''Statement'' AS QueryType,
        COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
-       total_worker_time / execution_count AS AvgCPU ,
-       total_worker_time AS TotalCPU ,
+       (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
+       (total_worker_time / 1000.0) AS TotalCPU ,
        CASE WHEN total_worker_time = 0 THEN 0
             WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST(total_worker_time / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
+            ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
             END AS AverageCPUPerMinute ,
-       CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY) AS PercentCPUByType,
-       CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY) AS PercentDurationByType,
+       CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY) AS PercentCPUByType,
+       CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY) AS PercentDurationByType,
        CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY) AS PercentReadsByType,
        CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY) AS PercentExecutionsByType,
-       total_elapsed_time / execution_count AS AvgDuration ,
-       total_elapsed_time AS TotalDuration ,
+       (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
+       (total_elapsed_time / 1000.0) AS TotalDuration ,
        total_logical_reads / execution_count AS AvgReads ,
        total_logical_reads AS TotalReads ,
        execution_count AS ExecutionCount ,
@@ -751,11 +751,11 @@ SET @sql += N'
        NULL AS PlanHandle,
        qs.query_hash AS QueryHash,
        qs.query_plan_hash AS QueryPlanHash,
-       qs.min_worker_time,
-       qs.max_worker_time,
+       qs.min_worker_time / 1000.0,
+       qs.max_worker_time / 1000.0,
        CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
-       qs.min_elapsed_time,
-       qs.max_worker_time '
+       qs.min_elapsed_time / 1000.0,
+       qs.max_worker_time  / 1000.0 '
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 SET @sql += @nl + @nl;
@@ -1030,7 +1030,7 @@ DECLARE @execution_threshold INT = 1000 ,
         /* This is in average reads */
         @parameter_sniffing_io_threshold BIGINT = 100000 ,
         @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds BIGINT = 300 * 1000 * 1000 ;
+        @long_running_query_warning_seconds BIGINT = 300 * 1000 ;
 
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'frequent execution threshold' = LOWER(parameter_name))
     SELECT @execution_threshold = CAST(value AS INT)
@@ -1311,12 +1311,12 @@ BEGIN
             DatabaseName AS [Database Name],
             QueryText,
             Warnings,
-            TotalCPU AS [Total CPU],
-            AverageCPU AS [Avg CPU],
+            TotalCPU AS [Total CPU (ms)],
+            AverageCPU AS [Avg CPU (ms)],
             PercentCPU AS [CPU Weight],
             PercentCPUByType AS [% CPU (Type)],
-            TotalDuration AS [Total Duration],
-            AverageDuration AS [Avg Duration],
+            TotalDuration AS [Total Duration (ms)],
+            AverageDuration AS [Avg Duration (ms)],
             PercentDuration AS [Duration Weight],
             PercentDurationByType AS [% Duration (Type)],
             TotalReads AS [Total Reads],
@@ -1614,8 +1614,8 @@ BEGIN
     QueryType AS [Query Type],
     Warnings AS [Warnings],
     ExecutionCount AS [# Executions],
-    AverageCPU AS [Average CPU],
-    AverageDuration AS [Average Duration],
+    AverageCPU AS [Average CPU (ms)],
+    AverageDuration AS [Average Duration (ms)],
     AverageReads AS [Average Reads],
     AverageWrites AS [Average Writes],
     AverageReturnedRows AS [Average Rows Returned],
@@ -1633,11 +1633,11 @@ BEGIN
     ExecutionCount AS [# Executions],
     ExecutionsPerMinute AS [Executions / Minute],
     PercentExecutions AS [Execution Weight],
-    TotalCPU AS [Total CPU],
-    AverageCPU AS [Avg CPU],
+    TotalCPU AS [Total CPU (ms)],
+    AverageCPU AS [Avg CPU (ms)],
     PercentCPU AS [CPU Weight],
-    TotalDuration AS [Total Duration],
-    AverageDuration AS [Avg Duration],
+    TotalDuration AS [Total Duration (ms)],
+    AverageDuration AS [Avg Duration (ms)],
     PercentDuration AS [Duration Weight],
     TotalReads AS [Total Reads],
     AverageReads AS [Avg Reads],
@@ -1659,11 +1659,11 @@ BEGIN
         ExecutionCount AS [# Executions],
         ExecutionsPerMinute AS [Executions / Minute],
         PercentExecutions AS [Execution Weight],
-        TotalCPU AS [Total CPU],
-        AverageCPU AS [Avg CPU],
+        TotalCPU AS [Total CPU (ms)],
+        AverageCPU AS [Avg CPU (ms)],
         PercentCPU AS [CPU Weight],
-        TotalDuration AS [Total Duration],
-        AverageDuration AS [Avg Duration],
+        TotalDuration AS [Total Duration (ms)],
+        AverageDuration AS [Avg Duration (ms)],
         PercentDuration AS [Duration Weight],
         TotalReads AS [Total Reads],
         AverageReads AS [Average Reads],
