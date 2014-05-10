@@ -50,6 +50,7 @@ v2.2
  - Added configuration table parameters. Includes help messages for the
    allowed parameters and default values.
  - Missing index warning now displays the number of missing indexes.
+ - Changing display to milliseconds instead of microseconds.
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
