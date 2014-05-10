@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @configuration_table_name NVARCHAR(256) = NULL ,
     @duration_filter DECIMAL(38,4) = NULL ,
     @hide_summary BIT = 0 ,
+    @ignore_system_db BIT = 1 ,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
@@ -51,6 +52,7 @@ v2.2
    allowed parameters and default values.
  - Missing index warning now displays the number of missing indexes.
  - Changing display to milliseconds instead of microseconds.
+ - Adding a flag to ignore system databases. This is on by default.
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
@@ -172,6 +174,11 @@ BEGIN
     SELECT N'@hide_summary',
            N'BIT',
            N'Hides the findings summary result set.'
+
+    UNION ALL
+    SELECT N'@ignore_system_db',
+           N'BIT',
+           N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
 
     UNION ALL
     SELECT N'@whole_cache',
@@ -555,6 +562,8 @@ DECLARE @sql nvarchar(MAX) = N'',
         @insert_list nvarchar(MAX) = N'',
         @plans_triggers_select_list nvarchar(MAX) = N'',
         @body nvarchar(MAX) = N'',
+        @body_where nvarchar(MAX) = N'',
+        @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC ',
         @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
         @q nvarchar(1) = N'''',
         @pv varchar(20),
@@ -603,14 +612,12 @@ FROM   (SELECT *,
                   FROM   sys.#view#) AS t
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
-       CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
-WHERE  pa.attribute = ' + QUOTENAME('dbid', @q) + @nl
+       CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
+
+SET @body_where = N'WHERE  pa.attribute = ' + QUOTENAME('dbid', @q) + @nl ;
 
 IF @duration_filter IS NOT NULL
-  SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl
-
-SET @body += N'ORDER BY #sortable# DESC
-OPTION(RECOMPILE);'
+   SET @body_where += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
@@ -759,15 +766,28 @@ SET @sql += N'
        qs.max_worker_time  / 1000.0 '
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
-SET @sql += @nl + @nl;
+
+
+
+SET @sql += @body_where ;
+
+IF @ignore_system_db = 1
+    SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+
+SET @sql += @body_order + @nl + @nl + @nl;
 
 
 
 SET @sql += @insert_list;
 SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
 
-SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ;
-SET @sql += @nl + @nl;
+SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
+SET @sql += @body_where ;
+
+IF @ignore_system_db = 1
+    SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+
+SET @sql += @body_order + @nl + @nl + @nl ;
 
 
 
@@ -816,6 +836,8 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
                END ;
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
+
+EXEC dbo.Helper_LongPrint @sql;
 
 SET @sql += N'
 INSERT INTO #p (SqlHandle, TotalCPU, TotalReads, TotalDuration, TotalWrites, ExecutionCount)
