@@ -1584,7 +1584,7 @@ BEGIN
     VALUES (19,
             50,
             'Execution Plans',
-            'Copmilation memory limit exceeded',
+            'Compilation memory limit exceeded',
             'http://brentozar.com/blitzcache/compile-memory-limit-exceeded/',
             'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');
 
