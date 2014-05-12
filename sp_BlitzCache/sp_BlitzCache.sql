@@ -837,8 +837,6 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
-EXEC dbo.Helper_LongPrint @sql;
-
 SET @sql += N'
 INSERT INTO #p (SqlHandle, TotalCPU, TotalReads, TotalDuration, TotalWrites, ExecutionCount)
 SELECT  SqlHandle,
