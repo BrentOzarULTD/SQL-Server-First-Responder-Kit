@@ -53,6 +53,7 @@ v2.2
  - Missing index warning now displays the number of missing indexes.
  - Changing display to milliseconds instead of microseconds.
  - Adding a flag to ignore system databases. This is on by default.
+ - Correcting a typo found by Michael Zilberstein. Thanks!
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
