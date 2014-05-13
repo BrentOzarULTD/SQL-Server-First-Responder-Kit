@@ -54,6 +54,7 @@ v2.2
  - Changing display to milliseconds instead of microseconds.
  - Adding a flag to ignore system databases. This is on by default.
  - Correcting a typo found by Michael Zilberstein. Thanks!
+ - Fixing an XML bug for implicit conversion detection - contributed by Michael Zilberstein.
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
@@ -1108,7 +1109,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ,
        implicit_conversions = CASE WHEN QueryPlan.exist('
-                                        //p:RelOp//ScalarOperator/@ScalarString
+                                        //p:RelOp//p:ScalarOperator/@ScalarString
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    WHEN QueryPlan.exist('
                                         //p:PlanAffectingConvert/@Expression
