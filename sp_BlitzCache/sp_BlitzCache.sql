@@ -814,6 +814,11 @@ BEGIN
    SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Trigger') ;
 
    SET @sql += REPLACE(@body, '#view#', 'dm_exec_trigger_stats') ;
+
+   SET @sql += @body_where ;
+
+   IF @ignore_system_db = 1
+      SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
 END
 
 
