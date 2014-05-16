@@ -545,6 +545,7 @@ CREATE TABLE #procs (
     warning_no_join_predicate bit,
     QueryPlanCost float,
     missing_index_count int,
+    unmatched_index_count int,
     min_elapsed_time bigint,
     max_elapsed_time bigint,
     Warnings VARCHAR(MAX)
@@ -1027,18 +1028,17 @@ OPTION (RECOMPILE) ;
 
 
 
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE #procs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-        QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-                         sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
+        QueryPlan.value('sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
         ELSE
-        QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-                         sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
+        QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
         END,
-    missing_index_count = QueryPlan.value('declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
-    count(//p:MissingIndexGroup)', 'int') ,
+    missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
+    unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
@@ -1207,6 +1207,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
+                  CASE WHEN unmatched_index_count > 1 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -1617,6 +1618,16 @@ BEGIN
             'http://brentozar.com/blitzcache/multiple-plans/',
             'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
 
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  unmatched_index_count > 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    VALUES (22,
+            100,
+            'Performance',
+            'Unmatched indexes',
+            'http://brentozar.com/blitzcache/unmatched-indexes',
+            'An index could have been used, but SQL Server chose not to use it - likely due to parameterization and filtered indexes.');
 
     SELECT  Priority,
             FindingsGroup,
