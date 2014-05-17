@@ -136,7 +136,7 @@ BEGIN
     UNION ALL
     SELECT N'@sort_order',
            N'VARCHAR(10)',
-           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total.'
+           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total."Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
     SELECT N'@use_triggers_anyway',
@@ -418,7 +418,12 @@ RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 IF @duration_filter IS NOT NULL
   SET @duration_filter_i = CAST((@duration_filter * 1000.0) AS INT)
 
-SET @sort_order = REPLACE(REPLACE(LOWER(@sort_order), 'average', 'avg'), '.', '');
+SET @sort_order = LOWER(@sort_order);
+SET @sort_order = REPLACE(REPLACE(@sort_order, 'average', 'avg'), '.', '');
+SET @sort_order = REPLACE(@sort_order, 'executions per minute', 'avg executions');
+SET @sort_order = REPLACE(@sort_order, 'executions / minute', 'avg executions');
+SET @sort_order = REPLACE(@sort_order, 'xpm', 'avg executions');
+
 
 IF @sort_order NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions')
