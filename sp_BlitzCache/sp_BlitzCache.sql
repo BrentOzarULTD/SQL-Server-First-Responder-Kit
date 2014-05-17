@@ -55,6 +55,7 @@ v2.2
  - Adding a flag to ignore system databases. This is on by default.
  - Correcting a typo found by Michael Zilberstein. Thanks!
  - Fixing an XML bug for implicit conversion detection - contributed by Michael Zilberstein.
+ - Added a check for unparameterized queries.
 
 v2.1 - 2014-04-30
  - Added @duration_filter. Queries are now filtered during collection based on duration.
@@ -530,6 +531,7 @@ CREATE TABLE #procs (
     is_parallel bit,
     frequent_execution bit,
     parameter_sniffing bit,
+    unparameterized_query bit,
     near_parallel bit,
     plan_warnings bit,
     plan_multiple_plans bit,
@@ -1120,7 +1122,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                         //p:PlanAffectingConvert/@Expression
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
-       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ;
+       tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ,
+       unparameterized_query = CASE WHEN  QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1 END ;
 
 
 
@@ -1206,6 +1209,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 1 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
@@ -1628,6 +1632,19 @@ BEGIN
             'Unmatched indexes',
             'http://brentozar.com/blitzcache/unmatched-indexes',
             'An index could have been used, but SQL Server chose not to use it - likely due to parameterization and filtered indexes.');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  unparameterized_query = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    VALUES (32,
+            100,
+            'Parameterization',
+            'Unparameterized queries',
+            'http://brentozar.com/blitzcache/unparameterized-queries',
+            'Unparameterized queries found. These could be ad hoc queries, data exploration, or queries using "OPTIMIZE FOR UNKNOWN".');
+            
+            
 
     SELECT  Priority,
             FindingsGroup,
