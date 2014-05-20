@@ -573,7 +573,7 @@ DECLARE @sql nvarchar(MAX) = N'',
         @plans_triggers_select_list nvarchar(MAX) = N'',
         @body nvarchar(MAX) = N'',
         @body_where nvarchar(MAX) = N'',
-        @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC ',
+        @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
         @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
         @q nvarchar(1) = N'''',
         @pv varchar(20),
@@ -1128,7 +1128,11 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
        tempdb_spill = CASE WHEN QueryPlan.value('max(//p:SpillToTempDb/@SpillLevel)', 'int') > 0 THEN 1 END ,
-       unparameterized_query = CASE WHEN  QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1 END ;
+       unparameterized_query = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
+                                         QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
+                                    WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
+                                         QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]')
+                                         = 1 THEN 1 END ;
 
 
 
@@ -1629,7 +1633,7 @@ BEGIN
 
     IF EXISTS (SELECT 1/0
                FROM   #procs
-               WHERE  unmatched_index_count > 1)
+               WHERE  unmatched_index_count > 0)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (22,
             100,
