@@ -1113,7 +1113,7 @@ END
 
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'long running query warning (seconds)' = LOWER(parameter_name))
 BEGIN
-    SELECT @long_running_query_warning_seconds = CAST(value * 1000 * 1000 AS BIGINT)
+    SELECT @long_running_query_warning_seconds = CAST(value * 1000 AS BIGINT)
     FROM   #configuration
     WHERE 'long running query warning (seconds)' = LOWER(parameter_name) ;
 
