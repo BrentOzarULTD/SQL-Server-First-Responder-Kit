@@ -46,7 +46,7 @@ KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
 
-v2.2
+v2.2 - 2014-05-20
  - Added sorting on averages
  - Added configuration table parameters. Includes help messages for the
    allowed parameters and default values.
