@@ -1068,29 +1068,59 @@ DECLARE @execution_threshold INT = 1000 ,
         @long_running_query_warning_seconds BIGINT = 300 * 1000 ;
 
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'frequent execution threshold' = LOWER(parameter_name))
+BEGIN
     SELECT @execution_threshold = CAST(value AS INT)
     FROM   #configuration
     WHERE  'frequent execution threshold' = LOWER(parameter_name) ;
 
+    SET @msg = ' Setting "frequent execution threshold" to ' + CAST(@execution_threshold AS VARCHAR(10)) ;
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'parameter sniffing variance percent' = LOWER(parameter_name))
+BEGIN
     SELECT @parameter_sniffing_warning_pct = CAST(value AS TINYINT)
     FROM   #configuration
     WHERE  'parameter sniffing variance percent' = LOWER(parameter_name) ;
 
+    SET @msg = ' Setting "parameter sniffing variance percent" to ' + CAST(@parameter_sniffing_warning_pct AS VARCHAR(3)) ;
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'parameter sniffing io threshold' = LOWER(parameter_name))
+BEGIN
     SELECT @parameter_sniffing_io_threshold = CAST(value AS BIGINT)
     FROM   #configuration
     WHERE 'parameter sniffing io threshold' = LOWER(parameter_name) ;
 
+    SET @msg = ' Setting "parameter sniffing io threshold" to ' + CAST(@parameter_sniffing_io_threshold AS VARCHAR(10));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name))
+BEGIN
     SELECT @ctp_threshold_pct = CAST(value AS TINYINT)
     FROM   #configuration
     WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name) ;
 
+    SET @msg = ' Setting "cost threshold for parallelism warning" to ' + CAST(@ctp_threshold_pct AS VARCHAR(3));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'long running query warning (seconds)' = LOWER(parameter_name))
+BEGIN
     SELECT @long_running_query_warning_seconds = CAST(value * 1000 * 1000 AS BIGINT)
     FROM   #configuration
     WHERE 'long running query warning (seconds)' = LOWER(parameter_name) ;
+
+    SET @msg = ' Setting "long running query warning (seconds)" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
 
 DECLARE @ctp INT ;
 
