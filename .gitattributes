@@ -1,0 +1,63 @@
+# Force this repository to use Windows line endings
+* text=crlf
+
+# Custom for Visual Studio
+*.ascx text
+*.cmd text
+*.coffee text
+*.config text
+*.cs text diff=csharp 
+*.csproj text merge=union 
+*.css text
+*.cshtml text
+*.htm text
+*.html text
+*.js text
+*.msbuild text
+*.resx text merge=union
+*.ruleset text
+*.Stylecop text
+*.targets text
+*.tt text
+*.txt text
+*.vb text
+*.vbhtml text
+*.vbproj text merge=union 
+*.xml text
+*.xunit text
+*.sln text eol=crlf merge=union 
+
+# STANDARD TO MSYSGIT
+*.DOC	DIFF=ASTEXTPLAIN
+*.DOC	DIFF=ASTEXTPLAIN
+*.DOCX	DIFF=ASTEXTPLAIN
+*.DOCX	DIFF=ASTEXTPLAIN
+*.XLS	binary
+*.XLS	binary
+*.XLSX	binary
+*.XLSX	binary
+*.PPT   binary
+*.PPTX  binary
+*.DOT	DIFF=ASTEXTPLAIN
+*.DOT	DIFF=ASTEXTPLAIN
+*.PDF	DIFF=ASTEXTPLAIN
+*.PDF	DIFF=ASTEXTPLAIN
+*.RTF	DIFF=ASTEXTPLAIN
+*.RTF	DIFF=ASTEXTPLAIN
+
+*.JPG  BINARY
+*.PNG  BINARY
+*.GIF  BINARY
+*.ICO  BINARY
+*.BMP  BINARY
+*.MDF  BINARY
+*.LDF  BINARY
+
+# T-SQL files
+*.sql 	eol=crlf merge=union
+
+# prevent unwanted files from bloating the zip distribution package
+BlitzBuilder/ export-ignore
+sp_AskBrent/ export-ignore
+sp_Blitz/ export-ignore
+sp_BlitzIndex/ export-ignore
