@@ -1,12 +1,12 @@
 USE [master];
 GO
 
-IF OBJECT_ID('master.dbo.sp_AskBrent') IS NOT NULL 
-    DROP PROC dbo.sp_AskBrent;
+IF OBJECT_ID('dbo.sp_AskBrent') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_AskBrent AS RETURN 0;')
 GO
 
 
-CREATE PROCEDURE [dbo].[sp_AskBrent]
+ALTER PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
 	@ExpertMode TINYINT = 0 ,
@@ -16,6 +16,7 @@ CREATE PROCEDURE [dbo].[sp_AskBrent]
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
+	@FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
@@ -52,9 +53,23 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v10 - Jan 22, 2014
+Changes in v10 - May 22, 2014
  - Added some new SQL 2014 harmless wait stats like 
    QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP.
+ - Added ExpertMode columns for more plan cache metrics analysis on the query's
+   percentage of the server's load during the sample, plus overall load.
+ - Added @OutputType = 'Opserver1' to output results in a format that works
+   better for Opserver, the open source monitoring tool of champions. Get it:
+   https://github.com/opserver/Opserver
+ - Added thresholds to Most Resource-Intensive Queries. Now requires 1000 page
+   reads, 1 second of CPU time, or 1 second of duration before queries are
+   shown. This prevents the "idle presenter laptop" problem where IntelliSense
+   queries show up as resource-intensive.
+ - Added DatabaseID, DatabaseName for query plans when ExpertMode = 1.
+ - Added @FilterPlansByDatabase. Takes a comma-delimited list of database IDs
+   and only looks for resource-intensive plans in those databases. Also takes
+   the parameter 'USER' for only user databases.
+ - Creation script now defaults to ALTER PROCEDURE instead of CREATE.
  - Raised compilations/sec and recompilations/sec thresholds to 100/sec.
 
 Changes in v9 - Nov 3, 2013
@@ -182,7 +197,7 @@ BEGIN
 		  Finding VARCHAR(200) NOT NULL,
 		  URL VARCHAR(200) NOT NULL,
 		  Details NVARCHAR(4000) NULL,
-		  HowToStopIt [XML] NULL,
+		  HowToStopIt NVARCHAR(MAX) NULL,
 		  QueryPlan [XML] NULL,
 		  QueryText NVARCHAR(MAX) NULL,
 		  StartTime DATETIME NULL,
@@ -193,7 +208,10 @@ BEGIN
 		  HostName NVARCHAR(128) NULL,
 		  DatabaseID INT NULL,
 		  DatabaseName NVARCHAR(128) NULL,
-		  OpenTransactionCount INT NULL
+		  OpenTransactionCount INT NULL,
+          QueryStatsNowID INT NULL,
+          QueryStatsFirstID INT NULL,
+          PlanHandle VARBINARY(64)
 		);
 
 	IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL 
@@ -227,7 +245,7 @@ BEGIN
 		DROP TABLE #QueryStats;
 	CREATE TABLE #QueryStats ( 
 		ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
-		Pass TINYINT NOT NULL,
+		Pass INT NOT NULL,
 		SampleTime DATETIME NOT NULL,
 		[sql_handle] VARBINARY(64),
 		statement_start_offset INT,
@@ -271,6 +289,39 @@ BEGIN
 		[instance_name] NVARCHAR(128) NULL
 	);
 
+	IF OBJECT_ID('tempdb..#FilterPlansByDatabase') IS NOT NULL 
+		DROP TABLE #FilterPlansByDatabase;
+	CREATE TABLE #FilterPlansByDatabase (DatabaseID INT PRIMARY KEY CLUSTERED);
+
+	IF @FilterPlansByDatabase IS NOT NULL
+		BEGIN
+		IF UPPER(LEFT(@FilterPlansByDatabase,4)) = 'USER'
+			BEGIN
+			INSERT INTO #FilterPlansByDatabase (DatabaseID)
+			SELECT database_id
+				FROM sys.databases
+				WHERE [name] NOT IN ('master', 'model', 'msdb', 'tempdb')
+			END
+		ELSE
+			BEGIN
+			SET @FilterPlansByDatabase = @FilterPlansByDatabase + ','
+			;WITH a AS
+				(
+				SELECT CAST(1 AS BIGINT) f, CHARINDEX(',', @FilterPlansByDatabase) t, 1 SEQ
+				UNION ALL
+				SELECT t + 1, CHARINDEX(',', @FilterPlansByDatabase, t + 1), SEQ + 1
+				FROM a
+				WHERE CHARINDEX(',', @FilterPlansByDatabase, t + 1) > 0
+				)
+			INSERT #FilterPlansByDatabase (DatabaseID)
+				SELECT SUBSTRING(@FilterPlansByDatabase, f, t - f) 
+				FROM a
+				WHERE SUBSTRING(@FilterPlansByDatabase, f, t - f) IS NOT NULL
+				OPTION (MAXRECURSION 0)
+			END
+		END
+
+
 	SET @StockWarningHeader = '<?ClickToSeeCommmand -- ' + @LineFeed + @LineFeed 
 		+ 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
 		+ 'This tool is meant as a shortcut to help generate scripts for DBAs.' + @LineFeed
@@ -291,16 +342,52 @@ BEGIN
 
 	/* Populate #QueryStats. SQL 2005 doesn't have query hash or query plan hash. */
 	IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
-		SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-									SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
-									FROM sys.dm_exec_query_stats qs
-									WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+		BEGIN
+		IF @FilterPlansByDatabase IS NULL
+			BEGIN
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+										WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+			END
+		ELSE
+			BEGIN
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+							                CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+											INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+										WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()))
+											AND attr.attribute = ''dbid'';';
+			END
+		END
 	ELSE
-		SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-									SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
-									FROM sys.dm_exec_query_stats qs
-									WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+		BEGIN
+		IF @FilterPlansByDatabase IS NULL
+			BEGIN
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+										WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
+			END
+		ELSE
+			BEGIN
+			SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+										SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+										FROM sys.dm_exec_query_stats qs
+						                CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+										INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+										WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()))
+											AND attr.attribute = ''dbid'';';
+			END
+		END
 	EXEC(@StringToExecute);
+
+	/* Get the totals for the entire plan cache */
+	INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
+	SELECT -1 AS Pass, GETDATE(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
+		FROM sys.dm_exec_query_stats qs;
+
 
 	IF EXISTS (SELECT * 
 					FROM tempdb.sys.all_objects obj
@@ -441,8 +528,8 @@ BEGIN
 		'Maintenance Tasks Running' AS FindingGroup,
 		'Backup Running' AS Finding,
 		'http://BrentOzar.com/askbrent/backups/' AS URL,
-		@StockDetailsHeader + 'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+		'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
@@ -481,8 +568,8 @@ BEGIN
 		'Maintenance Tasks Running' AS FindingGroup,
 		'DBCC Running' AS Finding,
 		'http://BrentOzar.com/askbrent/dbcc/' AS URL,
-		@StockDetailsHeader + 'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+		'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
@@ -513,8 +600,8 @@ BEGIN
 		'Maintenance Tasks Running' AS FindingGroup,
 		'Restore Running' AS Finding,
 		'http://BrentOzar.com/askbrent/backups/' AS URL,
-		@StockDetailsHeader + 'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM sys.master_files WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+		'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
@@ -545,8 +632,8 @@ BEGIN
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Database File Growing' AS Finding,
 		'http://BrentOzar.com/go/instant' AS URL,
-		@StockDetailsHeader + 'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
-		CAST(@StockWarningHeader + 'Unfortunately, you can''t stop this, but you can prevent it next time. Check out http://BrentOzar.com/go/instant for details.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
+		'Unfortunately, you can''t stop this, but you can prevent it next time. Check out http://BrentOzar.com/go/instant for details.' AS HowToStopIt,
 		pl.query_plan AS QueryPlan,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
@@ -571,10 +658,10 @@ BEGIN
 		'Query Problems' AS FindingGroup,
 		'Long-Running Query Blocking Others' AS Finding,
 		'http://BrentOzar.com/go/blocking' AS URL,
-		@StockDetailsHeader + 'Query in ' + DB_NAME(db.resource_database_id) + ' has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed + @LineFeed
+		'Query in ' + DB_NAME(db.resource_database_id) + ' has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed + @LineFeed
 			+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
 			(SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY ::fn_get_sql(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'KILL ' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		(SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(rBlocker.plan_handle)) AS QueryPlan,
 		COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
 			(SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY ::fn_get_sql(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id)) AS QueryText,
@@ -610,12 +697,12 @@ BEGIN
 			'Query Problems' AS FindingGroup,
 			'Plan Cache Erased Recently' AS Finding,
 			'http://BrentOzar.com/askbrent/plan-cache-erased-recently/' AS URL,
-			@StockDetailsHeader + 'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
+			'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
 				+ 'This indicates that someone ran DBCC FREEPROCCACHE at that time,' + @LineFeed
 				+ 'Giving SQL Server temporary amnesia. Now, as queries come in,' + @LineFeed
 				+ 'SQL Server has to use a lot of CPU power in order to build execution' + @LineFeed
 				+ 'plans and put them in cache again. This causes high CPU loads.' AS Details,
-			CAST(@StockWarningHeader + 'Find who did that, and stop them from doing it again.' + @StockWarningFooter AS XML) AS HowToStopIt
+			'Find who did that, and stop them from doing it again.' AS HowToStopIt
 		FROM sys.dm_exec_query_stats 
 		ORDER BY creation_time	
 	END;
@@ -628,8 +715,8 @@ BEGIN
 		'Query Problems' AS FindingGroup,
 		'Sleeping Query with Open Transactions' AS Finding,
 		'http://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		@StockDetailsHeader + 'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
-		CAST(@StockWarningHeader + 'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
+		'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		s.last_request_start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
@@ -662,8 +749,8 @@ BEGIN
 		'Query Problems' AS FindingGroup,
 		'Query Rolling Back' AS Finding,
 		'http://BrentOzar.com/askbrent/rollback/' AS URL,
-		@StockDetailsHeader + 'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
-		CAST(@StockWarningHeader + 'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+		'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
 		r.start_time AS StartTime,
 		s.login_name AS LoginName,
 		s.nt_user_name AS NTUserName,
@@ -692,10 +779,10 @@ BEGIN
 		'Server Performance' AS FindingGroup,
 		'Page Life Expectancy Low' AS Finding,
 		'http://BrentOzar.com/askbrent/page-life-expectancy/' AS URL,
-		@StockDetailsHeader + 'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed 
+		'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed 
 			+ 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed 
 			+ 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
-		CAST(@StockWarningHeader + 'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' + @StockWarningFooter AS XML) AS HowToStopIt
+		'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' AS HowToStopIt
 	FROM sys.dm_os_performance_counters c
 	WHERE object_name LIKE 'SQLServer:Buffer Manager%'
 	AND counter_name LIKE 'Page life expectancy%'
@@ -818,7 +905,7 @@ BEGIN
 		
 			INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 			VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://BrentOzar.com/go/topqueries',
-				@StockDetailsHeader + 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
+				'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
 		
 		END
 	ELSE /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
@@ -854,6 +941,7 @@ BEGIN
 		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 		WHERE qsNow.total_elapsed_time > qsFirst.total_elapsed_time
 			AND qsNow.Pass = 2
+			AND qsNow.total_elapsed_time - qsFirst.total_elapsed_time > 1000000 /* Only queries with over 1 second of runtime */
 		ORDER BY (qsNow.total_elapsed_time - COALESCE(qsFirst.total_elapsed_time, 0)) DESC)
 		UPDATE #QueryStats
 			SET Points = Points + 1
@@ -866,6 +954,7 @@ BEGIN
 		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 		WHERE qsNow.total_logical_reads > qsFirst.total_logical_reads
 			AND qsNow.Pass = 2
+			AND qsNow.total_logical_reads - qsFirst.total_logical_reads > 1000 /* Only queries with over 1000 reads */
 		ORDER BY (qsNow.total_logical_reads - COALESCE(qsFirst.total_logical_reads, 0)) DESC)
 		UPDATE #QueryStats
 			SET Points = Points + 1
@@ -878,6 +967,7 @@ BEGIN
 		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 		WHERE qsNow.total_worker_time > qsFirst.total_worker_time
 			AND qsNow.Pass = 2
+			AND qsNow.total_worker_time - qsFirst.total_worker_time > 1000000 /* Only queries with over 1 second of worker time */
 		ORDER BY (qsNow.total_worker_time - COALESCE(qsFirst.total_worker_time, 0)) DESC)
 		UPDATE #QueryStats
 			SET Points = Points + 1
@@ -890,6 +980,9 @@ BEGIN
 		  INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 		WHERE qsNow.execution_count > qsFirst.execution_count
 			AND qsNow.Pass = 2
+			AND (qsNow.total_elapsed_time - qsFirst.total_elapsed_time > 1000000 /* Only queries with over 1 second of runtime */
+				OR qsNow.total_logical_reads - qsFirst.total_logical_reads > 1000 /* Only queries with over 1000 reads */
+				OR qsNow.total_worker_time - qsFirst.total_worker_time > 1000000 /* Only queries with over 1 second of worker time */)
 		ORDER BY (qsNow.execution_count - COALESCE(qsFirst.execution_count, 0)) DESC)
 		UPDATE #QueryStats
 			SET Points = Points + 1
@@ -897,9 +990,9 @@ BEGIN
 			INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
 		/* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
-		INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText)
+		INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
 		SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://BrentOzar.com/go/topqueries',
-			@StockDetailsHeader + 'Query stats during the sample:' + @LineFeed +
+			'Query stats during the sample:' + @LineFeed +
 			'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
 			'Elapsed Time: ' + CAST(qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)) AS NVARCHAR(100)) + @LineFeed +
 			'CPU Time: ' + CAST(qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -922,14 +1015,31 @@ BEGIN
 			--@LineFeed + @LineFeed + 'Query hash: ' + CAST(qsNow.query_hash AS NVARCHAR(100)) + @LineFeed +
 			--@LineFeed + @LineFeed + 'Query plan hash: ' + CAST(qsNow.query_plan_hash AS NVARCHAR(100)) + 
 			@LineFeed AS Details,
-			CAST(@StockWarningHeader + 'See the URL for tuning tips on why this query may be consuming resources.' + @StockWarningFooter AS XML) AS HowToStopIt,
-			qp.query_plan, st.text
+			'See the URL for tuning tips on why this query may be consuming resources.' AS HowToStopIt,
+			qp.query_plan, 
+			QueryText = SUBSTRING(st.text,
+                 (qsNow.statement_start_offset / 2) + 1,
+                 ((CASE qsNow.statement_end_offset
+                   WHEN -1 THEN DATALENGTH(st.text)
+                   ELSE qsNow.statement_end_offset
+                   END - qsNow.statement_start_offset) / 2) + 1),
+            qsNow.ID AS QueryStatsNowID,
+            qsFirst.ID AS QueryStatsFirstID,
+            qsNow.plan_handle AS PlanHandle
 			FROM #QueryStats qsNow
 				INNER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
 				LEFT OUTER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
 				CROSS APPLY sys.dm_exec_sql_text(qsNow.sql_handle) AS st 
 				CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
 			WHERE qsNow.Points > 0 AND st.text IS NOT NULL AND qp.query_plan IS NOT NULL
+
+            UPDATE #AskBrentResults
+                SET DatabaseID = CAST(attr.value AS INT),
+                DatabaseName = DB_NAME(CAST(attr.value AS INT))
+            FROM #AskBrentResults
+                CROSS APPLY sys.dm_exec_plan_attributes(#AskBrentResults.PlanHandle) AS attr
+            WHERE attr.attribute = 'dbid'
+            
 
 		END /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
 	
@@ -942,8 +1052,8 @@ BEGIN
 		'Wait Stats' AS FindingGroup,
 		wNow.wait_type AS Finding,
 		N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
-		@StockDetailsHeader + 'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CAST(@Seconds AS NVARCHAR(10)) + ' seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt
+		'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CAST(@Seconds AS NVARCHAR(10)) + ' seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt
 	FROM #WaitStats wNow
 	LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
 	WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * @Seconds * 1000)) /* Only look for things we've actually waited on for half of the time or more */
@@ -956,12 +1066,12 @@ BEGIN
 		'Server Performance' AS FindingGroup,
 		'Slow Data File Reads' AS Finding,
 		'http://BrentOzar.com/go/slow/' AS URL,
-		@StockDetailsHeader + 'File: ' + fNow.PhysicalName + @LineFeed 
+		'File: ' + fNow.PhysicalName + @LineFeed 
 			+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed 
 			+ 'Seconds spent waiting on storage for these reads: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed 
 			+ 'Average read latency during the sample: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed 
 			+ 'Microsoft guidance for data file read speed: 20ms or less.' + @LineFeed + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
 		fNow.DatabaseID,
 		fNow.DatabaseName
 	FROM #FileStats fNow
@@ -977,12 +1087,12 @@ BEGIN
 		'Server Performance' AS FindingGroup,
 		'Slow Log File Writes' AS Finding,
 		'http://BrentOzar.com/go/slow/' AS URL,
-		@StockDetailsHeader + 'File: ' + fNow.PhysicalName + @LineFeed 
+		'File: ' + fNow.PhysicalName + @LineFeed 
 			+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed 
 			+ 'Seconds spent waiting on storage for these writes: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed 
 			+ 'Average write latency during the sample: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed 
 			+ 'Microsoft guidance for log file write speed: 3ms or less.' + @LineFeed + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'See the URL for more details on how to mitigate this wait type.' + @StockWarningFooter AS XML) AS HowToStopIt,
+		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
 		fNow.DatabaseID,
 		fNow.DatabaseName
 	FROM #FileStats fNow
@@ -999,9 +1109,9 @@ BEGIN
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Log File Growing' AS Finding,
 		'http://BrentOzar.com/askbrent/file-growing/' AS URL,
-		@StockDetailsHeader + 'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+		'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
+		'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.'  AS HowToStopIt
 	FROM #PerfmonStats ps
 	WHERE ps.Pass = 2
 		AND object_name = 'SQLServer:Databases'
@@ -1016,9 +1126,9 @@ BEGIN
 		'SQL Server Internal Maintenance' AS FindingGroup,
 		'Log File Shrinking' AS Finding,
 		'http://BrentOzar.com/askbrent/file-shrinking/' AS URL,
-		@StockDetailsHeader + 'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+		'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'Pre-grow data and log files during maintenance windows so that they do not grow during production loads.' + @StockWarningFooter AS XML) AS HowToStopIt
+		'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.' AS HowToStopIt
 	FROM #PerfmonStats ps
 	WHERE ps.Pass = 2
 		AND object_name = 'SQLServer:Databases'
@@ -1032,10 +1142,10 @@ BEGIN
 		'Query Problems' AS FindingGroup,
 		'Compilations/Sec High' AS Finding,
 		'http://BrentOzar.com/askbrent/compilations/' AS URL,
-		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+		'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'Find out why plans are not being reused, and consider enabling Forced Parameterization. See the URL for more details.' + @StockWarningFooter AS XML) AS HowToStopIt
+		'Find out why plans are not being reused, and consider enabling Forced Parameterization. See the URL for more details.' AS HowToStopIt
 	FROM #PerfmonStats ps
 		INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = 'SQLServer:SQL Statistics' AND psComp.counter_name = 'SQL Compilations/sec' AND psComp.value_delta > 0
 	WHERE ps.Pass = 2
@@ -1051,10 +1161,10 @@ BEGIN
 		'Query Problems' AS FindingGroup,
 		'Re-Compilations/Sec High' AS Finding,
 		'http://BrentOzar.com/askbrent/recompilations/' AS URL,
-		@StockDetailsHeader + 'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
+		'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed 
 			+ 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
-		CAST(@StockWarningHeader + 'Find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' + @StockWarningFooter AS XML) AS HowToStopIt
+		'Find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' AS HowToStopIt
 	FROM #PerfmonStats ps
 		INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = 'SQLServer:SQL Statistics' AND psComp.counter_name = 'SQL Re-Compilations/sec' AND psComp.value_delta > 0
 	WHERE ps.Pass = 2
@@ -1081,15 +1191,12 @@ BEGIN
 				  'No Problems Found' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
-				  @StockDetailsHeader + 'Try running our more in-depth checks: http://www.BrentOzar.com/blitz/' + @LineFeed + 'or there may not be an unusual SQL Server performance problem. ' + @StockDetailsFooter
+				  'Try running our more in-depth checks: http://www.BrentOzar.com/blitz/' + @LineFeed + 'or there may not be an unusual SQL Server performance problem. '
 				);
 		
 	END /*IF NOT EXISTS (SELECT * FROM #AskBrentResults) */
 	ELSE /* We found stuff, so add credits */
 	BEGIN
-		/* Close out the XML field Details by adding a footer */
-		UPDATE #AskBrentResults
-		  SET Details = Details + @StockDetailsFooter;
 
 		/* Add credits for the nice folks who put so much time into building and maintaining this for free: */                    
 		INSERT  INTO #AskBrentResults
@@ -1105,7 +1212,7 @@ BEGIN
 				  'Thanks!' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
-				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com. ' + @LineFeed + '-- ?>'
+				  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com. '
 				);
 
 		INSERT  INTO #AskBrentResults
@@ -1122,7 +1229,7 @@ BEGIN
 				  'sp_AskBrent (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
-				  '<?Thanks --' + @LineFeed + 'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.' + @LineFeed + ' -- ?>'
+				  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 				);
 
 	END /* ELSE  We found stuff, so add credits */
@@ -1242,7 +1349,59 @@ BEGIN
 		FROM    #AskBrentResults
 	END
 	ELSE 
-		IF @OutputType IN ( 'CSV', 'RSV' ) 
+		IF @OutputType = 'Opserver1' 
+		BEGIN
+
+			SELECT  r.[Priority] ,
+					r.[FindingsGroup] ,
+					r.[Finding] ,
+					r.[URL] ,
+					r.[Details],
+					r.[HowToStopIt] ,
+					r.[CheckID] ,
+					r.[StartTime],
+					r.[LoginName],
+					r.[NTUserName],
+					r.[OriginalLoginName],
+					r.[ProgramName],
+					r.[HostName],
+					r.[DatabaseID],
+					r.[DatabaseName],
+					r.[OpenTransactionCount],
+					r.[QueryPlan],
+					r.[QueryText],
+                    qsNow.plan_handle AS PlanHandle,
+                    qsNow.sql_handle AS SqlHandle,
+                    qsNow.statement_start_offset AS StatementStartOffset,
+                    qsNow.statement_end_offset AS StatementEndOffset,
+			        [Executions] = qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)),
+                    [ExecutionsPercent] = CAST(100.0 * (qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0))) / (qsTotal.execution_count - qsTotalFirst.execution_count) AS DECIMAL(6,2)),
+			        [Duration] = qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)),
+                    [DurationPercent] = CAST(100.0 * (qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0))) / (qsTotal.total_elapsed_time - qsTotalFirst.total_elapsed_time) AS DECIMAL(6,2)),
+			        [CPU] = qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0)),
+                    [CPUPercent] = CAST(100.0 * (qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0))) / (qsTotal.total_worker_time - qsTotalFirst.total_worker_time) AS DECIMAL(6,2)),
+			        [Reads] = qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0)),
+                    [ReadsPercent] = CAST(100.0 * (qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0))) / (qsTotal.total_logical_reads - qsTotalFirst.total_logical_reads) AS DECIMAL(6,2)),
+                    [PlanCreationTime] = CONVERT(NVARCHAR(100), qsNow.creation_time ,121),
+                    [TotalExecutions] = qsNow.execution_count,
+                    [TotalExecutionsPercent] = CAST(100.0 * qsNow.execution_count / qsTotal.execution_count AS DECIMAL(6,2)),
+                    [TotalDuration] = qsNow.total_elapsed_time,
+                    [TotalDurationPercent] = CAST(100.0 * qsNow.total_elapsed_time / qsTotal.total_elapsed_time AS DECIMAL(6,2)),
+                    [TotalCPU] = qsNow.total_worker_time,
+                    [TotalCPUPercent] = CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)),
+                    [TotalReads] = qsNow.total_logical_reads,
+                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2))
+			FROM    #AskBrentResults r
+				LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
+				LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
+				LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
+                LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
+			ORDER BY r.Priority ,
+					r.FindingsGroup ,
+					r.Finding ,
+					r.ID;
+		END
+		ELSE IF @OutputType IN ( 'CSV', 'RSV' ) 
 		BEGIN
 
 			SELECT  Result = CAST([Priority] AS NVARCHAR(100))
@@ -1265,8 +1424,8 @@ BEGIN
 					[FindingsGroup] ,
 					[Finding] ,
 					[URL] ,
-					CAST([Details] AS [XML]) AS Details,
-					[HowToStopIt],
+					CAST(@StockDetailsHeader + [Details] + @StockDetailsFooter AS XML) AS Details,
+					CAST(@StockWarningHeader + HowToStopIt + @StockWarningFooter AS XML) AS HowToStopId,
 					[QueryText],
 					[QueryPlan]
 			FROM    #AskBrentResults
@@ -1281,7 +1440,7 @@ BEGIN
 					[FindingsGroup] ,
 					[Finding] ,
 					[URL] ,
-					CAST([Details] AS NVARCHAR(MAX)) AS Details,
+					CAST(@StockDetailsHeader + [Details] + @StockDetailsFooter AS NVARCHAR(MAX)) AS Details,
 					CAST([HowToStopIt] AS NVARCHAR(MAX)) AS HowToStopIt,
 					CAST([QueryText] AS NVARCHAR(MAX)) AS QueryText,
 					CAST([QueryPlan] AS NVARCHAR(MAX)) AS QueryPlan
@@ -1293,29 +1452,54 @@ BEGIN
 		END
 		ELSE IF @ExpertMode = 1
 		BEGIN
-			SELECT  [Priority] ,
-					[FindingsGroup] ,
-					[Finding] ,
-					[URL] ,
-					CAST([Details] AS [XML]) AS Details,
-					[HowToStopIt] ,
-					[CheckID] ,
-					[StartTime],
-					[LoginName],
-					[NTUserName],
-					[OriginalLoginName],
-					[ProgramName],
-					[HostName],
-					[DatabaseID],
-					[DatabaseName],
-					[OpenTransactionCount],
-					[QueryPlan],
-					[QueryText]
-			FROM    #AskBrentResults
-			ORDER BY Priority ,
-					FindingsGroup ,
-					Finding ,
-					ID;
+			SELECT  r.[Priority] ,
+					r.[FindingsGroup] ,
+					r.[Finding] ,
+					r.[URL] ,
+					CAST(@StockDetailsHeader + r.[Details] + @StockDetailsFooter AS XML) AS Details,
+					CAST(@StockWarningHeader + r.HowToStopIt + @StockWarningFooter AS XML) AS HowToStopIt,
+					r.[CheckID] ,
+					r.[StartTime],
+					r.[LoginName],
+					r.[NTUserName],
+					r.[OriginalLoginName],
+					r.[ProgramName],
+					r.[HostName],
+					r.[DatabaseID],
+					r.[DatabaseName],
+					r.[OpenTransactionCount],
+					r.[QueryPlan],
+					r.[QueryText],
+                    qsNow.plan_handle AS PlanHandle,
+                    qsNow.sql_handle AS SqlHandle,
+                    qsNow.statement_start_offset AS StatementStartOffset,
+                    qsNow.statement_end_offset AS StatementEndOffset,
+			        [Executions] = qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)),
+                    [ExecutionsPercent] = CAST(100.0 * (qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0))) / (qsTotal.execution_count - qsTotalFirst.execution_count) AS DECIMAL(6,2)),
+			        [Duration] = qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)),
+                    [DurationPercent] = CAST(100.0 * (qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0))) / (qsTotal.total_elapsed_time - qsTotalFirst.total_elapsed_time) AS DECIMAL(6,2)),
+			        [CPU] = qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0)),
+                    [CPUPercent] = CAST(100.0 * (qsNow.total_worker_time - (COALESCE(qsFirst.total_worker_time, 0))) / (qsTotal.total_worker_time - qsTotalFirst.total_worker_time) AS DECIMAL(6,2)),
+			        [Reads] = qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0)),
+                    [ReadsPercent] = CAST(100.0 * (qsNow.total_logical_reads - (COALESCE(qsFirst.total_logical_reads, 0))) / (qsTotal.total_logical_reads - qsTotalFirst.total_logical_reads) AS DECIMAL(6,2)),
+                    [PlanCreationTime] = CONVERT(NVARCHAR(100), qsNow.creation_time ,121),
+                    [TotalExecutions] = qsNow.execution_count,
+                    [TotalExecutionsPercent] = CAST(100.0 * qsNow.execution_count / qsTotal.execution_count AS DECIMAL(6,2)),
+                    [TotalDuration] = qsNow.total_elapsed_time,
+                    [TotalDurationPercent] = CAST(100.0 * qsNow.total_elapsed_time / qsTotal.total_elapsed_time AS DECIMAL(6,2)),
+                    [TotalCPU] = qsNow.total_worker_time,
+                    [TotalCPUPercent] = CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)),
+                    [TotalReads] = qsNow.total_logical_reads,
+                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2))
+			FROM    #AskBrentResults r
+				LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
+				LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
+				LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
+                LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
+			ORDER BY r.Priority ,
+					r.FindingsGroup ,
+					r.Finding ,
+					r.ID;
 
 			-------------------------
 			--What happened: #WaitStats
@@ -1473,15 +1657,13 @@ END
 
 END /* ELSE IF @OutputType = 'SCHEMA' */
 
-
 SET NOCOUNT OFF;
 GO
 
 
-EXEC dbo.sp_AskBrent 
 
-/* Other tests:
+/* A few sample calling methods:
+EXEC dbo.sp_AskBrent 
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
-EXEC dbo.sp_AskBrent @ExpertMode = 0;
 EXEC dbo.sp_AskBrent 'This is a test question';
 */
