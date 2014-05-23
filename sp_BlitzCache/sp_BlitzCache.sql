@@ -617,9 +617,6 @@ BEGIN
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
    END
-   
-   SELECT * FROM #only_query_hashes ;
-   
 END
 
 IF @configuration_database_name IS NOT NULL
