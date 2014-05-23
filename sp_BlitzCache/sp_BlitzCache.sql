@@ -21,6 +21,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @duration_filter DECIMAL(38,4) = NULL ,
     @hide_summary BIT = 0 ,
     @ignore_system_db BIT = 1 ,
+    @only_query_hashes VARCHAR(MAX) = NULL ,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
@@ -45,6 +46,12 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+
+v2.3
+ - Added opserver specific output
+ - Adding a `@only_query_hashes` parameter to limit results to a select set of
+   query hashes.
+ 
 
 v2.2 - 2014-05-20
  - Added sorting on averages
@@ -182,6 +189,11 @@ BEGIN
     SELECT N'@ignore_system_db',
            N'BIT',
            N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
+
+    UNION ALL
+    SELECT N'@only_query_hashes',
+           N'VARCHAR(MAX)',
+           N'A list of `query_hash`es to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
 
     UNION ALL
     SELECT N'@whole_cache',
@@ -433,6 +445,9 @@ SELECT @output_database_name = QUOTENAME(@output_database_name),
        @output_schema_name   = QUOTENAME(@output_schema_name),
        @output_table_name    = QUOTENAME(@output_table_name)
 
+IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
+   DROP TABLE #only_query_hashes ;
+   
 IF OBJECT_ID('tempdb..#results') IS NOT NULL
     DROP TABLE #results;
 
@@ -447,6 +462,10 @@ IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 
 IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
    DROP TABLE #configuration;
+
+CREATE TABLE #only_query_hashes (
+   query_hash BINARY(8)
+);
 
 CREATE TABLE #results (
     ID INT IDENTITY(1,1),
@@ -558,6 +577,51 @@ CREATE TABLE #procs (
     Warnings VARCHAR(MAX)
 );
 
+SET @only_query_hashes = LTRIM(RTRIM(@only_query_hashes)) ;
+
+/* If the user is attempting to limit by query hash, set up the
+   #only_query_hashes temp table. This will be used to narrow down
+   results.
+
+   Just a reminder: Using @only_query_hashes will ignore stored
+   procedures and triggers.
+ */
+IF @only_query_hashes IS NOT NULL
+   AND LEN(@only_query_hashes) > 0
+BEGIN
+   DECLARE @individual VARCHAR(50) ;
+
+   WHILE LEN(@only_query_hashes) > 0
+   BEGIN
+        IF PATINDEX('%,%', @only_query_hashes) > 0
+        BEGIN  
+               SET @individual = SUBSTRING(@only_query_hashes, 0, PATINDEX('%,%',@only_query_hashes)) ;
+               
+               INSERT INTO #only_query_hashes
+               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               
+               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
+
+               SET @only_query_hashes = SUBSTRING(@only_query_hashes, LEN(@individual + ',') + 1, LEN(@only_query_hashes)) ;
+        END
+        ELSE
+        BEGIN
+               SET @individual = @only_query_hashes
+               SET @only_query_hashes = NULL
+
+               INSERT INTO #only_query_hashes
+               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+
+               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
+        END
+   END
+   
+   SELECT * FROM #only_query_hashes ;
+   
+END
+
 IF @configuration_database_name IS NOT NULL
 BEGIN
    DECLARE @config_sql NVARCHAR(MAX) = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
@@ -613,7 +677,15 @@ FROM   (SELECT *,
                CAST((CASE WHEN DATEDIFF(second, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(second, cached_time, last_execution_time) / 60.0
                           ELSE Null END) as MONEY) as age_minutes_lifetime
-        FROM   sys.#view#) AS qs
+        FROM   sys.#view# x ' + @nl ;
+
+IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
+BEGIN
+    SET @body += N'        WHERE  EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl
+END
+
+                          
+SET @body += N') AS qs
        CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(total_elapsed_time) / 1000.0 AS t_TotalElapsed,
                          SUM(total_worker_time) / 1000.0 AS t_TotalWorker,
@@ -787,17 +859,19 @@ IF @ignore_system_db = 1
 SET @sql += @body_order + @nl + @nl + @nl;
 
 
+IF (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += @insert_list;
+    SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
 
-SET @sql += @insert_list;
-SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
+    SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
+    SET @sql += @body_where ;
 
-SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
-SET @sql += @body_where ;
+    IF @ignore_system_db = 1
+       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
 
-IF @ignore_system_db = 1
-    SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
-
-SET @sql += @body_order + @nl + @nl + @nl ;
+    SET @sql += @body_order + @nl + @nl + @nl ;
+END
 
 
 
@@ -812,7 +886,8 @@ SET @sql += @body_order + @nl + @nl + @nl ;
  * This is why we can't have nice things.
  *
  ******************************************************************************/
-IF @use_triggers_anyway = 1 OR @v >= 11
+IF (@use_triggers_anyway = 1 OR @v >= 11)
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
