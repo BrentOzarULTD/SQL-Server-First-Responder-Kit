@@ -22,6 +22,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @hide_summary BIT = 0 ,
     @ignore_system_db BIT = 1 ,
     @only_query_hashes VARCHAR(MAX) = NULL ,
+    @ignore_query_hashes VARCHAR(MAX) = NULL ,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
@@ -51,7 +52,8 @@ v2.3
  - Added opserver specific output
  - Adding a `@only_query_hashes` parameter to limit results to a select set of
    query hashes.
- 
+ - Adding a `@ignore_query_hashes` parameter to exclude specific queries from
+   analysis.
 
 v2.2 - 2014-05-20
  - Added sorting on averages
@@ -197,6 +199,11 @@ BEGIN
            N'VARCHAR(MAX)',
            N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
 
+    UNION ALL
+    SELECT N'@ignore_query_hashes',
+           N'VARCHAR(MAX)',
+           N'A list of query hashes to ignore.'
+           
     UNION ALL
     SELECT N'@whole_cache',
            N'BIT',
@@ -448,6 +455,9 @@ SELECT @output_database_name = QUOTENAME(@output_database_name),
 
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
    DROP TABLE #only_query_hashes ;
+
+IF OBJECT_ID('tempdb..#ignore_query_hashes') IS NOT NULL
+   DROP TABLE #ignore_query_hashes ;
    
 IF OBJECT_ID('tempdb..#results') IS NOT NULL
     DROP TABLE #results;
@@ -465,6 +475,10 @@ IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
    DROP TABLE #configuration;
 
 CREATE TABLE #only_query_hashes (
+   query_hash BINARY(8)
+);
+
+CREATE TABLE #ignore_query_hashes (
    query_hash BINARY(8)
 );
 
@@ -579,6 +593,7 @@ CREATE TABLE #procs (
 );
 
 SET @only_query_hashes = LTRIM(RTRIM(@only_query_hashes)) ;
+SET @ignore_query_hashes = LTRIM(RTRIM(@ignore_query_hashes)) ;
 
 /* If the user is attempting to limit by query hash, set up the
    #only_query_hashes temp table. This will be used to narrow down
@@ -616,6 +631,41 @@ BEGIN
                from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
+        END
+   END
+END
+
+/* If the user is setting up a list of query hashes to ignore, those
+   values will be inserted into #ignore_query_hashes. This is used to
+   exclude values from query results.
+
+   Stored procedures and triggers will still be queried.
+ */
+IF @ignore_query_hashes IS NOT NULL
+   AND LEN(@ignore_query_hashes) > 0
+BEGIN
+   SET @individual = '' ;
+
+   WHILE LEN(@ignore_query_hashes) > 0
+   BEGIN
+        IF PATINDEX('%,%', @ignore_query_hashes) > 0
+        BEGIN  
+               SET @individual = SUBSTRING(@ignore_query_hashes, 0, PATINDEX('%,%',@ignore_query_hashes)) ;
+               
+               INSERT INTO #ignore_query_hashes
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
+               
+               SET @ignore_query_hashes = SUBSTRING(@ignore_query_hashes, LEN(@individual + ',') + 1, LEN(@ignore_query_hashes)) ;
+        END
+        ELSE
+        BEGIN
+               SET @individual = @ignore_query_hashes ;
+               SET @ignore_query_hashes = NULL ;
+
+               INSERT INTO #ignore_query_hashes
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
         END
    END
 END
@@ -678,6 +728,7 @@ FROM   (SELECT *,
         FROM   sys.#view# x ' + @nl ;
 
 IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
 BEGIN
     SET @body += N'        WHERE  EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl
 END
@@ -847,12 +898,26 @@ SET @sql += N'
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 
+IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += REPLACE(@sql, ') AS qs', ') AS qs
+    LEFT JOIN #ignore_query_hashes iqh ON iqh.query_hash = qs.query_hash ' + @nl) ;
+END
+
+
 
 
 SET @sql += @body_where ;
 
 IF @ignore_system_db = 1
     SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+
+IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += ' AND iqh.query_hash IS NULL ' + @nl ;
+END
 
 SET @sql += @body_order + @nl + @nl + @nl;
 
