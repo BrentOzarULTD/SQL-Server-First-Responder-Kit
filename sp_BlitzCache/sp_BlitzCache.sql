@@ -1676,7 +1676,7 @@ BEGIN
                FROM   #procs
                WHERE  unparameterized_query = 1)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (32,
+    VALUES (23,
             100,
             'Parameterization',
             'Unparameterized queries',
@@ -1747,11 +1747,39 @@ BEGIN
 END
 ELSE
 BEGIN
-   SET @columns = N' DatabaseName AS [Database],
+    SET @columns = N' DatabaseName AS [Database],
         QueryText AS [Query Text],
         QueryType AS [Query Type],
-        Warnings AS [Warnings],
-        ExecutionCount AS [# Executions],
+        Warnings AS [Warnings], ' + @nl
+
+    IF LOWER(@results) = 'opserver1'
+    BEGIN
+        SET @columns += '        SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
+                  CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
+                  CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
+                  CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
+                  CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
+                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
+                  CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
+                  CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
+                  CASE WHEN is_cursor = 1 THEN '', 4'' ELSE '''' END +
+                  CASE WHEN is_parallel = 1 THEN '', 6'' ELSE '''' END +
+                  CASE WHEN near_parallel = 1 THEN '', 7'' ELSE '''' END +
+                  CASE WHEN frequent_execution = 1 THEN '', 1'' ELSE '''' END +
+                  CASE WHEN plan_warnings = 1 THEN '', 8'' ELSE '''' END +
+                  CASE WHEN parameter_sniffing = 1 THEN '', 2'' ELSE '''' END +
+                  CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
+                  CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
+                  CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
+                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
+                  CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END
+                  , 2, 200000) AS opserver_warning , ' + @nl ;
+    END
+    
+    SET @columns += N'        ExecutionCount AS [# Executions],
         ExecutionsPerMinute AS [Executions / Minute],
         PercentExecutions AS [Execution Weight],
         TotalCPU AS [Total CPU (ms)],
