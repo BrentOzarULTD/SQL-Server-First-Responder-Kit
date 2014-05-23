@@ -129,6 +129,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
+
 IF @get_help = 1
 BEGIN
     SELECT N'@get_help' AS [Parameter Name] ,
@@ -143,12 +145,12 @@ BEGIN
     UNION ALL
     SELECT N'@sort_order',
            N'VARCHAR(10)',
-           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total."Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
+           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
     SELECT N'@use_triggers_anyway',
            N'BIT',
-           N'On SQL Server 2008R2 and earlier, trigger execution count is wildly incorrect. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
+           N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
 
     UNION ALL
     SELECT N'@export_to_excel',
@@ -158,7 +160,7 @@ BEGIN
     UNION ALL
     SELECT N'@results',
            N'VARCHAR(10)',
-           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines the columns that will be displayed in the detailed analysis of the plan cache.'
+           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines which columns will be displayed in the analysis of the plan cache.'
 
     UNION ALL
     SELECT N'@output_database_name',
@@ -168,17 +170,17 @@ BEGIN
     UNION ALL
     SELECT N'@output_schema_name',
            N'NVARCHAR(256)',
-           N'Output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
+           N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
     UNION ALL
     SELECT N'@output_table_name',
            N'NVARCHAR(256)',
-           N'Output table. If this does not exist, it will be created for you.'
+           N'The output table. If this does not exist, it will be created for you.'
 
     UNION ALL
     SELECT N'@duration_filter',
            N'DECIMAL(38,4)',
-           N'Filters queries with an average duration (seconds) less than @duration_filter.'
+           N'Excludes queries with an average duration (in seconds) less than @duration_filter.'
 
     UNION ALL
     SELECT N'@hide_summary',
@@ -193,7 +195,7 @@ BEGIN
     UNION ALL
     SELECT N'@only_query_hashes',
            N'VARCHAR(MAX)',
-           N'A list of `query_hash`es to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
+           N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
 
     UNION ALL
     SELECT N'@whole_cache',
@@ -210,7 +212,7 @@ BEGIN
     UNION ALL
     SELECT N'Executions / Minute',
            N'MONEY',
-           N'Number of executions per minute for this SQL handle. This is calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
+           N'Number of executions per minute - calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
 
     UNION ALL
     SELECT N'Execution Weight',
@@ -225,12 +227,12 @@ BEGIN
     UNION ALL
     SELECT N'Total CPU',
            N'BIGINT',
-           N'Total CPU time, reported in microseconds, that was consumed by all executions of this query since the last compilation.'
+           N'Total CPU time, reported in milliseconds, that was consumed by all executions of this query since the last compilation.'
 
     UNION ALL
     SELECT N'Avg CPU',
            N'BIGINT',
-           N'Average CPU time, reported in microseconds, consumed by each execution of this query since the last compilation.'
+           N'Average CPU time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
     UNION ALL
     SELECT N'CPU Weight',
@@ -241,12 +243,12 @@ BEGIN
     UNION ALL
     SELECT N'Total Duration',
            N'BIGINT',
-           N'Total elapsed time, reported in microseconds, consumed by all executions of this query since last compilation.'
+           N'Total elapsed time, reported in milliseconds, consumed by all executions of this query since last compilation.'
 
     UNION ALL
     SELECT N'Avg Duration',
            N'BIGINT',
-           N'Average elapsed time, reported in microseconds, consumed by each execution of this query since the last compilation.'
+           N'Average elapsed time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
     UNION ALL
     SELECT N'Duration Weight',
@@ -276,7 +278,7 @@ BEGIN
     UNION ALL
     SELECT N'Average Writes',
            N'BIGINT',
-           N'Average logical writes performed by each exuection this query since last compilation.'
+           N'Average logical writes performed by each execution this query since last compilation.'
 
     UNION ALL
     SELECT N'Write Weight',
@@ -286,13 +288,12 @@ BEGIN
     UNION ALL
     SELECT N'Query Type',
            N'NVARCHAR(256)',
-           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".' + NCHAR(13) + NCHAR(10)
-             + N'If the first character of the Query Type column is an asterisk, this query has a parallel plan.'
+           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
 
     UNION ALL
     SELECT N'Query Text',
            N'NVARCHAR(4000)',
-           N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache for display purposes.'
+           N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache(tm) for display purposes.'
 
     UNION ALL
     SELECT N'% Executions (Type)',
@@ -392,7 +393,7 @@ BEGIN
     SELECT N'Frequent Execution Threshold' AS [Configuration Parameter] ,
            N'100' AS [Default Value] ,
            N'Executions / Minute' AS [Unit of Measure] ,
-           N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered' AS [Description]
+           N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered.' AS [Description]
 
     UNION ALL
     SELECT N'Parameter Sniffing Variance Percent' ,
@@ -410,7 +411,7 @@ BEGIN
     SELECT N'Cost Threshold for Parallelism Warning' AS [Configuration Parameter] ,
            N'10' ,
            N'Percent' ,
-           N'Trigger a "Nearly Parallel" warning with a query''s cost is within X percent ofthe system cost threshold for parallelism'
+           N'Trigger a "Nearly Parallel" warning when a query''s cost is within X percent of the cost threshold for parallelism.'
 
     UNION ALL
     SELECT N'Long Running Query Warning' AS [Configuration Parameter] ,
@@ -635,7 +636,7 @@ DECLARE @sql nvarchar(MAX) = N'',
         @body nvarchar(MAX) = N'',
         @body_where nvarchar(MAX) = N'',
         @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
-        @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
+        
         @q nvarchar(1) = N'''',
         @pv varchar(20),
         @pos tinyint,
