@@ -1463,14 +1463,14 @@ BEGIN
     /* Forced execution plans */
     IF EXISTS (SELECT 1/0
                FROM   #procs
-               WHERE  is_forced_parameterized = 1
+               WHERE  is_forced_plan = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (3,
                 5,
                 'Parameterization',
-                'Forced Parameterization',
-                'http://brentozar.com/blitzcache/forced-parameterization/',
+                'Forced Plans',
+                'http://brentozar.com/blitzcache/forced-plans/',
                 'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
     /* Cursors */
