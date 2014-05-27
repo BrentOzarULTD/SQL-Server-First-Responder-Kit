@@ -21,6 +21,8 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @duration_filter DECIMAL(38,4) = NULL ,
     @hide_summary BIT = 0 ,
     @ignore_system_db BIT = 1 ,
+    @only_query_hashes VARCHAR(MAX) = NULL ,
+    @ignore_query_hashes VARCHAR(MAX) = NULL ,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
@@ -45,6 +47,13 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+
+v2.3
+ - Added opserver specific output
+ - Adding a `@only_query_hashes` parameter to limit results to a select set of
+   query hashes.
+ - Adding a `@ignore_query_hashes` parameter to exclude specific queries from
+   analysis.
 
 v2.2 - 2014-05-20
  - Added sorting on averages
@@ -122,6 +131,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
+
 IF @get_help = 1
 BEGIN
     SELECT N'@get_help' AS [Parameter Name] ,
@@ -137,11 +148,13 @@ BEGIN
     SELECT N'@sort_order',
            N'VARCHAR(10)',
            N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total."Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
+           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
     SELECT N'@use_triggers_anyway',
            N'BIT',
            N'On SQL Server 2008R2 and earlier, trigger execution count is wildly incorrect. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
+           N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
 
     UNION ALL
     SELECT N'@export_to_excel',
@@ -152,6 +165,7 @@ BEGIN
     SELECT N'@results',
            N'VARCHAR(10)',
            N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines the columns that will be displayed in the detailed analysis of the plan cache.'
+           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines which columns will be displayed in the analysis of the plan cache.'
 
     UNION ALL
     SELECT N'@output_database_name',
@@ -161,17 +175,17 @@ BEGIN
     UNION ALL
     SELECT N'@output_schema_name',
            N'NVARCHAR(256)',
-           N'Output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
+           N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
     UNION ALL
     SELECT N'@output_table_name',
            N'NVARCHAR(256)',
-           N'Output table. If this does not exist, it will be created for you.'
+           N'The output table. If this does not exist, it will be created for you.'
 
     UNION ALL
     SELECT N'@duration_filter',
            N'DECIMAL(38,4)',
-           N'Filters queries with an average duration (seconds) less than @duration_filter.'
+           N'Excludes queries with an average duration (in seconds) less than @duration_filter.'
 
     UNION ALL
     SELECT N'@hide_summary',
@@ -183,6 +197,16 @@ BEGIN
            N'BIT',
            N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
 
+    UNION ALL
+    SELECT N'@only_query_hashes',
+           N'VARCHAR(MAX)',
+           N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
+
+    UNION ALL
+    SELECT N'@ignore_query_hashes',
+           N'VARCHAR(MAX)',
+           N'A list of query hashes to ignore.'
+           
     UNION ALL
     SELECT N'@whole_cache',
            N'BIT',
@@ -198,7 +222,7 @@ BEGIN
     UNION ALL
     SELECT N'Executions / Minute',
            N'MONEY',
-           N'Number of executions per minute for this SQL handle. This is calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
+           N'Number of executions per minute - calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
 
     UNION ALL
     SELECT N'Execution Weight',
@@ -213,12 +237,12 @@ BEGIN
     UNION ALL
     SELECT N'Total CPU',
            N'BIGINT',
-           N'Total CPU time, reported in microseconds, that was consumed by all executions of this query since the last compilation.'
+           N'Total CPU time, reported in milliseconds, that was consumed by all executions of this query since the last compilation.'
 
     UNION ALL
     SELECT N'Avg CPU',
            N'BIGINT',
-           N'Average CPU time, reported in microseconds, consumed by each execution of this query since the last compilation.'
+           N'Average CPU time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
     UNION ALL
     SELECT N'CPU Weight',
@@ -229,12 +253,12 @@ BEGIN
     UNION ALL
     SELECT N'Total Duration',
            N'BIGINT',
-           N'Total elapsed time, reported in microseconds, consumed by all executions of this query since last compilation.'
+           N'Total elapsed time, reported in milliseconds, consumed by all executions of this query since last compilation.'
 
     UNION ALL
     SELECT N'Avg Duration',
            N'BIGINT',
-           N'Average elapsed time, reported in microseconds, consumed by each execution of this query since the last compilation.'
+           N'Average elapsed time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
     UNION ALL
     SELECT N'Duration Weight',
@@ -264,7 +288,7 @@ BEGIN
     UNION ALL
     SELECT N'Average Writes',
            N'BIGINT',
-           N'Average logical writes performed by each exuection this query since last compilation.'
+           N'Average logical writes performed by each execution this query since last compilation.'
 
     UNION ALL
     SELECT N'Write Weight',
@@ -274,13 +298,12 @@ BEGIN
     UNION ALL
     SELECT N'Query Type',
            N'NVARCHAR(256)',
-           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".' + NCHAR(13) + NCHAR(10)
-             + N'If the first character of the Query Type column is an asterisk, this query has a parallel plan.'
+           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
 
     UNION ALL
     SELECT N'Query Text',
            N'NVARCHAR(4000)',
-           N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache for display purposes.'
+           N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache(tm) for display purposes.'
 
     UNION ALL
     SELECT N'% Executions (Type)',
@@ -381,6 +404,7 @@ BEGIN
            N'100' AS [Default Value] ,
            N'Executions / Minute' AS [Unit of Measure] ,
            N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered' AS [Description]
+           N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered.' AS [Description]
 
     UNION ALL
     SELECT N'Parameter Sniffing Variance Percent' ,
@@ -399,6 +423,7 @@ BEGIN
            N'10' ,
            N'Percent' ,
            N'Trigger a "Nearly Parallel" warning with a query''s cost is within X percent ofthe system cost threshold for parallelism'
+           N'Trigger a "Nearly Parallel" warning when a query''s cost is within X percent of the cost threshold for parallelism.'
 
     UNION ALL
     SELECT N'Long Running Query Warning' AS [Configuration Parameter] ,
@@ -433,6 +458,12 @@ SELECT @output_database_name = QUOTENAME(@output_database_name),
        @output_schema_name   = QUOTENAME(@output_schema_name),
        @output_table_name    = QUOTENAME(@output_table_name)
 
+IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
+   DROP TABLE #only_query_hashes ;
+
+IF OBJECT_ID('tempdb..#ignore_query_hashes') IS NOT NULL
+   DROP TABLE #ignore_query_hashes ;
+   
 IF OBJECT_ID('tempdb..#results') IS NOT NULL
     DROP TABLE #results;
 
@@ -447,6 +478,14 @@ IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 
 IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
    DROP TABLE #configuration;
+
+CREATE TABLE #only_query_hashes (
+   query_hash BINARY(8)
+);
+
+CREATE TABLE #ignore_query_hashes (
+   query_hash BINARY(8)
+);
 
 CREATE TABLE #results (
     ID INT IDENTITY(1,1),
@@ -558,6 +597,84 @@ CREATE TABLE #procs (
     Warnings VARCHAR(MAX)
 );
 
+SET @only_query_hashes = LTRIM(RTRIM(@only_query_hashes)) ;
+SET @ignore_query_hashes = LTRIM(RTRIM(@ignore_query_hashes)) ;
+
+/* If the user is attempting to limit by query hash, set up the
+   #only_query_hashes temp table. This will be used to narrow down
+   results.
+
+   Just a reminder: Using @only_query_hashes will ignore stored
+   procedures and triggers.
+ */
+IF @only_query_hashes IS NOT NULL
+   AND LEN(@only_query_hashes) > 0
+BEGIN
+   DECLARE @individual VARCHAR(50) ;
+
+   WHILE LEN(@only_query_hashes) > 0
+   BEGIN
+        IF PATINDEX('%,%', @only_query_hashes) > 0
+        BEGIN  
+               SET @individual = SUBSTRING(@only_query_hashes, 0, PATINDEX('%,%',@only_query_hashes)) ;
+               
+               INSERT INTO #only_query_hashes
+               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               
+               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
+
+               SET @only_query_hashes = SUBSTRING(@only_query_hashes, LEN(@individual + ',') + 1, LEN(@only_query_hashes)) ;
+        END
+        ELSE
+        BEGIN
+               SET @individual = @only_query_hashes
+               SET @only_query_hashes = NULL
+
+               INSERT INTO #only_query_hashes
+               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+
+               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
+        END
+   END
+END
+
+/* If the user is setting up a list of query hashes to ignore, those
+   values will be inserted into #ignore_query_hashes. This is used to
+   exclude values from query results.
+
+   Stored procedures and triggers will still be queried.
+ */
+IF @ignore_query_hashes IS NOT NULL
+   AND LEN(@ignore_query_hashes) > 0
+BEGIN
+   SET @individual = '' ;
+
+   WHILE LEN(@ignore_query_hashes) > 0
+   BEGIN
+        IF PATINDEX('%,%', @ignore_query_hashes) > 0
+        BEGIN  
+               SET @individual = SUBSTRING(@ignore_query_hashes, 0, PATINDEX('%,%',@ignore_query_hashes)) ;
+               
+               INSERT INTO #ignore_query_hashes
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
+               
+               SET @ignore_query_hashes = SUBSTRING(@ignore_query_hashes, LEN(@individual + ',') + 1, LEN(@ignore_query_hashes)) ;
+        END
+        ELSE
+        BEGIN
+               SET @individual = @ignore_query_hashes ;
+               SET @ignore_query_hashes = NULL ;
+
+               INSERT INTO #ignore_query_hashes
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
+        END
+   END
+END
+
 IF @configuration_database_name IS NOT NULL
 BEGIN
    DECLARE @config_sql NVARCHAR(MAX) = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
@@ -575,6 +692,7 @@ DECLARE @sql nvarchar(MAX) = N'',
         @body_where nvarchar(MAX) = N'',
         @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
         @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
+        
         @q nvarchar(1) = N'''',
         @pv varchar(20),
         @pos tinyint,
@@ -613,7 +731,16 @@ FROM   (SELECT *,
                CAST((CASE WHEN DATEDIFF(second, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(second, cached_time, last_execution_time) / 60.0
                           ELSE Null END) as MONEY) as age_minutes_lifetime
-        FROM   sys.#view#) AS qs
+        FROM   sys.#view# x ' + @nl ;
+
+IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
+BEGIN
+    SET @body += N'        WHERE  EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl
+END
+
+                          
+SET @body += N') AS qs
        CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(total_elapsed_time) / 1000.0 AS t_TotalElapsed,
                          SUM(total_worker_time) / 1000.0 AS t_TotalWorker,
@@ -785,11 +912,15 @@ IF @ignore_system_db = 1
     SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
 
 SET @sql += @body_order + @nl + @nl + @nl;
+IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += REPLACE(@sql, ') AS qs', ') AS qs
+    LEFT JOIN #ignore_query_hashes iqh ON iqh.query_hash = qs.query_hash ' + @nl) ;
+END
 
 
 
-SET @sql += @insert_list;
-SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
 
 SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
 SET @sql += @body_where ;
@@ -798,6 +929,33 @@ IF @ignore_system_db = 1
     SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
 
 SET @sql += @body_order + @nl + @nl + @nl ;
+SET @sql += @body_where ;
+
+IF @ignore_system_db = 1
+    SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+
+IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += ' AND iqh.query_hash IS NULL ' + @nl ;
+END
+
+SET @sql += @body_order + @nl + @nl + @nl;
+
+
+IF (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @sql += @insert_list;
+    SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
+
+    SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
+    SET @sql += @body_where ;
+
+    IF @ignore_system_db = 1
+       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+
+    SET @sql += @body_order + @nl + @nl + @nl ;
+END
 
 
 
@@ -812,7 +970,8 @@ SET @sql += @body_order + @nl + @nl + @nl ;
  * This is why we can't have nice things.
  *
  ******************************************************************************/
-IF @use_triggers_anyway = 1 OR @v >= 11
+IF (@use_triggers_anyway = 1 OR @v >= 11)
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -1096,6 +1255,31 @@ BEGIN
     WHERE 'parameter sniffing io threshold' = LOWER(parameter_name) ;
 
     SET @msg = ' Setting "parameter sniffing io threshold" to ' + CAST(@parameter_sniffing_io_threshold AS VARCHAR(10));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
+IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name))
+BEGIN
+    SELECT @ctp_threshold_pct = CAST(value AS TINYINT)
+    FROM   #configuration
+    WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name) ;
+
+    SET @msg = ' Setting "cost threshold for parallelism warning" to ' + CAST(@ctp_threshold_pct AS VARCHAR(3));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
+IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'long running query warning (seconds)' = LOWER(parameter_name))
+BEGIN
+    SELECT @long_running_query_warning_seconds = CAST(value * 1000 AS BIGINT)
+    FROM   #configuration
+    WHERE 'long running query warning (seconds)' = LOWER(parameter_name) ;
+
+    SET @msg = ' Setting "long running query warning (seconds)" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
 
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END
@@ -1463,14 +1647,14 @@ BEGIN
     /* Forced execution plans */
     IF EXISTS (SELECT 1/0
                FROM   #procs
-               WHERE  is_forced_parameterized = 1
+               WHERE  is_forced_plan = 1
               )
         INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (3,
                 5,
                 'Parameterization',
-                'Forced Parameterization',
-                'http://brentozar.com/blitzcache/forced-parameterization/',
+                'Forced Plans',
+                'http://brentozar.com/blitzcache/forced-plans/',
                 'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
     /* Cursors */
@@ -1677,6 +1861,7 @@ BEGIN
                WHERE  unparameterized_query = 1)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
     VALUES (32,
+    VALUES (23,
             100,
             'Parameterization',
             'Unparameterized queries',
@@ -1747,11 +1932,39 @@ BEGIN
 END
 ELSE
 BEGIN
-   SET @columns = N' DatabaseName AS [Database],
+    SET @columns = N' DatabaseName AS [Database],
         QueryText AS [Query Text],
         QueryType AS [Query Type],
-        Warnings AS [Warnings],
-        ExecutionCount AS [# Executions],
+        Warnings AS [Warnings], ' + @nl
+
+    IF LOWER(@results) = 'opserver1'
+    BEGIN
+        SET @columns += '        SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
+                  CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
+                  CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
+                  CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
+                  CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
+                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
+                  CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
+                  CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
+                  CASE WHEN is_cursor = 1 THEN '', 4'' ELSE '''' END +
+                  CASE WHEN is_parallel = 1 THEN '', 6'' ELSE '''' END +
+                  CASE WHEN near_parallel = 1 THEN '', 7'' ELSE '''' END +
+                  CASE WHEN frequent_execution = 1 THEN '', 1'' ELSE '''' END +
+                  CASE WHEN plan_warnings = 1 THEN '', 8'' ELSE '''' END +
+                  CASE WHEN parameter_sniffing = 1 THEN '', 2'' ELSE '''' END +
+                  CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
+                  CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
+                  CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
+                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
+                  CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END
+                  , 2, 200000) AS opserver_warning , ' + @nl ;
+    END
+    
+    SET @columns += N'        ExecutionCount AS [# Executions],
         ExecutionsPerMinute AS [Executions / Minute],
         PercentExecutions AS [Execution Weight],
         TotalCPU AS [Total CPU (ms)],
