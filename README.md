@@ -1,7 +1,7 @@
-Brent Ozar Unlimited Critical Care Scripts
-==========================================
+Brent Ozar Unlimited Public Tools Scripts
+=========================================
 
-Welcome to the [Brent Ozar Unlimited][bou] Critical Care scripts. 
+Welcome to the [Brent Ozar Unlimited][bou] Public Tools scripts. 
 
 You can use these scripts to diagnose your SQL Servers and spot indexing problems. You can also contribute back by creating a pull request or by filing an issue right at the top of the page. we'd love to hear how we can make this better!
 
