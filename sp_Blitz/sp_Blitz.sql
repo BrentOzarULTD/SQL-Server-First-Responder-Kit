@@ -58,6 +58,9 @@ AS
 	Changes in v35 - June 17, 2014
 	 - John Hill fixed a bug in check 134 looking for deadlocks.
 	 - Robert Virag improved check 19 looking for replication subscribers.
+	 - Russell Hart improved check 34 to avoid blocking during restores.
+	 - Added check 126 for priority boost enabled. It was always in the non-
+	   default configurations check, but this one is so bad we called it out.
 	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
 
 	Changes in v34 - April 2, 2014
@@ -1733,7 +1736,13 @@ AS
 		  ''Database Corruption Detected'' AS Finding ,
 		  ''http://BrentOzar.com/go/repair'' AS URL ,
 		  ( ''Database mirroring has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_db_mirroring_auto_page_repair.'' ) AS Details
-		  FROM    sys.dm_db_mirroring_auto_page_repair rp
+		  FROM (SELECT rp2.database_id, rp2.modification_time 
+			FROM sys.dm_db_mirroring_auto_page_repair rp2 
+			WHERE rp2.[database_id] not in (
+			SELECT db2.[database_id] 
+			FROM sys.databases as db2 
+			WHERE db2.[state] = 1
+			) ) as rp 
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
 		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) ;'
 								EXECUTE(@StringToExecute)
@@ -2657,7 +2666,18 @@ AS
 							ORDER BY creation_time	
 						END;
 
-
+						IF EXISTS (SELECT * FROM sys.configurations WHERE name = 'priority boost' AND (value = 1 OR value_in_use = 1))
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							VALUES(126, 5, 'Reliability', 'Priority Boost Enabled', 'http://BrentOzar.com/go/priorityboost/',
+								'Priority Boost sounds awesome, but it can actually cause your SQL Server to crash.')
+						END;
 
 
 				IF @CheckUserDatabaseObjects = 1
