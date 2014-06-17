@@ -36,6 +36,11 @@ AS
 	IF @Help = 1 PRINT '
 	/*
 	sp_Blitz (TM) v34 - April 2, 2014
+	SELECT @Version = 35, @VersionDate = '20140618'
+
+	IF @Help = 1 PRINT '
+	/*
+	sp_Blitz (TM) v35 - June 6, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -54,6 +59,15 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+	Changes in v35 - June 17, 2014
+	 - John Hill fixed a bug in check 134 looking for deadlocks.
+	 - Robert Virag improved check 19 looking for replication subscribers.
+	 - Russell Hart improved check 34 to avoid blocking during restores.
+	 - Added check 126 for priority boost enabled. It was always in the non-
+	   default configurations check, but this one is so bad we called it out.
+	 - Added check 127 for unneccessary backups of ReportServerTempDB.
+	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
 
 	Changes in v34 - April 2, 2014
 	 - Jason Pritchard fixed a bug in the plan cache analysis that did not return
@@ -1097,6 +1111,8 @@ AS
 								  URL ,
 								  Details
 								)
+
+								/* Method 1: Check sys.databases parameters */
 								SELECT  19 AS CheckID ,
 										[name] AS DatabaseName ,
 										200 AS Priority ,
@@ -1115,6 +1131,28 @@ AS
 										OR is_distributor = 1;
 					END
 
+
+								/* Method B: check subscribers for MSreplication_objects tables */
+
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+												(CheckID,
+												DatabaseName,
+												Priority,
+												FindingsGroup,
+												Finding,
+												URL,
+												Details)
+									  SELECT DISTINCT 19,
+									  db_name(),
+									  200,
+									  ''Informational'',
+									  ''Replication In Use'',
+									  ''http://BrentOzar.com/go/repl'',
+									  (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
+									  FROM [?].sys.tables
+									  WHERE name = ''dbo.MSreplication_objects'' AND ''?'' <> ''master''';
+
+					END
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -1744,6 +1782,13 @@ AS
 		  ''http://BrentOzar.com/go/repair'' AS URL ,
 		  ( ''Database mirroring has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_db_mirroring_auto_page_repair.'' ) AS Details
 		  FROM    sys.dm_db_mirroring_auto_page_repair rp
+		  FROM (SELECT rp2.database_id, rp2.modification_time 
+			FROM sys.dm_db_mirroring_auto_page_repair rp2 
+			WHERE rp2.[database_id] not in (
+			SELECT db2.[database_id] 
+			FROM sys.databases as db2 
+			WHERE db2.[state] = 1
+			) ) as rp 
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
 		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) ;'
 								EXECUTE(@StringToExecute)
@@ -2643,6 +2688,7 @@ AS
 									Details)
 								SELECT 124, 100, 'Performance', 'Deadlocks Happening Daily', 'http://BrentOzar.com/go/deadlocks',
 									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup.' AS Details
+									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup on .' AS Details
 								FROM sys.dm_os_performance_counters p
 									INNER JOIN sys.databases d ON d.name = 'tempdb'
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
@@ -2650,6 +2696,53 @@ AS
 									AND p.cntr_value > 0
 									AND (1.0 * p.cntr_value / datediff(DD,create_date,CURRENT_TIMESTAMP)) > 10;
 							END
+
+
+									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
+							END
+
+
+						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							SELECT TOP 1 125, 10, 'Performance', 'Plan Cache Erased Recently', 'http://BrentOzar.com/askbrent/plan-cache-erased-recently/',
+								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+							FROM sys.dm_exec_query_stats WITH (NOLOCK)
+							ORDER BY creation_time	
+						END;
+
+						IF EXISTS (SELECT * FROM sys.configurations WHERE name = 'priority boost' AND (value = 1 OR value_in_use = 1))
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							VALUES(126, 5, 'Reliability', 'Priority Boost Enabled', 'http://BrentOzar.com/go/priorityboost/',
+								'Priority Boost sounds awesome, but it can actually cause your SQL Server to crash.')
+						END;
+
+						IF EXISTS (select * from msdb.dbo.backupset WHERE database_name = 'ReportServerTempDB')
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								DatabaseName,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							VALUES(127, 200, 'ReportServerTempDB', 'Backup', 'Backing Up Unneeded Database', 'http://BrentOzar.com/go/reportservertempdb/',
+								'This database is being backed up, but you probably do not need to. See the URL for more details on how to reconstruct it.')
+						END;
 
 
 				IF @CheckUserDatabaseObjects = 1
@@ -2882,6 +2975,9 @@ AS
 		  ''The ['' + DB_NAME() + ''] database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
 		  FROM    [?].sys.indexes
 		  WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
+		  ''The ['' + DB_NAME() + ''] database has objects with fill factor < 80%. This can cause memory and storage performance problems, but may also prevent page splits.''
+		  FROM    [?].sys.indexes
+		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0';
 							END
 
 						IF NOT EXISTS ( SELECT  1
