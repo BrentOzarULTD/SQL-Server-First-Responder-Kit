@@ -61,6 +61,7 @@ AS
 	 - Russell Hart improved check 34 to avoid blocking during restores.
 	 - Added check 126 for priority boost enabled. It was always in the non-
 	   default configurations check, but this one is so bad we called it out.
+	 - Added check 127 for unneccessary backups of ReportServerTempDB.
 	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
 
 	Changes in v34 - April 2, 2014
@@ -2677,6 +2678,20 @@ AS
 								Details)
 							VALUES(126, 5, 'Reliability', 'Priority Boost Enabled', 'http://BrentOzar.com/go/priorityboost/',
 								'Priority Boost sounds awesome, but it can actually cause your SQL Server to crash.')
+						END;
+
+						IF EXISTS (select * from msdb.dbo.backupset WHERE database_name = 'ReportServerTempDB')
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								DatabaseName,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							VALUES(127, 200, 'ReportServerTempDB', 'Backup', 'Backing Up Unneeded Database', 'http://BrentOzar.com/go/reportservertempdb/',
+								'This database is being backed up, but you probably do not need to. See the URL for more details on how to reconstruct it.')
 						END;
 
 
