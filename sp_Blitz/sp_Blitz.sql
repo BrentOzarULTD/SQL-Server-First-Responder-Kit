@@ -35,11 +35,6 @@ AS
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v34 - April 2, 2014
-	SELECT @Version = 35, @VersionDate = '20140618'
-
-	IF @Help = 1 PRINT '
-	/*
 	sp_Blitz (TM) v35 - June 6, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
@@ -1111,6 +1106,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 19 )
 					BEGIN
+						/* Method 1: Check sys.databases parameters */
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -1121,7 +1117,6 @@ AS
 								  Details
 								)
 
-								/* Method 1: Check sys.databases parameters */
 								SELECT  19 AS CheckID ,
 										[name] AS DatabaseName ,
 										200 AS Priority ,
@@ -1138,28 +1133,25 @@ AS
 										OR is_subscribed = 1
 										OR is_merge_published = 1
 										OR is_distributor = 1;
-					END
 
-
-								/* Method B: check subscribers for MSreplication_objects tables */
-
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
-												(CheckID,
-												DatabaseName,
-												Priority,
-												FindingsGroup,
-												Finding,
-												URL,
-												Details)
-									  SELECT DISTINCT 19,
-									  db_name(),
-									  200,
-									  ''Informational'',
-									  ''Replication In Use'',
-									  ''http://BrentOzar.com/go/repl'',
-									  (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
-									  FROM [?].sys.tables
-									  WHERE name = ''dbo.MSreplication_objects'' AND ''?'' <> ''master''';
+						/* Method B: check subscribers for MSreplication_objects tables */
+						EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+										(CheckID,
+										DatabaseName,
+										Priority,
+										FindingsGroup,
+										Finding,
+										URL,
+										Details)
+							  SELECT DISTINCT 19,
+							  db_name(),
+							  200,
+							  ''Informational'',
+							  ''Replication In Use'',
+							  ''http://BrentOzar.com/go/repl'',
+							  (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
+							  FROM [?].sys.tables
+							  WHERE name = ''dbo.MSreplication_objects'' AND ''?'' <> ''master''';
 
 					END
 
@@ -1790,7 +1782,6 @@ AS
 		  ''Database Corruption Detected'' AS Finding ,
 		  ''http://BrentOzar.com/go/repair'' AS URL ,
 		  ( ''Database mirroring has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_db_mirroring_auto_page_repair.'' ) AS Details
-		  FROM    sys.dm_db_mirroring_auto_page_repair rp
 		  FROM (SELECT rp2.database_id, rp2.modification_time 
 			FROM sys.dm_db_mirroring_auto_page_repair rp2 
 			WHERE rp2.[database_id] not in (
@@ -2697,16 +2688,11 @@ AS
 									Details)
 								SELECT 124, 100, 'Performance', 'Deadlocks Happening Daily', 'http://BrentOzar.com/go/deadlocks',
 									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup.' AS Details
-									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup on .' AS Details
 								FROM sys.dm_os_performance_counters p
 									INNER JOIN sys.databases d ON d.name = 'tempdb'
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
 									AND RTRIM(p.instance_name) = '_Total'
 									AND p.cntr_value > 0
-									AND (1.0 * p.cntr_value / datediff(DD,create_date,CURRENT_TIMESTAMP)) > 10;
-							END
-
-
 									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
 							END
 
@@ -3013,9 +2999,6 @@ AS
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
 		  ''http://brentozar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
-		  FROM    [?].sys.indexes
-		  WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
 		  ''The ['' + DB_NAME() + ''] database has objects with fill factor < 80%. This can cause memory and storage performance problems, but may also prevent page splits.''
 		  FROM    [?].sys.indexes
 		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0';
