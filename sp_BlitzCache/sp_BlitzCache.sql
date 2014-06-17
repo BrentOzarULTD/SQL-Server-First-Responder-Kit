@@ -1657,7 +1657,7 @@ BEGIN
                 200,
                 'Execution Plans',
                 'Nearly Parallel',
-                'http://brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
+                'http://brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/',
                 'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
 
     IF EXISTS (SELECT 1/0
