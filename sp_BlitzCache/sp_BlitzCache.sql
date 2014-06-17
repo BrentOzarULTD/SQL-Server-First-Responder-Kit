@@ -1827,7 +1827,8 @@ BEGIN
             FindingsGroup,
             Finding,
             URL,
-            Details
+            Details,
+            CheckID
     FROM    #results
     ORDER BY Priority ASC
     OPTION (RECOMPILE);
