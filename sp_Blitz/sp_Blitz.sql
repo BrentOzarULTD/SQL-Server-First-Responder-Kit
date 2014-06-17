@@ -66,6 +66,7 @@ AS
 	 - Russell Hart improved check 34 to avoid blocking during restores.
 	 - Added check 126 for priority boost enabled. It was always in the non-
 	   default configurations check, but this one is so bad we called it out.
+	 - Added checks 128 and 129 for unsupported builds of SQL Server.
 	 - Added check 127 for unneccessary backups of ReportServerTempDB.
 	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
 
@@ -169,7 +170,10 @@ AS
 			,@query_result_separator CHAR(1)
 			,@EmailSubject NVARCHAR(255)
 			,@EmailBody NVARCHAR(MAX)
-			,@EmailAttachmentFilename NVARCHAR(255);
+			,@EmailAttachmentFilename NVARCHAR(255)
+			,@ProductVersion NVARCHAR(128)
+			,@ProductVersionMajor DECIMAL(10,2)
+			,@ProductVersionMinor DECIMAL(10,2);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -377,6 +381,11 @@ AS
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 			@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 			@OutputTableName = QUOTENAME(@OutputTableName)
+
+		/* Get the major and minor build numbers */
+		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
+		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
+			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
 
 
 		/*
@@ -2744,7 +2753,39 @@ AS
 								'This database is being backed up, but you probably do not need to. See the URL for more details on how to reconstruct it.')
 						END;
 
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 128 )
+							BEGIN
 
+							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor <= 2100) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 2500) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 4000) OR
+							   (@ProductVersionMajor = 9 AND @ProductVersionMinor <= 5000)
+								BEGIN
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+									VALUES(128, 20, 'Reliability', 'Unsupported Build of SQL Server', 'http://BrentOzar.com/go/unsupported',
+										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.');
+								END;
+
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 129 )
+							BEGIN
+							IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3000 AND @ProductVersionMinor <= 3436) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor = 5058) OR
+							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2000 AND @ProductVersionMinor <= 2342)
+								BEGIN
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+									VALUES(129, 20, 'Reliability', 'Dangerous Build of SQL Server', 'http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds',
+										'There are dangerous known bugs with version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + '. Check the URL for details and apply the right service pack or hotfix.');
+								END;
+
+							END;
+							
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
 
