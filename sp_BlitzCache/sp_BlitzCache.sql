@@ -47,8 +47,10 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+- @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
+  with no spaces between the hash values.
 
-v2.3
+v2.3 - 2014-06-07
  - Added opserver specific output
  - Adding a `@only_query_hashes` parameter to limit results to a select set of
    query hashes.
