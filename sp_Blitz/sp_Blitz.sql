@@ -31,11 +31,11 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 34, @VersionDate = '20140402'
+	SELECT @Version = 35, @VersionDate = '20140618'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v35 - June 6, 2014
+	sp_Blitz (TM) v35 - June 18, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
