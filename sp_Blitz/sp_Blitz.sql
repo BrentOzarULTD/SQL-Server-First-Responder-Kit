@@ -31,11 +31,11 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 34, @VersionDate = '20140402'
+	SELECT @Version = 35, @VersionDate = '20140618'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v34 - April 2, 2014
+	sp_Blitz (TM) v35 - June 6, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -55,6 +55,11 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
+	Changes in v35 - June 17, 2014
+	 - John Hill fixed a bug in check 134 looking for deadlocks.
+	 - Robert Virag improved check 19 looking for replication subscribers.
+	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
+
 	Changes in v34 - April 2, 2014
 	 - Jason Pritchard fixed a bug in the plan cache analysis that did not return
 	   results when analyzing for high logical reads.
@@ -71,43 +76,6 @@ AS
 	 - Changed checks 107-109 for Poison Waits to have higher thresholds, now
 	   looking at more than 5 seconds per hour of server uptime. Been up for 10
 	   hours, we look for 50 seconds, that kind of thing.
-
-	Changes in v33 - January 20, 2014
-	 - Bob Klimes fixed a bug that Russell Hart introduced in v32, hahaha. Check
-	   59 was false-alarming on Agent jobs that actually had notifications.
-
-	Changes in v32 - January 19, 2014
-	 - Russell Hart fixed a bug in check 59 (Agent jobs without notifications).
-	 - Added @EmailRecipients and @EmailProfile parameters to send the results via
-	   Database Mail. Assumes that database mail is already configured correctly.
-	   Only sends the main results table, and it will not work well if you also
-	   try to use @CheckProcedureCache. Execution plans will not render in email.
-     - Fixed a bug in checks 108 and 109 that showed poison waits even if they had
-	   0ms of wait time since restart.
-	 - Removed check 120 which warned about backups not using WITH CHECKSUM. We
-	   fell out of love with WITH CHECKSUM - turns out nobody uses it.
-	 - Added check 121 - Poison Wait Detected: Serializable Locking - looking for
-	   waits with %LCK%R%. Happens when a query uses a combination of lock hints
-	   that make the query serializable.
-	 - Added check 122 - User-Created Statistics In Place. There is nothing wrong
-	   with creating your own statistics, but it can cause an IO explosion when
-	   statistics are updated.
-	 - Added check 123 - Multiple Agent Jobs Starting Simultaneously. Ran into an
-	   issue where dozens of jobs started at the exact same time every hour.
-
-	Changes in v31 - December 1, 2013
-	 - Dick Baker, Ambrosetti Ltd (UK):
-	    - Fixed typos in checks 107-109 that looked for the wrong CheckID when
-	      skipping checks, plus improved performance while he was in there.
-	    - Improved check 106 (default trace file) so that it will not error out
-	      if the user does not have permissions on sys.traces.
-	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
-	  in the plan cache for key lookups.
-  	- Philip Dietrich added check 119 for TDE certificates that have not been
-  	  backed up recently.
-	- Ricky Lively added @Help to print inline help. I love his approach to it.
-	- Added check 120 looking for databases that have not had a full backup using
-	  the WITH CHECKSUM option in the last 30 days.
 
 	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
 
@@ -1097,6 +1065,8 @@ AS
 								  URL ,
 								  Details
 								)
+
+								/* Method 1: Check sys.databases parameters */
 								SELECT  19 AS CheckID ,
 										[name] AS DatabaseName ,
 										200 AS Priority ,
@@ -1113,8 +1083,28 @@ AS
 										OR is_subscribed = 1
 										OR is_merge_published = 1
 										OR is_distributor = 1;
-					END
 
+								/* Method B: check subscribers for MSreplication_objects tables */
+
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+												(CheckID,
+												DatabaseName,
+												Priority,
+												FindingsGroup,
+												Finding,
+												URL,
+												Details)
+									  SELECT DISTINCT 19,
+									  db_name(),
+									  200,
+									  ''Informational'',
+									  ''Replication In Use'',
+									  ''http://BrentOzar.com/go/repl'',
+									  (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
+									  FROM [?].sys.tables
+									  WHERE name = ''dbo.MSreplication_objects'' AND ''?'' <> ''master''';
+
+					END
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -2642,14 +2632,32 @@ AS
 									URL,
 									Details)
 								SELECT 124, 100, 'Performance', 'Deadlocks Happening Daily', 'http://BrentOzar.com/go/deadlocks',
-									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup.' AS Details
+									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks have been recorded since startup on .' AS Details
 								FROM sys.dm_os_performance_counters p
 									INNER JOIN sys.databases d ON d.name = 'tempdb'
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
 									AND RTRIM(p.instance_name) = '_Total'
 									AND p.cntr_value > 0
-									AND (1.0 * p.cntr_value / datediff(DD,create_date,CURRENT_TIMESTAMP)) > 10;
+									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
 							END
+
+
+						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+						BEGIN
+							INSERT INTO #BlitzResults
+								(CheckID,
+								Priority,
+								FindingsGroup,
+								Finding,
+								URL,
+								Details)
+							SELECT TOP 1 125, 10, 'Performance', 'Plan Cache Erased Recently', 'http://BrentOzar.com/askbrent/plan-cache-erased-recently/',
+								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+							FROM sys.dm_exec_query_stats WITH (NOLOCK)
+							ORDER BY creation_time	
+						END;
+
+
 
 
 				IF @CheckUserDatabaseObjects = 1
@@ -2879,9 +2887,9 @@ AS
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
 		  ''http://brentozar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has objects with fill factor <> 0. This can cause memory and storage performance problems, but may also prevent page splits.''
+		  ''The ['' + DB_NAME() + ''] database has objects with fill factor < 80%. This can cause memory and storage performance problems, but may also prevent page splits.''
 		  FROM    [?].sys.indexes
-		  WHERE   fill_factor <> 0 AND fill_factor <> 100 AND is_disabled = 0 AND is_hypothetical = 0';
+		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0';
 							END
 
 						IF NOT EXISTS ( SELECT  1
