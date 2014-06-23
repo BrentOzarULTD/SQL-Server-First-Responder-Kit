@@ -47,8 +47,10 @@ ideas to help@brentozar.com.
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
+- @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
+  with no spaces between the hash values.
 
-v2.3
+v2.3 - 2014-06-07
  - Added opserver specific output
  - Adding a `@only_query_hashes` parameter to limit results to a select set of
    query hashes.
@@ -147,13 +149,11 @@ BEGIN
     UNION ALL
     SELECT N'@sort_order',
            N'VARCHAR(10)',
-           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averates rather than total."Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
            N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
     SELECT N'@use_triggers_anyway',
            N'BIT',
-           N'On SQL Server 2008R2 and earlier, trigger execution count is wildly incorrect. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
            N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
 
     UNION ALL
@@ -164,7 +164,6 @@ BEGIN
     UNION ALL
     SELECT N'@results',
            N'VARCHAR(10)',
-           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines the columns that will be displayed in the detailed analysis of the plan cache.'
            N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines which columns will be displayed in the analysis of the plan cache.'
 
     UNION ALL
@@ -403,7 +402,6 @@ BEGIN
     SELECT N'Frequent Execution Threshold' AS [Configuration Parameter] ,
            N'100' AS [Default Value] ,
            N'Executions / Minute' AS [Unit of Measure] ,
-           N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered' AS [Description]
            N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered.' AS [Description]
 
     UNION ALL
@@ -422,7 +420,6 @@ BEGIN
     SELECT N'Cost Threshold for Parallelism Warning' AS [Configuration Parameter] ,
            N'10' ,
            N'Percent' ,
-           N'Trigger a "Nearly Parallel" warning with a query''s cost is within X percent ofthe system cost threshold for parallelism'
            N'Trigger a "Nearly Parallel" warning when a query''s cost is within X percent of the cost threshold for parallelism.'
 
     UNION ALL
@@ -691,7 +688,6 @@ DECLARE @sql nvarchar(MAX) = N'',
         @body nvarchar(MAX) = N'',
         @body_where nvarchar(MAX) = N'',
         @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
-        @nl nvarchar(2) = NCHAR(13) + NCHAR(10),
         
         @q nvarchar(1) = N'''',
         @pv varchar(20),
@@ -904,14 +900,6 @@ SET @sql += N'
 
 SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 
-
-
-SET @sql += @body_where ;
-
-IF @ignore_system_db = 1
-    SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
-
-SET @sql += @body_order + @nl + @nl + @nl;
 IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
 BEGIN
@@ -922,13 +910,6 @@ END
 
 
 
-SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
-SET @sql += @body_where ;
-
-IF @ignore_system_db = 1
-    SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
-
-SET @sql += @body_order + @nl + @nl + @nl ;
 SET @sql += @body_where ;
 
 IF @ignore_system_db = 1
@@ -1255,31 +1236,6 @@ BEGIN
     WHERE 'parameter sniffing io threshold' = LOWER(parameter_name) ;
 
     SET @msg = ' Setting "parameter sniffing io threshold" to ' + CAST(@parameter_sniffing_io_threshold AS VARCHAR(10));
-
-    RAISERROR(@msg, 0, 1) WITH NOWAIT;
-END
-
-IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name))
-BEGIN
-    SELECT @ctp_threshold_pct = CAST(value AS TINYINT)
-    FROM   #configuration
-    WHERE 'cost threshold for parallelism warning' = LOWER(parameter_name) ;
-
-    SET @msg = ' Setting "cost threshold for parallelism warning" to ' + CAST(@ctp_threshold_pct AS VARCHAR(3));
-
-    RAISERROR(@msg, 0, 1) WITH NOWAIT;
-END
-
-IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'long running query warning (seconds)' = LOWER(parameter_name))
-BEGIN
-    SELECT @long_running_query_warning_seconds = CAST(value * 1000 AS BIGINT)
-    FROM   #configuration
-    WHERE 'long running query warning (seconds)' = LOWER(parameter_name) ;
-
-    SET @msg = ' Setting "long running query warning (seconds)" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
-
-    RAISERROR(@msg, 0, 1) WITH NOWAIT;
-END
 
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END
@@ -1703,7 +1659,7 @@ BEGIN
                 200,
                 'Execution Plans',
                 'Nearly Parallel',
-                'http://brentozar.com/blitzcache/queyr-cost-near-cost-threshold-parallelism/',
+                'http://brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/',
                 'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
 
     IF EXISTS (SELECT 1/0
@@ -1809,7 +1765,7 @@ BEGIN
             50,
             'Execution Plans',
             'Compilation timeout',
-            'http://brentozar.com/blitzcache/compile-timeout/',
+            'http://brentozar.com/blitzcache/compilaltion-timeout/',
             'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
 
     IF EXISTS (SELECT 1/0
@@ -1860,7 +1816,6 @@ BEGIN
                FROM   #procs
                WHERE  unparameterized_query = 1)
     INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (32,
     VALUES (23,
             100,
             'Parameterization',
@@ -1874,7 +1829,8 @@ BEGIN
             FindingsGroup,
             Finding,
             URL,
-            Details
+            Details,
+            CheckID
     FROM    #results
     ORDER BY Priority ASC
     OPTION (RECOMPILE);
