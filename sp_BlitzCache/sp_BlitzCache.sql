@@ -50,6 +50,10 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4 -
+ - Fixed a logical error in output table detection - thanks to Michael
+   Bluett for pointing that out.
+
 v2.3 - 2014-06-07
  - Added opserver specific output
  - Adding a `@only_query_hashes` parameter to limit results to a select set of
@@ -1417,7 +1421,7 @@ SET    Warnings = SUBSTRING(
 
 IF @output_database_name IS NOT NULL
    AND @output_schema_name IS NOT NULL
-   AND @output_schema_name IS NOT NULL
+   AND @output_table_name IS NOT NULL
 BEGIN
     RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
 
