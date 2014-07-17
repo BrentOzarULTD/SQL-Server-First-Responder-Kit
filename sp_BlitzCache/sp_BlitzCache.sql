@@ -950,8 +950,8 @@ BEGIN
 END
 
 
-IF ((SELECT COUNT(*) FROM #only_query_hashes) = 0)
-   OR LEFT(@query_filter, 3) IN ('all', 'pro')
+IF (@query_filter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0)
+   OR (LEFT(@query_filter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
     SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
@@ -980,6 +980,7 @@ END
  ******************************************************************************/
 IF (@use_triggers_anyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+   AND (@query_filter = 'all')
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
