@@ -219,7 +219,7 @@ BEGIN
     UNION ALL
     SELECT N'@query_filter',
            N'VARCHAR(10)',
-           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''queries'', or ''all'' (any variation in capitalization is acceptable).';
+           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).';
 
 
 
@@ -467,7 +467,7 @@ SELECT @output_database_name = QUOTENAME(@output_database_name),
 
 SET @query_filter = LOWER(@query_filter);
 
-IF LEFT(@query_filter, 3) NOT IN ('all', 'que', 'pro')
+IF LEFT(@query_filter, 3) NOT IN ('all', 'sta', 'pro')
   SET @query_filter = 'all';
 
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
@@ -614,7 +614,7 @@ SET @ignore_query_hashes = LTRIM(RTRIM(@ignore_query_hashes)) ;
 
 IF ((@only_query_hashes IS NOT NULL AND LEN(@only_query_hashes) > 0)
     OR (@ignore_query_hashes IS NOT NULL AND LEN(@ignore_query_hashes) > 0))
-   AND @query_filter = 'procedures'
+   AND LEFT(@query_filter, 3) = 'pro'
 BEGIN
    RAISERROR('You cannot limit by query hash and filter by stored procedure', 16, 1);
    RETURN;
@@ -842,7 +842,7 @@ SELECT TOP (@top)
        qs.max_elapsed_time / 1000.0 '
 
 
-IF LEFT(@query_filter, 3) IN ('all', 'que')
+IF LEFT(@query_filter, 3) IN ('all', 'sta')
 BEGIN
     SET @sql += @insert_list;
     
