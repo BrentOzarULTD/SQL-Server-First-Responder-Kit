@@ -25,6 +25,10 @@ EXEC sp_BlitzCache @sort_order = 'avg duration', @export_to_excel = 1
 EXEC sp_BlitzCache @sort_order = 'average execution', @export_to_excel = 1
 EXEC sp_BlitzCache @sort_order = 'avg execution', @export_to_excel = 1
 
+EXEC sp_BlitzCache @query_filter = 'all'
+EXEC sp_BlitzCache @query_filter = 'query'
+EXEC sp_BlitzCache @query_filter = 'procedure'
+
 
 
 /* Testing output to table mode */
