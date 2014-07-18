@@ -23,6 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @ignore_system_db BIT = 1 ,
     @only_query_hashes VARCHAR(MAX) = NULL ,
     @ignore_query_hashes VARCHAR(MAX) = NULL ,
+    @query_filter VARCHAR(10) = 'ALL' ,
     @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
@@ -213,7 +214,12 @@ BEGIN
     UNION ALL
     SELECT N'@whole_cache',
            N'BIT',
-           N'This forces sp_BlitzCache to examine the entire plan cache. Be careful running this on servers with a lot of memory or a large execution plan cache.' ;
+           N'This forces sp_BlitzCache to examine the entire plan cache. Be careful running this on servers with a lot of memory or a large execution plan cache.'
+
+    UNION ALL
+    SELECT N'@query_filter',
+           N'VARCHAR(10)',
+           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).';
 
 
 
@@ -457,7 +463,12 @@ IF @sort_order NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg wr
 
 SELECT @output_database_name = QUOTENAME(@output_database_name),
        @output_schema_name   = QUOTENAME(@output_schema_name),
-       @output_table_name    = QUOTENAME(@output_table_name)
+       @output_table_name    = QUOTENAME(@output_table_name);
+
+SET @query_filter = LOWER(@query_filter);
+
+IF LEFT(@query_filter, 3) NOT IN ('all', 'sta', 'pro')
+  SET @query_filter = 'all';
 
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
    DROP TABLE #only_query_hashes ;
@@ -600,6 +611,14 @@ CREATE TABLE #procs (
 
 SET @only_query_hashes = LTRIM(RTRIM(@only_query_hashes)) ;
 SET @ignore_query_hashes = LTRIM(RTRIM(@ignore_query_hashes)) ;
+
+IF ((@only_query_hashes IS NOT NULL AND LEN(@only_query_hashes) > 0)
+    OR (@ignore_query_hashes IS NOT NULL AND LEN(@ignore_query_hashes) > 0))
+   AND LEFT(@query_filter, 3) = 'pro'
+BEGIN
+   RAISERROR('You cannot limit by query hash and filter by stored procedure', 16, 1);
+   RETURN;
+END
 
 /* If the user is attempting to limit by query hash, set up the
    #only_query_hashes temp table. This will be used to narrow down
@@ -823,112 +842,116 @@ SELECT TOP (@top)
        qs.max_elapsed_time / 1000.0 '
 
 
-SET @sql += @insert_list;
-
-SET @sql += N'
-SELECT TOP (@top)
-       ''Statement'' AS QueryType,
-       COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
-       (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
-       (total_worker_time / 1000.0) AS TotalCPU ,
-       CASE WHEN total_worker_time = 0 THEN 0
-            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
-            END AS AverageCPUPerMinute ,
-       CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY) AS PercentCPUByType,
-       CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY) AS PercentDurationByType,
-       CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY) AS PercentReadsByType,
-       CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY) AS PercentExecutionsByType,
-       (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
-       (total_elapsed_time / 1000.0) AS TotalDuration ,
-       total_logical_reads / execution_count AS AvgReads ,
-       total_logical_reads AS TotalReads ,
-       execution_count AS ExecutionCount ,
-       CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
-            END AS ExecutionsPerMinute ,
-       total_logical_writes AS TotalWrites ,
-       total_logical_writes / execution_count AS AverageWrites ,
-       CASE WHEN t.t_TotalWrites = 0 THEN 0
-            ELSE CAST(ROUND(100.00 * total_logical_writes / t.t_TotalWrites, 2) AS MONEY)
-            END AS PercentWritesByType,
-       CASE WHEN total_logical_writes = 0 THEN 0
-            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST((1.00 * total_logical_writes / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0)) AS money)
-            END AS WritesPerMinute,
-       qs.creation_time AS PlanCreationTime,
-       qs.last_execution_time AS LastExecutionTime,
-       qs.statement_start_offset AS StatementStartOffset,
-       qs.statement_end_offset AS StatementEndOffset, '
-
-IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
+IF LEFT(@query_filter, 3) IN ('all', 'sta')
 BEGIN
+    SET @sql += @insert_list;
+    
     SET @sql += N'
-       qs.min_rows AS MinReturnedRows,
-       qs.max_rows AS MaxReturnedRows,
-       CAST(qs.total_rows as MONEY) / execution_count AS AvgReturnedRows,
-       qs.total_rows AS TotalReturnedRows,
-       qs.last_rows AS LastReturnedRows, ' ;
-END
-ELSE
-BEGIN
+    SELECT TOP (@top)
+           ''Statement'' AS QueryType,
+           COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
+           (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
+           (total_worker_time / 1000.0) AS TotalCPU ,
+           CASE WHEN total_worker_time = 0 THEN 0
+                WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
+                ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
+                END AS AverageCPUPerMinute ,
+           CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY) AS PercentCPUByType,
+           CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY) AS PercentDurationByType,
+           CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY) AS PercentReadsByType,
+           CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY) AS PercentExecutionsByType,
+           (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
+           (total_elapsed_time / 1000.0) AS TotalDuration ,
+           total_logical_reads / execution_count AS AvgReads ,
+           total_logical_reads AS TotalReads ,
+           execution_count AS ExecutionCount ,
+           CASE WHEN execution_count = 0 THEN 0
+                WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
+                ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
+                END AS ExecutionsPerMinute ,
+           total_logical_writes AS TotalWrites ,
+           total_logical_writes / execution_count AS AverageWrites ,
+           CASE WHEN t.t_TotalWrites = 0 THEN 0
+                ELSE CAST(ROUND(100.00 * total_logical_writes / t.t_TotalWrites, 2) AS MONEY)
+                END AS PercentWritesByType,
+           CASE WHEN total_logical_writes = 0 THEN 0
+                WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
+                ELSE CAST((1.00 * total_logical_writes / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0)) AS money)
+                END AS WritesPerMinute,
+           qs.creation_time AS PlanCreationTime,
+           qs.last_execution_time AS LastExecutionTime,
+           qs.statement_start_offset AS StatementStartOffset,
+           qs.statement_end_offset AS StatementEndOffset, '
+    
+    IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
+    BEGIN
+        SET @sql += N'
+           qs.min_rows AS MinReturnedRows,
+           qs.max_rows AS MaxReturnedRows,
+           CAST(qs.total_rows as MONEY) / execution_count AS AvgReturnedRows,
+           qs.total_rows AS TotalReturnedRows,
+           qs.last_rows AS LastReturnedRows, ' ;
+    END
+    ELSE
+    BEGIN
+        SET @sql += N'
+           NULL AS MinReturnedRows,
+           NULL AS MaxReturnedRows,
+           NULL AS AvgReturnedRows,
+           NULL AS TotalReturnedRows,
+           NULL AS LastReturnedRows, ' ;
+    END
+    
     SET @sql += N'
-       NULL AS MinReturnedRows,
-       NULL AS MaxReturnedRows,
-       NULL AS AvgReturnedRows,
-       NULL AS TotalReturnedRows,
-       NULL AS LastReturnedRows, ' ;
+           SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
+                                                                            WHEN -1 THEN DATALENGTH(st.text)
+                                                                            ELSE qs.statement_end_offset
+                                                                          END - qs.statement_start_offset ) / 2 ) + 1) AS QueryText ,
+           query_plan AS QueryPlan,
+           t.t_TotalWorker,
+           t.t_TotalElapsed,
+           t.t_TotalReads,
+           t.t_TotalExecs,
+           t.t_TotalWrites,
+           qs.sql_handle AS SqlHandle,
+           NULL AS PlanHandle,
+           qs.query_hash AS QueryHash,
+           qs.query_plan_hash AS QueryPlanHash,
+           qs.min_worker_time / 1000.0,
+           qs.max_worker_time / 1000.0,
+           CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
+           qs.min_elapsed_time / 1000.0,
+           qs.max_worker_time  / 1000.0 '
+    
+    SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
+    
+    IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+       AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+    BEGIN
+        SET @sql += REPLACE(@sql, ') AS qs', ') AS qs
+        LEFT JOIN #ignore_query_hashes iqh ON iqh.query_hash = qs.query_hash ' + @nl) ;
+    END
+    
+    
+    
+    
+    SET @sql += @body_where ;
+    
+    IF @ignore_system_db = 1
+        SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+    
+    IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+       AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+    BEGIN
+        SET @sql += ' AND iqh.query_hash IS NULL ' + @nl ;
+    END
+    
+    SET @sql += @body_order + @nl + @nl + @nl;
 END
 
-SET @sql += N'
-       SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
-                                                                        WHEN -1 THEN DATALENGTH(st.text)
-                                                                        ELSE qs.statement_end_offset
-                                                                      END - qs.statement_start_offset ) / 2 ) + 1) AS QueryText ,
-       query_plan AS QueryPlan,
-       t.t_TotalWorker,
-       t.t_TotalElapsed,
-       t.t_TotalReads,
-       t.t_TotalExecs,
-       t.t_TotalWrites,
-       qs.sql_handle AS SqlHandle,
-       NULL AS PlanHandle,
-       qs.query_hash AS QueryHash,
-       qs.query_plan_hash AS QueryPlanHash,
-       qs.min_worker_time / 1000.0,
-       qs.max_worker_time / 1000.0,
-       CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
-       qs.min_elapsed_time / 1000.0,
-       qs.max_worker_time  / 1000.0 '
 
-SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
-
-IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-BEGIN
-    SET @sql += REPLACE(@sql, ') AS qs', ') AS qs
-    LEFT JOIN #ignore_query_hashes iqh ON iqh.query_hash = qs.query_hash ' + @nl) ;
-END
-
-
-
-
-SET @sql += @body_where ;
-
-IF @ignore_system_db = 1
-    SET @sql += 'AND COALESCE(DB_NAME(CAST(pa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
-
-IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-BEGIN
-    SET @sql += ' AND iqh.query_hash IS NULL ' + @nl ;
-END
-
-SET @sql += @body_order + @nl + @nl + @nl;
-
-
-IF (SELECT COUNT(*) FROM #only_query_hashes) = 0
+IF (@query_filter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0)
+   OR (LEFT(@query_filter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
     SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
@@ -957,6 +980,7 @@ END
  ******************************************************************************/
 IF (@use_triggers_anyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+   AND (@query_filter = 'all')
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
