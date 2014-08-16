@@ -31,11 +31,11 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 35, @VersionDate = '20140618'
+	SELECT @Version = 36, @VersionDate = '20140816'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v35 - June 18, 2014
+	sp_Blitz (TM) v36 - August 16, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -44,6 +44,9 @@ AS
 	new versions for free, watch training videos on how it works, get more info on
 	the findings, and more.  To contribute code and see your name in the change
 	log, email your improvements & checks to Help@BrentOzar.com.
+
+	To request a feature or change: http://support.brentozar.com/
+	To contribute code: http://www.brentozar.com/contributing-code/
 
 	Known limitations of this version:
 	 - No support for SQL Server 2000 or compatibility mode 80.
@@ -55,6 +58,9 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
+ 	Changes in v36 - August 16, 2014
+ 	 - Moved contributions to support.brentozar.com.
+
 	Changes in v35 - June 17, 2014
 	 - John Hill fixed a bug in check 134 looking for deadlocks.
 	 - Robert Virag improved check 19 looking for replication subscribers.
@@ -65,61 +71,7 @@ AS
 	 - Added check 127 for unneccessary backups of ReportServerTempDB.
 	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
 
-	Changes in v34 - April 2, 2014
-	 - Jason Pritchard fixed a bug in the plan cache analysis that did not return
-	   results when analyzing for high logical reads.
-	 - Kirby Richter @SqlKirby fixed a bug in check 75 (t-log sizes) that failed
-	   on really big transaction log files. (Not even gonna say how big.)
-	 - Oleg Ivashov improved check 94 (jobs without failure emails) to exclude
-	   SSRS jobs.
-	 - Added @SummaryMode parameter to return only one result set per finding.
-	 - Added check 124 for Performance: Deadlocks Happening Daily. Looks for more
-	   than 10 deadlocks per day.
-	 - Moved check 121 for Performance: Serializable Locking to be lower
-	   priority (down to 100 from 10) and only triggers when more than 10
-	   minutes of the wait have happened since startup.
-	 - Changed checks 107-109 for Poison Waits to have higher thresholds, now
-	   looking at more than 5 seconds per hour of server uptime. Been up for 10
-	   hours, we look for 50 seconds, that kind of thing.
-
-	Changes in v33 - January 20, 2014
-	 - Bob Klimes fixed a bug that Russell Hart introduced in v32, hahaha. Check
-	   59 was false-alarming on Agent jobs that actually had notifications.
-
-	Changes in v32 - January 19, 2014
-	 - Russell Hart fixed a bug in check 59 (Agent jobs without notifications).
-	 - Added @EmailRecipients and @EmailProfile parameters to send the results via
-	   Database Mail. Assumes that database mail is already configured correctly.
-	   Only sends the main results table, and it will not work well if you also
-	   try to use @CheckProcedureCache. Execution plans will not render in email.
-     - Fixed a bug in checks 108 and 109 that showed poison waits even if they had
-	   0ms of wait time since restart.
-	 - Removed check 120 which warned about backups not using WITH CHECKSUM. We
-	   fell out of love with WITH CHECKSUM - turns out nobody uses it.
-	 - Added check 121 - Poison Wait Detected: Serializable Locking - looking for
-	   waits with %LCK%R%. Happens when a query uses a combination of lock hints
-	   that make the query serializable.
-	 - Added check 122 - User-Created Statistics In Place. There is nothing wrong
-	   with creating your own statistics, but it can cause an IO explosion when
-	   statistics are updated.
-	 - Added check 123 - Multiple Agent Jobs Starting Simultaneously. Ran into an
-	   issue where dozens of jobs started at the exact same time every hour.
-
-	Changes in v31 - December 1, 2013
-	 - Dick Baker, Ambrosetti Ltd (UK):
-	    - Fixed typos in checks 107-109 that looked for the wrong CheckID when
-	      skipping checks, plus improved performance while he was in there.
-	    - Improved check 106 (default trace file) so that it will not error out
-	      if the user does not have permissions on sys.traces.
-	- Christoph Muller-Spengler @cms4j added check 118 looking at the top queries
-	  in the plan cache for key lookups.
-  	- Philip Dietrich added check 119 for TDE certificates that have not been
-  	  backed up recently.
-	- Ricky Lively added @Help to print inline help. I love his approach to it.
-	- Added check 120 looking for databases that have not had a full backup using
-	  the WITH CHECKSUM option in the last 30 days.
-
-	For prior changes, see http://www.BrentOzar.com/blitz/changelog/
+	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
 
 	Parameter explanations:
