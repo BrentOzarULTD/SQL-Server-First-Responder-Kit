@@ -3677,7 +3677,7 @@ AS
 								DROP TABLE #LogInfo;
 							END
 					END
-		/*Verify that the servername is set */
+
 	/*Verify that the servername is set */
 			IF NOT EXISTS ( SELECT  1
 							FROM    #SkipChecks
@@ -3988,6 +3988,29 @@ AS
 
 				IF @CheckServerInfo = 1
 					BEGIN
+
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 130 )
+						BEGIN
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+											SELECT  130 AS CheckID ,
+													250 AS Priority ,
+													'Server Info' AS FindingsGroup ,
+													'Server Name' AS Finding ,
+													'http://BrentOzar.com/go/servername' AS URL ,
+													@@SERVERNAME AS Details
+												WHERE @@SERVERNAME IS NOT NULL;
+								END;
+
+
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
