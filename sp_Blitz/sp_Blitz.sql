@@ -59,6 +59,8 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
  	Changes in v36 - August 16, 2014
+	 - Added non-default database configuration checks looking at sys.databases
+	   as checks 131-144.
  	 - Moved contributions to support.brentozar.com.
 
 	Changes in v35 - June 17, 2014
@@ -120,7 +122,14 @@ AS
 			,@EmailAttachmentFilename NVARCHAR(255)
 			,@ProductVersion NVARCHAR(128)
 			,@ProductVersionMajor DECIMAL(10,2)
-			,@ProductVersionMinor DECIMAL(10,2);
+			,@ProductVersionMinor DECIMAL(10,2)
+			,@CurrentName NVARCHAR(128)
+			,@CurrentDefaultValue NVARCHAR(200)
+			,@CurrentCheckID INT
+			,@CurrentPriority INT
+			,@CurrentFinding VARCHAR(200)
+			,@CurrentURL VARCHAR(200)
+			,@CurrentDetails NVARCHAR(4000);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -200,6 +209,21 @@ AS
 			  DefaultValue BIGINT,
 			  CheckID INT
 			);
+
+		IF OBJECT_ID('tempdb..#DatabaseDefaults') IS NOT NULL
+			DROP TABLE #DatabaseDefaults;
+		CREATE TABLE #DatabaseDefaults
+			(
+				name NVARCHAR(128) ,
+				DefaultValue NVARCHAR(200),
+				CheckID INT,
+		        Priority INT,
+		        Finding VARCHAR(200),
+		        URL VARCHAR(200),
+		        Details NVARCHAR(4000)
+			);
+
+
 
 		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL
 			DROP TABLE #DBCCs;
@@ -2723,6 +2747,88 @@ AS
 								END;
 
 							END;
+
+						/* Populate a list of database defaults. I'm doing this kind of oddly -
+						    it reads like a lot of work, but this way it compiles & runs on all
+						    versions of SQL Server.
+						*/
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_supplemental_logging_enabled', 0, 131, 210, 'Supplemental Logging Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_supplemental_logging_enabled' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'snapshot_isolation_state', 0, 132, 210, 'Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_read_committed_snapshot_on', 0, 133, 210, 'Read Committed Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_auto_create_stats_incremental_on', 0, 134, 210, 'Auto Create Stats Incremental Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_auto_create_stats_incremental_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_ansi_null_default_on', 0, 135, 210, 'ANSI NULL Default Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_ansi_null_default_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_recursive_triggers_on', 0, 136, 210, 'Recursive Triggers Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_recursive_triggers_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_trustworthy_on', 0, 137, 210, 'Trustworthy Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_trustworthy_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_query_store_on', 0, 139, 210, 'Query Store Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_query_store_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_cdc_enabled', 0, 140, 210, 'Change Data Capture Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_cdc_enabled' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'containment', 0, 141, 210, 'Containment Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'containment' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'delayed_durability', 0, 143, 210, 'Delayed Durability Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'delayed_durability' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_memory_optimized_elevate_to_snapshot_on', 0, 144, 210, 'Memory Optimized Enabled', 'http://BrentOzar.com/go/dbdefaults', ''
+						  FROM sys.all_columns 
+						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+
+						DECLARE DatabaseDefaultsLoop CURSOR FOR
+						  SELECT name, DefaultValue, CheckID, Priority, Finding, URL, Details
+						  FROM #DatabaseDefaults
+
+						OPEN DatabaseDefaultsLoop
+						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails
+						WHILE @@FETCH_STATUS = 0
+						BEGIN 
+
+						    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+						       SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + @CurrentDetails + '''
+						        FROM sys.databases d
+						        WHERE d.database_id > 4 AND d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue ;
+						    EXEC (@StringToExecute);
+
+						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails 
+						END
+
+						CLOSE DatabaseDefaultsLoop
+						DEALLOCATE DatabaseDefaultsLoop;
 							
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
