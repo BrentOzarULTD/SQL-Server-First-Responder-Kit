@@ -1669,9 +1669,10 @@ With extra diagnostic info:
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
 
 In Ask a Question mode:
+EXEC dbo.sp_AskBrent 'Is this cursor bad?';
 
-/* A few sample calling methods:
-EXEC dbo.sp_AskBrent 
+A few sample calling methods:
+EXEC dbo.sp_AskBrent;
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
 EXEC dbo.sp_AskBrent 'This is a test question';
 */
