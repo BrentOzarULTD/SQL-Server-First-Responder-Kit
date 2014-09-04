@@ -132,32 +132,33 @@ BEGIN TRY
             N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER 
             ' + case @IncludeStatements when 1 then + N'
             ADD EVENT sqlserver.sp_statement_completed (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.sql_statement_completed (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ' ELSE N'' END + '
             ADD EVENT sqlserver.sort_warning (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.degree_of_parallelism (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.object_created (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.sql_batch_completed (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.sql_statement_recompile (
-                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))), 
             ADD EVENT sqlserver.rpc_completed (
+                ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
             ADD TARGET package0.event_file(SET filename=''' + @TargetPathFull + N''',
                 max_file_size=(256),
-                max_rollover_files=0)
+                max_rollover_files=4)
             WITH (MAX_MEMORY = 128 MB,
                 EVENT_RETENTION_MODE = ALLOW_MULTIPLE_EVENT_LOSS,
                 MAX_DISPATCH_LATENCY = 5 SECONDS, 
@@ -209,6 +210,9 @@ BEGIN TRY
 
         SELECT @filepath=CAST(@filepathXML.query('data(EventFileTarget/File/@name)') AS VARCHAR(1024))
 
+        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Using filepath: ' + @filepath
+        RAISERROR (@msg,0,1) WITH NOWAIT;
+
         CREATE TABLE #sp_BlitzTraceXML (
             event_data XML NOT NULL
         );
@@ -235,6 +239,8 @@ BEGIN TRY
             recompile_cause sysname NULL,
             sort_warning_type VARCHAR(256) NULL,
             query_operation_node_id INT NULL,
+            query_hash varchar(256) NULL,
+            query_plan_hash varchar(256) NULL,
             context_info sysname NULL,
             event_data XML NOT NULL
         )
@@ -254,7 +260,7 @@ BEGIN TRY
 
         INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
         logical_reads, writes, row_count, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
-        object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, context_info, event_data)
+        object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash, context_info, event_data)
         SELECT  
             DATEADD(mi, DATEDIFF(mi, GETUTCDATE(), CURRENT_TIMESTAMP), n.value('@timestamp', 'datetime2')) AS event_time,
             n.value('@name', 'nvarchar(max)') AS event_type,
@@ -281,6 +287,9 @@ BEGIN TRY
             /* tempdb spills */
             n.value('(data[@name="sort_warning_type"]/text)[1]', 'varchar(256)') AS sort_warning_type,
             n.value('(data[@name="query_operation_node_id"]/value)[1]', 'varchar(256)') AS query_operation_node_id,
+            /* query hash and query plan hash */
+            n.value('(action[@name="query_hash"]/value)[1]', 'varchar(256)') AS query_hash,
+            n.value('(action[@name="query_plan_hash"]/value)[1]', 'varchar(256)') AS query_plan_hash,
             /* Context info, for filtering */
             n.value('(action[@name="context_info"]/value)[1]', 'VARCHAR(MAX)') AS [context_info],
             x.event_data as event_data
@@ -326,6 +335,8 @@ BEGIN TRY
             logical_reads,
             writes,
             row_count,
+            query_hash,
+            query_plan_hash,
             event_data
         FROM #sp_BlitzTraceEvents
         WHERE event_type in (N'sql_batch_completed',N'rpc_completed','sql_statement_completed', 'sp_statement_completed')
@@ -343,9 +354,13 @@ BEGIN TRY
                 sql_text,
                 dop_statement_type,
                 dop,
-                workspace_memory_grant_kb
+                workspace_memory_grant_kb,
+                query_hash,
+                query_plan_hash,
+                event_data
             FROM #sp_BlitzTraceEvents
-            WHERE event_type = N'degree_of_parallelism'
+            WHERE event_type = 'degree_of_parallelism'
+                and query_hash <> '0'
             ORDER BY 1;
         END
 
@@ -362,9 +377,12 @@ BEGIN TRY
                 [object_id],
                 [object_name],
                 cpu_time_ms,
-                ddl_phase
+                ddl_phase,
+                query_hash,
+                query_plan_hash,
+                event_data
             FROM #sp_BlitzTraceEvents
-            WHERE event_type = N'object_created'
+            WHERE event_type = 'object_created'
             ORDER BY 1;
         END
 
@@ -379,9 +397,12 @@ BEGIN TRY
                 event_time,
                 event_type,
                 sql_text,
-                recompile_cause
+                recompile_cause,
+                query_hash,
+                query_plan_hash,
+                event_data
             FROM #sp_BlitzTraceEvents
-            WHERE event_type = N'sql_statement_recompile'
+            WHERE event_type = 'sql_statement_recompile'
             ORDER BY 1;
         END
 
@@ -396,9 +417,12 @@ BEGIN TRY
                 event_time,
                 event_type,
                 sort_warning_type,
-                query_operation_node_id
+                query_operation_node_id,
+                query_hash,
+                query_plan_hash,
+                event_data
             FROM #sp_BlitzTraceEvents
-            WHERE event_type = N'sort_warning'
+            WHERE event_type = 'sort_warning'
             ORDER BY 1;
         END
 
