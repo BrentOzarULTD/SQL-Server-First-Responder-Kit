@@ -21,8 +21,9 @@ GO
 CREATE PROCEDURE dbo.sp_BlitzTrace
     @SessionId INT = NULL ,
     @Action VARCHAR(5) = 'timed',  /* 'timed','start', 'read', 'stop'*/
-    @Seconds INT = 30, /* Timed traces only */
-    @TargetPath VARCHAR(528) = NULL 
+    @Seconds INT = 30, /* Works with timed traces only */
+    @TargetPath VARCHAR(528) = NULL,  /* Required, we don't do no ring buffer.*/
+    @IncludeStatements BIT = 0 /* By default just batch completed and rpc completed */
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
     /* See http://BrentOzar.com/go/eula for the End User License Agreement */
@@ -126,22 +127,31 @@ BEGIN TRY
         SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- File target is: ' + @TargetPathFull
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
+
         DECLARE @dsql NVARCHAR(MAX)=
             N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER 
+            ' + case @IncludeStatements when 1 then + N'
+            ADD EVENT sqlserver.sp_statement_completed (
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+            ADD EVENT sqlserver.sql_statement_completed (
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
+                WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+            ' ELSE N'' END + '
             ADD EVENT sqlserver.sort_warning (
-                ACTION(sqlserver.context_info)
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.degree_of_parallelism (
-                ACTION(sqlserver.context_info)
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.object_created (
-                ACTION(sqlserver.context_info)
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.sql_batch_completed (
-                ACTION(sqlserver.context_info)
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
             ADD EVENT sqlserver.sql_statement_recompile (
-                ACTION(sqlserver.context_info)
+                ACTION(sqlserver.context_info, sqlserver.sql_text)
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))), 
             ADD EVENT sqlserver.rpc_completed (
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
@@ -207,6 +217,8 @@ BEGIN TRY
             event_time DATETIME2 NOT NULL,
             event_type NVARCHAR(256) NOT NULL,
             batch_text VARCHAR(MAX) NULL,
+            sql_text VARCHAR(MAX) NULL,
+            [statement] VARCHAR(MAX) NULL,
             duration_ms INT NULL,
             cpu_time_ms INT NULL,
             physical_reads INT NULL,
@@ -223,7 +235,8 @@ BEGIN TRY
             recompile_cause sysname NULL,
             sort_warning_type VARCHAR(256) NULL,
             query_operation_node_id INT NULL,
-            context_info sysname NULL
+            context_info sysname NULL,
+            event_data XML NOT NULL
         )
 
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Populating #sp_BlitzTraceXML...'
@@ -239,13 +252,15 @@ BEGIN TRY
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Started populating #sp_BlitzTraceEvents...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
-        INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, duration_ms, cpu_time_ms, physical_reads,
+        INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
         logical_reads, writes, row_count, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
-        object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, context_info)
+        object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, context_info, event_data)
         SELECT  
             DATEADD(mi, DATEDIFF(mi, GETUTCDATE(), CURRENT_TIMESTAMP), n.value('@timestamp', 'datetime2')) AS event_time,
             n.value('@name', 'nvarchar(max)') AS event_type,
             n.value('(data[@name="batch_text"]/value)[1]', 'varchar(max)') AS batch_text,
+            n.value('(action[@name="sql_text"]/value)[1]', 'varchar(max)') AS sql_text,
+            n.value('(data[@name="statement"]/value)[1]', 'varchar(max)') AS [statement],
             n.value('(data[@name="duration"]/value)[1]', 'int') AS duration_ms,
             n.value('(data[@name="cpu_time"]/value)[1]', 'int') AS cpu_time_ms,
             n.value('(data[@name="physical_reads"]/value)[1]', 'int') AS physical_reads,
@@ -267,8 +282,8 @@ BEGIN TRY
             n.value('(data[@name="sort_warning_type"]/text)[1]', 'varchar(256)') AS sort_warning_type,
             n.value('(data[@name="query_operation_node_id"]/value)[1]', 'varchar(256)') AS query_operation_node_id,
             /* Context info, for filtering */
-            n.value('(action[@name="context_info"]/value)[1]', 'VARCHAR(MAX)') AS [context_info]
-            --,n.event_data
+            n.value('(action[@name="context_info"]/value)[1]', 'VARCHAR(MAX)') AS [context_info],
+            x.event_data as event_data
         FROM #sp_BlitzTraceXML AS xet
         CROSS APPLY (SELECT CAST(xet.event_data AS XML) AS event_data) as x 
         OUTER APPLY x.event_data.nodes('//event') AS y(n)  
@@ -291,22 +306,29 @@ BEGIN TRY
 
         CREATE CLUSTERED INDEX cx_spBlitzTrace on #sp_BlitzTraceEvents (event_type, event_time)
 
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying sql_batch_completed, rpc_completed...'
+        DELETE FROM #sp_BlitzTraceEvents
+        WHERE (@SessionId=@@SPID and [context_info] = '73705f426c69747a5472616365204953205448452042455354')
+        OR PATINDEX('%sp_BlitzTrace%',batch_text) <> 0
+        OR PATINDEX('%sp_BlitzTrace%',sql_text) <> 0
+            OPTION (RECOMPILE);
+
+        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
         /* sql_batch_completed, rpc_completed */
         SELECT  
             event_time,
             event_type,
             batch_text,
+            [statement],
             duration_ms,
             cpu_time_ms,
             physical_reads,
             logical_reads,
             writes,
-            row_count
+            row_count,
+            event_data
         FROM #sp_BlitzTraceEvents
-        WHERE event_type in (N'sql_batch_completed',N'rpc_completed')
-        AND PATINDEX('%sp_BlitzTrace%',batch_text) = 0
+        WHERE event_type in (N'sql_batch_completed',N'rpc_completed','sql_statement_completed', 'sp_statement_completed')
         ORDER BY 1;
 
         IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'degree_of_parallelism') 
@@ -318,13 +340,12 @@ BEGIN TRY
             SELECT  
                 event_time,
                 event_type,
+                sql_text,
                 dop_statement_type,
                 dop,
-                workspace_memory_grant_kb, 
-                [context_info]
+                workspace_memory_grant_kb
             FROM #sp_BlitzTraceEvents
             WHERE event_type = N'degree_of_parallelism'
-            AND NOT (@SessionId=@@SPID and [context_info] = '73705f426c69747a5472616365204953205448452042455354')
             ORDER BY 1;
         END
 
@@ -337,13 +358,13 @@ BEGIN TRY
             SELECT  
                 event_time,
                 event_type,
+                sql_text,
                 [object_id],
                 [object_name],
                 cpu_time_ms,
                 ddl_phase
             FROM #sp_BlitzTraceEvents
             WHERE event_type = N'object_created'
-            AND NOT (@SessionId=@@SPID and [context_info] = '73705f426c69747a5472616365204953205448452042455354')
             ORDER BY 1;
         END
 
@@ -357,11 +378,10 @@ BEGIN TRY
             SELECT  
                 event_time,
                 event_type,
-                recompile_cause,
-                [context_info]
+                sql_text,
+                recompile_cause
             FROM #sp_BlitzTraceEvents
             WHERE event_type = N'sql_statement_recompile'
-            AND NOT (@SessionId=@@SPID and [context_info] = '73705f426c69747a5472616365204953205448452042455354')
             ORDER BY 1;
         END
 
@@ -379,7 +399,6 @@ BEGIN TRY
                 query_operation_node_id
             FROM #sp_BlitzTraceEvents
             WHERE event_type = N'sort_warning'
-            AND NOT (@SessionId=@@SPID and [context_info] = '73705f426c69747a5472616365204953205448452042455354')
             ORDER BY 1;
         END
 
