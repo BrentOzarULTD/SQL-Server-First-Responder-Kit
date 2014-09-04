@@ -171,8 +171,7 @@ AS
                 ON xe.address = xet.event_session_address
                 and xe.name = 'sp_BlitzTrace'
             CROSS APPLY (SELECT CAST(xet.target_data AS XML) AS event_data) as x 
-            OUTER APPLY x.event_data.nodes('//event') AS y(n)
-            ORDER BY event_time;
+            OUTER APPLY x.event_data.nodes('//event') AS y(n);
 
             set @rowcount=@@ROWCOUNT
 
