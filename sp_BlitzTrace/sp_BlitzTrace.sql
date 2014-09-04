@@ -22,8 +22,7 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @SessionId INT = NULL ,
     @Action VARCHAR(5) = 'timed',  /* 'timed','start', 'read', 'stop'*/
     @Seconds INT = 30, /* Timed traces only */
-    @Target CHAR(4) = 'file', /*file, ring */
-    @TargetPath VARCHAR(528) = 'S:\XEvents\Traces\sp_BlitzTrace' /* This needs to be prettied up.*/
+    @TargetPath VARCHAR(528) = NULL 
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
     /* See http://BrentOzar.com/go/eula for the End User License Agreement */
@@ -41,6 +40,8 @@ AS
     DECLARE @datestamp VARCHAR(30);
     DECLARE @TargetPathFull NVARCHAR(MAX);
     DECLARE @TargetPathRead NVARCHAR(MAX);
+    DECLARE @filepathXML XML;
+    DECLARE @filepath VARCHAR(1024);
 
 
     /* Validate parameters */
@@ -57,27 +58,11 @@ AS
         RAISERROR ('When starting sp_BlitzTrace, you need to specify @SessionId',16,1) WITH NOWAIT;
     END
 
-    IF @Target not in ('file', 'ring') 
+    IF @TargetPath IS NULL AND @Action IN ('timed','start')
     BEGIN
-        RAISERROR ('Supported targets are ''file'' and ''ring'' (memory)',16,1) WITH NOWAIT;
+        RAISERROR ('You need to give a valid @TargetPath',16,1) WITH NOWAIT;
     END
 
-    IF @Target = ('file') AND @TargetPath IS NULL
-    BEGIN
-        RAISERROR ('For file targets, you need to give a valid @TargetPath',16,1) WITH NOWAIT;
-    END
-
-    IF @Target='file'
-    BEGIN
-        SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
-        SET @TargetPathFull=@TargetPath + @datestamp +  N'.xel'
-
-        SET @TargetPathRead=@TargetPath + N'*.xel'
-
-        SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- File target is: ' + @TargetPathFull
-        RAISERROR (@msg,0,1) WITH NOWAIT;
-
-    END
 
     /* Validate transaction state */
     SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Validatin'' transaction state.'
@@ -133,6 +118,14 @@ BEGIN TRY
             DROP EVENT SESSION sp_BlitzTrace ON SERVER;
         END
 
+        SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
+        SET @TargetPathFull=@TargetPath + @datestamp +  N'.xel'
+
+        SET @TargetPathRead=@TargetPath + N'*.xel'
+
+        SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- File target is: ' + @TargetPathFull
+        RAISERROR (@msg,0,1) WITH NOWAIT;
+
         DECLARE @dsql NVARCHAR(MAX)=
             N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER 
             ADD EVENT sqlserver.sort_warning (
@@ -152,9 +145,9 @@ BEGIN TRY
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))), 
             ADD EVENT sqlserver.rpc_completed (
                 WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
-' + CASE WHEN @Target=N'file' and @TargetPath is not null THEN + N'
-            ADD TARGET package0.event_file(SET filename=''' + @TargetPathFull + N''',max_file_size=(256))
-' ELSE + N'ADD TARGET package0.ring_buffer' END + N'
+            ADD TARGET package0.event_file(SET filename=''' + @TargetPathFull + N''',
+                max_file_size=(256),
+                max_rollover_files=0)
             WITH (MAX_MEMORY = 128 MB,
                 EVENT_RETENTION_MODE = ALLOW_MULTIPLE_EVENT_LOSS,
                 MAX_DISPATCH_LATENCY = 5 SECONDS, 
@@ -162,8 +155,8 @@ BEGIN TRY
                 TRACK_CAUSALITY=OFF,
                 STARTUP_STATE=OFF)';
 
-        RAISERROR ('Create trace dynamic sql',0,0) WITH NOWAIT;
-        RAISERROR (@dsql,0,0) WITH NOWAIT;
+        --RAISERROR ('Create trace dynamic sql',0,0) WITH NOWAIT;
+        --RAISERROR (@dsql,0,0) WITH NOWAIT;
 
         EXEC sp_executesql @dsql;
 
@@ -191,8 +184,20 @@ BEGIN TRY
             WHERE name='sp_BlitzTrace'
             ) = 0
         BEGIN
-            RAISERROR ('Whoops, sp_BlitzTrace Extended Events session doesn''t exist!',0,1) WITH NOWAIT;
+            RAISERROR ('Whoops, sp_BlitzTrace Extended Events session doesn''t exist!',16,1) WITH NOWAIT;
         END
+
+        /* Figure out the file name for currently running trace */
+        SELECT TOP 1
+            @filepathXML= x.target_data
+        FROM sys.dm_xe_sessions as se 
+        JOIN sys.dm_xe_session_targets as t on
+            se.address=t.event_session_address
+        CROSS APPLY (SELECT cast(t.target_data as XML) AS target_data) as x 
+        WHERE se.name=N'sp_BlitzTrace'
+        OPTION (RECOMPILE);
+
+        SELECT @filepath=CAST(@filepathXML.query('data(EventFileTarget/File/@name)') AS VARCHAR(1024))
 
         CREATE TABLE #sp_BlitzTraceXML (
             event_data XML NOT NULL
@@ -224,39 +229,12 @@ BEGIN TRY
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Populating #sp_BlitzTraceXML...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
-        IF @Target=N'file' and @Action in ('read','timed')
-        BEGIN
-
-            INSERT #sp_BlitzTraceXML (event_data)
-            SELECT  
-                x.event_data
-            FROM  sys.fn_xe_file_target_read_file(@TargetPathRead,null,null,null) as xet
-            CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x 
-            OUTER APPLY x.event_data.nodes('//event') AS y(n) OPTION (RECOMPILE);
-
-        END
-        ELSE IF @Target='ring' and @Action in ('read','timed')
-        BEGIN
-            IF (
-                SELECT COUNT(*)
-                FROM sys.server_event_sessions
-                WHERE name='sp_BlitzTrace'
-                ) = 0
-            BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Attempting to read from memory, but XEvents trace doesn''t exist. Oops!'
-                RAISERROR (@msg,16,1) WITH NOWAIT;
-            END
-
-            INSERT #sp_BlitzTraceXML (event_data)
-            SELECT
-                x.event_data
-            FROM sys.dm_xe_session_targets AS xet
-            JOIN sys.dm_xe_sessions AS xe
-                ON xe.address = xet.event_session_address
-                and xe.name = 'sp_BlitzTrace'
-            CROSS APPLY (SELECT CAST(xet.target_data AS XML) AS event_data) as x 
-            OPTION (RECOMPILE);
-        END
+        INSERT #sp_BlitzTraceXML (event_data)
+        SELECT  
+            x.event_data
+        FROM  sys.fn_xe_file_target_read_file(@filepath,null,null,null) as xet
+        CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x 
+        OUTER APPLY x.event_data.nodes('//event') AS y(n) OPTION (RECOMPILE);
 
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Started populating #sp_BlitzTraceEvents...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -293,7 +271,8 @@ BEGIN TRY
             --,n.event_data
         FROM #sp_BlitzTraceXML AS xet
         CROSS APPLY (SELECT CAST(xet.event_data AS XML) AS event_data) as x 
-        OUTER APPLY x.event_data.nodes('//event') AS y(n)  OPTION (RECOMPILE);
+        OUTER APPLY x.event_data.nodes('//event') AS y(n)  
+        OPTION (RECOMPILE);
 
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Finished populating #sp_BlitzTraceEvents...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
