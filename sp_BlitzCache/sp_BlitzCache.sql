@@ -606,6 +606,8 @@ CREATE TABLE #procs (
     unmatched_index_count int,
     min_elapsed_time bigint,
     max_elapsed_time bigint,
+    age_minutes money,
+    age_minutes_lifetime money,
     Warnings VARCHAR(MAX)
 );
 
@@ -740,7 +742,7 @@ INSERT INTO #procs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPer
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
                     LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
-                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time) ' ;
+                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
 
 SET @body += N'
 FROM   (SELECT *,
@@ -839,7 +841,9 @@ SELECT TOP (@top)
        qs.max_worker_time / 1000.0,
        CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
        qs.min_elapsed_time / 1000.0,
-       qs.max_elapsed_time / 1000.0 '
+       qs.max_elapsed_time / 1000.0,
+       age_minutes, 
+       age_minutes_lifetime '
 
 
 IF LEFT(@query_filter, 3) IN ('all', 'sta')
@@ -921,7 +925,9 @@ BEGIN
            qs.max_worker_time / 1000.0,
            CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
            qs.min_elapsed_time / 1000.0,
-           qs.max_worker_time  / 1000.0 '
+           qs.max_worker_time  / 1000.0,
+           age_minutes,
+           age_minutes_lifetime '
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
     
@@ -1013,8 +1019,8 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
                                 WHEN 'avg writes' THEN 'total_logical_writes / execution_count'
                                 WHEN 'avg duration' THEN 'total_elapsed_time / execution_count'
                                 WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
+            WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
+            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
             END'
                END ;
 
@@ -1049,9 +1055,9 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'TotalCPU'
                                 WHEN 'avg reads' THEN 'TotalReads / ExecutionCount'
                                 WHEN 'avg writes' THEN 'TotalWrites / ExecutionCount'
                                 WHEN 'avg duration' THEN 'TotalDuration / ExecutionCount'
-                                WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time))) AS money)
+                                WHEN 'avg executions' THEN 'CASE WHEN ExecutionCount = 0 THEN 0
+            WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
+            ELSE CAST((1.00 * ExecutionCount / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
             END'
                END ;
 
