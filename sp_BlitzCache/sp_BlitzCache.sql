@@ -54,6 +54,10 @@ KNOWN ISSUES:
 v2.4 -
  - Fixed a logical error in output table detection - thanks to Michael
    Bluett for pointing that out.
+ - Fixed a bug where sorting on average executions broke the query.
+   Thanks to Andrew Notarian and Calvin Jones for submitting this.
+ - Added @query_filter to allow output restrictions to only procedures
+   or individual statements
 
 v2.3 - 2014-06-07
  - Added opserver specific output
