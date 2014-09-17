@@ -6,6 +6,11 @@ GO
 SET QUOTED_IDENTIFIER ON
 GO
 
+IF OBJECT_ID('dbo.sp_BlitzRS') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzRS AS RETURN 0;')
+GO
+
+
 ALTER PROCEDURE [dbo].[sp_BlitzRS]
 (@WhoGetsWhat TINYINT = 0)
 WITH RECOMPILE
@@ -27,8 +32,8 @@ database tables. Other result sets can be included via parameter.
 To learn more, visit http://brentozar.com/blitzRS/
 where you can download new versions for free, watch training videos on
 how it works, get more info on the findings, and more. To contribute
-code and see your name in the change log, email your improvements &
-ideas to help@brentozar.com.
+code, file bugs, and see your name in the change log, visit:
+http://support.brentozar.com/
 
 
 KNOWN ISSUES:
@@ -37,6 +42,12 @@ KNOWN ISSUES:
 - May run for several minutes if the catalog is large (1,000+ items).
 - Will not identify data-driven subscription source query information
   such as tables, parameters, or recipients.
+
+v0.91 - 2014-09-17
+ - Corrected inconsistent case-sensitivity
+
+v0.9 - 2014-09-16
+ - Changed support links, added credit.
 
 v0.8 - 2014-08-29
  - Added "who gets what" parameter and query.
@@ -81,7 +92,7 @@ DECLARE @DataSetContent TABLE
       DataSetName NVARCHAR(200) ,
       DataSourceName NVARCHAR(200) ,
       CommandText NVARCHAR(1600) ,
-      SharedDatasetRef NVARCHAR(80)
+      SharedDataSetRef NVARCHAR(80)
     );
 DECLARE @DataSets TABLE
     (
@@ -104,7 +115,7 @@ INSERT  @DataSets
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/reporting/2008/01/reportdefinition' AS p
 				 , 'http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition' AS p1)
 INSERT @DataSetContent
-        ( ItemID, ReportName, DataSetName, DataSourceName, CommandText, SharedDatasetRef )
+        ( ItemID, ReportName, DataSetName, DataSourceName, CommandText, SharedDataSetRef )
 SELECT    ItemID , ReportName,
 					AOP.Params.value('@Name', 'Varchar(800)') AS 'PDStName',
 					AOP.Params.value('p:Query[1]/p:DataSourceName[1]', 'Varchar(800)') AS 'PName',
@@ -142,7 +153,7 @@ INSERT  #BlitzRSResults
                          ELSE 0
                     END) > 1
                 AND SUM(CASE WHEN CHARINDEX('SELECT', CommandText, 0) = 0
-                                  AND SharedDatasetRef IS NULL THEN 1
+                                  AND SharedDataSetRef IS NULL THEN 1
                              ELSE 0
                         END)
                 + SUM(CASE WHEN SharedDataSetRef IS NOT NULL THEN 1
@@ -876,6 +887,24 @@ INSERT  #BlitzRSResults
                 END
 
 
+				/* Add credits for the nice folks who put so much time into building and maintaining this for free: */
+				INSERT  INTO #BlitzRSResults
+						( CheckID ,
+						  Priority ,
+						  FindingsGroup ,
+						  Finding ,
+						  URL ,
+						  Details
+						)
+				VALUES  ( -1 ,
+						  255 ,
+						  'Thanks!' ,
+						  'From Brent Ozar Unlimited' ,
+						  'http://www.BrentOzar.com/blitzrs/' ,
+						  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+						);
+
+
 
 SELECT  [Priority] ,
         FindingsGroup ,
@@ -911,4 +940,3 @@ IF @WhoGetsWhat = 1
 	ORDER BY EmailAddress, p.SubscriptionID  
 
 END
-
