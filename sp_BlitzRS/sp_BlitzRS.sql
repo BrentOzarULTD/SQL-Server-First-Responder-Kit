@@ -43,6 +43,10 @@ KNOWN ISSUES:
 - Will not identify data-driven subscription source query information
   such as tables, parameters, or recipients.
 
+v0.92 - 2014-09-22
+ - Fixed issue where query would try to parse images and other objects as XML.
+ - Lengthened dataset CommandText and subscription Parameter variables.
+
 v0.91 - 2014-09-17
  - Corrected inconsistent case-sensitivity
 
@@ -91,7 +95,7 @@ DECLARE @DataSetContent TABLE
       ReportName NVARCHAR(200) ,
       DataSetName NVARCHAR(200) ,
       DataSourceName NVARCHAR(200) ,
-      CommandText NVARCHAR(1600) ,
+      CommandText NVARCHAR(MAX) ,
       SharedDataSetRef NVARCHAR(80)
     );
 DECLARE @DataSets TABLE
@@ -110,7 +114,7 @@ INSERT  @DataSets
                 [Name] AS ReportName ,
                 CAST(CAST(Content AS VARBINARY(MAX)) AS XML)
         FROM    dbo.Catalog
-		--WHERE [Type] = 2;
+		WHERE [Type] = 2;
 		;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/reporting/2008/01/reportdefinition' AS p
 				 , 'http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition' AS p1)
@@ -788,7 +792,7 @@ then parsing it, taking only the {to, cc, bcc} set.
 CREATE TABLE #parms
     (
       SubscriptionID UNIQUEIDENTIFIER ,
-      parm NVARCHAR(800) ,
+      parm NVARCHAR(3200) ,
       pos SMALLINT
     );
 WITH    cte
@@ -940,3 +944,4 @@ IF @WhoGetsWhat = 1
 	ORDER BY EmailAddress, p.SubscriptionID  
 
 END
+
