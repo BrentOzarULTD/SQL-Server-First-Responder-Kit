@@ -1,11 +1,11 @@
 USE [master];
 GO
 
-IF OBJECT_ID('dbo.sp_Blitz') IS NOT NULL
-    DROP PROC dbo.sp_Blitz;
+IF OBJECT_ID('dbo.sp_Blitz') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;')
 GO
 
-CREATE PROCEDURE [dbo].[sp_Blitz]
+ALTER PROCEDURE [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects TINYINT = 1 ,
     @CheckProcedureCache TINYINT = 0 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
@@ -58,6 +58,7 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
+
  	Changes in v36 - October 5, 2014
 	 - Added non-default database configuration checks looking at sys.databases
 	   as checks 131-144. Catches things like delayed durability, forced params.
@@ -68,6 +69,7 @@ AS
 	 - Added server name row in output when @CheckServerInfo = 1.
  	 - Moved contributions to support.brentozar.com.
 	 - Check 78 for stored procs with RECOMPILE now ignores sp_Blitz%.
+     - Removed redundant check 58 (collation, dupe of 76.)
 
 	Changes in v35 - June 17, 2014
 	 - John Hill fixed a bug in check 134 looking for deadlocks.
@@ -2178,37 +2180,6 @@ AS
 										JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
 								WHERE   sched.freq_type = 64;
-					END
-
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 58 )
-					BEGIN
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  DatabaseName ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT  58 AS CheckID ,
-										d.[name] AS DatabaseName ,
-										200 AS Priority ,
-										'Reliability' AS FindingsGroup ,
-										'Database Collation Mismatch' AS Finding ,
-										'http://BrentOzar.com/go/collate' AS URL ,
-										( 'Database ' + d.NAME + ' has collation '
-										  + d.collation_name
-										  + '; Server collation is '
-										  + CONVERT(VARCHAR(100), SERVERPROPERTY('collation')) ) AS Details
-								FROM    master.sys.databases d
-								WHERE   d.collation_name <> SERVERPROPERTY('collation')
-										AND d.name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-															FROM  #SkipChecks )
-										AND d.name NOT LIKE 'ReportServer%'
 					END
 
 				IF NOT EXISTS ( SELECT  1
