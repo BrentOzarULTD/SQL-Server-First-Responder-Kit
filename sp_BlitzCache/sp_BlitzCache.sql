@@ -58,6 +58,7 @@ v2.4 -
    Thanks to Andrew Notarian and Calvin Jones for submitting this.
  - Added @query_filter to allow output restrictions to only procedures
    or individual statements
+ - Adds a check for trivial execution plans.
 
 v2.3 - 2014-06-07
  - Added opserver specific output
@@ -612,6 +613,7 @@ CREATE TABLE #procs (
     max_elapsed_time bigint,
     age_minutes money,
     age_minutes_lifetime money,
+    is_trivial bit,
     Warnings VARCHAR(MAX)
 );
 
@@ -1224,7 +1226,8 @@ SET NumberOfDistinctPlans = distinct_plan_count,
         END,
     missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
-    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
+    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
+    is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -1440,7 +1443,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END
+                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END 
                   , 2, 200000) ;
 
 
@@ -1861,6 +1865,17 @@ BEGIN
             'Unparameterized queries',
             'http://brentozar.com/blitzcache/unparameterized-queries',
             'Unparameterized queries found. These could be ad hoc queries, data exploration, or queries using "OPTIMIZE FOR UNKNOWN".');
+
+    IF EXISTS (SELECT 1/0
+               FROM   #procs
+               WHERE  is_trivial = 1)
+    INSERT INTO #results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    VALUES (24,
+            100,
+            'Execution Plans',
+            'Trivial Plans',
+            'http://brentozar.com/blitzcache/trivial-plans',
+            'Trivial plans get almost no optimization. If you''re finding these in the top worst queries, something may be going wrong.');
             
             
 
@@ -1955,7 +1970,10 @@ BEGIN
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
                   CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END
+                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
+                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
+                  Case WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END
                   , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
