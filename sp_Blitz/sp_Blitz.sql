@@ -24,18 +24,18 @@ CREATE PROCEDURE [dbo].[sp_Blitz]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
-	@SummaryMode TINYINT = 0 ,
+    @SummaryMode TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 36, @VersionDate = '20140816'
+	SELECT @Version = 36, @VersionDate = '20141005'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v36 - August 16, 2014
+	sp_Blitz (TM) v36 - October 5, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,8 +58,16 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
- 	Changes in v36 - August 16, 2014
+ 	Changes in v36 - October 5, 2014
+	 - Added non-default database configuration checks looking at sys.databases
+	   as checks 131-144. Catches things like delayed durability, forced params.
+     - Added check for long file growths from the default trace, 151.
+     - Added check for serious errors in the default trace, 150.
+	 - Added Hekaton memory use and transaction error checks 145-147.
+	 - Added checks for database files on network shares or Azure, 148-149.
+	 - Added server name row in output when @CheckServerInfo = 1.
  	 - Moved contributions to support.brentozar.com.
+	 - Check 78 for stored procs with RECOMPILE now ignores sp_Blitz%.
 
 	Changes in v35 - June 17, 2014
 	 - John Hill fixed a bug in check 134 looking for deadlocks.
@@ -120,7 +128,14 @@ AS
 			,@EmailAttachmentFilename NVARCHAR(255)
 			,@ProductVersion NVARCHAR(128)
 			,@ProductVersionMajor DECIMAL(10,2)
-			,@ProductVersionMinor DECIMAL(10,2);
+			,@ProductVersionMinor DECIMAL(10,2)
+			,@CurrentName NVARCHAR(128)
+			,@CurrentDefaultValue NVARCHAR(200)
+			,@CurrentCheckID INT
+			,@CurrentPriority INT
+			,@CurrentFinding VARCHAR(200)
+			,@CurrentURL VARCHAR(200)
+			,@CurrentDetails NVARCHAR(4000);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -200,6 +215,21 @@ AS
 			  DefaultValue BIGINT,
 			  CheckID INT
 			);
+
+		IF OBJECT_ID('tempdb..#DatabaseDefaults') IS NOT NULL
+			DROP TABLE #DatabaseDefaults;
+		CREATE TABLE #DatabaseDefaults
+			(
+				name NVARCHAR(128) ,
+				DefaultValue NVARCHAR(200),
+				CheckID INT,
+		        Priority INT,
+		        Finding VARCHAR(200),
+		        URL VARCHAR(200),
+		        Details NVARCHAR(4000)
+			);
+
+
 
 		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL
 			DROP TABLE #DBCCs;
@@ -318,6 +348,11 @@ AS
 											  NULL
 			)
 
+        /* Used for the default trace checks. */
+        DECLARE @path NVARCHAR(256);
+        SELECT @path=CAST(value as NVARCHAR(256))
+            FROM sys.fn_trace_getinfo(1)
+            WHERE traceid=1 AND property=2;
 
 		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
 		IF @OutputType = 'CSV'
@@ -2723,6 +2758,278 @@ AS
 								END;
 
 							END;
+
+
+
+                        /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 145 )
+	                        AND EXISTS ( SELECT *
+					                        FROM   sys.all_objects o
+					                        WHERE  o.name = 'dm_db_xtp_table_memory_stats' )
+	                        BEGIN
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        SELECT 145 AS CheckID,
+			                        10 AS Priority,
+			                        ''Performance'' AS FindingsGroup,
+			                        ''High Memory Use for In-Memory OLTP (Hekaton)'' AS Finding,
+			                        ''http://BrentOzar.com/go/hekaton'' AS URL,
+			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS INT) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton). Microsoft recommends having 2X your Hekaton table space available in memory just for Hekaton, with a max of 250GB of in-memory data regardless of your server memory capacity.'' AS Details
+			                        FROM sys.configurations c INNER JOIN sys.dm_os_memory_clerks mem ON mem.type = ''MEMORYCLERK_XTP''
+                                    WHERE c.name = ''max server memory (MB)''
+                                    GROUP BY c.value_in_use
+                                    HAVING CAST(value_in_use AS DECIMAL(38,2)) * .25 < SUM(mem.pages_kb / 1024.0)
+                                      OR SUM(mem.pages_kb / 1024.0) > 250000';
+		                        EXECUTE(@StringToExecute);
+	                        END
+
+
+                        /* Performance - In-Memory OLTP (Hekaton) In Use */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 146 )
+	                        AND EXISTS ( SELECT *
+					                        FROM   sys.all_objects o
+					                        WHERE  o.name = 'dm_db_xtp_table_memory_stats' )
+	                        BEGIN
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        SELECT 146 AS CheckID,
+			                        200 AS Priority,
+			                        ''Performance'' AS FindingsGroup,
+			                        ''In-Memory OLTP (Hekaton) In Use'' AS Finding,
+			                        ''http://BrentOzar.com/go/hekaton'' AS URL,
+			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS INT) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
+			                        FROM sys.configurations c INNER JOIN sys.dm_os_memory_clerks mem ON mem.type = ''MEMORYCLERK_XTP''
+                                    WHERE c.name = ''max server memory (MB)''
+                                    GROUP BY c.value_in_use
+                                    HAVING SUM(mem.pages_kb / 1024.0) > 10';
+		                        EXECUTE(@StringToExecute);
+	                        END
+
+                        /* In-Memory OLTP (Hekaton) - Transaction Errors */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 147 )
+	                        AND EXISTS ( SELECT *
+					                        FROM   sys.all_objects o
+					                        WHERE  o.name = 'dm_xtp_transaction_stats' )
+	                        BEGIN
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        SELECT 147 AS CheckID,
+			                        100 AS Priority,
+			                        ''In-Memory OLTP (Hekaton)'' AS FindingsGroup,
+			                        ''Transaction Errors'' AS Finding,
+			                        ''http://BrentOzar.com/go/hekaton'' AS URL,
+			                        ''Since restart: '' + CAST(validation_failures AS NVARCHAR(100)) + '' validation failures, '' + CAST(dependencies_failed AS NVARCHAR(100)) + '' dependency failures, '' + CAST(write_conflicts AS NVARCHAR(100)) + '' write conflicts, '' + CAST(unique_constraint_violations AS NVARCHAR(100)) + '' unique constraint violations.'' AS Details
+			                        FROM sys.dm_xtp_transaction_stats
+                                    WHERE validation_failures <> 0
+                                            OR dependencies_failed <> 0
+                                            OR write_conflicts <> 0
+                                            OR unique_constraint_violations <> 0;'
+		                        EXECUTE(@StringToExecute);
+	                        END
+
+
+
+                        /* Reliability - Database Files on Network File Shares */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 148 )
+	                        BEGIN
+		                        INSERT  INTO #BlitzResults
+				                        ( CheckID ,
+					                        DatabaseName ,
+					                        Priority ,
+					                        FindingsGroup ,
+					                        Finding ,
+					                        URL ,
+					                        Details
+				                        )
+				                        SELECT DISTINCT 148 AS CheckID ,
+						                        d.[name] AS DatabaseName ,
+						                        50 AS Priority ,
+						                        'Reliability' AS FindingsGroup ,
+						                        'Database Files on Network File Shares' AS Finding ,
+						                        'http://BrentOzar.com/go/nas' AS URL ,
+						                        ( 'Files for this database are on: ' + LEFT(mf.physical_name, 30)) AS Details
+				                        FROM    sys.databases d
+                                          INNER JOIN sys.master_files mf ON d.database_id = mf.database_id
+				                        WHERE mf.physical_name LIKE '\\%'
+						                        AND d.name NOT IN ( SELECT DISTINCT
+													                        DatabaseName
+											                        FROM    #SkipChecks )
+	                        END
+
+                        /* Reliability - Database Files Stored in Azure */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 149 )
+	                        BEGIN
+		                        INSERT  INTO #BlitzResults
+				                        ( CheckID ,
+					                        DatabaseName ,
+					                        Priority ,
+					                        FindingsGroup ,
+					                        Finding ,
+					                        URL ,
+					                        Details
+				                        )
+				                        SELECT DISTINCT 149 AS CheckID ,
+						                        d.[name] AS DatabaseName ,
+						                        50 AS Priority ,
+						                        'Reliability' AS FindingsGroup ,
+						                        'Database Files Stored in Azure' AS Finding ,
+						                        'http://BrentOzar.com/go/azurefiles' AS URL ,
+						                        ( 'Files for this database are on: ' + LEFT(mf.physical_name, 30)) AS Details
+				                        FROM    sys.databases d
+                                          INNER JOIN sys.master_files mf ON d.database_id = mf.database_id
+				                        WHERE mf.physical_name LIKE 'http://%'
+						                        AND d.name NOT IN ( SELECT DISTINCT
+													                        DatabaseName
+											                        FROM    #SkipChecks )
+	                        END
+
+
+                        /* Reliability - Errors Logged Recently in the Default Trace */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 150 )
+	                        BEGIN
+
+		                        INSERT  INTO #BlitzResults
+				                        ( CheckID ,
+					                        DatabaseName ,
+					                        Priority ,
+					                        FindingsGroup ,
+					                        Finding ,
+					                        URL ,
+					                        Details
+				                        )
+				                        SELECT DISTINCT 150 AS CheckID ,
+					                            t.DatabaseName,
+						                        50 AS Priority ,
+						                        'Reliability' AS FindingsGroup ,
+						                        'Errors Logged Recently in the Default Trace' AS Finding ,
+						                        'http://BrentOzar.com/go/defaulttrace' AS URL ,
+						                         CAST(t.TextData AS NVARCHAR(4000)) AS Details
+                                        FROM    sys.fn_trace_gettable(@path, DEFAULT) t
+                                        WHERE t.EventClass = 22
+                                          AND t.Severity >= 17
+                                          AND t.StartTime > DATEADD(dd, -30, GETDATE())
+	                        END
+
+
+                        /* Performance - Log File Growths Slow */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
+	                        BEGIN
+		                        INSERT  INTO #BlitzResults
+				                        ( CheckID ,
+					                        DatabaseName ,
+					                        Priority ,
+					                        FindingsGroup ,
+					                        Finding ,
+					                        URL ,
+					                        Details
+				                        )
+				                        SELECT DISTINCT 151 AS CheckID ,
+					                            t.DatabaseName,
+						                        50 AS Priority ,
+						                        'Performance' AS FindingsGroup ,
+						                        'Log File Growths Slow' AS Finding ,
+						                        'http://BrentOzar.com/go/filegrowth' AS URL ,
+						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting log file autogrowth to a smaller increment.' AS Details
+                                        FROM    sys.fn_trace_gettable(@path, DEFAULT) t
+                                        WHERE t.EventClass = 93
+                                          AND t.StartTime > DATEADD(dd, -30, GETDATE())
+                                          AND t.Duration > 1 --15000000
+                                        GROUP BY t.DatabaseName
+                                        HAVING COUNT(*) > 1
+	                        END
+
+						/* Populate a list of database defaults. I'm doing this kind of oddly -
+						    it reads like a lot of work, but this way it compiles & runs on all
+						    versions of SQL Server.
+						*/
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_supplemental_logging_enabled', 0, 131, 210, 'Supplemental Logging Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_supplemental_logging_enabled' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'snapshot_isolation_state', 0, 132, 210, 'Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_read_committed_snapshot_on', 0, 133, 210, 'Read Committed Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_auto_create_stats_incremental_on', 0, 134, 210, 'Auto Create Stats Incremental Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_auto_create_stats_incremental_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_ansi_null_default_on', 0, 135, 210, 'ANSI NULL Default Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_ansi_null_default_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_recursive_triggers_on', 0, 136, 210, 'Recursive Triggers Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_recursive_triggers_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_trustworthy_on', 0, 137, 210, 'Trustworthy Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_trustworthy_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_query_store_on', 0, 139, 210, 'Query Store Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_query_store_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_cdc_enabled', 0, 140, 210, 'Change Data Capture Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_cdc_enabled' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'containment', 0, 141, 210, 'Containment Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'containment' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'delayed_durability', 0, 143, 210, 'Delayed Durability Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'delayed_durability' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_memory_optimized_elevate_to_snapshot_on', 0, 144, 210, 'Memory Optimized Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns 
+						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+
+						DECLARE DatabaseDefaultsLoop CURSOR FOR
+						  SELECT name, DefaultValue, CheckID, Priority, Finding, URL, Details
+						  FROM #DatabaseDefaults
+
+						OPEN DatabaseDefaultsLoop
+						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails
+						WHILE @@FETCH_STATUS = 0
+						BEGIN 
+
+						    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+						       SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
+						        FROM sys.databases d
+						        WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+						    EXEC (@StringToExecute);
+
+						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails 
+						END
+
+						CLOSE DatabaseDefaultsLoop
+						DEALLOCATE DatabaseDefaultsLoop;
 							
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
@@ -2976,7 +3283,7 @@ AS
 		  ''Stored Procedure WITH RECOMPILE'',
 		  ''http://BrentOzar.com/go/recompile'',
 		  (''['' + DB_NAME() + ''].['' + SPECIFIC_SCHEMA + ''].['' + SPECIFIC_NAME + ''] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.'')
-		  from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%''';
+		  from [?].INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_DEFINITION LIKE N''%WITH RECOMPILE%'' AND SPECIFIC_NAME NOT LIKE ''sp_Blitz%%'';';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -3804,8 +4111,7 @@ AS
 										name AS DatabaseName ,
 										50 AS Priority ,
 										'Reliability' AS FindingsGroup ,
-										'Collation for ' + name
-										+ ' different than tempdb collation' AS Finding ,
+										'Collation is ' + collation_name AS Finding ,
 										'http://BrentOzar.com/go/collate' AS URL ,
 										'Collation differences between user databases and tempdb can cause conflicts especially when comparing string values' AS Details
 								FROM    sys.databases
