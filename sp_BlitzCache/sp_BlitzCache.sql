@@ -1803,6 +1803,7 @@ BEGIN
             50,
             'Execution Plans',
             'Compilation timeout',
+            'http://brentozar.com/blitzcache/compilaltion-timeout/',
             'http://brentozar.com/blitzcache/compilation-timeout/',
             'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
 

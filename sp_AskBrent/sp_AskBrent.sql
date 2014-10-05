@@ -481,11 +481,12 @@ BEGIN
 		'SP_SERVER_DIAGNOSTICS_SLEEP',
 		'HADR_CLUSAPI_CALL',
 		'HADR_LOGCAPTURE_WAIT',
+		'HADR_NOTIFICATION_DEQUEUE',
 		'HADR_TIMER_TASK',
 		'HADR_WORK_QUEUE',
 		'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
 		'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
-		)
+	)
 	ORDER BY sum_wait_time_ms DESC;
 
 
@@ -1661,9 +1662,17 @@ SET NOCOUNT OFF;
 GO
 
 
-
-/* A few sample calling methods:
+/* How to run it:
 EXEC dbo.sp_AskBrent 
+
+With extra diagnostic info:
+EXEC dbo.sp_AskBrent @ExpertMode = 1;
+
+In Ask a Question mode:
+EXEC dbo.sp_AskBrent 'Is this cursor bad?';
+
+A few sample calling methods:
+EXEC dbo.sp_AskBrent;
 EXEC dbo.sp_AskBrent @ExpertMode = 1;
 EXEC dbo.sp_AskBrent 'This is a test question';
 */
