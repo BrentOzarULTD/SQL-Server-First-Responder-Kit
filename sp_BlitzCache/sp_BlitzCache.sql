@@ -41,8 +41,8 @@ procedure, and trigger stats DMVs.
 To learn more, visit http://brentozar.com/blitzcache/
 where you can download new versions for free, watch training videos on
 how it works, get more info on the findings, and more. To contribute
-code and see your name in the change log, email your improvements &
-ideas to help@brentozar.com.
+code and see your name in the change log, submit your improvements &
+ideas to https://support.brentozar.com
 
 
 KNOWN ISSUES:
