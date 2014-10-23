@@ -227,6 +227,11 @@ BEGIN
            N'VARCHAR(10)',
            N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).';
 
+    UNION ALL
+    SELECT N'@reanalyze',
+           N'BIT',
+           N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results';
+           
 
 
     /* Column definitions */
