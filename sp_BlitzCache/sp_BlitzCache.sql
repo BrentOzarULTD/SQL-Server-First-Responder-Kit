@@ -5,6 +5,14 @@ IF OBJECT_ID('dbo.sp_BlitzCache') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzCache AS RETURN 0;')
 GO
 
+IF OBJECT_ID('dbo.sp_BlitzCache') IS NOT NULL AND OBJECT_ID('##procs') IS NOT NULL
+    EXEC ('DROP TABLE ##procs;')
+GO
+
+IF OBJECT_ID('dbo.sp_BlitzCache') IS NOT NULL AND OBJECT_ID('##results') IS NOT NULL
+    EXEC ('DROP TABLE ##results;')
+GO
+
 ALTER PROCEDURE dbo.sp_BlitzCache
     @get_help BIT = 0,
     @top INT = 50,
@@ -62,6 +70,7 @@ v2.4 - 2014-10-31
  - Adds a check for trivial execution plans.
  - Adds @reanalyze. When set to 1, this re-scans existing results rather
    than running all of the logic again. Bonus: contains GOTO.
+ - Now displaying set options!
 
 v2.3 - 2014-06-07
  - Added opserver specific output
@@ -227,7 +236,7 @@ BEGIN
     UNION ALL
     SELECT N'@query_filter',
            N'VARCHAR(10)',
-           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).';
+           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).'
 
     UNION ALL
     SELECT N'@reanalyze',
@@ -626,6 +635,7 @@ CREATE TABLE ##procs (
     age_minutes money,
     age_minutes_lifetime money,
     is_trivial bit,
+    SetOptions VARCHAR(MAX),
     Warnings VARCHAR(MAX)
 );
 
@@ -1404,8 +1414,17 @@ UPDATE p
 SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
                                       END ,
        is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-                             WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1
-                             END
+                             WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
+                             END ,
+       SetOptions = SUBSTRING(
+                    CASE WHEN (CAST(pa.value AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 8 = 8) THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 16 = 16) THEN ', ANSI_WARNINGS' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 32 = 32) THEN ', ANSI_NULLS' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 64 = 64) THEN ', QUOTED_IDENTIFIER' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 4096 = 4096) THEN ', ARITH_ABORT' ELSE '' END +
+                    CASE WHEN (CAST(pa.value AS INT) & 8192 = 8191) THEN ', NUMERIC_ROUNDABORT' ELSE '' END 
+                    , 2, 200000)
 FROM   ##procs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
 WHERE  pa.attribute = 'set_options' ;
@@ -1607,7 +1626,8 @@ BEGIN
             PlanCreationTime AS [Created At],
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
-            StatementEndOffset
+            StatementEndOffset,
+            COALESCE(SetOptions, '''') AS [SET Options],
     FROM    ##procs
     WHERE   1 = 1 ' + @nl
 
@@ -1629,270 +1649,272 @@ BEGIN
     RETURN
 END
 
-IF @hide_summary = 0 AND @reanalyze = 0
+IF @hide_summary = 0
 BEGIN
-    RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
+    IF @reanalyze = 0
+    BEGIN
+        RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
-    /* Build summary data */
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE frequent_execution =1)
+        /* Build summary data */
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE frequent_execution =1)
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (1,
+                    100,
+                    'Execution Pattern',
+                    'Frequently Executed Queries',
+                    'http://brentozar.com/blitzcache/frequently-executed-queries/',
+                    'Queries are being executed more than '
+                    + CAST (@execution_threshold AS VARCHAR(5))
+                    + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  parameter_sniffing = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (2,
+                    50,
+                    'Parameterization',
+                    'Parameter Sniffing',
+                    'http://brentozar.com/blitzcache/parameter-sniffing/',
+                    'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
+
+        /* Forced execution plans */
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  is_forced_plan = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (3,
+                    5,
+                    'Parameterization',
+                    'Forced Plans',
+                    'http://brentozar.com/blitzcache/forced-plans/',
+                    'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
+
+        /* Cursors */
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  is_cursor = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (4,
+                    200,
+                    'Cursors',
+                    'Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  is_forced_parameterized = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (5,
+                    50,
+                    'Parameterization',
+                    'Forced Parameterization',
+                    'http://brentozar.com/blitzcache/forced-parameterization/',
+                    'Execution plans have been compiled with forced parameterization.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  p.is_parallel = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (6,
+                    200,
+                    'Execution Plans',
+                    'Parallelism',
+                    'http://brentozar.com/blitzcache/parallel-plans-detected/',
+                    'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  near_parallel = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (7,
+                    200,
+                    'Execution Plans',
+                    'Nearly Parallel',
+                    'http://brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/',
+                    'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  plan_warnings = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (8,
+                    50,
+                    'Execution Plans',
+                    'Query Plan Warnings',
+                    'http://brentozar.com/blitzcache/query-plan-warnings/',
+                    'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  long_running = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (9,
+                    50,
+                    'Performance',
+                    'Long Running Queries',
+                    'http://brentozar.com/blitzcache/long-running-queries/',
+                    'Long running queries have beend found. These are queries with an average duration longer than '
+                    + CAST(@long_running_query_warning_seconds / 1000 / 1000 AS VARCHAR(5))
+                    + ' second(s). These queries should be investigated for additional tuning options') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  p.missing_index_count > 0)
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (10,
+                    50,
+                    'Performance',
+                    'Missing Index Request',
+                    'http://brentozar.com/blitzcache/missing-index-request/',
+                    'Queries found with missing indexes.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs p
+                   WHERE  p.downlevel_estimator = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (13,
+                    200,
+                    'Cardinality',
+                    'Legacy Cardinality Estimator in Use',
+                    'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
+                    'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM ##procs p
+                   WHERE implicit_conversions = 1
+                  )
+            INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (14,
+                    50,
+                    'Performance',
+                    'Implicit Conversions',
+                    'http://brentozar.com/go/implicit',
+                    'One or more queries are comparing two fields that are not of the same data type.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  tempdb_spill = 1
+                  )
         INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (1,
+        VALUES (15,
+                10,
+                'Performance',
+                'TempDB Spills',
+                'http://brentozar.com/blitzcache/tempdb-spills/',
+                'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  busy_loops = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (16,
+                10,
+                'Performance',
+                'Frequently executed operators',
+                'http://brentozar.com/blitzcache/busy-loops/',
+                'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  tvf_join = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (17,
+                50,
+                'Performance',
+                'Joining to table valued functions',
+                'http://brentozar.com/blitzcache/tvf-join/',
+                'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  compile_timeout = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (18,
+                50,
+                'Execution Plans',
+                'Compilation timeout',
+                'http://brentozar.com/blitzcache/compilation-timeout/',
+                'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  compile_memory_limit_exceeded = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (19,
+                50,
+                'Execution Plans',
+                'Compilation memory limit exceeded',
+                'http://brentozar.com/blitzcache/compile-memory-limit-exceeded/',
+                'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  warning_no_join_predicate = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (20,
+                10,
+                'Execution Plans',
+                'No join predicate',
+                'http://brentozar.com/blitzcache/no-join-predicate/',
+                'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  plan_multiple_plans = 1)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (21,
+                200,
+                'Execution Plans',
+                'Multiple execution plans',
+                'http://brentozar.com/blitzcache/multiple-plans/',
+                'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  unmatched_index_count > 0)
+        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (22,
                 100,
-                'Execution Pattern',
-                'Frequently Executed Queries',
-                'http://brentozar.com/blitzcache/frequently-executed-queries/',
-                'Queries are being executed more than '
-                + CAST (@execution_threshold AS VARCHAR(5))
-                + ' times per minute. This can put additional load on the server, even when queries are lightweight.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  parameter_sniffing = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (2,
-                50,
-                'Parameterization',
-                'Parameter Sniffing',
-                'http://brentozar.com/blitzcache/parameter-sniffing/',
-                'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
-
-    /* Forced execution plans */
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  is_forced_plan = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (3,
-                5,
-                'Parameterization',
-                'Forced Plans',
-                'http://brentozar.com/blitzcache/forced-plans/',
-                'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
-
-    /* Cursors */
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  is_cursor = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (4,
-                200,
-                'Cursors',
-                'Cursors',
-                'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
-                'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  is_forced_parameterized = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (5,
-                50,
-                'Parameterization',
-                'Forced Parameterization',
-                'http://brentozar.com/blitzcache/forced-parameterization/',
-                'Execution plans have been compiled with forced parameterization.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  p.is_parallel = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (6,
-                200,
-                'Execution Plans',
-                'Parallelism',
-                'http://brentozar.com/blitzcache/parallel-plans-detected/',
-                'Parallel plans detected. These warrant investigation, but are neither good nor bad.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  near_parallel = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (7,
-                200,
-                'Execution Plans',
-                'Nearly Parallel',
-                'http://brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/',
-                'Queries near the cost threshold for parallelism. These may go parallel when you least expect it.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  plan_warnings = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (8,
-                50,
-                'Execution Plans',
-                'Query Plan Warnings',
-                'http://brentozar.com/blitzcache/query-plan-warnings/',
-                'Warnings detected in execution plans. SQL Server is telling you that something bad is going on that requires your attention.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  long_running = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (9,
-                50,
                 'Performance',
-                'Long Running Queries',
-                'http://brentozar.com/blitzcache/long-running-queries/',
-                'Long running queries have beend found. These are queries with an average duration longer than '
-                + CAST(@long_running_query_warning_seconds / 1000 / 1000 AS VARCHAR(5))
-                + ' second(s). These queries should be investigated for additional tuning options') ;
+                'Unmatched indexes',
+                'http://brentozar.com/blitzcache/unmatched-indexes',
+                'An index could have been used, but SQL Server chose not to use it - likely due to parameterization and filtered indexes.');
 
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  p.missing_index_count > 0)
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  unparameterized_query = 1)
         INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (10,
-                50,
-                'Performance',
-                'Missing Index Request',
-                'http://brentozar.com/blitzcache/missing-index-request/',
-                'Queries found with missing indexes.');
+        VALUES (23,
+                100,
+                'Parameterization',
+                'Unparameterized queries',
+                'http://brentozar.com/blitzcache/unparameterized-queries',
+                'Unparameterized queries found. These could be ad hoc queries, data exploration, or queries using "OPTIMIZE FOR UNKNOWN".');
 
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs p
-               WHERE  p.downlevel_estimator = 1
-              )
+        IF EXISTS (SELECT 1/0
+                   FROM   ##procs
+                   WHERE  is_trivial = 1)
         INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (13,
-                200,
-                'Cardinality',
-                'Legacy Cardinality Estimator in Use',
-                'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
-                'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
-
-    IF EXISTS (SELECT 1/0
-               FROM ##procs p
-               WHERE implicit_conversions = 1
-              )
-        INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (14,
-                50,
-                'Performance',
-                'Implicit Conversions',
-                'http://brentozar.com/go/implicit',
-                'One or more queries are comparing two fields that are not of the same data type.') ;
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  tempdb_spill = 1
-              )
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (15,
-            10,
-            'Performance',
-            'TempDB Spills',
-            'http://brentozar.com/blitzcache/tempdb-spills/',
-            'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  busy_loops = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (16,
-            10,
-            'Performance',
-            'Frequently executed operators',
-            'http://brentozar.com/blitzcache/busy-loops/',
-            'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  tvf_join = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (17,
-            50,
-            'Performance',
-            'Joining to table valued functions',
-            'http://brentozar.com/blitzcache/tvf-join/',
-            'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  compile_timeout = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (18,
-            50,
-            'Execution Plans',
-            'Compilation timeout',
-            'http://brentozar.com/blitzcache/compilation-timeout/',
-            'Query compilation timed out for one or more queries. SQL Server did not find a plan that meets acceptable performance criteria in the time allotted so the best guess was returned. There is a very good chance that this plan isn''t even below average - it''s probably terrible.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  compile_memory_limit_exceeded = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (19,
-            50,
-            'Execution Plans',
-            'Compilation memory limit exceeded',
-            'http://brentozar.com/blitzcache/compile-memory-limit-exceeded/',
-            'The optimizer has a limited amount of memory available. One or more queries are complex enough that SQL Server was unable to allocate enough memory to fully optimize the query. A best fit plan was found, and it''s probably terrible.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  warning_no_join_predicate = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (20,
-            10,
-            'Execution Plans',
-            'No join predicate',
-            'http://brentozar.com/blitzcache/no-join-predicate/',
-            'Operators in a query have no join predicate. This means that all rows from one table will be matched with all rows from anther table producing a Cartesian product. That''s a whole lot of rows. This may be your goal, but it''s important to investigate why this is happening.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  plan_multiple_plans = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (21,
-            200,
-            'Execution Plans',
-            'Multiple execution plans',
-            'http://brentozar.com/blitzcache/multiple-plans/',
-            'Queries exist with multiple execution plans (as determined by query_plan_hash). Investigate possible ways to parameterize these queries or otherwise reduce the plan count/');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  unmatched_index_count > 0)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (22,
-            100,
-            'Performance',
-            'Unmatched indexes',
-            'http://brentozar.com/blitzcache/unmatched-indexes',
-            'An index could have been used, but SQL Server chose not to use it - likely due to parameterization and filtered indexes.');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  unparameterized_query = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (23,
-            100,
-            'Parameterization',
-            'Unparameterized queries',
-            'http://brentozar.com/blitzcache/unparameterized-queries',
-            'Unparameterized queries found. These could be ad hoc queries, data exploration, or queries using "OPTIMIZE FOR UNKNOWN".');
-
-    IF EXISTS (SELECT 1/0
-               FROM   ##procs
-               WHERE  is_trivial = 1)
-    INSERT INTO ##results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-    VALUES (24,
-            100,
-            'Execution Plans',
-            'Trivial Plans',
-            'http://brentozar.com/blitzcache/trivial-plans',
-            'Trivial plans get almost no optimization. If you''re finding these in the top worst queries, something may be going wrong.');
-            
+        VALUES (24,
+                100,
+                'Execution Plans',
+                'Trivial Plans',
+                'http://brentozar.com/blitzcache/trivial-plans',
+                'Trivial plans get almost no optimization. If you''re finding these in the top worst queries, something may be going wrong.');
+    END            
             
 
     SELECT  Priority,
@@ -1960,7 +1982,8 @@ BEGIN
     AverageReturnedRows AS [Average Rows],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
-    QueryPlan AS [Query Plan] ';
+    QueryPlan AS [Query Plan],
+    COALESCE(SetOptions, '''') AS [SET Options] ';
 END
 ELSE
 BEGIN
@@ -2029,6 +2052,7 @@ BEGIN
         LastExecutionTime AS [Last Execution],
         QueryPlanCost AS [Query Plan Cost],
         QueryPlan AS [Query Plan],
+        COALESCE(SetOptions, '''') AS [SET Options],
         PlanHandle AS [Plan Handle],
         SqlHandle AS [SQL Handle],
         QueryHash AS [Query Hash],
