@@ -52,7 +52,7 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
-v2.4 -
+v2.4 - 2014-10-31
  - Fixed a logical error in output table detection - thanks to Michael
    Bluett for pointing that out.
  - Fixed a bug where sorting on average executions broke the query.
@@ -60,6 +60,8 @@ v2.4 -
  - Added @query_filter to allow output restrictions to only procedures
    or individual statements
  - Adds a check for trivial execution plans.
+ - Adds @reanalyze. When set to 1, this re-scans existing results rather
+   than running all of the logic again. Bonus: contains GOTO.
 
 v2.3 - 2014-06-07
  - Added opserver specific output
