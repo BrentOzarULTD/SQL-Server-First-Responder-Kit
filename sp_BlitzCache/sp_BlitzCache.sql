@@ -60,6 +60,10 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4.1 - 2014-10-31
+ - Hotfix - Denis Gobo pointed out that the global temp table names could
+   conflict with everyone else's global temp table rates.
+
 v2.4 - 2014-10-31
  - Fixed a logical error in output table detection - thanks to Michael
    Bluett for pointing that out.
