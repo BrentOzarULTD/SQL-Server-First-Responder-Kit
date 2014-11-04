@@ -60,6 +60,9 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4.2 - 2014-11-04
+ - Hotfix - Randall Petty found a stray comma in the export_to_excel output.
+
 v2.4.1 - 2014-10-31
  - Hotfix - Denis Gobo pointed out that the global temp table names could
    conflict with everyone else's global temp table rates.
