@@ -1631,7 +1631,7 @@ BEGIN
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
             StatementEndOffset,
-            COALESCE(SetOptions, '''') AS [SET Options],
+            COALESCE(SetOptions, '''') AS [SET Options]
     FROM    ##bou_BlitzCacheProcs
     WHERE   1 = 1 ' + @nl
 
