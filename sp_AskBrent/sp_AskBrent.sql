@@ -120,7 +120,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 10, @VersionDate = '20140122'
+SELECT @Version = 10, @VersionDate = '20140522'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@OurSessionID INT,
