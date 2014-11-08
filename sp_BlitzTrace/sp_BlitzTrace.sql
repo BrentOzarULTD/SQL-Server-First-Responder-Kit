@@ -20,9 +20,8 @@ IF OBJECT_ID('dbo.sp_BlitzTrace') IS NOT NULL
 GO
 CREATE PROCEDURE dbo.sp_BlitzTrace
     @SessionId INT = NULL ,
-    @Action VARCHAR(5) = 'timed',  /* 'timed','start', 'read', 'stop', 'drop'*/
-    @Seconds INT = 30, /* Works with timed traces only */
-    @TargetPath VARCHAR(528) = NULL,  /* Required, we don't do no ring buffer.*/
+    @Action VARCHAR(5) = NULL ,  /* 'start', 'read', 'stop', 'drop'*/
+    @TargetPath VARCHAR(528) = NULL,  /* Required for 'start'. 'Read' will look for a running sp_BlitzTrace session if not specified.*/
     @IncludeStatements BIT = 0 /* By default just batch completed and rpc completed */
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
@@ -52,19 +51,24 @@ BEGIN TRY
     SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Validatin'' parameters.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
-    IF @Action NOT IN ('timed','start', 'read', 'stop', 'drop')
-    BEGIN
-        RAISERROR ('Awk-ward! That''s not a supported action.',16,1) WITH NOWAIT;
+    IF @Action NOT IN ('start', 'read', 'stop', 'drop')  OR @Action is NULL
+    BEGIN 
+        RAISERROR ('You need to specify a valid @Action for sp_BlitzTrace: ''start'', ''read'', ''stop'', or ''drop''.',16,1) WITH NOWAIT;
     END
 
-    IF @Action in ('start','timed') AND @SessionId IS NULL
+    IF @Action = 'start' AND @SessionId IS NULL
     BEGIN
-        RAISERROR ('When starting sp_BlitzTrace, you need to specify @SessionId',16,1) WITH NOWAIT;
+        RAISERROR ('sp_BlitzTrace looks at just one session, so you have to specify @SessionId',16,1) WITH NOWAIT;
     END
 
-    IF @TargetPath IS NULL AND @Action IN ('timed','start')
+    IF @TargetPath IS NULL AND @Action = 'start'
     BEGIN
-        RAISERROR ('You need to give a valid @TargetPath',16,1) WITH NOWAIT;
+        RAISERROR ('You gotta give a valid @TargetPath for ''start''.',16,1) WITH NOWAIT;
+    END
+
+    IF @TargetPath IS NOT NULL and RIGHT(@TargetPath, 1) <> '\'
+    BEGIN
+        RAISERROR ('We''re picky. Target path must be a directory ending in ''\'', like: ''S:\Xevents\''',16,1) WITH NOWAIT;
     END
 
 
@@ -89,6 +93,7 @@ BEGIN TRY
         /* sql_statement_recompile are all 2012+ only */
         SET @msg = 'Sad news: 90 percent of the events sp_BlitzTrace uses are only in SQL Server 2012 and higher-- so it''s not supported on SQL 2008/R2.'
         RAISERROR (@msg,16,1) WITH NOWAIT;
+        RETURN;
     END
 
 
@@ -101,14 +106,6 @@ BEGIN TRY
     WHERE s.name='sp_BlitzTrace'
 
 
-    DECLARE	@FinishSampleTime DATETIME;
-    IF @Action = 'timed'
-    BEGIN
-        SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- timed mode: setting @FinishSampleTime to ' + CAST (@FinishSampleTime AS NVARCHAR(128))
-        RAISERROR (@msg,0,1) WITH NOWAIT;
-        SET	@FinishSampleTime = DATEADD(ss, @Seconds, GETDATE());
-    END
-
     /* We use this to filter sp_BlitzTrace activity out of the results, */
     /* in case you're tracing your own session. */
     /* That's just to make the results less confusing */
@@ -116,16 +113,41 @@ BEGIN TRY
     SET @context=CAST('sp_BlitzTrace IS THE BEST' as binary);
     SET CONTEXT_INFO @context;
 
-    IF @Action in ('start', 'timed')
+    IF @Action = 'start'
     BEGIN
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Creating extended events trace.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
+        IF @traceexists = 1
+        BEGIN
+            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- A trace named sp_BlitzTrace already exists'
+            RAISERROR (@msg,0,1) WITH NOWAIT;
+
+            IF @tracerunning=1
+            BEGIN
+                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- sp_BlitzTrace is running, so stopping it before we recreate: ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;'
+                RAISERROR (@msg,0,1) WITH NOWAIT;
+
+                ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
+
+                SET @tracerunning=0;
+            END
+
+            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
+            RAISERROR (@msg,0,1) WITH NOWAIT;
+
+            DROP EVENT SESSION sp_BlitzTrace ON SERVER;  
+            
+            SET @traceexists=0;          
+            
+        END
+        
         IF @traceexists = 0
         BEGIN
             SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
             SET @TargetPathFull=@TargetPath + @datestamp 
 
+            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
 
@@ -167,37 +189,28 @@ BEGIN TRY
                     TRACK_CAUSALITY=OFF,
                     STARTUP_STATE=OFF)';
 
-            --RAISERROR ('Create trace dynamic sql',0,0) WITH NOWAIT;
+            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Creating trace with dynamic SQL. I REGRET NOTHING!!!'
+            RAISERROR (@msg,0,1) WITH NOWAIT;
+
             --RAISERROR (@dsql,0,0) WITH NOWAIT;
 
             EXEC sp_executesql @dsql;
 
-            SET @traceexists =1;
+            SET @traceexists = 1;
         END
 
         IF @tracerunning = 0
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Starting extended events trace.'
+            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;
             SET @tracerunning = 1;
         END
     END
-
-    IF @Action = 'timed'
+    IF @Action = 'read'
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Waiting for the sample time to complete...'
-        RAISERROR (@msg,0,1) WITH NOWAIT;
-
-	    /* If we haven't waited @Seconds seconds, wait. */
-	    IF GETDATE() < @FinishSampleTime
-		    WAITFOR TIME @FinishSampleTime;
-    END
-
-    IF @Action in ('read', 'timed')
-    BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Processing and reporting.'
+        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Reading, processing, and reporting.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @traceexists = 0
@@ -260,6 +273,7 @@ BEGIN TRY
             logical_reads INT NULL,
             writes INT NULL,
             row_count INT NULL,
+            result NVARCHAR(256) NULL,
             dop_statement_type SYSNAME NULL,
             dop INT NULL,
             workspace_memory_grant_kb INT NULL,
@@ -290,7 +304,7 @@ BEGIN TRY
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
-        logical_reads, writes, row_count, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
+        logical_reads, writes, row_count, result, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
         object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash, context_info, event_data)
         SELECT  
             DATEADD(mi, DATEDIFF(mi, GETUTCDATE(), CURRENT_TIMESTAMP), n.value('@timestamp', 'datetime2')) AS event_time,
@@ -304,6 +318,7 @@ BEGIN TRY
             n.value('(data[@name="logical_reads"]/value)[1]', 'int') AS logical_reads,
             n.value('(data[@name="writes"]/value)[1]', 'int') AS writes,
             n.value('(data[@name="row_count"]/value)[1]', 'int') AS row_count,
+            n.value('(data[@name="result"]/text)[1]', 'varchar(256)') AS result,
             /* Parallelism */
             n.value('(data[@name="statement_type"]/text)[1]', 'varchar(256)') AS dop_statement_type,
             n.value('(data[@name="dop"]/value)[1]', 'int') AS dop,
@@ -366,6 +381,7 @@ BEGIN TRY
             logical_reads,
             writes,
             row_count,
+            result,
             query_hash,
             query_plan_hash,
             event_data
@@ -459,7 +475,7 @@ BEGIN TRY
 
     END
 
-    IF @Action in ('stop', 'timed')
+    IF @Action = 'stop'
     BEGIN
         IF @tracerunning = 1
         BEGIN
@@ -467,6 +483,8 @@ BEGIN TRY
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
+
+            SET @tracerunning = 0;
         END
         ELSE
         BEGIN
@@ -475,7 +493,8 @@ BEGIN TRY
         END
     END
 
-    IF @Action in ('drop', 'timed')
+
+    IF @Action = 'drop'
     BEGIN
         IF @traceexists = 1
         BEGIN
@@ -483,6 +502,8 @@ BEGIN TRY
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             DROP EVENT SESSION sp_BlitzTrace ON SERVER;
+
+            SET @traceexists=0;
         END
         ELSE
         BEGIN
@@ -491,8 +512,6 @@ BEGIN TRY
         END
     END
 
-    SET @msg= 'Resetting context and we''re outta here.'
-    RAISERROR (@msg,0,1) WITH NOWAIT;
 
     IF @traceexists = 1 and @tracerunning = 0
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Extended Events Session sp_BlitzTrace exists, but is stopped.'
@@ -502,6 +521,7 @@ BEGIN TRY
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- sp_BlitzTrace doesn''t exist, we''re all cleaned up.'
     
     RAISERROR (@msg,0,1) WITH NOWAIT;
+
 
     SET CONTEXT_INFO 0x;
 END TRY
@@ -518,8 +538,27 @@ BEGIN CATCH
         ,ERROR_LINE() AS ErrorLine
         ,ERROR_MESSAGE() AS ErrorMessage;
 
-    SET @msg= 'Resetting context and we''re outta here.'
+    /* Re-check trace status */
+    SELECT
+        @traceexists = (CASE WHEN (s.name IS NULL) THEN 0 ELSE 1 END),
+        @tracerunning = (CASE WHEN (r.create_time IS NULL) THEN 0 ELSE 1 END)
+    FROM sys.server_event_sessions AS s
+    LEFT OUTER JOIN sys.dm_xe_sessions AS r ON r.name = s.name
+    WHERE s.name='sp_BlitzTrace'
+
+
+    IF @Action='start' and @traceexists=1
+    BEGIN
+        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- An error occurred starting the trace. Cleaning it up.'
+        RAISERROR (@msg,0,1) WITH NOWAIT;
+
+        DROP EVENT SESSION sp_BlitzTrace ON SERVER;
+    END
+
+    SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Resetting context and we''re outta here.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
+
+    SET CONTEXT_INFO 0x;
 
 END CATCH
 
