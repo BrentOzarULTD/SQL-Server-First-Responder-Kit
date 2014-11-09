@@ -59,7 +59,20 @@ BEGIN TRY
 
     IF @Action = 'start' AND @SessionId IS NULL
     BEGIN
-        RAISERROR ('sp_BlitzTrace watches just one session, so you have to specify @SessionId',16,1) WITH NOWAIT;
+        SELECT ses.session_id, con.last_read, con.last_write, ses.login_name, ses.host_name, ses.program_name,
+            con.connect_time, con.protocol_type, con.encrypt_option,
+            con.num_reads, con.num_writes, con.client_net_address,
+            req.status, req.command, req.wait_type, req.last_wait_type, req.open_transaction_count
+        FROM sys.dm_exec_sessions as ses
+        JOIN sys.dm_exec_connections AS con ON
+            con.session_id=ses.session_id
+        LEFT JOIN sys.dm_exec_requests AS req ON
+            con.session_id=req.session_id
+        WHERE 
+            ses.session_id <> @@SPID
+        ORDER BY last_read DESC
+
+        RAISERROR ('sp_BlitzTrace watches just one session, so you have to specify @SessionId. Check out the session list above for some ideas.',16,1) WITH NOWAIT;
     END
 
     IF @TargetPath IS NULL AND @Action = 'start'
