@@ -23,6 +23,7 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @Action VARCHAR(5) = NULL ,  /* 'start', 'read', 'stop', 'drop'*/
     @TargetPath VARCHAR(528) = NULL,  /* Required for 'start'. 'Read' will look for a running sp_BlitzTrace session if not specified.*/
     @IncludeStatements BIT = 0 /* By default just batch completed and rpc completed */
+WITH RECOMPILE
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
     /* See http://BrentOzar.com/go/eula for the End User License Agreement */
@@ -58,7 +59,7 @@ BEGIN TRY
 
     IF @Action = 'start' AND @SessionId IS NULL
     BEGIN
-        RAISERROR ('sp_BlitzTrace looks at just one session, so you have to specify @SessionId',16,1) WITH NOWAIT;
+        RAISERROR ('sp_BlitzTrace watches just one session, so you have to specify @SessionId',16,1) WITH NOWAIT;
     END
 
     IF @TargetPath IS NULL AND @Action = 'start'
@@ -66,11 +67,16 @@ BEGIN TRY
         RAISERROR ('You gotta give a valid @TargetPath for ''start''.',16,1) WITH NOWAIT;
     END
 
-    IF @TargetPath IS NOT NULL and RIGHT(@TargetPath, 1) <> '\'
+    IF @TargetPath IS NOT NULL AND @Action='start' AND RIGHT(@TargetPath, 1) <> '\'
     BEGIN
-        RAISERROR ('We''re picky. Target path must be a directory ending in ''\'', like: ''S:\Xevents\''',16,1) WITH NOWAIT;
+        RAISERROR ('@TargetPath must be a directory ending in ''\'', like: ''S:\Xevents\''',16,1) WITH NOWAIT;
     END
 
+
+    IF @TargetPath IS NOT NULL AND @Action='read' AND  ( RIGHT(@TargetPath, 1) <> '\' AND RIGHT(@TargetPath, 4) <> '.xel')
+    BEGIN
+        RAISERROR ('To read, @TargetPath must be a directory ending in ''\'', like: ''S:\XEvents\'', or a file ending in .xel, like ''S:\XEvents\sp_BlitzTrace*.xel''',16,1) WITH NOWAIT;
+    END
 
     /* Validate transaction state */
     SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Validatin'' transaction state.'
@@ -88,10 +94,7 @@ BEGIN TRY
 
     IF @v < '11'
     BEGIN
-        /* Seriously. Not kidding. */
-        /* degree_of_parallelism, object_created, sql_batch_completed, */
-        /* sql_statement_recompile are all 2012+ only */
-        SET @msg = 'Sad news: 90 percent of the events sp_BlitzTrace uses are only in SQL Server 2012 and higher-- so it''s not supported on SQL 2008/R2.'
+        SET @msg = 'Sad news: most the events sp_BlitzTrace uses are only in SQL Server 2012 and higher-- so it''s not supported on SQL 2008/R2.'
         RAISERROR (@msg,16,1) WITH NOWAIT;
         RETURN;
     END
@@ -145,7 +148,7 @@ BEGIN TRY
         IF @traceexists = 0
         BEGIN
             SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
-            SET @TargetPathFull=@TargetPath + @datestamp 
+            SET @TargetPathFull=@TargetPath + N'sp_BlitzTrace-' + @datestamp 
 
             SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
             RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -215,10 +218,11 @@ BEGIN TRY
 
         IF @traceexists = 0
         BEGIN
-            RAISERROR ('Whoops, sp_BlitzTrace Extended Events session doesn''t exist!',16,1) WITH NOWAIT;
+            SET @filepath=@TargetPath + '*.xel';
+
         END
 
-        /* Figure out the file name for current trace */
+        /* Figure out the file name for current trace, if it's running */
         if @tracerunning=1
         BEGIN
             SELECT TOP 1 @filepathXML= x.target_data
@@ -231,7 +235,8 @@ BEGIN TRY
 
             SELECT @filepath=CAST(@filepathXML.query('data(EventFileTarget/File/@name)') AS VARCHAR(1024)) 
         END
-        ELSE
+        ELSE /* Figure out the file path for the trace if exists and isn't running */
+        BEGIN
             SELECT TOP 1 @filepath=CAST(f.value AS VARCHAR(1024)) + '*.xel'
             FROM sys.server_event_sessions AS ses
             LEFT OUTER JOIN sys.dm_xe_sessions AS running ON 
@@ -252,7 +257,7 @@ BEGIN TRY
                 t.event_session_id = f.event_session_id AND 
                 t.target_id = f.object_id 
                 AND c.name = f.name
-
+        END
 
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Using filepath: ' + @filepath
         RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -319,6 +324,7 @@ BEGIN TRY
             n.value('(data[@name="writes"]/value)[1]', 'int') AS writes,
             n.value('(data[@name="row_count"]/value)[1]', 'int') AS row_count,
             n.value('(data[@name="result"]/text)[1]', 'varchar(256)') AS result,
+
             /* Parallelism */
             n.value('(data[@name="statement_type"]/text)[1]', 'varchar(256)') AS dop_statement_type,
             n.value('(data[@name="dop"]/value)[1]', 'int') AS dop,
@@ -347,7 +353,7 @@ BEGIN TRY
         SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Finished populating #sp_BlitzTraceEvents...'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
-        SET @rowcount=@@ROWCOUNT
+        SET @rowcount=@@ROWCOUNT;
 
         IF @rowcount = 0
         BEGIN
@@ -375,6 +381,7 @@ BEGIN TRY
             event_type,
             batch_text,
             [statement],
+            sql_text,
             duration_ms,
             cpu_time_ms,
             physical_reads,
