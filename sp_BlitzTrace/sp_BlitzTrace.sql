@@ -55,11 +55,11 @@ BEGIN TRY
     DECLARE @traceexists BIT = 0;
     DECLARE @tracerunning BIT = 0;
 
-    DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
+    DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
 
     /* Validate parameters */
-    SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Validatin'' parameters.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Validatin'' parameters.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
     IF @Action NOT IN ('start', 'read', 'stop', 'drop')  OR @Action is NULL
@@ -117,7 +117,7 @@ BEGIN TRY
     END
 
     /* Validate transaction state */
-    SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Validatin'' transaction state.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Validatin'' transaction state.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
     IF @@TRANCOUNT > 0
     BEGIN
@@ -125,10 +125,10 @@ BEGIN TRY
     END
 
     /* Check version */
-    SET @msg = CONVERT(nvarchar(30), GETDATE(), 126) + '- Determining SQL Server version.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Determining SQL Server version.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
-    SELECT @v = SUBSTRING(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), 1,CHARINDEX('.', CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128))) + 1 )
+    SELECT @v = SUBSTRING(CAST(SERVERPROPERTY('ProductVersion') as NVARCHAR(128)), 1,CHARINDEX('.', CAST(SERVERPROPERTY('ProductVersion') as NVARCHAR(128))) + 1 )
 
     IF @v < '11'
     BEGIN
@@ -156,17 +156,17 @@ BEGIN TRY
 
     IF @Action = 'start'
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Creating extended events trace.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Creating extended events trace.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @traceexists = 1
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- A trace named sp_BlitzTrace already exists'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- A trace named sp_BlitzTrace already exists'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @tracerunning=1
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- sp_BlitzTrace is running, so stopping it before we recreate: ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- sp_BlitzTrace is running, so stopping it before we recreate: ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
@@ -174,7 +174,7 @@ BEGIN TRY
                 SET @tracerunning=0;
             END
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             DROP EVENT SESSION sp_BlitzTrace ON SERVER;  
@@ -188,7 +188,7 @@ BEGIN TRY
             SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
             SET @TargetPathFull=@TargetPath + N'sp_BlitzTrace-' + @datestamp 
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
 
@@ -242,12 +242,12 @@ BEGIN TRY
 
             SET @dsql=@dsql1 + @dsql2;
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Creating trace with dynamic SQL. I REGRET NOTHING!!!'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Creating trace with dynamic SQL. I REGRET NOTHING!!!'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @Debug=1
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Debug mode, printing but not executing.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Debug mode, printing but not executing.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 RAISERROR (@nl,0,1) WITH NOWAIT;
@@ -266,7 +266,7 @@ BEGIN TRY
 
         IF @tracerunning = 0
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @Debug=0
@@ -277,14 +277,14 @@ BEGIN TRY
             END
             ELSE 
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- @Debug=1, not starting trace;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, not starting trace;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
     END
     IF @Action = 'read'
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Reading, processing, and reporting.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Reading, processing, and reporting.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @traceexists = 0
@@ -330,7 +330,7 @@ BEGIN TRY
                 AND c.name = f.name
         END
 
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Using filepath: ' + @filepath
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Using filepath: ' + @filepath
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @Debug = 0
@@ -368,7 +368,7 @@ BEGIN TRY
                 event_data XML NOT NULL
             )
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Populating #sp_BlitzTraceXML...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Populating #sp_BlitzTraceXML...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             INSERT #sp_BlitzTraceXML (event_data)
@@ -378,7 +378,7 @@ BEGIN TRY
             CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x 
             OUTER APPLY x.event_data.nodes('//event') AS y(n) OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Started populating #sp_BlitzTraceEvents...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Started populating #sp_BlitzTraceEvents...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
@@ -386,7 +386,7 @@ BEGIN TRY
             object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash, context_info, event_data)
             SELECT  
                 DATEADD(mi, DATEDIFF(mi, GETUTCDATE(), CURRENT_TIMESTAMP), n.value('@timestamp', 'datetime2')) AS event_time,
-                n.value('@name', 'nvarchar(max)') AS event_type,
+                n.value('@name', 'NVARCHAR(max)') AS event_type,
                 n.value('(data[@name="batch_text"]/value)[1]', 'varchar(max)') AS batch_text,
                 n.value('(action[@name="sql_text"]/value)[1]', 'varchar(max)') AS sql_text,
                 n.value('(data[@name="statement"]/value)[1]', 'varchar(max)') AS [statement],
@@ -423,7 +423,7 @@ BEGIN TRY
             OUTER APPLY x.event_data.nodes('//event') AS y(n)  
             OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Finished populating #sp_BlitzTraceEvents...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Finished populating #sp_BlitzTraceEvents...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             SET @rowcount=@@ROWCOUNT;
@@ -446,7 +446,7 @@ BEGIN TRY
             OR PATINDEX('%sp_BlitzTrace%',sql_text) <> 0
                 OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
             /* sql_batch_completed, rpc_completed */
             SELECT  
@@ -472,7 +472,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'degree_of_parallelism') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying parallelism and memory grant...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying parallelism and memory grant...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* parallelism and memory grant */
                 SELECT  
@@ -494,7 +494,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'object_created') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying object_created ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying object_created ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* object_created */
                 SELECT  
@@ -516,7 +516,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sql_statement_recompile') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying sql_statement_recompile ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sql_statement_recompile ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
@@ -536,7 +536,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sort_warning') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Querying sort_warning ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sort_warning ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
@@ -555,7 +555,7 @@ BEGIN TRY
         END
         ELSE /* We're in @Debug=1 mode */
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- @Debug=1, not reading sp_BlitzTrace Extended Events session files;'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, not reading sp_BlitzTrace Extended Events session files;'
             RAISERROR (@msg,0,1) WITH NOWAIT;
         END
     END
@@ -566,7 +566,7 @@ BEGIN TRY
         BEGIN
             IF @Debug = 0
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Stopping sp_BlitzTrace Extended Events session.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Stopping sp_BlitzTrace Extended Events session.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
@@ -575,13 +575,13 @@ BEGIN TRY
             END
             ELSE /* @Debug=1 */
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session is running but we are NOT stopping it;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session is running but we are NOT stopping it;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
         ELSE
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- No running sp_BlitzTrace Extended Events session to stop.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- No running sp_BlitzTrace Extended Events session to stop.'
             RAISERROR (@msg,16,1) WITH NOWAIT;
         END
     END
@@ -591,7 +591,7 @@ BEGIN TRY
     BEGIN
         IF @traceexists = 1
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Dropping sp_BlitzTrace Extended Events session.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Dropping sp_BlitzTrace Extended Events session.'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @Debug=0
@@ -602,13 +602,13 @@ BEGIN TRY
             END
             ELSE /* @Debug=1 */
             BEGIN
-                SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session exists but we are NOT dropping it.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session exists but we are NOT dropping it.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
         ELSE
         BEGIN
-            SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- No sp_BlitzTrace XEvents trace to drop.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- No sp_BlitzTrace XEvents trace to drop.'
             RAISERROR (@msg,16,1) WITH NOWAIT;
         END
     END
@@ -619,23 +619,31 @@ BEGIN TRY
 
     IF @traceexists = 1 and @tracerunning = 0
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Extended Events session sp_BlitzTrace exists, but is stopped.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace exists, but is stopped.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
+
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- To drop sp_BlitzTrace, run: exec dbo.sp_BlitzTrace @Action=''drop'';'
+        RAISERROR (@msg,0,1) WITH NOWAIT;
+
     END
     ELSE IF @traceexists = 1 and @tracerunning = 1
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Extended Events session sp_BlitzTrace exists and is running for @SessionId=' + cast(@SessionId as NVARCHAR(5));
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace exists and is running' + 
+            CASE WHEN @SessionId is not null 
+               THEN N' for @SessionId=' + cast(@SessionId as NVARCHAR(5)) 
+               ELSE N''
+               END
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Don''t leave the sp_BlitzTrace session running for long periods!'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Don''t leave the sp_BlitzTrace session running for long periods!'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- To stop sp_BlitzTrace, run: exec dbo.sp_BlitzTrace @Action=''stop'';'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- To stop sp_BlitzTrace, run: exec dbo.sp_BlitzTrace @Action=''stop'';'
         RAISERROR (@msg,0,1) WITH NOWAIT;
     END
     ELSE IF @traceexists = 0
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Extended Events session sp_BlitzTrace doesn''t exist, we''re all cleaned up.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace doesn''t exist, we''re all cleaned up.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
     END
     
@@ -645,7 +653,7 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
 
-    SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- Catching error ...'
+    SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Catching error ...'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
     SELECT
@@ -667,13 +675,13 @@ BEGIN CATCH
 
     IF @Action='start' and @traceexists=1
     BEGIN
-        SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + '- An error occurred starting the trace. Cleaning it up.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- An error occurred starting the trace. Cleaning it up.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         DROP EVENT SESSION sp_BlitzTrace ON SERVER;
     END
 
-    SET @msg= CONVERT(nvarchar(30), GETDATE(), 126) + N'- Resetting context and we''re outta here.'
+    SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Resetting context and we''re outta here.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
     SET CONTEXT_INFO 0x;
