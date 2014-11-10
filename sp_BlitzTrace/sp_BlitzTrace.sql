@@ -35,8 +35,14 @@ WITH RECOMPILE
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
     /* See http://BrentOzar.com/go/eula for the End User License Agreement */
+
+    DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
+
+    RAISERROR (N'*******************START HERE*******************',0,1) WITH NOWAIT;
     RAISERROR ('(c) 2014 Brent Ozar Unlimited (R).',0,1) WITH NOWAIT;
     RAISERROR ('See http://BrentOzar.com/go/eula for the End User License Agreement.',0,1) WITH NOWAIT;
+    RAISERROR (N'*****************Let''s Do This!*****************',0,1) WITH NOWAIT;
+    RAISERROR (@nl,0,1) WITH NOWAIT;
 
     SET NOCOUNT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -55,7 +61,6 @@ BEGIN TRY
     DECLARE @traceexists BIT = 0;
     DECLARE @tracerunning BIT = 0;
 
-    DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
 
     /* Validate parameters */
