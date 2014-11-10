@@ -39,8 +39,8 @@ AS
     DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
     RAISERROR (N'*******************START HERE*******************',0,1) WITH NOWAIT;
-    RAISERROR ('(c) 2014 Brent Ozar Unlimited (R).',0,1) WITH NOWAIT;
-    RAISERROR ('See http://BrentOzar.com/go/eula for the End User License Agreement.',0,1) WITH NOWAIT;
+    RAISERROR (N'(c) 2014 Brent Ozar Unlimited (R).',0,1) WITH NOWAIT;
+    RAISERROR (N'See http://BrentOzar.com/go/eula for the End User License Agreement.',0,1) WITH NOWAIT;
     RAISERROR (N'*****************Let''s Do This!*****************',0,1) WITH NOWAIT;
     RAISERROR (@nl,0,1) WITH NOWAIT;
 
@@ -64,15 +64,15 @@ BEGIN TRY
 
 
     /* Validate parameters */
-    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Validatin'' parameters.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Validatin'' parameters.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
-    IF @Action NOT IN ('start', 'read', 'stop', 'drop')  OR @Action is NULL
+    IF @Action NOT IN (N'start', N'read', N'stop', N'drop')  OR @Action is NULL
     BEGIN 
-        RAISERROR ('You need to specify a valid @Action for sp_BlitzTrace: ''start'', ''read'', ''stop'', or ''drop''.',16,1) WITH NOWAIT;
+        RAISERROR (N'You need to specify a valid @Action for sp_BlitzTrace: ''start'', ''read'', ''stop'', or ''drop''.',16,1) WITH NOWAIT;
     END
 
-    IF @Action = 'start' AND @SessionId IS NULL
+    IF @Action = N'start' AND @SessionId IS NULL
     BEGIN
         SELECT ses.session_id, con.last_read, con.last_write, ses.login_name, ses.host_name, ses.program_name,
             con.connect_time, con.protocol_type, con.encrypt_option,
@@ -87,57 +87,57 @@ BEGIN TRY
             ses.session_id <> @@SPID
         ORDER BY last_read DESC
 
-        RAISERROR ('sp_BlitzTrace watches just one session, so you have to specify @SessionId. Check out the session list above for some ideas.',16,1) WITH NOWAIT;
+        RAISERROR (N'sp_BlitzTrace watches just one session, so you have to specify @SessionId. Check out the session list above for some ideas.',16,1) WITH NOWAIT;
     END
 
     IF @MaxDispatchLatencySeconds > 99
     BEGIN
-        RAISERROR ('@MaxDispatchLatencySeconds must be 99 or less. 5 is the default. 0 is unlimited latency.',16,1) WITH NOWAIT;
+        RAISERROR (N'@MaxDispatchLatencySeconds must be 99 or less. 5 is the default. 0 is unlimited latency.',16,1) WITH NOWAIT;
     END
 
     IF @MaxFileSizeMB > 9999
     BEGIN
-        RAISERROR ('@MaxFileSizeMB must be 9999 or smaller - 256MB is the default.',16,1) WITH NOWAIT;
+        RAISERROR (N'@MaxFileSizeMB must be 9999 or smaller - 256MB is the default.',16,1) WITH NOWAIT;
     END
 
     IF @MaxRolloverFiles > 99
     BEGIN
-        RAISERROR ('@MaxRolloverFiles must be 99 or smaller. 4 is the default.',16,1) WITH NOWAIT;
+        RAISERROR (N'@MaxRolloverFiles must be 99 or smaller. 4 is the default.',16,1) WITH NOWAIT;
     END
 
-    IF @TargetPath IS NULL AND @Action = 'start'
+    IF @TargetPath IS NULL AND @Action = N'start'
     BEGIN
-        RAISERROR ('You gotta give a valid @TargetPath for ''start''.',16,1) WITH NOWAIT;
+        RAISERROR (N'You gotta give a valid @TargetPath for ''start''.',16,1) WITH NOWAIT;
     END
 
-    IF @TargetPath IS NOT NULL AND @Action='start' AND RIGHT(@TargetPath, 1) <> '\'
+    IF @TargetPath IS NOT NULL AND @Action=N'start' AND RIGHT(@TargetPath, 1) <> N'\'
     BEGIN
-        RAISERROR ('@TargetPath must be a directory ending in ''\'', like: ''S:\Xevents\''',16,1) WITH NOWAIT;
+        RAISERROR (N'@TargetPath must be a directory ending in ''\'', like: ''S:\Xevents\''',16,1) WITH NOWAIT;
     END
 
 
     IF @TargetPath IS NOT NULL AND @Action='read' AND  ( RIGHT(@TargetPath, 1) <> '\' AND RIGHT(@TargetPath, 4) <> '.xel')
     BEGIN
-        RAISERROR ('To read, @TargetPath must be a directory ending in ''\'', like: ''S:\XEvents\'', or a file ending in .xel, like ''S:\XEvents\sp_BlitzTrace*.xel''',16,1) WITH NOWAIT;
+        RAISERROR (N'To read, @TargetPath must be a directory ending in ''\'', like: ''S:\XEvents\'', or a file ending in .xel, like ''S:\XEvents\sp_BlitzTrace*.xel''',16,1) WITH NOWAIT;
     END
 
     /* Validate transaction state */
-    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Validatin'' transaction state.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Validatin'' transaction state.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
     IF @@TRANCOUNT > 0
     BEGIN
-        RAISERROR ('@@TRANCOUNT > 0 not supported',16,1) WITH NOWAIT;
+        RAISERROR (N'@@TRANCOUNT > 0 not supported',16,1) WITH NOWAIT;
     END
 
     /* Check version */
-    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Determining SQL Server version.'
+    SET @msg = CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Determining SQL Server version.'
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
     SELECT @v = SUBSTRING(CAST(SERVERPROPERTY('ProductVersion') as NVARCHAR(128)), 1,CHARINDEX('.', CAST(SERVERPROPERTY('ProductVersion') as NVARCHAR(128))) + 1 )
 
-    IF @v < '11'
+    IF @v < N'11'
     BEGIN
-        SET @msg = 'Sad news: most the events sp_BlitzTrace uses are only in SQL Server 2012 and higher-- so it''s not supported on SQL 2008/R2.'
+        SET @msg = N'Sad news: most the events sp_BlitzTrace uses are only in SQL Server 2012 and higher-- so it''s not supported on SQL 2008/R2.'
         RAISERROR (@msg,16,1) WITH NOWAIT;
         RETURN;
     END
@@ -149,7 +149,7 @@ BEGIN TRY
         @tracerunning = (CASE WHEN (r.create_time IS NULL) THEN 0 ELSE 1 END)
     FROM sys.server_event_sessions AS s
     LEFT OUTER JOIN sys.dm_xe_sessions AS r ON r.name = s.name
-    WHERE s.name='sp_BlitzTrace'
+    WHERE s.name=N'sp_BlitzTrace'
 
 
     /* We use this to filter sp_BlitzTrace activity out of the results, */
@@ -159,19 +159,19 @@ BEGIN TRY
     SET @context=CAST('sp_BlitzTrace IS THE BEST' as binary);
     SET CONTEXT_INFO @context;
 
-    IF @Action = 'start'
+    IF @Action = N'start'
     BEGIN
-        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Creating extended events trace.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Creating extended events trace.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @traceexists = 1
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- A trace named sp_BlitzTrace already exists'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- A trace named sp_BlitzTrace already exists'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @tracerunning=1
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- sp_BlitzTrace is running, so stopping it before we recreate: ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- sp_BlitzTrace is running, so stopping it before we recreate: ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
@@ -179,7 +179,7 @@ BEGIN TRY
                 SET @tracerunning=0;
             END
 
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             DROP EVENT SESSION sp_BlitzTrace ON SERVER;  
@@ -271,7 +271,7 @@ BEGIN TRY
 
         IF @tracerunning = 0
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = START;'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @Debug=0
@@ -282,19 +282,19 @@ BEGIN TRY
             END
             ELSE 
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, not starting trace;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- @Debug=1, not starting trace;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
     END
     IF @Action = 'read'
     BEGIN
-        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Reading, processing, and reporting.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Reading, processing, and reporting.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         IF @traceexists = 0
         BEGIN
-            SET @filepath=@TargetPath + '*.xel';
+            SET @filepath=@TargetPath + N'*.xel';
 
         END
 
@@ -313,7 +313,7 @@ BEGIN TRY
         END
         ELSE /* Figure out the file path for the trace if exists and isn't running */
         BEGIN
-            SELECT TOP 1 @filepath=CAST(f.value AS VARCHAR(1024)) + '*.xel'
+            SELECT TOP 1 @filepath=CAST(f.value AS VARCHAR(1024)) + N'*.xel'
             FROM sys.server_event_sessions AS ses
             LEFT OUTER JOIN sys.dm_xe_sessions AS running ON 
                 running.name = ses.name
@@ -373,7 +373,7 @@ BEGIN TRY
                 event_data XML NOT NULL
             )
 
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Populating #sp_BlitzTraceXML...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Populating #sp_BlitzTraceXML...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             INSERT #sp_BlitzTraceXML (event_data)
@@ -383,7 +383,7 @@ BEGIN TRY
             CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x 
             OUTER APPLY x.event_data.nodes('//event') AS y(n) OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Started populating #sp_BlitzTraceEvents...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Started populating #sp_BlitzTraceEvents...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
@@ -428,7 +428,7 @@ BEGIN TRY
             OUTER APPLY x.event_data.nodes('//event') AS y(n)  
             OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Finished populating #sp_BlitzTraceEvents...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Finished populating #sp_BlitzTraceEvents...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             SET @rowcount=@@ROWCOUNT;
@@ -439,7 +439,7 @@ BEGIN TRY
             END
             ELSE 
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- ' + CAST(@rowcount AS NVARCHAR(20)) + N' rows inserted into #sp_BlitzTraceEvents.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- ' + CAST(@rowcount AS NVARCHAR(20)) + N' rows inserted into #sp_BlitzTraceEvents.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
 
@@ -451,7 +451,7 @@ BEGIN TRY
             OR PATINDEX('%sp_BlitzTrace%',sql_text) <> 0
                 OPTION (RECOMPILE);
 
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
             /* sql_batch_completed, rpc_completed */
             SELECT  
@@ -477,7 +477,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'degree_of_parallelism') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying parallelism and memory grant...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying parallelism and memory grant...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* parallelism and memory grant */
                 SELECT  
@@ -499,7 +499,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'object_created') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying object_created ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying object_created ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* object_created */
                 SELECT  
@@ -521,7 +521,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sql_statement_recompile') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sql_statement_recompile ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sql_statement_recompile ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
@@ -541,7 +541,7 @@ BEGIN TRY
             IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sort_warning') 
                 IS NOT NULL
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Querying sort_warning ...'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sort_warning ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
@@ -560,7 +560,7 @@ BEGIN TRY
         END
         ELSE /* We're in @Debug=1 mode */
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, not reading sp_BlitzTrace Extended Events session files;'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- @Debug=1, not reading sp_BlitzTrace Extended Events session files;'
             RAISERROR (@msg,0,1) WITH NOWAIT;
         END
     END
@@ -571,7 +571,7 @@ BEGIN TRY
         BEGIN
             IF @Debug = 0
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Stopping sp_BlitzTrace Extended Events session.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Stopping sp_BlitzTrace Extended Events session.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 ALTER EVENT SESSION sp_BlitzTrace ON SERVER STATE = STOP;
@@ -580,13 +580,13 @@ BEGIN TRY
             END
             ELSE /* @Debug=1 */
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session is running but we are NOT stopping it;'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- @Debug=1, sp_BlitzTrace Extended Events session is running but we are NOT stopping it;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
         ELSE
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- No running sp_BlitzTrace Extended Events session to stop.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- No running sp_BlitzTrace Extended Events session to stop.'
             RAISERROR (@msg,16,1) WITH NOWAIT;
         END
     END
@@ -596,7 +596,7 @@ BEGIN TRY
     BEGIN
         IF @traceexists = 1
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- Dropping sp_BlitzTrace Extended Events session.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Dropping sp_BlitzTrace Extended Events session.'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             IF @Debug=0
@@ -607,13 +607,13 @@ BEGIN TRY
             END
             ELSE /* @Debug=1 */
             BEGIN
-                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- @Debug=1, sp_BlitzTrace Extended Events session exists but we are NOT dropping it.'
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- @Debug=1, sp_BlitzTrace Extended Events session exists but we are NOT dropping it.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
             END
         END
         ELSE
         BEGIN
-            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- No sp_BlitzTrace XEvents trace to drop.'
+            SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- No sp_BlitzTrace XEvents trace to drop.'
             RAISERROR (@msg,16,1) WITH NOWAIT;
         END
     END
@@ -680,7 +680,7 @@ BEGIN CATCH
 
     IF @Action='start' and @traceexists=1
     BEGIN
-        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + '- An error occurred starting the trace. Cleaning it up.'
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- An error occurred starting the trace. Cleaning it up.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
 
         DROP EVENT SESSION sp_BlitzTrace ON SERVER;
