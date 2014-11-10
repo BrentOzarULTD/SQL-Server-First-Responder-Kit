@@ -22,7 +22,11 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @SessionId INT = NULL ,
     @Action VARCHAR(5) = NULL ,  /* 'start', 'read', 'stop', 'drop'*/
     @TargetPath VARCHAR(528) = NULL,  /* Required for 'start'. 'Read' will look for a running sp_BlitzTrace session if not specified.*/
-    @IncludeStatements BIT = 0 /* By default just batch completed and rpc completed */
+    @TraceRecompiles BIT = 1, 
+    @TraceObjectCreates BIT = 1, 
+    @TraceParallelism BIT = 1,
+    @TraceStatements BIT = 0
+
 WITH RECOMPILE
 AS
     /* (c) 2014 Brent Ozar Unlimited (R) */
@@ -169,29 +173,35 @@ BEGIN TRY
 
             DECLARE @dsql NVARCHAR(MAX)=
                 N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER 
-                ' + case @IncludeStatements when 1 then + N'
+                ' + case @TraceStatements when 1 then + N'
                 ADD EVENT sqlserver.sp_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
                 ADD EVENT sqlserver.sql_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
-                ' ELSE N'' END + '
+                ' ELSE N'' END + N'
                 ADD EVENT sqlserver.sort_warning (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                ' + case @TraceParallelism when 1 then + N'
                 ADD EVENT sqlserver.degree_of_parallelism (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                ' ELSE N'' END + N'
+                ' + case @TraceObjectCreates when 1 then + N'
                 ADD EVENT sqlserver.object_created (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                ' ELSE N'' END + N'
                 ADD EVENT sqlserver.sql_batch_completed (
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                ' + case @TraceRecompiles when 1 then + N'
                 ADD EVENT sqlserver.sql_statement_recompile (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))), 
+                ' ELSE N'' END + N'
                 ADD EVENT sqlserver.rpc_completed (
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
