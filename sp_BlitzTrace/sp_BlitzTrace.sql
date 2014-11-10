@@ -25,7 +25,10 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @TraceRecompiles BIT = 1, 
     @TraceObjectCreates BIT = 1, 
     @TraceParallelism BIT = 1,
-    @TraceStatements BIT = 0
+    @TraceStatements BIT = 0,
+    @MaxFileSizeMB INT = 256,
+    @MaxRolloverFiles INT = 4,
+    @MaxDispatchLatencySeconds INT = 5 /* 0 is unlimited! */
 
 WITH RECOMPILE
 AS
@@ -77,6 +80,21 @@ BEGIN TRY
         ORDER BY last_read DESC
 
         RAISERROR ('sp_BlitzTrace watches just one session, so you have to specify @SessionId. Check out the session list above for some ideas.',16,1) WITH NOWAIT;
+    END
+
+    IF @MaxDispatchLatencySeconds > 99
+    BEGIN
+        RAISERROR ('@MaxDispatchLatencySeconds must be 99 or less. 5 is the default. 0 is unlimited latency.',16,1) WITH NOWAIT;
+    END
+
+    IF @MaxFileSizeMB > 9999
+    BEGIN
+        RAISERROR ('@MaxFileSizeMB must be 9999 or smaller - 256MB is the default.',16,1) WITH NOWAIT;
+    END
+
+    IF @MaxRolloverFiles > 99
+    BEGIN
+        RAISERROR ('@MaxRolloverFiles must be 99 or smaller. 4 is the default.',16,1) WITH NOWAIT;
     END
 
     IF @TargetPath IS NULL AND @Action = 'start'
@@ -206,11 +224,12 @@ BEGIN TRY
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
                 ADD TARGET package0.event_file(SET filename=''' + @TargetPathFull + N''',
-                    max_file_size=(256),
-                    max_rollover_files=4)
-                WITH (MAX_MEMORY = 128 MB,
+                    MAX_FILE_SIZE=(' + CAST(@MaxFileSizeMB AS VARCHAR(4)) + N'),
+                    MAX_ROLLOVER_FILES = ' + CAST(@MaxRolloverFiles as VARCHAR(2)) + N')
+                WITH (
+                    MAX_MEMORY = 128 MB,
                     EVENT_RETENTION_MODE = ALLOW_MULTIPLE_EVENT_LOSS,
-                    MAX_DISPATCH_LATENCY = 5 SECONDS, 
+                    MAX_DISPATCH_LATENCY = ' + CAST(@MaxDispatchLatencySeconds AS NVARCHAR(2)) + N' SECONDS, 
                     MEMORY_PARTITION_MODE=NONE,
                     TRACK_CAUSALITY=OFF,
                     STARTUP_STATE=OFF)';
