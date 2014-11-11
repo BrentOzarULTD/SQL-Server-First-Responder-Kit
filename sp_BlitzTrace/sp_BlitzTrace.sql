@@ -12,7 +12,23 @@ USE master;
 GO
 
 /*
-exec sp_BlitzTrace @SessionId=51, @Seconds=60;
+-- Welcome to the beta release of sp_BlitTrace -- Version 0.1, released 2014-11-11!
+-- Things you can do....
+
+--List running sessions
+exec sp_BlitzTrace @Action='start';
+
+--Start a trace for a session. You specify the @SessionID and @TargetPath
+exec sp_BlitzTrace @SessionId=52, @TargetPath='S:\XEvents\Traces\', @Action='start';
+
+--Stop a session
+exec sp_BlitzTrace @Action='stop';
+
+--Read the results. You can move the files to another server and read there by specifying a @TargetPath.
+exec sp_BlitzTrace @Action='read';
+
+--Drop the session. This does NOT delete files created in @TargetPath.
+exec sp_BlitzTrace @Action='drop';
 */
 
 IF OBJECT_ID('dbo.sp_BlitzTrace') IS NOT NULL
@@ -42,6 +58,7 @@ AS
     RAISERROR (N'*******************START HERE*******************',0,1) WITH NOWAIT;
     RAISERROR (N'(c) 2014 Brent Ozar Unlimited (R).',0,1) WITH NOWAIT;
     RAISERROR (N'See http://BrentOzar.com/go/eula for the End User License Agreement.',0,1) WITH NOWAIT;
+    RAISERROR (N'Sp_BlitzTrace version 0.1, released on 2014-11-11.',0,1) WITH NOWAIT;
     RAISERROR (N'*****************Let''s Do This!*****************',0,1) WITH NOWAIT;
     RAISERROR (@nl,0,1) WITH NOWAIT;
 
@@ -204,37 +221,37 @@ BEGIN TRY
                 ' + case @TraceStatements when 1 then + N'
                 ADD EVENT sqlserver.sp_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ADD EVENT sqlserver.sql_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' ELSE N'' END + case @TraceSortWarnings when 1 then N'
                 ADD EVENT sqlserver.sort_warning (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' ELSE N'' END + case @TraceParallelism when 1 then + N'
                 ADD EVENT sqlserver.degree_of_parallelism (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' ELSE N'' END + N'
                 ' + case @TraceObjectCreates when 1 then + N'
                 ADD EVENT sqlserver.object_created (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' ELSE N'' END;
 
             DECLARE @dsql2 NVARCHAR(MAX)=
                 N'ADD EVENT sqlserver.sql_batch_completed (
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' + case @TraceRecompiles when 1 then + N'
                 ADD EVENT sqlserver.sql_statement_recompile (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))), 
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))), 
                 ' ELSE N'' END + N'
                 ADD EVENT sqlserver.rpc_completed (
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N')))
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N')))
                 ADD TARGET package0.event_file(SET filename=''' + @TargetPathFull + N''',
                     MAX_FILE_SIZE=(' + CAST(@MaxFileSizeMB AS VARCHAR(4)) + N'),
                     MAX_ROLLOVER_FILES = ' + CAST(@MaxRolloverFiles as VARCHAR(2)) + N')
@@ -351,8 +368,8 @@ BEGIN TRY
                 batch_text VARCHAR(MAX) NULL,
                 sql_text VARCHAR(MAX) NULL,
                 [statement] VARCHAR(MAX) NULL,
-                duration_ms INT NULL,
-                cpu_time_ms INT NULL,
+                duration_micros INT NULL,
+                cpu_micros INT NULL,
                 physical_reads INT NULL,
                 logical_reads INT NULL,
                 writes INT NULL,
@@ -387,7 +404,7 @@ BEGIN TRY
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Started populating #sp_BlitzTraceEvents...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
-            INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_ms, cpu_time_ms, physical_reads,
+            INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_micros, cpu_micros, physical_reads,
             logical_reads, writes, row_count, result, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
             object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash, context_info, event_data)
             SELECT  
@@ -396,8 +413,8 @@ BEGIN TRY
                 n.value('(data[@name="batch_text"]/value)[1]', 'varchar(max)') AS batch_text,
                 n.value('(action[@name="sql_text"]/value)[1]', 'varchar(max)') AS sql_text,
                 n.value('(data[@name="statement"]/value)[1]', 'varchar(max)') AS [statement],
-                n.value('(data[@name="duration"]/value)[1]', 'int') AS duration_ms,
-                n.value('(data[@name="cpu_time"]/value)[1]', 'int') AS cpu_time_ms,
+                n.value('(data[@name="duration"]/value)[1]', 'int') AS duration_micros,
+                n.value('(data[@name="cpu_time"]/value)[1]', 'int') AS cpu_micros,
                 n.value('(data[@name="physical_reads"]/value)[1]', 'int') AS physical_reads,
                 n.value('(data[@name="logical_reads"]/value)[1]', 'int') AS logical_reads,
                 n.value('(data[@name="writes"]/value)[1]', 'int') AS writes,
@@ -461,8 +478,8 @@ BEGIN TRY
                 batch_text,
                 [statement],
                 sql_text,
-                duration_ms,
-                cpu_time_ms,
+                duration_micros,
+                cpu_micros,
                 physical_reads,
                 logical_reads,
                 writes,
@@ -509,7 +526,7 @@ BEGIN TRY
                     sql_text,
                     [object_id],
                     [object_name],
-                    cpu_time_ms,
+                    cpu_micros,
                     ddl_phase,
                     query_hash,
                     query_plan_hash,
