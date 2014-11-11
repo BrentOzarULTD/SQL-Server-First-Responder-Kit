@@ -208,7 +208,7 @@ BEGIN TRY
         
         IF @traceexists = 0
         BEGIN
-            SELECT @datestamp = REPLACE( CONVERT(VARCHAR(26),getdate(),120),':','-')
+            SELECT @datestamp = REPLACE(REPLACE( CONVERT(VARCHAR(26),getdate(),126),':','-'),'.','')
             SET @TargetPathFull=@TargetPath + N'sp_BlitzTrace-' + @datestamp 
 
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
