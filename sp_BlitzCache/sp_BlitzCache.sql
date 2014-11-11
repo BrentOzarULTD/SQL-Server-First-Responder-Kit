@@ -60,6 +60,10 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4.3 - 2014-11-11
+ - Fix to remove confusing implicit conversion checks. Warnings will only be
+   generated when a plan affecting convert is in place.
+
 v2.4.2 - 2014-11-04
  - Hotfix - Randall Petty found a stray comma in the export_to_excel output.
 
@@ -1364,9 +1368,6 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ,
        implicit_conversions = CASE WHEN QueryPlan.exist('
-                                        //p:RelOp//p:ScalarOperator/@ScalarString
-                                        [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
-                                   WHEN QueryPlan.exist('
                                         //p:PlanAffectingConvert/@Expression
                                         [contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1
                                    END ,
