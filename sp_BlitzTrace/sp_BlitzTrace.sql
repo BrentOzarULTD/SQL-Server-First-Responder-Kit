@@ -26,6 +26,7 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @TraceRecompiles BIT = 1, 
     @TraceObjectCreates BIT = 1, 
     @TraceParallelism BIT = 1,
+    @TraceSortWarnings BIT = 1,
     @TraceStatements BIT = 0,
     @MaxFileSizeMB INT = 256,
     @MaxRolloverFiles INT = 4,
@@ -207,11 +208,11 @@ BEGIN TRY
                 ADD EVENT sqlserver.sql_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
-                ' ELSE N'' END + N'
+                ' ELSE N'' END + case @TraceSortWarnings when 1 then N'
                 ADD EVENT sqlserver.sort_warning (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
-                ' + case @TraceParallelism when 1 then + N'
+                ' ELSE N'' END + case @TraceParallelism when 1 then + N'
                 ADD EVENT sqlserver.degree_of_parallelism (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
                     WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(3)) + N'))),
