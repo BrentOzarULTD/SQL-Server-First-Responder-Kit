@@ -53,6 +53,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v11 - Nov 17, 2014
+ - Jefferson Elias of Belgium added more Perfmon counters to ExpertMode output.
+
 Changes in v10 - May 22, 2014
  - Added some new SQL 2014 harmless wait stats like 
    QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP.
@@ -120,7 +123,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 10, @VersionDate = '20140522'
+SELECT @Version = 11, @VersionDate = '20141117'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@OurSessionID INT,
@@ -436,6 +439,42 @@ BEGIN
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Attention rate', NULL)
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Compilations/sec', NULL)
 		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','SQL Re-Compilations/sec', NULL)
+		/* Below counters added by Jefferson Elias */
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Worktables From Cache Base',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Worktables From Cache Ratio',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Database pages',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Free pages',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Stolen pages',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Memory Manager','Granted Workspace Memory (KB)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Memory Manager','Maximum Workspace Memory (KB)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Memory Manager','Target Server Memory (KB)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Memory Manager','Total Server Memory (KB)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Buffer cache hit ratio',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Buffer cache hit ratio base',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Checkpoint pages/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Free list stalls/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Lazy writes/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Auto-Param Attempts/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Failed Auto-Params/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Safe Auto-Params/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:SQL Statistics','Unsafe Auto-Params/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Workfiles Created/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:General Statistics','User Connections',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Latches','Average Latch Wait Time (ms)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Latches','Average Latch Wait Time Base',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Latches','Latch Waits/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Latches','Total Latch Wait Time (ms)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Average Wait Time (ms)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Average Wait Time Base',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Lock Requests/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Lock Timeouts/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Lock Wait Time (ms)',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Locks','Lock Waits/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Transactions','Longest Transaction Running Time',NULL)	
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Full Scans/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Access Methods','Index Searches/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Buffer Manager','Page lookups/sec',NULL)
+		INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQLServer:Cursor Manager by Type','Active cursors',NULL)
 		END
 
 	/* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. 
