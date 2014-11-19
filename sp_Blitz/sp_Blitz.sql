@@ -67,6 +67,7 @@ AS
 	   alert on waits that have accounted for at least 16 hours of wait time.
 	   We are trying to avoid false-alarming when servers are sitting idle.
 	 - Added check 154 for 32-bit SQL Servers.
+	 - Added check 155 for sp_Blitz versions more than 6 months old.
 
  	Changes in v36 - October 5, 2014
 	 - Added non-default database configuration checks looking at sys.databases
@@ -2959,6 +2960,30 @@ AS
                                         GROUP BY t.DatabaseName
                                         HAVING COUNT(*) > 1
 	                        END
+
+
+                        /* Outdated sp_Blitz - sp_Blitz is Over 6 Months Old */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 155 )
+				           AND DATEDIFF(MM, @VersionDate, GETDATE()) > 6
+	                        BEGIN
+		                        INSERT  INTO #BlitzResults
+				                        ( CheckID ,
+					                        Priority ,
+					                        FindingsGroup ,
+					                        Finding ,
+					                        URL ,
+					                        Details
+				                        )
+				                        SELECT 155 AS CheckID ,
+						                        0 AS Priority ,
+						                        'Outdated sp_Blitz' AS FindingsGroup ,
+						                        'sp_Blitz is Over 6 Months Old' AS Finding ,
+						                        'http://www.BrentOzar.com/blitz/' AS URL ,
+						                        'Some things get better with age, like fine wine and your T-SQL. However, sp_Blitz is not one of those things - time to go download the current one.' AS Details
+	                        END
+
 
 						/* Populate a list of database defaults. I'm doing this kind of oddly -
 						    it reads like a lot of work, but this way it compiles & runs on all
