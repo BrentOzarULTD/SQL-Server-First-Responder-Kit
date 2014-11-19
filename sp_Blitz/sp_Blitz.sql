@@ -31,11 +31,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 36, @VersionDate = '20141005'
+	SELECT @Version = 37, @VersionDate = '20141119'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v36 - October 5, 2014
+	sp_Blitz (TM) v37 - November 19, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,6 +58,14 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
+ 	Changes in v37 - November 19, 2014
+	 - Added wait stats checks when @CheckServerInfo = 1. Check 152 looks for
+	   waits that have accounted for more than 10% of minimum possible wait
+	   time. If your 4-core server has been up for 40 hours, that is 160 hours
+	   of potential wait time (and of course it could be much higher when
+	   multiple queries are stacked up on each core.) In that case, we only
+	   alert on waits that have accounted for at least 16 hours of wait time.
+	   We are trying to avoid false-alarming when servers are sitting idle.
 
  	Changes in v36 - October 5, 2014
 	 - Added non-default database configuration checks looking at sys.databases
@@ -66,7 +74,7 @@ AS
      - Added check for serious errors in the default trace, 150.
 	 - Added Hekaton memory use and transaction error checks 145-147.
 	 - Added checks for database files on network shares or Azure, 148-149.
-	 - Added server name row in output when @CheckServerInfo = 1.
+	 - Added server name row in output when s = 1.
  	 - Moved contributions to support.brentozar.com.
 	 - Check 78 for stored procs with RECOMPILE now ignores sp_Blitz%.
      - Removed redundant check 58 (collation, dupe of 76.)
@@ -137,7 +145,9 @@ AS
 			,@CurrentPriority INT
 			,@CurrentFinding VARCHAR(200)
 			,@CurrentURL VARCHAR(200)
-			,@CurrentDetails NVARCHAR(4000);
+			,@CurrentDetails NVARCHAR(4000)
+			,@HoursSinceStartup INT
+			,@CPUMSsinceStartup BIGINT;
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -355,6 +365,14 @@ AS
         SELECT @path=CAST(value as NVARCHAR(256))
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
+        
+        SELECT @HoursSinceStartup = DATEDIFF(HH, create_date, CURRENT_TIMESTAMP)
+            FROM    sys.databases
+            WHERE   name='tempdb';
+
+		SELECT @CPUMSsinceStartup = CAST(@HoursSinceStartup AS DECIMAL(38,0)) * 3600000 * cpu_count
+			FROM sys.dm_os_sys_info;
+
 
 		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
 		IF @OutputType = 'CSV'
@@ -4465,6 +4483,97 @@ AS
 							END /* CheckID 106 */
 
 
+							IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 152 )
+							BEGIN
+								/* Check for waits that have had more than 10% of the server's wait time */
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT TOP 9
+												 152 AS CheckID
+												,240 AS Priority
+												,'Wait Stats' AS FindingsGroup
+												, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
+												,'http://BrentOzar.com/go/waits' AS URL
+												, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
+												CAST(CAST((SUM(100.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @CPUMSsinceStartup AS NUMERIC(10,1)) AS NVARCHAR(20)) + N'% possible CPU time since startup, ' + 
+												CAST(CAST(
+													100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
+													/ (1. * SUM(os.wait_time_ms) OVER () )
+													AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+												CAST(CAST(
+													100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
+													/ (1. * SUM(os.wait_time_ms) OVER ())
+													AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
+												CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
+												CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
+												THEN
+													CAST(
+														SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
+															/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
+														AS NUMERIC(10,1))
+												ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
+										FROM    sys.dm_os_wait_stats os
+										WHERE   os.wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
+		'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+		'SQLTRACE_BUFFER_FLUSH',
+		'LAZYWRITER_SLEEP',
+		'XE_TIMER_EVENT',
+		'XE_DISPATCHER_WAIT',
+		'FT_IFTS_SCHEDULER_IDLE_WAIT',
+		'LOGMGR_QUEUE',
+		'CHECKPOINT_QUEUE',
+		'BROKER_TO_FLUSH',
+		'BROKER_TASK_STOP',
+		'BROKER_EVENTHANDLER',
+		'SLEEP_TASK',
+		'WAITFOR',
+		'DBMIRROR_DBM_MUTEX',
+		'DBMIRROR_EVENTS_QUEUE',
+		'DBMIRRORING_CMD',
+		'DISPATCHER_QUEUE_SEMAPHORE',
+		'BROKER_RECEIVE_WAITFOR',
+		'CLR_AUTO_EVENT',
+		'DIRTY_PAGE_POLL',
+		'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+		'ONDEMAND_TASK_QUEUE',
+		'FT_IFTSHC_MUTEX',
+		'CLR_MANUAL_EVENT',
+		'CLR_SEMAPHORE',
+		'DBMIRROR_WORKER_QUEUE',
+		'DBMIRROR_DBM_EVENT',
+		'SP_SERVER_DIAGNOSTICS_SLEEP',
+		'HADR_CLUSAPI_CALL',
+		'HADR_LOGCAPTURE_WAIT',
+		'HADR_NOTIFICATION_DEQUEUE',
+		'HADR_TIMER_TASK',
+		'HADR_WORK_QUEUE',
+		'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
+		'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP')
+												AND os.wait_time_ms > .1 * @CPUMSsinceStartup
+										ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
+									
+								/* If no waits were found, add a note about that */
+								IF NOT EXISTS (SELECT * FROM #BlitzResults WHERE CheckID = 152)
+								BEGIN
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+										VALUES (153, 240, 'Wait Stats', 'No Significant Waits Detected', 'http://BrentOzar.com/go/waits', 'This server might be just sitting around idle, or someone may have cleared wait stats recently.');
+								END
+							END /* CheckID 152 */    
 
 					END /* IF @CheckServerInfo = 1 */
 			END /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
