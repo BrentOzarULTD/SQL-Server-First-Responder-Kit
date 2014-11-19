@@ -66,6 +66,7 @@ AS
 	   multiple queries are stacked up on each core.) In that case, we only
 	   alert on waits that have accounted for at least 16 hours of wait time.
 	   We are trying to avoid false-alarming when servers are sitting idle.
+	 - Added check 154 for 32-bit SQL Servers.
 
  	Changes in v36 - October 5, 2014
 	 - Added non-default database configuration checks looking at sys.databases
@@ -2247,6 +2248,27 @@ AS
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Business Intelligence%'
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 97 )
+					BEGIN
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  154 AS CheckID ,
+										10 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'32-bit SQL Server Installed' AS Finding ,
+										'http://BrentOzar.com/go/32bit' AS URL ,
+										( 'This server uses the 32-bit x86 binaries for SQL Server instead of the 64-bit x64 binaries. The amount of memory available for query workspace and execution plans is heavily limited.' ) AS Details
+								WHERE   CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%64%'
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -4487,79 +4509,118 @@ AS
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								/* Check for waits that have had more than 10% of the server's wait time */
-								INSERT  INTO #BlitzResults
-										( CheckID ,
-										  Priority ,
-										  FindingsGroup ,
-										  Finding ,
-										  URL ,
-										  Details
-										)
-										SELECT TOP 9
-												 152 AS CheckID
-												,240 AS Priority
-												,'Wait Stats' AS FindingsGroup
-												, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
-												,'http://BrentOzar.com/go/waits' AS URL
-												, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-												CAST(CAST((SUM(100.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @CPUMSsinceStartup AS NUMERIC(10,1)) AS NVARCHAR(20)) + N'% possible CPU time since startup, ' + 
-												CAST(CAST(
-													100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
-													/ (1. * SUM(os.wait_time_ms) OVER () )
-													AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
-												CAST(CAST(
-													100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
-													/ (1. * SUM(os.wait_time_ms) OVER ())
-													AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
-												CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
-												CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
-												THEN
-													CAST(
-														SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
-															/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
-														AS NUMERIC(10,1))
-												ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
-										FROM    sys.dm_os_wait_stats os
-										WHERE   os.wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
-		'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-		'SQLTRACE_BUFFER_FLUSH',
-		'LAZYWRITER_SLEEP',
-		'XE_TIMER_EVENT',
-		'XE_DISPATCHER_WAIT',
-		'FT_IFTS_SCHEDULER_IDLE_WAIT',
-		'LOGMGR_QUEUE',
-		'CHECKPOINT_QUEUE',
-		'BROKER_TO_FLUSH',
-		'BROKER_TASK_STOP',
-		'BROKER_EVENTHANDLER',
-		'SLEEP_TASK',
-		'WAITFOR',
-		'DBMIRROR_DBM_MUTEX',
-		'DBMIRROR_EVENTS_QUEUE',
-		'DBMIRRORING_CMD',
-		'DISPATCHER_QUEUE_SEMAPHORE',
-		'BROKER_RECEIVE_WAITFOR',
-		'CLR_AUTO_EVENT',
-		'DIRTY_PAGE_POLL',
-		'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-		'ONDEMAND_TASK_QUEUE',
-		'FT_IFTSHC_MUTEX',
-		'CLR_MANUAL_EVENT',
-		'CLR_SEMAPHORE',
-		'DBMIRROR_WORKER_QUEUE',
-		'DBMIRROR_DBM_EVENT',
-		'SP_SERVER_DIAGNOSTICS_SLEEP',
-		'HADR_CLUSAPI_CALL',
-		'HADR_LOGCAPTURE_WAIT',
-		'HADR_NOTIFICATION_DEQUEUE',
-		'HADR_TIMER_TASK',
-		'HADR_WORK_QUEUE',
-		'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-		'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP')
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > 10000 AND waiting_tasks_count > 10000 AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
+												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+												'SQLTRACE_BUFFER_FLUSH',
+												'LAZYWRITER_SLEEP',
+												'XE_TIMER_EVENT',
+												'XE_DISPATCHER_WAIT',
+												'FT_IFTS_SCHEDULER_IDLE_WAIT',
+												'LOGMGR_QUEUE',
+												'CHECKPOINT_QUEUE',
+												'BROKER_TO_FLUSH',
+												'BROKER_TASK_STOP',
+												'BROKER_EVENTHANDLER',
+												'SLEEP_TASK',
+												'WAITFOR',
+												'DBMIRROR_DBM_MUTEX',
+												'DBMIRROR_EVENTS_QUEUE',
+												'DBMIRRORING_CMD',
+												'DISPATCHER_QUEUE_SEMAPHORE',
+												'BROKER_RECEIVE_WAITFOR',
+												'CLR_AUTO_EVENT',
+												'DIRTY_PAGE_POLL',
+												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+												'ONDEMAND_TASK_QUEUE',
+												'FT_IFTSHC_MUTEX',
+												'CLR_MANUAL_EVENT',
+												'CLR_SEMAPHORE',
+												'DBMIRROR_WORKER_QUEUE',
+												'DBMIRROR_DBM_EVENT',
+												'SP_SERVER_DIAGNOSTICS_SLEEP',
+												'HADR_CLUSAPI_CALL',
+												'HADR_LOGCAPTURE_WAIT',
+												'HADR_NOTIFICATION_DEQUEUE',
+												'HADR_TIMER_TASK',
+												'HADR_WORK_QUEUE',
+												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
+												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'))
+									BEGIN
+									/* Check for waits that have had more than 10% of the server's wait time */
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+											SELECT TOP 9
+													 152 AS CheckID
+													,240 AS Priority
+													,'Wait Stats' AS FindingsGroup
+													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
+													,'http://BrentOzar.com/go/waits' AS URL
+													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
+													CAST(CAST((SUM(100.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @CPUMSsinceStartup AS NUMERIC(10,1)) AS NVARCHAR(20)) + N'% possible CPU time since startup, ' + 
+													CAST(CAST(
+														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														/ (1. * SUM(os.wait_time_ms) OVER () )
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+													CAST(CAST(
+														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														/ (1. * SUM(os.wait_time_ms) OVER ())
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
+													CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
+													CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
+													THEN
+														CAST(
+															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
+																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
+															AS NUMERIC(10,1))
+													ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
+											FROM    sys.dm_os_wait_stats os
+											WHERE   os.wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
+												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+												'SQLTRACE_BUFFER_FLUSH',
+												'LAZYWRITER_SLEEP',
+												'XE_TIMER_EVENT',
+												'XE_DISPATCHER_WAIT',
+												'FT_IFTS_SCHEDULER_IDLE_WAIT',
+												'LOGMGR_QUEUE',
+												'CHECKPOINT_QUEUE',
+												'BROKER_TO_FLUSH',
+												'BROKER_TASK_STOP',
+												'BROKER_EVENTHANDLER',
+												'SLEEP_TASK',
+												'WAITFOR',
+												'DBMIRROR_DBM_MUTEX',
+												'DBMIRROR_EVENTS_QUEUE',
+												'DBMIRRORING_CMD',
+												'DISPATCHER_QUEUE_SEMAPHORE',
+												'BROKER_RECEIVE_WAITFOR',
+												'CLR_AUTO_EVENT',
+												'DIRTY_PAGE_POLL',
+												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+												'ONDEMAND_TASK_QUEUE',
+												'FT_IFTSHC_MUTEX',
+												'CLR_MANUAL_EVENT',
+												'CLR_SEMAPHORE',
+												'DBMIRROR_WORKER_QUEUE',
+												'DBMIRROR_DBM_EVENT',
+												'SP_SERVER_DIAGNOSTICS_SLEEP',
+												'HADR_CLUSAPI_CALL',
+												'HADR_LOGCAPTURE_WAIT',
+												'HADR_NOTIFICATION_DEQUEUE',
+												'HADR_TIMER_TASK',
+												'HADR_WORK_QUEUE',
+												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
+												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP')
 												AND os.wait_time_ms > .1 * @CPUMSsinceStartup
-										ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
-									
+												AND os.waiting_tasks_count > 0
+											ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
+									END /* IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > 0 AND waiting_tasks_count > 0) */
+
 								/* If no waits were found, add a note about that */
 								IF NOT EXISTS (SELECT * FROM #BlitzResults WHERE CheckID = 152)
 								BEGIN
