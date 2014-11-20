@@ -31,11 +31,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 37, @VersionDate = '20141119'
+	SELECT @Version = 38, @VersionDate = '20141120'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v37 - November 19, 2014
+	sp_Blitz (TM) v38 - November 20, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -57,6 +57,14 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+ 	Changes in v38 - November 20, 2014
+ 	 - Added check 157 for dangerous builds of SQL Server that are affected by
+ 	   MS Security Bulletin MS14-044.
+	 - Added current date to output as check 156, priority 254. Requested by
+	   Denise Crabtree, who runs sp_Blitz on a regular basis and saves the
+	   results in a spreadsheet. Yay, Denise!
+	 - Bug fixes and improvements to wait stats checks.
 
  	Changes in v37 - November 19, 2014
 	 - Added wait stats checks when @CheckServerInfo = 1. Check 152 looks for
@@ -148,7 +156,7 @@ AS
 			,@CurrentFinding VARCHAR(200)
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
-			,@HoursSinceStartup INT
+			,@MSSinceStartup BIGINT
 			,@CPUMSsinceStartup BIGINT;
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
@@ -368,11 +376,11 @@ AS
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
         
-        SELECT @HoursSinceStartup = DATEDIFF(HH, create_date, CURRENT_TIMESTAMP)
+        SELECT @MSSinceStartup = DATEDIFF(MILLISECOND, create_date, CURRENT_TIMESTAMP)
             FROM    sys.databases
             WHERE   name='tempdb';
 
-		SELECT @CPUMSsinceStartup = CAST(@HoursSinceStartup AS DECIMAL(38,0)) * 3600000 * cpu_count
+		SELECT @CPUMSsinceStartup = @MSSinceStartup * cpu_count
 			FROM sys.dm_os_sys_info;
 
 
@@ -2755,7 +2763,8 @@ AS
 								END;
 
 							END;
-
+							
+						/* Reliability - Dangerous Build of SQL Server (Corruption) */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 129 )
@@ -2765,12 +2774,32 @@ AS
 							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2000 AND @ProductVersionMinor <= 2342)
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
-									VALUES(129, 20, 'Reliability', 'Dangerous Build of SQL Server', 'http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds',
+									VALUES(129, 20, 'Reliability', 'Dangerous Build of SQL Server (Corruption)', 'http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds',
 										'There are dangerous known bugs with version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + '. Check the URL for details and apply the right service pack or hotfix.');
 								END;
 
 							END;
 
+						/* Reliability - Dangerous Build of SQL Server (Security) */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 157 )
+							BEGIN
+							IF (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5500 AND @ProductVersionMinor <= 5512) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5750 AND @ProductVersionMinor <= 5867) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 4000 AND @ProductVersionMinor <= 4017) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 4251 AND @ProductVersionMinor <= 4319) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3000 AND @ProductVersionMinor <= 3129) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3300 AND @ProductVersionMinor <= 3447) OR
+							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2000 AND @ProductVersionMinor <= 2253) OR
+							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2300 AND @ProductVersionMinor <= 2370)
+								BEGIN
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+									VALUES(157, 20, 'Reliability', 'Dangerous Build of SQL Server (Security)', 'https://technet.microsoft.com/en-us/library/security/MS14-044',
+										'There are dangerous known bugs with version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + '. Check the URL for details and apply the right service pack or hotfix.');
+								END;
+
+							END;
 
 
                         /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
@@ -4534,7 +4563,8 @@ AS
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > 10000 AND waiting_tasks_count > 10000 AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CPUMSsinceStartup AND waiting_tasks_count > 0 
+											AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
 												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
 												'SQLTRACE_BUFFER_FLUSH',
 												'LAZYWRITER_SLEEP',
@@ -4572,40 +4602,11 @@ AS
 												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'))
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
-									INSERT  INTO #BlitzResults
-											( CheckID ,
-											  Priority ,
-											  FindingsGroup ,
-											  Finding ,
-											  URL ,
-											  Details
-											)
-											SELECT TOP 9
-													 152 AS CheckID
-													,240 AS Priority
-													,'Wait Stats' AS FindingsGroup
-													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
-													,'http://BrentOzar.com/go/waits' AS URL
-													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(100.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @CPUMSsinceStartup AS NUMERIC(10,1)) AS NVARCHAR(20)) + N'% possible CPU time since startup, ' + 
-													CAST(CAST(
-														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
-														/ (1. * SUM(os.wait_time_ms) OVER () )
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
-													CAST(CAST(
-														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
-														/ (1. * SUM(os.wait_time_ms) OVER ())
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
-													CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
-													CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
-													THEN
-														CAST(
-															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
-																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
-															AS NUMERIC(10,1))
-													ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
-											FROM    sys.dm_os_wait_stats os
-											WHERE   os.wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
+									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
+									AS
+									(SELECT wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
+										FROM sys.dm_os_wait_stats
+											WHERE   wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
 												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
 												'SQLTRACE_BUFFER_FLUSH',
 												'LAZYWRITER_SLEEP',
@@ -4641,8 +4642,41 @@ AS
 												'HADR_WORK_QUEUE',
 												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
 												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP')
-												AND os.wait_time_ms > .1 * @CPUMSsinceStartup
-												AND os.waiting_tasks_count > 0
+												AND wait_time_ms > .1 * @CPUMSsinceStartup
+												AND waiting_tasks_count > 0)
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+											SELECT TOP 9
+													 152 AS CheckID
+													,240 AS Priority
+													,'Wait Stats' AS FindingsGroup
+													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
+													,'http://BrentOzar.com/go/waits' AS URL
+													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSsinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													CAST(CAST(
+														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														/ (1. * SUM(os.wait_time_ms) OVER () )
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+													CAST(CAST(
+														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														/ (1. * SUM(os.wait_time_ms) OVER ())
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
+													CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
+													CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
+													THEN
+														CAST(
+															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
+																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
+															AS NUMERIC(10,1))
+													ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
+											FROM    os
 											ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
 									END /* IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > 0 AND waiting_tasks_count > 0) */
 
@@ -4742,6 +4776,22 @@ AS
 
 						);
 
+				INSERT  INTO #BlitzResults
+						( CheckID ,
+						  Priority ,
+						  FindingsGroup ,
+						  Finding ,
+						  URL ,
+						  Details
+
+						)
+				SELECT 156 ,
+						  254 ,
+						  'Rundate' ,
+						  GETDATE() ,
+						  'http://www.BrentOzar.com/blitz/' ,
+						  'Captain''s log: stardate something and something...';
+						  
 				IF @EmailRecipients IS NOT NULL
 					BEGIN
 					/* Database mail won't work off a local temp table. I'm not happy about this hacky workaround either. */
