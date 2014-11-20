@@ -144,7 +144,7 @@ DECLARE @StringToExecute NVARCHAR(4000),
 	@StockDetailsFooter NVARCHAR(100),
 	@StartSampleTime DATETIME,
 	@FinishSampleTime DATETIME,
-	@ServiceName SYSNAME;
+	@ServiceName sysname;
 
 /* Sanitize our inputs */
 SELECT
