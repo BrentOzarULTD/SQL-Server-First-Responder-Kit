@@ -156,8 +156,8 @@ AS
 			,@CurrentFinding VARCHAR(200)
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
-			,@MSSinceStartup BIGINT
-			,@CPUMSsinceStartup BIGINT;
+			,@MSSinceStartup DECIMAL(38,0)
+			,@CPUMSsinceStartup DECIMAL(38,0);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -376,9 +376,11 @@ AS
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
         
-        SELECT @MSSinceStartup = DATEDIFF(MILLISECOND, create_date, CURRENT_TIMESTAMP)
+        SELECT @MSSinceStartup = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP)
             FROM    sys.databases
             WHERE   name='tempdb';
+
+		SET @MSSinceStartup = @MSSinceStartup * 60000;
 
 		SELECT @CPUMSsinceStartup = @MSSinceStartup * cpu_count
 			FROM sys.dm_os_sys_info;
@@ -4675,7 +4677,7 @@ AS
 															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
 																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
 															AS NUMERIC(10,1))
-													ELSE 0 END AS NVARCHAR(40)) + N' MS average wait time.'
+													ELSE 0 END AS NVARCHAR(40)) + N' ms average wait time.'
 											FROM    os
 											ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
 									END /* IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > 0 AND waiting_tasks_count > 0) */
