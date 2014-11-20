@@ -55,7 +55,7 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v11 - Nov 17, 2014
+Changes in v11 - Nov 20, 2014
  - Jefferson Elias of Belgium added more Perfmon counters to ExpertMode output.
  - Added @FileLatencyThresholdMS to let you set the default read/write warning
    trigger in milliseconds. It's always been 100ms, so that's the default.
