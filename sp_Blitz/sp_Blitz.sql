@@ -77,28 +77,6 @@ AS
 	 - Added check 154 for 32-bit SQL Servers.
 	 - Added check 155 for sp_Blitz versions more than 6 months old.
 
- 	Changes in v36 - October 5, 2014
-	 - Added non-default database configuration checks looking at sys.databases
-	   as checks 131-144. Catches things like delayed durability, forced params.
-     - Added check for long file growths from the default trace, 151.
-     - Added check for serious errors in the default trace, 150.
-	 - Added Hekaton memory use and transaction error checks 145-147.
-	 - Added checks for database files on network shares or Azure, 148-149.
-	 - Added server name row in output when s = 1.
- 	 - Moved contributions to support.brentozar.com.
-	 - Check 78 for stored procs with RECOMPILE now ignores sp_Blitz%.
-     - Removed redundant check 58 (collation, dupe of 76.)
-
-	Changes in v35 - June 17, 2014
-	 - John Hill fixed a bug in check 134 looking for deadlocks.
-	 - Robert Virag improved check 19 looking for replication subscribers.
-	 - Russell Hart improved check 34 to avoid blocking during restores.
-	 - Added check 126 for priority boost enabled. It was always in the non-
-	   default configurations check, but this one is so bad we called it out.
-	 - Added checks 128 and 129 for unsupported builds of SQL Server.
-	 - Added check 127 for unneccessary backups of ReportServerTempDB.
-	 - Changed fill factor threshold to <80% to match sp_BlitzIndex.
-
 	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
 
