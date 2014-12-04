@@ -63,6 +63,8 @@ KNOWN ISSUES:
 v2.4.4
  - Fixed an error where running with reanalyze after export_to_excel would
    prevent a summary from being generated.
+ - Added query plan cost to export_to_excel output.
+ - Cleaned up export_to_excel output to match column order to screen display.
 
 v2.4.3 - 2014-11-11
  - Fix to remove confusing implicit conversion checks. Warnings will only be
@@ -1605,14 +1607,15 @@ BEGIN
 
     SET @sql = N'
     SELECT  TOP (@top)
+            DatabaseName AS [Database Name],
+            QueryPlanCost AS [Cost],
+            QueryText,
+            QueryType AS [Query Type],
+            Warnings,
             ExecutionCount,
             ExecutionsPerMinute AS [Executions / Minute],
             PercentExecutions AS [Execution Weight],
             PercentExecutionsByType AS [% Executions (Type)],
-            QueryType AS [Query Type],
-            DatabaseName AS [Database Name],
-            QueryText,
-            Warnings,
             TotalCPU AS [Total CPU (ms)],
             AverageCPU AS [Avg CPU (ms)],
             PercentCPU AS [CPU Weight],
