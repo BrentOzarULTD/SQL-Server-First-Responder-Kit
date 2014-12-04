@@ -60,6 +60,10 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4.4
+ - Fixed an error where running with reanalyze after export_to_excel would
+   prevent a summary from being generated.
+
 v2.4.3 - 2014-11-11
  - Fix to remove confusing implicit conversion checks. Warnings will only be
    generated when a plan affecting convert is in place.
@@ -1654,7 +1658,6 @@ BEGIN
     SET @sql += N' OPTION (RECOMPILE) ; '
 
     EXEC sp_executesql @sql, N'@top INT', @top ;
-    RETURN
 END
 
 IF @hide_summary = 0
@@ -1923,7 +1926,9 @@ BEGIN
                 'http://brentozar.com/blitzcache/trivial-plans',
                 'Trivial plans get almost no optimization. If you''re finding these in the top worst queries, something may be going wrong.');
     END            
-            
+    
+    IF @export_to_excel = 1
+        RETURN
 
     SELECT  Priority,
             FindingsGroup,
