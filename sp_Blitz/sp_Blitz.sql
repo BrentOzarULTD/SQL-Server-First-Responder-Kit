@@ -58,7 +58,9 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-  	Changes in v39 - December 4, 2014
+  	Changes in v39 - December 29, 2014
+	 - Added @OutputType option for NONE if you only want to log the results to
+	    a table. (For Jefferson Elias.)
   	 - Bug fixes and improvements. (Thanks, Nathan Sunderman.)
 
  	Changes in v38 - November 20, 2014
@@ -90,7 +92,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
 	@IgnorePrioritiesBelow		100=ignore priorities below 100
 	@IgnorePrioritiesAbove		100=ignore priorities above 100
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
@@ -4945,7 +4947,7 @@ AS
 									Finding ,
 									Details;
 						END
-					ELSE
+					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
