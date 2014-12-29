@@ -4930,7 +4930,7 @@ AS
 									Finding ,
 									Details;
 						END
-					ELSE IF @OutputXMLasNVARCHAR = 1
+					ELSE IF @OutputXMLasNVARCHAR = 1 AND @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
