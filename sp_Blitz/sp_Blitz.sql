@@ -35,7 +35,7 @@ AS
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v38 - November 20, 2014
+	sp_Blitz (TM) v39 - December 4, 2014
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -57,6 +57,11 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+  	Changes in v39 - December 29, 2014
+	 - Added @OutputType option for NONE if you only want to log the results to
+	    a table. (For Jefferson Elias.)
+  	 - Bug fixes and improvements. (Thanks, Nathan Sunderman.)
 
  	Changes in v38 - November 20, 2014
  	 - Added check 157 for dangerous builds of SQL Server that are affected by
@@ -87,7 +92,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
 	@IgnorePrioritiesBelow		100=ignore priorities below 100
 	@IgnorePrioritiesAbove		100=ignore priorities above 100
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
@@ -4639,7 +4644,7 @@ AS
 													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSsinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
 													CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
@@ -4925,7 +4930,7 @@ AS
 									Finding ,
 									Details;
 						END
-					ELSE IF @OutputXMLasNVARCHAR = 1
+					ELSE IF @OutputXMLasNVARCHAR = 1 AND @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
@@ -4942,7 +4947,7 @@ AS
 									Finding ,
 									Details;
 						END
-					ELSE
+					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
