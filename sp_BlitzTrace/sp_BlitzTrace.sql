@@ -12,7 +12,8 @@ USE master;
 GO
 
 /*
--- Welcome to the beta release of sp_BlitTrace -- Version 0.1, released 2014-11-11!
+-- Welcome to the beta release of sp_BlitzTrace (TM) -- Version 0.2, released 2015-01-03
+-- BrentOzar.com/BlitzTrace
 -- Things you can do....
 
 --List running sessions
@@ -32,19 +33,20 @@ exec sp_BlitzTrace @Action='drop';
 */
 
 IF OBJECT_ID('dbo.sp_BlitzTrace') IS NOT NULL
-    DROP PROCEDURE dbo.sp_BlitzTrace 
+    DROP PROCEDURE dbo.sp_BlitzTrace
 GO
 CREATE PROCEDURE dbo.sp_BlitzTrace
     @Debug BIT = 0 , /* 1 prints the statement and won't execute it */
     @SessionId INT = NULL ,
     @Action VARCHAR(5) = NULL ,  /* 'start', 'read', 'stop', 'drop'*/
     @TargetPath VARCHAR(528) = NULL,  /* Required for 'start'. 'Read' will look for a running sp_BlitzTrace session if not specified.*/
-    @TraceRecompiles BIT = 1, 
-    @TraceObjectCreates BIT = 1, 
+    @TraceRecompiles BIT = 1,
+    @TraceObjectCreates BIT = 1,
     @TraceParallelism BIT = 1,
     @TraceSortWarnings BIT = 1,
     @TraceStatements BIT = 0,
     @MaxFileSizeMB INT = 256,
+    @TraceExecutionPlansAndKillMyPerformance BIT = 0, /* Non-production environments only */
     @MaxRolloverFiles INT = 4,
     @MaxDispatchLatencySeconds INT = 5 /* 0 is unlimited! */
 
@@ -86,7 +88,7 @@ BEGIN TRY
     RAISERROR (@msg,0,1) WITH NOWAIT;
 
     IF @Action NOT IN (N'start', N'read', N'stop', N'drop')  OR @Action is NULL
-    BEGIN 
+    BEGIN
         RAISERROR (N'You need to specify a valid @Action for sp_BlitzTrace: ''start'', ''read'', ''stop'', or ''drop''.',16,1) WITH NOWAIT;
     END
 
@@ -101,7 +103,7 @@ BEGIN TRY
             con.session_id=ses.session_id
         LEFT JOIN sys.dm_exec_requests AS req ON
             con.session_id=req.session_id
-        WHERE 
+        WHERE
             ses.session_id <> @@SPID
         ORDER BY last_read DESC
 
@@ -200,16 +202,16 @@ BEGIN TRY
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Dropping the trace: DROP EVENT SESSION sp_BlitzTrace ON SERVER; '
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
-            DROP EVENT SESSION sp_BlitzTrace ON SERVER;  
-            
-            SET @traceexists=0;          
-            
+            DROP EVENT SESSION sp_BlitzTrace ON SERVER;
+
+            SET @traceexists=0;
+
         END
-        
+
         IF @traceexists = 0
         BEGIN
             SELECT @datestamp = REPLACE(REPLACE( CONVERT(VARCHAR(26),getdate(),126),':','-'),'.','')
-            SET @TargetPathFull=@TargetPath + N'sp_BlitzTrace-' + @datestamp 
+            SET @TargetPathFull=@TargetPath + N'sp_BlitzTrace-' + @datestamp
 
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Target path = ' + @TargetPathFull;
             RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -217,7 +219,7 @@ BEGIN TRY
 
             DECLARE @dsql NVARCHAR(MAX);
             DECLARE @dsql1 NVARCHAR(MAX)=
-                N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER 
+                N'CREATE EVENT SESSION sp_BlitzTrace ON SERVER
                 ' + case @TraceStatements when 1 then + N'
                 ADD EVENT sqlserver.sp_statement_completed (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
@@ -247,7 +249,12 @@ BEGIN TRY
                 ' + case @TraceRecompiles when 1 then + N'
                 ADD EVENT sqlserver.sql_statement_recompile (
                     ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
-                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))), 
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
+                ' ELSE N'' END
+                + case @TraceExecutionPlansAndKillMyPerformance when 1 then + N'
+                ADD EVENT sqlserver.query_post_execution_showplan (
+                    ACTION(sqlserver.context_info, sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
+                    WHERE ([sqlserver].[session_id]=('+ CAST(@SessionId as NVARCHAR(6)) + N'))),
                 ' ELSE N'' END + N'
                 ADD EVENT sqlserver.rpc_completed (
                     ACTION(sqlserver.sql_text, sqlserver.query_hash, sqlserver.query_plan_hash)
@@ -258,7 +265,7 @@ BEGIN TRY
                 WITH (
                     MAX_MEMORY = 128 MB,
                     EVENT_RETENTION_MODE = ALLOW_MULTIPLE_EVENT_LOSS,
-                    MAX_DISPATCH_LATENCY = ' + CAST(@MaxDispatchLatencySeconds AS NVARCHAR(2)) + N' SECONDS, 
+                    MAX_DISPATCH_LATENCY = ' + CAST(@MaxDispatchLatencySeconds AS NVARCHAR(2)) + N' SECONDS,
                     MEMORY_PARTITION_MODE=NONE,
                     TRACK_CAUSALITY=OFF,
                     STARTUP_STATE=OFF)';
@@ -298,7 +305,7 @@ BEGIN TRY
 
                 SET @tracerunning = 1;
             END
-            ELSE 
+            ELSE
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- @Debug=1, not starting trace;'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -320,36 +327,36 @@ BEGIN TRY
         if @tracerunning=1
         BEGIN
             SELECT TOP 1 @filepathXML= x.target_data
-            FROM sys.dm_xe_sessions as se 
+            FROM sys.dm_xe_sessions as se
             JOIN sys.dm_xe_session_targets as t on
                 se.address=t.event_session_address
-            CROSS APPLY (SELECT cast(t.target_data as XML) AS target_data) as x 
+            CROSS APPLY (SELECT cast(t.target_data as XML) AS target_data) as x
             WHERE se.name=N'sp_BlitzTrace'
             OPTION (RECOMPILE);
 
-            SELECT @filepath=CAST(@filepathXML.query('data(EventFileTarget/File/@name)') AS VARCHAR(1024)) 
+            SELECT @filepath=CAST(@filepathXML.query('data(EventFileTarget/File/@name)') AS VARCHAR(1024))
         END
         ELSE /* Figure out the file path for the trace if exists and isn't running */
         BEGIN
             SELECT TOP 1 @filepath=CAST(f.value AS VARCHAR(1024)) + N'*.xel'
             FROM sys.server_event_sessions AS ses
-            LEFT OUTER JOIN sys.dm_xe_sessions AS running ON 
+            LEFT OUTER JOIN sys.dm_xe_sessions AS running ON
                 running.name = ses.name
             JOIN sys.server_event_session_targets AS t ON
                 ses.event_session_id = t.event_session_id
-                and t.package = 'package0' 
+                and t.package = 'package0'
                 and t.name='event_file'
                 and ses.name='sp_BlitzTrace'
-            JOIN sys.dm_xe_objects AS o ON 
-                t.name = o.name 
+            JOIN sys.dm_xe_objects AS o ON
+                t.name = o.name
                 AND o.object_type='target'
-            JOIN sys.dm_xe_object_columns AS c ON 
-                t.name = c.object_name AND 
+            JOIN sys.dm_xe_object_columns AS c ON
+                t.name = c.object_name AND
                 c.column_type = 'customizable' AND
                 c.name='filename'
-            JOIN sys.server_event_session_fields AS f ON 
-                t.event_session_id = f.event_session_id AND 
-                t.target_id = f.object_id 
+            JOIN sys.server_event_session_fields AS f ON
+                t.event_session_id = f.event_session_id AND
+                t.target_id = f.object_id
                 AND c.name = f.name
         END
 
@@ -387,6 +394,8 @@ BEGIN TRY
                 query_operation_node_id INT NULL,
                 query_hash varchar(256) NULL,
                 query_plan_hash varchar(256) NULL,
+                estimated_cost bigint NULL,
+                [showplan_xml] XML NULL,
                 context_info sysname NULL,
                 event_data XML NOT NULL
             )
@@ -395,10 +404,10 @@ BEGIN TRY
             RAISERROR (@msg,0,1) WITH NOWAIT;
 
             INSERT #sp_BlitzTraceXML (event_data)
-            SELECT  
+            SELECT
                 x.event_data
             FROM  sys.fn_xe_file_target_read_file(@filepath,null,null,null) as xet
-            CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x 
+            CROSS APPLY (SELECT CAST(event_data AS XML) AS event_data) as x
             OUTER APPLY x.event_data.nodes('//event') AS y(n) OPTION (RECOMPILE);
 
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Started populating #sp_BlitzTraceEvents...'
@@ -406,8 +415,9 @@ BEGIN TRY
 
             INSERT #sp_BlitzTraceEvents (event_time, event_type, batch_text, sql_text, [statement], duration_micros, cpu_micros, physical_reads,
             logical_reads, writes, row_count, result, dop_statement_type, dop, workspace_memory_grant_kb, object_id, object_type,
-            object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash, context_info, event_data)
-            SELECT  
+            object_name, ddl_phase, recompile_cause, sort_warning_type, query_operation_node_id, query_hash, query_plan_hash,
+            estimated_cost, [showplan_xml], context_info, event_data)
+            SELECT
                 DATEADD(mi, DATEDIFF(mi, GETUTCDATE(), CURRENT_TIMESTAMP), n.value('@timestamp', 'datetime2')) AS event_time,
                 n.value('@name', 'NVARCHAR(max)') AS event_type,
                 n.value('(data[@name="batch_text"]/value)[1]', 'varchar(max)') AS batch_text,
@@ -425,25 +435,34 @@ BEGIN TRY
                 n.value('(data[@name="statement_type"]/text)[1]', 'varchar(256)') AS dop_statement_type,
                 n.value('(data[@name="dop"]/value)[1]', 'int') AS dop,
                 n.value('(data[@name="workspace_memory_grant_kb"]/value)[1]', 'bigint') AS workspace_memory_grant_kb,
+
                 /* Object create comes in pairs, begin and end */
                 n.value('(data[@name="object_id"]/value)[1]', 'int') AS [object_id],
                 n.value('(data[@name="object_type"]/value)[1]', 'varchar(256)') AS object_type,
                 n.value('(data[@name="object_name"]/value)[1]', 'varchar(256)') AS [object_name],
                 n.value('(data[@name="ddl_phase"]/value)[1]', 'varchar(256)') AS ddl_phase,
+
                 /* Recompiles */
                 n.value('(data[@name="recompile_cause"]/text)[1]', 'varchar(256)') AS recompile_cause,
+
                 /* tempdb spills */
                 n.value('(data[@name="sort_warning_type"]/text)[1]', 'varchar(256)') AS sort_warning_type,
                 n.value('(data[@name="query_operation_node_id"]/value)[1]', 'varchar(256)') AS query_operation_node_id,
+
                 /* query hash and query plan hash */
                 n.value('(action[@name="query_hash"]/value)[1]', 'varchar(256)') AS query_hash,
                 n.value('(action[@name="query_plan_hash"]/value)[1]', 'varchar(256)') AS query_plan_hash,
+
+                /* actual execution plan */
+                n.value('(data[@name="estimated_cost"]/value)[1]', 'bigint') AS estimated_cost,
+                n.query('(data[@name="showplan_xml"]/value/*)[1]') AS [showplan_xml],
+
                 /* Context info, for filtering */
                 n.value('(action[@name="context_info"]/value)[1]', 'VARCHAR(MAX)') AS [context_info],
                 x.event_data as event_data
             FROM #sp_BlitzTraceXML AS xet
-            CROSS APPLY (SELECT CAST(xet.event_data AS XML) AS event_data) as x 
-            OUTER APPLY x.event_data.nodes('//event') AS y(n)  
+            CROSS APPLY (SELECT CAST(xet.event_data AS XML) AS event_data) as x
+            OUTER APPLY x.event_data.nodes('//event') AS y(n)
             OPTION (RECOMPILE);
 
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Finished populating #sp_BlitzTraceEvents...'
@@ -455,7 +474,7 @@ BEGIN TRY
             BEGIN
                 RAISERROR('No rows found in the trace for these events for your session id',0,1) WITH NOWAIT;
             END
-            ELSE 
+            ELSE
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- ' + CAST(@rowcount AS NVARCHAR(20)) + N' rows inserted into #sp_BlitzTraceEvents.'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -472,7 +491,7 @@ BEGIN TRY
             SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sql_batch_completed, rpc_completed, sql_statement_completed, sp_statement_completed...'
             RAISERROR (@msg,0,1) WITH NOWAIT;
             /* sql_batch_completed, rpc_completed */
-            SELECT  
+            SELECT
                 event_time,
                 event_type,
                 batch_text,
@@ -492,13 +511,13 @@ BEGIN TRY
             WHERE event_type in (N'sql_batch_completed',N'rpc_completed','sql_statement_completed', 'sp_statement_completed')
             ORDER BY 1;
 
-            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'degree_of_parallelism') 
+            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'degree_of_parallelism')
                 IS NOT NULL
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying parallelism and memory grant...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* parallelism and memory grant */
-                SELECT  
+                SELECT
                     event_time,
                     event_type,
                     sql_text,
@@ -510,17 +529,17 @@ BEGIN TRY
                     event_data
                 FROM #sp_BlitzTraceEvents
                 WHERE event_type = 'degree_of_parallelism'
-                    and query_hash <> '0'
+                  and query_hash <> '0'
                 ORDER BY 1;
             END
 
-            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'object_created') 
+            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'object_created')
                 IS NOT NULL
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying object_created ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
                 /* object_created */
-                SELECT  
+                SELECT
                     event_time,
                     event_type,
                     sql_text,
@@ -536,14 +555,14 @@ BEGIN TRY
                 ORDER BY 1;
             END
 
-            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sql_statement_recompile') 
+            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sql_statement_recompile')
                 IS NOT NULL
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sql_statement_recompile ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
-                SELECT  
+                SELECT
                     event_time,
                     event_type,
                     sql_text,
@@ -556,14 +575,14 @@ BEGIN TRY
                 ORDER BY 1;
             END
 
-            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sort_warning') 
+            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'sort_warning')
                 IS NOT NULL
             BEGIN
                 SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying sort_warning ...'
                 RAISERROR (@msg,0,1) WITH NOWAIT;
 
                 /* sql_statement_recompile */
-                SELECT  
+                SELECT
                     event_time,
                     event_type,
                     sort_warning_type,
@@ -575,6 +594,26 @@ BEGIN TRY
                 WHERE event_type = 'sort_warning'
                 ORDER BY 1;
             END
+
+            IF (SELECT TOP 1 event_time FROM #sp_BlitzTraceEvents WHERE event_type = N'query_post_execution_showplan')
+                IS NOT NULL
+            BEGIN
+                SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Querying actual execution plans ...'
+                RAISERROR (@msg,0,1) WITH NOWAIT;
+
+                /* sql_statement_recompile */
+                SELECT
+                    event_time,
+                    estimated_cost,
+                    [object_name],
+                    sql_text,
+                    [showplan_xml] as [hope_this_isn't_production],
+                    event_data
+                FROM #sp_BlitzTraceEvents
+                WHERE event_type = 'query_post_execution_showplan'
+                ORDER BY 1;
+            END
+
         END
         ELSE /* We're in @Debug=1 mode */
         BEGIN
@@ -651,9 +690,9 @@ BEGIN TRY
     END
     ELSE IF @traceexists = 1 and @tracerunning = 1
     BEGIN
-        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace exists and is running' + 
-            CASE WHEN @SessionId is not null 
-               THEN N' for @SessionId=' + cast(@SessionId as NVARCHAR(5)) 
+        SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace exists and is running' +
+            CASE WHEN @SessionId is not null
+               THEN N' for @SessionId=' + cast(@SessionId as NVARCHAR(5))
                ELSE N''
                END
         RAISERROR (@msg,0,1) WITH NOWAIT;
@@ -669,7 +708,7 @@ BEGIN TRY
         SET @msg= CONVERT(NVARCHAR(30), GETDATE(), 126) + N'- Extended Events session sp_BlitzTrace doesn''t exist, we''re all cleaned up.'
         RAISERROR (@msg,0,1) WITH NOWAIT;
     END
-    
+
     RAISERROR (N'********************SEE YA********************',0,1) WITH NOWAIT;
 
     SET CONTEXT_INFO 0x;
