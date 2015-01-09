@@ -54,13 +54,18 @@ code and see your name in the change log, submit your improvements &
 ideas to https://support.brentozar.com
 
 
+
 KNOWN ISSUES:
 - This query will not run on SQL Server 2005.
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
-v2.4.4
+v2.4.4 - 2015-01-09
+ - Fixed output to table. Sort order wasn't being obeyed and users limting
+   results weren't seeing the same results between displaying to screen and
+   saving results to a table.
+   Thanks to Gail Jurey for spotting this!
  - Fixed an error where running with reanalyze after export_to_excel would
    prevent a summary from being generated.
  - Added query plan cost to export_to_excel output.
@@ -1586,14 +1591,29 @@ BEGIN
           + N' (ServerName, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings) '
-          + N'SELECT '
+          + N'SELECT TOP (@top) '
           + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', '
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings '
-          + N' FROM ##bou_BlitzCacheProcs OPTION (RECOMPILE) '
-    EXEC sp_executesql @insert_sql;
+          + N' FROM ##bou_BlitzCacheProcs '
+          
+    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+                                                    WHEN 'reads' THEN ' TotalReads '
+                                                    WHEN 'writes' THEN ' TotalWrites '
+                                                    WHEN 'duration' THEN ' TotalDuration '
+                                                    WHEN 'executions' THEN ' ExecutionCount '
+                                                    WHEN 'avg cpu' THEN 'AverageCPU'
+                                                    WHEN 'avg reads' THEN 'AverageReads'
+                                                    WHEN 'avg writes' THEN 'AverageWrites'
+                                                    WHEN 'avg duration' THEN 'AverageDuration'
+                                                    WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+                                                    END + N' DESC '
+
+    SET @insert_sql += N' OPTION (RECOMPILE) ; '
+    
+    EXEC sp_executesql @insert_sql, N'@top INT', @top;
 
     RETURN
 END
