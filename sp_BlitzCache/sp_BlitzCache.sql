@@ -1599,7 +1599,7 @@ BEGIN
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings '
           + N' FROM ##bou_BlitzCacheProcs '
           
-    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+    SELECT @insert_sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                                                     WHEN 'reads' THEN ' TotalReads '
                                                     WHEN 'writes' THEN ' TotalWrites '
                                                     WHEN 'duration' THEN ' TotalDuration '
@@ -1611,7 +1611,7 @@ BEGIN
                                                     WHEN 'avg executions' THEN 'ExecutionsPerMinute'
                                                     END + N' DESC '
 
-    SET @insert_sql += N' OPTION (RECOMPILE) ; '
+    SET @insert_sql += N' OPTION (RECOMPILE) ; '    
     
     EXEC sp_executesql @insert_sql, N'@top INT', @top;
 
