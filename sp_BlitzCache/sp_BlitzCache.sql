@@ -33,7 +33,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @ignore_query_hashes VARCHAR(MAX) = NULL ,
     @query_filter VARCHAR(10) = 'ALL' ,
     @reanalyze BIT = 0 ,
-    @Whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
+    @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
 WITH RECOMPILE
 /******************************************
 sp_BlitzCache (TM) 2014, Brent Ozar Unlimited.
