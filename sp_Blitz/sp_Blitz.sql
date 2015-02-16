@@ -31,11 +31,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 38, @VersionDate = '20141120'
+	SELECT @Version = 39, @VersionDate = '20150216'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v39 - December 4, 2014
+	sp_Blitz (TM) v39 - February 16, 2015
 
 	(C) 2014, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,7 +58,7 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-  	Changes in v39 - December 29, 2014
+  	Changes in v39 - February 16, 2015
 	 - Added @OutputType option for NONE if you only want to log the results to
 	    a table. (For Jefferson Elias.)
   	 - Bug fixes and improvements. (Thanks, Nathan Sunderman.)
