@@ -9,16 +9,16 @@ GO
 ALTER PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
     @AsOf DATETIME = NULL ,
-	@ExpertMode TINYINT = 0 ,
+    @ExpertMode TINYINT = 0 ,
     @Seconds INT = 5 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
-	@FilterPlansByDatabase VARCHAR(MAX) = NULL ,
-	@SkipChecksQueries TINYINT = 1 ,
-	@FileLatencyThresholdMS INT = 100 ,
+    @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
+    @SkipChecksQueries TINYINT = 1 ,
+    @FileLatencyThresholdMS INT = 100 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
@@ -30,7 +30,7 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 /*
 sp_AskBrent (TM)
 
-(C) 2014, Brent Ozar Unlimited. 
+(C) 2015, Brent Ozar Unlimited. 
 See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
 
 Sure, the server needs tuning - but why is it slow RIGHT NOW?
@@ -54,6 +54,10 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
+
+Changes in v12 - Feb 16, 2015
+ - Added Server Info output of priority 250 for Batch Requests per Second and
+   Wait Time per Core per Second (checks 19 and 20).
 
 Changes in v11 - Nov 20, 2014
  - Jefferson Elias of Belgium added more Perfmon counters to ExpertMode output.
@@ -131,7 +135,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 11, @VersionDate = '20141117'
+SELECT @Version = 12, @VersionDate = '20150216'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@ParmDefinitions NVARCHAR(4000),
@@ -226,7 +230,8 @@ BEGIN
 		  OpenTransactionCount INT NULL,
           QueryStatsNowID INT NULL,
           QueryStatsFirstID INT NULL,
-          PlanHandle VARBINARY(64)
+          PlanHandle VARBINARY(64) NULL,
+          DetailsInt INT NULL,
 		);
 
 	IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL 
@@ -889,11 +894,12 @@ BEGIN
 		'SP_SERVER_DIAGNOSTICS_SLEEP',
 		'HADR_CLUSAPI_CALL',
 		'HADR_LOGCAPTURE_WAIT',
+		'HADR_NOTIFICATION_DEQUEUE',
 		'HADR_TIMER_TASK',
 		'HADR_WORK_QUEUE',
 		'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
 		'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
-		)
+	)
 	ORDER BY sum_wait_time_ms DESC;
 
 	INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -1227,9 +1233,38 @@ BEGIN
 		AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
 		AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
 
+	/* Server Info - Batch Requests per Sec - CheckID 19 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+	SELECT 19 AS CheckID,
+		250 AS Priority,
+		'Server Info' AS FindingGroup,
+		'Batch Requests per Sec' AS Finding,
+		'http://BrentOzar.com/go/measure' AS URL,
+		CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
+        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+	FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
+	WHERE ps.Pass = 2
+		AND ps.object_name = 'SQLServer:SQL Statistics'
+		AND ps.counter_name = 'Batch Requests/sec';
+
+	/* Server Info - Wait Time per Core per Sec - CheckID 19 */
+    WITH waits1(waits_ms) AS (SELECT SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1),
+    waits2(waits_ms) AS (SELECT SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+	SELECT 19 AS CheckID,
+		250 AS Priority,
+		'Server Info' AS FindingGroup,
+		'Wait Time per Core per Sec' AS Finding,
+		'http://BrentOzar.com/sql/wait-stats/' AS URL,
+		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / 1000 AS NVARCHAR(20)) AS Details,
+        (waits2.waits_ms - waits1.waits_ms) / i.cpu_count /1000 AS DetailsInt
+	FROM sys.dm_os_sys_info i
+      CROSS JOIN waits1
+      CROSS JOIN waits2;
 
 	/* If we didn't find anything, apologize. */
-	IF NOT EXISTS (SELECT * FROM #AskBrentResults)
+	IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE CheckID NOT IN (19, 20))
 	BEGIN
 
 		INSERT  INTO #AskBrentResults
@@ -1331,6 +1366,7 @@ BEGIN
 				DatabaseID INT NULL,
 				DatabaseName NVARCHAR(128) NULL,
 				OpenTransactionCount INT NULL,
+                DetailsInt INT NULL,
 				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
 
 		EXEC(@StringToExecute);
@@ -1341,10 +1377,10 @@ BEGIN
 			+ @OutputDatabaseName + '.'
 			+ @OutputSchemaName + '.'
 			+ @OutputTableName
-			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount) SELECT '''
+			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1376,13 +1412,14 @@ BEGIN
 				DatabaseID INT NULL,
 				DatabaseName NVARCHAR(128) NULL,
 				OpenTransactionCount INT NULL,
+                DetailsInt INT NULL,
 				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
 			+ ' INSERT '
 			+ @OutputTableName
-			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, Op) SELECT '''
+			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -1444,7 +1481,8 @@ BEGIN
                     [TotalCPU] = qsNow.total_worker_time,
                     [TotalCPUPercent] = CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)),
                     [TotalReads] = qsNow.total_logical_reads,
-                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2))
+                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
+                    r.[DetailsInt]
 			FROM    #AskBrentResults r
 				LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
 				LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
@@ -1544,7 +1582,8 @@ BEGIN
                     [TotalCPU] = qsNow.total_worker_time,
                     [TotalCPUPercent] = CAST(100.0 * qsNow.total_worker_time / qsTotal.total_worker_time AS DECIMAL(6,2)),
                     [TotalReads] = qsNow.total_logical_reads,
-                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2))
+                    [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
+                    r.[DetailsInt]
 			FROM    #AskBrentResults r
 				LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
 				LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
