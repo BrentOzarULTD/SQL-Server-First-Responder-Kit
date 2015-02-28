@@ -58,6 +58,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v14 - Mar 1, 2015
+ - Bug fixes and improvements. (Okay, maybe just bug fixes.)
+
 Changes in v13 - Feb 22, 2015
  - Added Server Info output of priority 251 for Total Database Size and Total
    Databases (checks 21 and 22).
@@ -151,7 +154,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 13, @VersionDate = '20150222'
+SELECT @Version = 14, @VersionDate = '20150301'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@ParmDefinitions NVARCHAR(4000),
@@ -1290,16 +1293,16 @@ BEGIN
 		AND ps.counter_name = 'Batch Requests/sec';
 
 	/* Server Info - Wait Time per Core per Sec - CheckID 19 */
-    WITH waits1(waits_ms) AS (SELECT SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1),
-    waits2(waits_ms) AS (SELECT SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2)
+    WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
+    waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime)
 	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
 	SELECT 19 AS CheckID,
 		250 AS Priority,
 		'Server Info' AS FindingGroup,
 		'Wait Time per Core per Sec' AS Finding,
 		'http://BrentOzar.com/sql/wait-stats/' AS URL,
-		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / 1000 AS NVARCHAR(20)) AS Details,
-        (waits2.waits_ms - waits1.waits_ms) / i.cpu_count /1000 AS DetailsInt
+		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
+        (waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
 	FROM sys.dm_os_sys_info i
       CROSS JOIN waits1
       CROSS JOIN waits2;
