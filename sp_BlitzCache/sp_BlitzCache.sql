@@ -61,6 +61,10 @@ KNOWN ISSUES:
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
 
+v2.4.5
+ - sp_BlitzCache will no longer fail if @reanalyze = 1 AND sp_BlitzCache has
+   never been run.
+
 v2.4.4 - 2015-01-09
  - Fixed output to table. Sort order wasn't being obeyed and users limting
    results weren't seeing the same results between displaying to screen and
@@ -514,7 +518,10 @@ SET @query_filter = LOWER(@query_filter);
 IF LEFT(@query_filter, 3) NOT IN ('all', 'sta', 'pro')
   SET @query_filter = 'all';
 
-IF @reanalyze = 1
+IF @reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
+	SET @reanalyze = 0;
+
+IF @reanalyze = 1 
     GOTO Results
 
 
