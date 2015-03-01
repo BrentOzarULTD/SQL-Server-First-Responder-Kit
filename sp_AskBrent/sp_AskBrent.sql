@@ -15,6 +15,9 @@ ALTER PROCEDURE [dbo].[sp_AskBrent]
     @OutputDatabaseName NVARCHAR(128) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
+    @OutputTableNameFileStats NVARCHAR(256) = NULL ,
+    @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
+    @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @SkipChecksQueries TINYINT = 1 ,
@@ -54,6 +57,27 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
+
+Changes in v14 - Mar 1, 2015
+ - Added CPU utilization >50% check, plus informational log (checks 23 and 24).
+ - In main result set, wait stats are now sorted by seconds descending, not
+   alphabetically.
+ - "No Problems Found" is now priority 1 instead of 255 since I want it to
+   show up above the informational server-info checks.
+ - Bug fixes and improvements.
+
+Changes in v13 - Feb 22, 2015
+ - Added Server Info output of priority 251 for Total Database Size and Total
+   Databases (checks 21 and 22).
+ - Added parameters @OutputTableNameFileStats, @OutputTableNamePerfmonStats,
+   @OutputTableNameWaitStats to persist these work tables to disk if you want
+   to examine performance over time. I'd strongly recommend that you buy a
+   real monitoring program, though. I'm only storing the second pass of each
+   statistic, not the differentials. This is useful for doing your own deltas
+   between passes of sp_AskBrent, like running sp_AskBrent every 5 minutes via
+   a SQL Server Agent job. You can use any of the @OutputTableName params
+   individually, or as a group - it's up to you which data you want to keep.
+ - Bug fixes and improvements.
 
 Changes in v12 - Feb 16, 2015
  - Added Server Info output of priority 250 for Batch Requests per Second and
@@ -135,7 +159,7 @@ Changes in v1 - July 11, 2013
 */
 
 
-SELECT @Version = 12, @VersionDate = '20150216'
+SELECT @Version = 14, @VersionDate = '20150301'
 
 DECLARE @StringToExecute NVARCHAR(4000),
 	@ParmDefinitions NVARCHAR(4000),
@@ -155,6 +179,9 @@ SELECT
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 	@OutputTableName = QUOTENAME(@OutputTableName),
+	@OutputTableNameFileStats = QUOTENAME(@OutputTableNameFileStats),
+	@OutputTableNamePerfmonStats = QUOTENAME(@OutputTableNamePerfmonStats),
+	@OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
 	@LineFeed = CHAR(13) + CHAR(10),
 	@StartSampleTime = GETDATE(),
 	@FinishSampleTime = DATEADD(ss, @Seconds, GETDATE()),
@@ -214,7 +241,7 @@ BEGIN
 		  Priority TINYINT NOT NULL,
 		  FindingsGroup VARCHAR(50) NOT NULL,
 		  Finding VARCHAR(200) NOT NULL,
-		  URL VARCHAR(200) NOT NULL,
+		  URL VARCHAR(200) NULL,
 		  Details NVARCHAR(4000) NULL,
 		  HowToStopIt NVARCHAR(MAX) NULL,
 		  QueryPlan [XML] NULL,
@@ -845,6 +872,65 @@ BEGIN
 	AND counter_name LIKE 'Page life expectancy%'
 	AND cntr_value < 300
 
+	/* Server Info - Database Size, Total GB - CheckID 21 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+	SELECT 21 AS CheckID,
+		251 AS Priority,
+		'Server Info' AS FindingGroup,
+		'Database Size, Total GB' AS Finding,
+		CAST(CAST(SUM (size)*8./1024./1024. AS BIGINT) AS VARCHAR(100)) AS Details,
+        SUM (size)*8./1024./1024. AS DetailsInt,
+        'http://www.BrentOzar.com/askbrent/' AS URL
+	FROM sys.master_files
+	WHERE database_id > 4
+
+	/* Server Info - Database Count - CheckID 22 */
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+	SELECT 22 AS CheckID,
+		251 AS Priority,
+		'Server Info' AS FindingGroup,
+		'Database Count' AS Finding,
+		CAST(SUM(1) AS VARCHAR(100)) AS Details,
+        SUM (1) AS DetailsInt,
+        'http://www.BrentOzar.com/askbrent/' AS URL
+	FROM sys.databases
+	WHERE database_id > 4
+
+    /* Server Performance - High CPU Utilization CheckID 24 */
+    IF @Seconds < 30
+        BEGIN
+        /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
+           We get this data from the ring buffers, and it's only updated once per minute, so might
+           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+           end of our sp_AskBrent session. */
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+            WHERE 100 - SystemIdle >= 50
+
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+
+        END /* IF @Seconds < 30 */
 
 
 	/* End of checks. If we haven't waited @Seconds seconds, wait. */
@@ -1106,14 +1192,15 @@ BEGIN
 
 	/* Wait Stats - CheckID 6 */
 	/* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
 	SELECT TOP 10 6 AS CheckID,
 		200 AS Priority,
 		'Wait Stats' AS FindingGroup,
 		wNow.wait_type AS Finding,
 		N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
 		'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CAST(@Seconds AS NVARCHAR(10)) + ' seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
-		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt
+		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
+        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
 	FROM #WaitStats wNow
 	LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
 	WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * @Seconds * 1000)) /* Only look for things we've actually waited on for half of the time or more */
@@ -1248,23 +1335,60 @@ BEGIN
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec';
 
-	/* Server Info - Wait Time per Core per Sec - CheckID 19 */
-    WITH waits1(waits_ms) AS (SELECT SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1),
-    waits2(waits_ms) AS (SELECT SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2)
+	/* Server Info - Wait Time per Core per Sec - CheckID 20 */
+    WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
+    waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime)
 	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
 	SELECT 19 AS CheckID,
 		250 AS Priority,
 		'Server Info' AS FindingGroup,
 		'Wait Time per Core per Sec' AS Finding,
-		'http://BrentOzar.com/sql/wait-stats/' AS URL,
-		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / 1000 AS NVARCHAR(20)) AS Details,
-        (waits2.waits_ms - waits1.waits_ms) / i.cpu_count /1000 AS DetailsInt
+		'http://BrentOzar.com/go/measure' AS URL,
+		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
+        (waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
 	FROM sys.dm_os_sys_info i
       CROSS JOIN waits1
       CROSS JOIN waits2;
 
+    /* Server Performance - High CPU Utilization CheckID 24 */
+    IF @Seconds >= 30
+        BEGIN
+        /* If we're waiting 30+ seconds, run this check at the end.
+           We get this data from the ring buffers, and it's only updated once per minute, so might
+           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+           end of our sp_AskBrent session. */
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+            WHERE 100 - SystemIdle >= 50
+
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+
+        END /* IF @Seconds < 30 */
+
+
 	/* If we didn't find anything, apologize. */
-	IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE CheckID NOT IN (19, 20))
+	IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE Priority < 250)
 	BEGIN
 
 		INSERT  INTO #AskBrentResults
@@ -1276,7 +1400,7 @@ BEGIN
 				  Details
 				)
 		VALUES  ( -1 ,
-				  255 ,
+				  1 ,
 				  'No Problems Found' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
@@ -1327,6 +1451,7 @@ BEGIN
 	IF @OutputDatabaseName IS NOT NULL
 		AND @OutputSchemaName IS NOT NULL
 		AND @OutputTableName IS NOT NULL
+	    AND @OutputTableName NOT LIKE '#%'
 		AND EXISTS ( SELECT *
 					 FROM   sys.databases
 					 WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
@@ -1379,7 +1504,7 @@ BEGIN
 			+ @OutputTableName
 			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', ' + CAST(@Version AS NVARCHAR(128))
 			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
@@ -1387,8 +1512,7 @@ BEGIN
 	BEGIN
 		SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
 			+ @OutputTableName
-			+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
-			+ 'CREATE TABLE '
+			+ ''') IS NULL) CREATE TABLE '
 			+ @OutputTableName
 			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
 				ServerName NVARCHAR(128), 
@@ -1418,7 +1542,7 @@ BEGIN
 			+ @OutputTableName
 			+ ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
 			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-			+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', ' + CAST(@Version AS NVARCHAR(128))
 			+ ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		EXEC(@StringToExecute);
 	END
@@ -1426,6 +1550,251 @@ BEGIN
 	BEGIN
 		RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
 	END
+
+	/* @OutputTableNameFileStats lets us export the results to a permanent table */
+	IF @OutputDatabaseName IS NOT NULL
+		AND @OutputSchemaName IS NOT NULL
+		AND @OutputTableNameFileStats IS NOT NULL
+	    AND @OutputTableNameFileStats NOT LIKE '#%'
+		AND EXISTS ( SELECT *
+					 FROM   sys.databases
+					 WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
+	BEGIN
+		SET @StringToExecute = 'USE '
+			+ @OutputDatabaseName
+			+ '; IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName
+			+ ''') AND NOT EXISTS (SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+			+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+			+ @OutputTableNameFileStats + ''') CREATE TABLE '
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNameFileStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        DatabaseID INT NOT NULL,
+		        FileID INT NOT NULL,
+		        DatabaseName NVARCHAR(256) ,
+		        FileLogicalName NVARCHAR(256) ,
+		        TypeDesc NVARCHAR(60) ,
+		        SizeOnDiskMB BIGINT ,
+		        io_stall_read_ms BIGINT ,
+		        num_of_reads BIGINT ,
+		        bytes_read BIGINT ,
+		        io_stall_write_ms BIGINT ,
+		        num_of_writes BIGINT ,
+		        bytes_written BIGINT, 
+		        PhysicalName NVARCHAR(520) ,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+
+		EXEC(@StringToExecute);
+		SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName + ''') INSERT '
+			+ @OutputDatabaseName + '.'
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNameFileStats
+			+ ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
+	BEGIN
+		SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+			+ @OutputTableNameFileStats
+			+ ''') IS NULL) CREATE TABLE '
+			+ @OutputTableNameFileStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        DatabaseID INT NOT NULL,
+		        FileID INT NOT NULL,
+		        DatabaseName NVARCHAR(256) ,
+		        FileLogicalName NVARCHAR(256) ,
+		        TypeDesc NVARCHAR(60) ,
+		        SizeOnDiskMB BIGINT ,
+		        io_stall_read_ms BIGINT ,
+		        num_of_reads BIGINT ,
+		        bytes_read BIGINT ,
+		        io_stall_write_ms BIGINT ,
+		        num_of_writes BIGINT ,
+		        bytes_written BIGINT, 
+		        PhysicalName NVARCHAR(520) ,
+                DetailsInt INT NULL,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+			+ ' INSERT '
+			+ @OutputTableNameFileStats
+			+ ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
+	BEGIN
+		RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+	END
+
+
+	/* @OutputTableNamePerfmonStats lets us export the results to a permanent table */
+	IF @OutputDatabaseName IS NOT NULL
+		AND @OutputSchemaName IS NOT NULL
+		AND @OutputTableNamePerfmonStats IS NOT NULL
+	    AND @OutputTableNamePerfmonStats NOT LIKE '#%'
+		AND EXISTS ( SELECT *
+					 FROM   sys.databases
+					 WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
+	BEGIN
+		SET @StringToExecute = 'USE '
+			+ @OutputDatabaseName
+			+ '; IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName
+			+ ''') AND NOT EXISTS (SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+			+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+			+ @OutputTableNamePerfmonStats + ''') CREATE TABLE '
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNamePerfmonStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        [object_name] NVARCHAR(128) NOT NULL,
+		        [counter_name] NVARCHAR(128) NOT NULL,
+		        [instance_name] NVARCHAR(128) NULL,
+		        [cntr_value] BIGINT NULL,
+		        [cntr_type] INT NOT NULL,
+		        [value_delta] BIGINT NULL,
+		        [value_per_second] DECIMAL(18,2) NULL,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+
+		EXEC(@StringToExecute);
+		SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName + ''') INSERT '
+			+ @OutputDatabaseName + '.'
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNamePerfmonStats
+			+ ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 2) = '##')
+	BEGIN
+		SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+			+ @OutputTableNamePerfmonStats
+			+ ''') IS NULL) CREATE TABLE '
+			+ @OutputTableNamePerfmonStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        [object_name] NVARCHAR(128) NOT NULL,
+		        [counter_name] NVARCHAR(128) NOT NULL,
+		        [instance_name] NVARCHAR(128) NULL,
+		        [cntr_value] BIGINT NULL,
+		        [cntr_type] INT NOT NULL,
+		        [value_delta] BIGINT NULL,
+		        [value_per_second] DECIMAL(18,2) NULL,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+			+ ' INSERT '
+			+ @OutputTableNamePerfmonStats
+			+ ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
+	BEGIN
+		RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+	END
+
+
+	/* @OutputTableNameWaitStats lets us export the results to a permanent table */
+	IF @OutputDatabaseName IS NOT NULL
+		AND @OutputSchemaName IS NOT NULL
+		AND @OutputTableNameWaitStats IS NOT NULL
+	    AND @OutputTableNameWaitStats NOT LIKE '#%'
+		AND EXISTS ( SELECT *
+					 FROM   sys.databases
+					 WHERE  QUOTENAME([name]) = @OutputDatabaseName) 
+	BEGIN
+		SET @StringToExecute = 'USE '
+			+ @OutputDatabaseName
+			+ '; IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName
+			+ ''') AND NOT EXISTS (SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+			+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+			+ @OutputTableNameWaitStats + ''') CREATE TABLE '
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNameWaitStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        wait_type NVARCHAR(60), 
+                wait_time_ms BIGINT, 
+                signal_wait_time_ms BIGINT, 
+                waiting_tasks_count BIGINT ,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+
+		EXEC(@StringToExecute);
+		SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+			+ @OutputDatabaseName
+			+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+			+ @OutputSchemaName + ''') INSERT '
+			+ @OutputDatabaseName + '.'
+			+ @OutputSchemaName + '.'
+			+ @OutputTableNameWaitStats
+			+ ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
+	BEGIN
+		SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+			+ @OutputTableNameWaitStats
+			+ ''') IS NULL) CREATE TABLE '
+			+ @OutputTableNameWaitStats
+			+ ' (ID INT IDENTITY(1,1) NOT NULL, 
+				ServerName NVARCHAR(128), 
+				CheckDate DATETIME, 
+		        wait_type NVARCHAR(60), 
+                wait_time_ms BIGINT, 
+                signal_wait_time_ms BIGINT, 
+                waiting_tasks_count BIGINT ,
+				CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+			+ ' INSERT '
+			+ @OutputTableNameWaitStats
+			+ ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
+			+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+			+ ''', ''' + CAST(CONVERT(DATETIME, @StartSampleTime, 102) AS VARCHAR(100)) + ''', '
+			+ 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+		EXEC(@StringToExecute);
+	END
+	ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
+	BEGIN
+		RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+	END
+
+
 
 
 	DECLARE @separator AS VARCHAR(1);
@@ -1490,7 +1859,11 @@ BEGIN
                 LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
 			ORDER BY r.Priority ,
 					r.FindingsGroup ,
-					r.Finding ,
+					CASE
+                        WHEN r.CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    r.Finding,
 					r.ID;
 		END
 		ELSE IF @OutputType IN ( 'CSV', 'RSV' ) 
@@ -1507,7 +1880,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					Details;
 		END
 		ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 0
@@ -1523,7 +1900,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					ID;
 		END
 		ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 1
@@ -1539,7 +1920,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					ID;
 		END
 		ELSE IF @ExpertMode = 1
@@ -1591,7 +1976,11 @@ BEGIN
                 LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
 			ORDER BY r.Priority ,
 					r.FindingsGroup ,
-					r.Finding ,
+					CASE
+                        WHEN r.CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    r.Finding,
 					r.ID;
 
 			-------------------------
@@ -1762,9 +2151,4 @@ EXEC dbo.sp_AskBrent @ExpertMode = 1;
 
 In Ask a Question mode:
 EXEC dbo.sp_AskBrent 'Is this cursor bad?';
-
-A few sample calling methods:
-EXEC dbo.sp_AskBrent;
-EXEC dbo.sp_AskBrent @ExpertMode = 1;
-EXEC dbo.sp_AskBrent 'This is a test question';
 */
