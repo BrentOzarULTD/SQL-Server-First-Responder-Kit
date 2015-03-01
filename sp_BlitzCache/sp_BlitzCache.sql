@@ -65,6 +65,7 @@ v2.4.5
  - sp_BlitzCache will no longer fail if @reanalyze = 1 AND sp_BlitzCache has
    never been run.
  - sp_BlitzCache can be run from multiple SPIDs.
+ - Triggers will no longer cause sp_BlitzCache to notice itself.
 
 v2.4.4 - 2015-01-09
  - Fixed output to table. Sort order wasn't being obeyed and users limting
@@ -1065,6 +1066,8 @@ BEGIN
 
    IF @ignore_system_db = 1
       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+   
+   SET @sql += @body_order + @nl + @nl + @nl ;
 END
 
 
