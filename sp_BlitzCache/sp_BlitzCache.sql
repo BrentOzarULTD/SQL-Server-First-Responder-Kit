@@ -64,6 +64,7 @@ KNOWN ISSUES:
 v2.4.5
  - sp_BlitzCache will no longer fail if @reanalyze = 1 AND sp_BlitzCache has
    never been run.
+ - sp_BlitzCache can be run from multiple SPIDs.
 
 v2.4.4 - 2015-01-09
  - Fixed output to table. Sort order wasn't being obeyed and users limting
@@ -555,13 +556,14 @@ CREATE TABLE #ignore_query_hashes (
 );
 
 CREATE TABLE ##bou_BlitzCacheResults (
+	SPID INT,
     ID INT IDENTITY(1,1),
     CheckID INT,
     Priority TINYINT,
     FindingsGroup VARCHAR(50),
     Finding VARCHAR(200),
     URL VARCHAR(200),
-    Details VARCHAR(4000)
+    Details VARCHAR(4000)	
 );
 
 CREATE TABLE #p (
@@ -585,6 +587,7 @@ CREATE TABLE #configuration (
 );
 
 CREATE TABLE ##bou_BlitzCacheProcs (
+	SPID INT ,
     QueryType nvarchar(256),
     DatabaseName sysname,
     AverageCPU decimal(38,4),
@@ -793,7 +796,7 @@ OPTION (RECOMPILE);
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
-INSERT INTO ##bou_BlitzCacheProcs (QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
+INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
@@ -836,6 +839,7 @@ IF @duration_filter IS NOT NULL
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@top)
+       @@SPID ,
        ''Procedure: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
@@ -909,6 +913,7 @@ BEGIN
     
     SET @sql += N'
     SELECT TOP (@top)
+           @@SPID ,
            ''Statement'' AS QueryType,
            COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
            (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
@@ -1700,8 +1705,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE frequent_execution =1)
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (1,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    1,
                     100,
                     'Execution Pattern',
                     'Frequently Executed Queries',
@@ -1714,8 +1720,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  parameter_sniffing = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (2,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    2,
                     50,
                     'Parameterization',
                     'Parameter Sniffing',
@@ -1727,8 +1734,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_forced_plan = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (3,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    3,
                     5,
                     'Parameterization',
                     'Forced Plans',
@@ -1740,8 +1748,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_cursor = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (4,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
                     200,
                     'Cursors',
                     'Cursors',
@@ -1752,8 +1761,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_forced_parameterized = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (5,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    5,
                     50,
                     'Parameterization',
                     'Forced Parameterization',
@@ -1764,8 +1774,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  p.is_parallel = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (6,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    6,
                     200,
                     'Execution Plans',
                     'Parallelism',
@@ -1776,8 +1787,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  near_parallel = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (7,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    7,
                     200,
                     'Execution Plans',
                     'Nearly Parallel',
@@ -1788,8 +1800,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  plan_warnings = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (8,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    8,
                     50,
                     'Execution Plans',
                     'Query Plan Warnings',
@@ -1800,8 +1813,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  long_running = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (9,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    9,
                     50,
                     'Performance',
                     'Long Running Queries',
@@ -1813,8 +1827,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  p.missing_index_count > 0)
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (10,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    10,
                     50,
                     'Performance',
                     'Missing Index Request',
@@ -1825,8 +1840,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  p.downlevel_estimator = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (13,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    13,
                     200,
                     'Cardinality',
                     'Legacy Cardinality Estimator in Use',
@@ -1837,8 +1853,9 @@ BEGIN
                    FROM ##bou_BlitzCacheProcs p
                    WHERE implicit_conversions = 1
                   )
-            INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (14,
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    14,
                     50,
                     'Performance',
                     'Implicit Conversions',
@@ -1849,8 +1866,9 @@ BEGIN
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  tempdb_spill = 1
                   )
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (15,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                15,
                 10,
                 'Performance',
                 'TempDB Spills',
@@ -1860,8 +1878,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  busy_loops = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (16,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                16,
                 10,
                 'Performance',
                 'Frequently executed operators',
@@ -1871,8 +1890,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  tvf_join = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (17,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                17,
                 50,
                 'Performance',
                 'Joining to table valued functions',
@@ -1882,8 +1902,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  compile_timeout = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (18,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                18,
                 50,
                 'Execution Plans',
                 'Compilation timeout',
@@ -1893,8 +1914,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  compile_memory_limit_exceeded = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (19,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                19,
                 50,
                 'Execution Plans',
                 'Compilation memory limit exceeded',
@@ -1904,8 +1926,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  warning_no_join_predicate = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (20,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                20,
                 10,
                 'Execution Plans',
                 'No join predicate',
@@ -1915,8 +1938,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  plan_multiple_plans = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (21,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                21,
                 200,
                 'Execution Plans',
                 'Multiple execution plans',
@@ -1926,8 +1950,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  unmatched_index_count > 0)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (22,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                22,
                 100,
                 'Performance',
                 'Unmatched indexes',
@@ -1937,8 +1962,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  unparameterized_query = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (23,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                23,
                 100,
                 'Parameterization',
                 'Unparameterized queries',
@@ -1948,8 +1974,9 @@ BEGIN
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_trivial = 1)
-        INSERT INTO ##bou_BlitzCacheResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (24,
+        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+        VALUES (@@SPID,
+                24,
                 100,
                 'Execution Plans',
                 'Trivial Plans',
@@ -1967,6 +1994,7 @@ BEGIN
             Details,
             CheckID
     FROM    ##bou_BlitzCacheResults
+    WHERE   SPID = @@SPID
     GROUP BY Priority,
             FindingsGroup,
             Finding,
@@ -2108,7 +2136,7 @@ END
 SET @sql = N'
 SELECT  TOP (@top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
-WHERE   1 = 1 ' + @nl
+WHERE   SPID = @spid ' + @nl
 
 SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                                                 WHEN 'reads' THEN ' TotalReads '
@@ -2123,7 +2151,7 @@ SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                                END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
-EXEC sp_executesql @sql, N'@top INT', @top ;
+EXEC sp_executesql @sql, N'@top INT, @spid INT', @top, @@SPID ;
 
 
 GO
