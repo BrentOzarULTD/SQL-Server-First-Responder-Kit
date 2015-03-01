@@ -59,7 +59,12 @@ Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
 Changes in v14 - Mar 1, 2015
- - Bug fixes and improvements. (Okay, maybe just bug fixes.)
+ - Added CPU utilization >50% check, plus informational log (checks 23 and 24).
+ - In main result set, wait stats are now sorted by seconds descending, not
+   alphabetically.
+ - "No Problems Found" is now priority 1 instead of 255 since I want it to
+   show up above the informational server-info checks.
+ - Bug fixes and improvements.
 
 Changes in v13 - Feb 22, 2015
  - Added Server Info output of priority 251 for Total Database Size and Total
@@ -891,6 +896,43 @@ BEGIN
 	FROM sys.databases
 	WHERE database_id > 4
 
+    /* Server Performance - High CPU Utilization CheckID 24 */
+    IF @Seconds < 30
+        BEGIN
+        /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
+           We get this data from the ring buffers, and it's only updated once per minute, so might
+           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+           end of our sp_AskBrent session. */
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+            WHERE 100 - SystemIdle >= 50
+
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+
+        END /* IF @Seconds < 30 */
+
+
 	/* End of checks. If we haven't waited @Seconds seconds, wait. */
 	IF GETDATE() < @FinishSampleTime
 		WAITFOR TIME @FinishSampleTime;
@@ -1150,14 +1192,15 @@ BEGIN
 
 	/* Wait Stats - CheckID 6 */
 	/* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
-	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
 	SELECT TOP 10 6 AS CheckID,
 		200 AS Priority,
 		'Wait Stats' AS FindingGroup,
 		wNow.wait_type AS Finding,
 		N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
 		'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CAST(@Seconds AS NVARCHAR(10)) + ' seconds, SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
-		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt
+		'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
+        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
 	FROM #WaitStats wNow
 	LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
 	WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * @Seconds * 1000)) /* Only look for things we've actually waited on for half of the time or more */
@@ -1292,7 +1335,7 @@ BEGIN
 		AND ps.object_name = 'SQLServer:SQL Statistics'
 		AND ps.counter_name = 'Batch Requests/sec';
 
-	/* Server Info - Wait Time per Core per Sec - CheckID 19 */
+	/* Server Info - Wait Time per Core per Sec - CheckID 20 */
     WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
     waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime)
 	INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
@@ -1300,15 +1343,52 @@ BEGIN
 		250 AS Priority,
 		'Server Info' AS FindingGroup,
 		'Wait Time per Core per Sec' AS Finding,
-		'http://BrentOzar.com/sql/wait-stats/' AS URL,
+		'http://BrentOzar.com/go/measure' AS URL,
 		CAST((waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
         (waits2.waits_ms - waits1.waits_ms) / i.cpu_count / DATEDIFF(ms, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
 	FROM sys.dm_os_sys_info i
       CROSS JOIN waits1
       CROSS JOIN waits2;
 
+    /* Server Performance - High CPU Utilization CheckID 24 */
+    IF @Seconds >= 30
+        BEGIN
+        /* If we're waiting 30+ seconds, run this check at the end.
+           We get this data from the ring buffers, and it's only updated once per minute, so might
+           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+           end of our sp_AskBrent session. */
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+            WHERE 100 - SystemIdle >= 50
+
+        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://BrentOzar.com/go/cpu'
+            FROM ( 
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                FROM ( 
+                    SELECT TOP 1 CONVERT(XML, record) as record 
+                    FROM sys.dm_os_ring_buffers 
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' 
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb 
+            ) as y 
+
+        END /* IF @Seconds < 30 */
+
+
 	/* If we didn't find anything, apologize. */
-	IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE CheckID NOT IN (19, 20))
+	IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE Priority < 250)
 	BEGIN
 
 		INSERT  INTO #AskBrentResults
@@ -1320,7 +1400,7 @@ BEGIN
 				  Details
 				)
 		VALUES  ( -1 ,
-				  255 ,
+				  1 ,
 				  'No Problems Found' ,
 				  'From Brent Ozar Unlimited' ,
 				  'http://www.BrentOzar.com/askbrent/' ,
@@ -1779,7 +1859,11 @@ BEGIN
                 LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
 			ORDER BY r.Priority ,
 					r.FindingsGroup ,
-					r.Finding ,
+					CASE
+                        WHEN r.CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    r.Finding,
 					r.ID;
 		END
 		ELSE IF @OutputType IN ( 'CSV', 'RSV' ) 
@@ -1796,7 +1880,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					Details;
 		END
 		ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 0
@@ -1812,7 +1900,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					ID;
 		END
 		ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 1
@@ -1828,7 +1920,11 @@ BEGIN
 			FROM    #AskBrentResults
 			ORDER BY Priority ,
 					FindingsGroup ,
-					Finding ,
+					CASE
+                        WHEN CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    Finding,
 					ID;
 		END
 		ELSE IF @ExpertMode = 1
@@ -1880,7 +1976,11 @@ BEGIN
                 LEFT OUTER JOIN #QueryStats qsFirst ON r.QueryStatsFirstID = qsFirst.ID
 			ORDER BY r.Priority ,
 					r.FindingsGroup ,
-					r.Finding ,
+					CASE
+                        WHEN r.CheckID = 6 THEN DetailsInt
+                        ELSE 0
+                    END DESC,
+                    r.Finding,
 					r.ID;
 
 			-------------------------
@@ -2051,9 +2151,4 @@ EXEC dbo.sp_AskBrent @ExpertMode = 1;
 
 In Ask a Question mode:
 EXEC dbo.sp_AskBrent 'Is this cursor bad?';
-
-A few sample calling methods:
-EXEC dbo.sp_AskBrent;
-EXEC dbo.sp_AskBrent @ExpertMode = 1;
-EXEC dbo.sp_AskBrent 'This is a test question';
 */
