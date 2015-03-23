@@ -2621,8 +2621,7 @@ BEGIN;
 							BEGIN
 								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
 									+ @OutputTableName
-									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
-									+ 'CREATE TABLE '
+									+ ''') IS NULL) CREATE TABLE '
 									+ @OutputTableName
 									+ ' (ID INT IDENTITY(1,1) NOT NULL,
 										ServerName NVARCHAR(128),
