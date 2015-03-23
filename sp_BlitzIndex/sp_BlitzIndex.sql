@@ -21,8 +21,11 @@ CREATE PROCEDURE dbo.sp_BlitzIndex
 	@SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
 	@TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
 		/*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
-	@Filter tinyint = 0 /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
+	@Filter tinyint = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
 		/*Note:@Filter doesn't do anything unless @Mode=0*/
+    @OutputDatabaseName NVARCHAR(128) = NULL ,
+    @OutputSchemaName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(256) = NULL 
 /*
 sp_BlitzIndex(TM) v2.02 - Jan 30, 2014
 
@@ -134,10 +137,17 @@ DECLARE @SQLServerProductVersion NVARCHAR(128);
 DECLARE @SQLServerEdition INT;
 DECLARE @FilterMB INT;
 DECLARE @collation NVARCHAR(256);
+DECLARE @StringToExecute NVARCHAR(4000);
 
 
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
+/* Sanitize our inputs */
+SELECT
+	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
+	@OutputTableName = QUOTENAME(@OutputTableName)
+
 SET @FilterMB=250;
 
 IF @DatabaseName is null 
@@ -2539,6 +2549,125 @@ BEGIN;
 						N'If you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
 						, N'',N''
 						);
+
+
+						/* @OutputTableName lets us export the results to a permanent table */
+						IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND EXISTS ( SELECT *
+										 FROM   sys.databases
+										 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								SET @StringToExecute = 'USE '
+									+ @OutputDatabaseName
+									+ '; IF EXISTS(SELECT * FROM '
+									+ @OutputDatabaseName
+									+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+									+ @OutputSchemaName
+									+ ''') AND NOT EXISTS (SELECT * FROM '
+									+ @OutputDatabaseName
+									+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+									+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+									+ @OutputTableName + ''') CREATE TABLE '
+									+ @OutputSchemaName + '.'
+									+ @OutputTableName
+									+ ' (ID INT IDENTITY(1,1) NOT NULL,
+										ServerName NVARCHAR(128),
+										DatabaseName NVARCHAR(300),
+										CheckDate DATETIME,
+										Finding VARCHAR(4000),
+										  URL VARCHAR(200), 
+										  Details NVARCHAR(4000), 
+										  Definition NVARCHAR(MAX), 
+										  SecretColumns NVARCHAR(MAX),
+										  Usage NVARCHAR(MAX),
+										  Size NVARCHAR(MAX),
+										  MoreInfo NVARCHAR(MAX),
+										  CreateTSQL NVARCHAR(MAX),
+										CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+								EXEC(@StringToExecute);
+								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+									+ @OutputDatabaseName
+									+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+									+ @OutputSchemaName + ''') INSERT '
+									+ @OutputDatabaseName + '.'
+									+ @OutputSchemaName + '.'
+									+ @OutputTableName
+									+ ' (ServerName, DatabaseName, CheckDate, Finding, URL, Details, Definition, SecretColumns, Usage, Size, MoreInfo, CreateTSQL) SELECT '''
+									+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+									+ ''', ''' + @DatabaseName
+									+ ''', GETDATE() '
+									+ ', isnull(br.findings_group,N'''') + 
+				CASE WHEN ISNULL(br.finding,N'''') <> N'''' THEN N'': '' ELSE N'''' END
+				+ br.finding, 
+			br.URL, 
+			br.details, 
+			br.index_definition, 
+			ISNULL(br.secret_columns,''''),          
+			br.index_usage_summary, 
+			br.index_size_summary,
+			COALESCE(br.more_info,sn.more_info,''''),
+			COALESCE(br.create_tsql,ts.create_tsql,'''')
+		FROM #BlitzIndexResults br
+		LEFT JOIN #IndexSanity sn ON 
+			br.index_sanity_id=sn.index_sanity_id
+		LEFT JOIN #IndexCreateTsql ts ON 
+			br.index_sanity_id=ts.index_sanity_id
+		ORDER BY [check_id] ASC, blitz_result_id ASC, findings_group';
+								EXEC(@StringToExecute);
+							END
+						ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+							BEGIN
+								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+									+ @OutputTableName
+									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
+									+ 'CREATE TABLE '
+									+ @OutputTableName
+									+ ' (ID INT IDENTITY(1,1) NOT NULL,
+										ServerName NVARCHAR(128),
+										DatabaseName NVARCHAR(300),
+										CheckDate DATETIME,
+										Finding VARCHAR(4000),
+										  URL VARCHAR(200), 
+										  Details NVARCHAR(4000), 
+										  Definition NVARCHAR(MAX), 
+										  SecretColumns NVARCHAR(MAX),
+										  Usage NVARCHAR(MAX),
+										  Size NVARCHAR(MAX),
+										  MoreInfo NVARCHAR(MAX),
+										  CreateTSQL NVARCHAR(MAX),
+										CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+									+ ' INSERT '
+									+ @OutputTableName
+									+ ' (ServerName, DatabaseName, CheckDate, Finding, URL, Details, Definition, SecretColumns, Usage, Size, MoreInfo, CreateTSQL) SELECT '''
+									+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+									+ ''', ''' + @DatabaseName
+									+ ''', GETDATE() '
+									+ ', isnull(br.findings_group,N'''') + 
+				CASE WHEN ISNULL(br.finding,N'''') <> N'''' THEN N'': '' ELSE N'''' END
+				+ br.finding, 
+			br.URL, 
+			br.details, 
+			br.index_definition, 
+			ISNULL(br.secret_columns,''''),          
+			br.index_usage_summary, 
+			br.index_size_summary,
+			COALESCE(br.more_info,sn.more_info,''''),
+			COALESCE(br.create_tsql,ts.create_tsql,'''')
+		FROM #BlitzIndexResults br
+		LEFT JOIN #IndexSanity sn ON 
+			br.index_sanity_id=sn.index_sanity_id
+		LEFT JOIN #IndexCreateTsql ts ON 
+			br.index_sanity_id=ts.index_sanity_id
+		ORDER BY [check_id] ASC, blitz_result_id ASC, findings_group';
+								EXEC(@StringToExecute);
+							END
+						ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+							BEGIN
+								RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+							END
+
 
 
 	END
