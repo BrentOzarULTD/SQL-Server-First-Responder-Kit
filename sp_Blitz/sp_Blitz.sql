@@ -1458,11 +1458,11 @@ AS
 										'tempdb' ,
 										100 AS Priority ,
 										'Performance' AS FindingsGroup ,
-										'TempDB on C Drive' AS Finding ,
+										'tempdb on C Drive' AS Finding ,
 										'http://BrentOzar.com/go/cdrive' AS URL ,
 										CASE WHEN growth > 0
-											 THEN ( 'The tempdb database has files on the C drive.  TempDB frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' )
-											 ELSE ( 'The tempdb database has files on the C drive.  TempDB is not set to Autogrow, hopefully it is big enough.  C is also often much slower than other drives, so performance may be suffering.' )
+											 THEN ( 'The tempdb database has files on the C drive.  tempdb frequently grows unpredictably, putting your server at risk of running out of C drive space and crashing hard.  C is also often much slower than other drives, so performance may be suffering.' )
+											 ELSE ( 'The tempdb database has files on the C drive.  tempdb is not set to Autogrow, hopefully it is big enough.  C is also often much slower than other drives, so performance may be suffering.' )
 										END AS Details
 								FROM    sys.master_files
 								WHERE   UPPER(LEFT(physical_name, 1)) = 'C'
@@ -1938,9 +1938,9 @@ AS
 										  'tempdb' ,
 										  100 ,
 										  'Performance' ,
-										  'TempDB Only Has 1 Data File' ,
+										  'tempdb Only Has 1 Data File' ,
 										  'http://BrentOzar.com/go/tempdb' ,
-										  'TempDB is only configured with one data file.  More data files are usually required to alleviate SGAM contention.'
+										  'tempdb is only configured with one data file.  More data files are usually required to alleviate SGAM contention.'
 										);
 							END;
 					END
