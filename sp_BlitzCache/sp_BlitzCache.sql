@@ -809,11 +809,11 @@ INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, To
 
 SET @body += N'
 FROM   (SELECT *,
-               CAST((CASE WHEN DATEDIFF(second, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(second, cached_time, GETDATE()) / 60.0
+               CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, GETDATE()) 
                           ELSE NULL END) as MONEY) as age_minutes,
-               CAST((CASE WHEN DATEDIFF(second, cached_time, last_execution_time) > 0 AND execution_count > 1
-                          THEN DATEDIFF(second, cached_time, last_execution_time) / 60.0
+               CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, last_execution_time) 
                           ELSE Null END) as MONEY) as age_minutes_lifetime
         FROM   sys.#view# x ' + @nl ;
 
