@@ -66,6 +66,9 @@ v2.4.5
    never been run.
  - sp_BlitzCache can be run from multiple SPIDs.
  - Triggers will no longer cause sp_BlitzCache to notice itself.
+ - Fixed an int overflow when determining execution time. Now using DATEDIFF
+   on minutes of execution time instead of seconds. Queries that have used 
+   more than 28,000 days of CPU are safe!
 
 v2.4.4 - 2015-01-09
  - Fixed output to table. Sort order wasn't being obeyed and users limting
