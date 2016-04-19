@@ -59,6 +59,9 @@ Unknown limitations of this version:
  - New @SinceStartup parameter. Defaults to 0. When turned on with 1, it sets
    @Seconds = 0, @ExpertMode = 1, and skips results for what's running now and
    the headline-news result set (the first two).
+ - If @Seconds = 0, output waits in hours instead of seconds. This only changes
+   the onscreen results - it doesn't change the table results, because I don't
+   want to break existing table storage by changing output data.
 
 Changes in v21 - January 6, 2016
  - Big breaking change: the first result set now shows you what is running.
@@ -1576,7 +1579,7 @@ BEGIN
                   'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
                 );
 
-                /* Outdated sp_Blitz - sp_Blitz is Over 6 Months Old */
+                /* Outdated sp_AskBrent - sp_AskBrent is Over 6 Months Old */
                 IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
                     BEGIN
                         INSERT  INTO #AskBrentResults
@@ -2214,38 +2217,84 @@ BEGIN
             -------------------------
             --What happened: #WaitStats
             -------------------------
-            ;with max_batch as (
-                select max(SampleTime) as SampleTime
-                from #WaitStats
-            )
-            SELECT
-                'WAIT STATS' as Pattern,
-                b.SampleTime as [Sample Ended],
-                datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
-                wd1.wait_type,
-                c.[Wait Time (Seconds)],
-                c.[Signal Wait Time (Seconds)],
-                CASE WHEN c.[Wait Time (Seconds)] > 0
-                 THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
-                ELSE 0 END AS [Percent Signal Waits],
-                (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
-                CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                THEN
-                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-                        (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
-                ELSE 0 END AS [Avg ms Per Wait]
-            FROM  max_batch b
-            JOIN #WaitStats wd2 on
-                wd2.SampleTime =b.SampleTime
-            JOIN #WaitStats wd1 ON
-                wd1.wait_type=wd2.wait_type AND
-                wd2.SampleTime > wd1.SampleTime
-            CROSS APPLY (SELECT
-                cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
-                cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
-            WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                and wd2.wait_time_ms-wd1.wait_time_ms > 0
-            ORDER BY [Wait Time (Seconds)] DESC;
+            IF @Seconds = 0
+                BEGIN
+                /* Measure waits in hours */
+                ;with max_batch as (
+                    select max(SampleTime) as SampleTime
+                    from #WaitStats
+                )
+                SELECT
+                    'WAIT STATS' as Pattern,
+                    b.SampleTime as [Sample Ended],
+                    CAST(datediff(ss,wd1.SampleTime, wd2.SampleTime) / 60 / 60 AS DECIMAL(18,1)) as [Hours Sample],
+                    wd1.wait_type,
+                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL,
+                    c.[Wait Time (Seconds)] / 60 / 60 AS [Wait Time (Hours)],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    c.[Signal Wait Time (Seconds)] / 60 / 60 AS [Signal Wait Time (Hours)],
+                    CASE WHEN c.[Wait Time (Seconds)] > 0
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                    ELSE 0 END AS [Percent Signal Waits],
+                    (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
+                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    THEN
+                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                    ELSE 0 END AS [Avg ms Per Wait]
+                FROM  max_batch b
+                JOIN #WaitStats wd2 on
+                    wd2.SampleTime =b.SampleTime
+                JOIN #WaitStats wd1 ON
+                    wd1.wait_type=wd2.wait_type AND
+                    wd2.SampleTime > wd1.SampleTime
+                CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
+                CROSS APPLY (SELECT
+                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
+                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                ORDER BY [Wait Time (Seconds)] DESC;
+                END
+            ELSE
+                BEGIN
+                /* Measure waits in seconds */
+                ;with max_batch as (
+                    select max(SampleTime) as SampleTime
+                    from #WaitStats
+                )
+                SELECT
+                    'WAIT STATS' as Pattern,
+                    b.SampleTime as [Sample Ended],
+                    datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
+                    wd1.wait_type,
+                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL,
+                    c.[Wait Time (Seconds)],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
+                    c.[Signal Wait Time (Seconds)],
+                    CASE WHEN c.[Wait Time (Seconds)] > 0
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                    ELSE 0 END AS [Percent Signal Waits],
+                    (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
+                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    THEN
+                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                    ELSE 0 END AS [Avg ms Per Wait]
+                FROM  max_batch b
+                JOIN #WaitStats wd2 on
+                    wd2.SampleTime =b.SampleTime
+                JOIN #WaitStats wd1 ON
+                    wd1.wait_type=wd2.wait_type AND
+                    wd2.SampleTime > wd1.SampleTime
+                CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
+                CROSS APPLY (SELECT
+                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
+                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                ORDER BY [Wait Time (Seconds)] DESC;
+                END;
 
 
             -------------------------
@@ -2362,6 +2411,7 @@ BEGIN
     INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
     INSERT INTO #BrentAnswers VALUES ('What do I look like, a Microsoft Certified Master? Oh, wait...');
     INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
+    INSERT INTO #BrentAnswers VALUES ('Have you tried restoring TempDB?');
     SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
 END
 
