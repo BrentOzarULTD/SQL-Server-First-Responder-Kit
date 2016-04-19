@@ -62,6 +62,8 @@ Unknown limitations of this version:
  - If @Seconds = 0, output waits in hours instead of seconds. This only changes
    the onscreen results - it doesn't change the table results, because I don't
    want to break existing table storage by changing output data.
+ - Added wait time per core per second (or per hour) in the ExpertMode wait
+   stats output.
 
 Changes in v21 - January 6, 2016
  - Big breaking change: the first result set now shows you what is running.
@@ -270,7 +272,7 @@ BEGIN
                         ORDER BY [r].[start_time];'
     END
 
-    IF @SinceStartup = 0
+    IF @SinceStartup = 0 AND @Seconds > 0
         EXEC(@StringToExecute);
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
