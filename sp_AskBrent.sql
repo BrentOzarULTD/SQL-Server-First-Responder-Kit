@@ -2229,12 +2229,11 @@ BEGIN
                 SELECT
                     'WAIT STATS' as Pattern,
                     b.SampleTime as [Sample Ended],
-                    CAST(datediff(ss,wd1.SampleTime, wd2.SampleTime) / 60 / 60 AS DECIMAL(18,1)) as [Hours Sample],
+                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) as [Hours Sample],
                     wd1.wait_type,
-                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL,
-                    c.[Wait Time (Seconds)] / 60 / 60 AS [Wait Time (Hours)],
+                    CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
-                    c.[Signal Wait Time (Seconds)] / 60 / 60 AS [Signal Wait Time (Hours)],
+                    CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
@@ -2243,7 +2242,8 @@ BEGIN
                     THEN
                         cast((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
-                    ELSE 0 END AS [Avg ms Per Wait]
+                    ELSE 0 END AS [Avg ms Per Wait],
+                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
                 JOIN #WaitStats wd2 on
                     wd2.SampleTime =b.SampleTime
@@ -2270,7 +2270,6 @@ BEGIN
                     b.SampleTime as [Sample Ended],
                     datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
                     wd1.wait_type,
-                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL,
                     c.[Wait Time (Seconds)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
@@ -2282,7 +2281,8 @@ BEGIN
                     THEN
                         cast((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
-                    ELSE 0 END AS [Avg ms Per Wait]
+                    ELSE 0 END AS [Avg ms Per Wait],
+                    N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
                 JOIN #WaitStats wd2 on
                     wd2.SampleTime =b.SampleTime
