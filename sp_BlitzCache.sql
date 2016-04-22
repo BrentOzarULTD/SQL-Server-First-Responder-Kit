@@ -1056,7 +1056,7 @@ END
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
 IF @ignore_system_db = 1
-    SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS BIGINT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+    SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
 IF @database_name IS NOT NULL OR @database_name <> ''
     SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID('
@@ -1304,7 +1304,7 @@ BEGIN
     SET @sql += @body_where ;
 
     IF @ignore_system_db = 1
-       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
     SET @sql += @body_order + @nl + @nl + @nl ;
 END
@@ -1338,7 +1338,7 @@ BEGIN
    SET @sql += @body_where ;
 
    IF @ignore_system_db = 1
-      SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') ' + @nl ;
+      SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
    
    SET @sql += @body_order + @nl + @nl + @nl ;
 END
