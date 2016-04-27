@@ -55,6 +55,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v23 - April 27, 2016
+ - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
+
  Changes in v22 - April 19, 2016
  - New @SinceStartup parameter. Defaults to 0. When turned on with 1, it sets
    @Seconds = 0, @ExpertMode = 1, and skips results for what's running now and
@@ -94,7 +97,7 @@ Changes in v17 - July 19, 2015
 */
 
 
-SELECT @Version = 22, @VersionDate = '20160419'
+SELECT @Version = 23, @VersionDate = '20160427'
 
 DECLARE @StringToExecute NVARCHAR(4000),
     @ParmDefinitions NVARCHAR(4000),
@@ -228,7 +231,7 @@ BEGIN
     SET @StringToExecute = 'SELECT [r].[start_time] ,
                                 CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
                                 [s].[session_id] ,
-                                DB_NAME([s].[database_id]) AS [DatabaseName] ,
+                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
                                 [s].[status] ,
                                 [dest].[text] ,
                                 [deqp].[query_plan] ,
@@ -243,7 +246,7 @@ BEGIN
                                 [r].[last_wait_type] ,
                                 [r].[wait_resource] ,
                                 [r].[estimated_completion_time] ,
-                                [s].[open_transaction_count] ,
+                                [r].[open_transaction_count] ,
                                 [r].[deadlock_priority] ,
                                 [r].[granted_query_memory] ,
                                 CASE [s].[transaction_isolation_level]
