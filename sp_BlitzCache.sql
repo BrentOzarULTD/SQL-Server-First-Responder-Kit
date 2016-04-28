@@ -84,6 +84,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
+	is_forced_serial bit,
     frequent_execution bit,
     parameter_sniffing bit,
     unparameterized_query bit,
@@ -163,6 +164,9 @@ KNOWN ISSUES:
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
+
+v2.5.2 - 2016-04-28
+ - Erik added warnings for Forced Serialization in 2012+ query plans. Sorry, earlier versions.
 
 v2.5.1 - 2016-03-15
  - Nick Molyneux fixed an overflow error, and did an amazing job of it.
@@ -726,6 +730,7 @@ BEGIN
         is_forced_parameterized bit,
         is_cursor bit,
         is_parallel bit,
+		is_forced_serial bit,
         frequent_execution bit,
         parameter_sniffing bit,
         unparameterized_query bit,
@@ -887,8 +892,8 @@ BEGIN
                SET @sql_handle = NULL
 
                INSERT INTO #only_sql_handles
-               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
@@ -935,8 +940,8 @@ BEGIN
                SET @only_query_hashes = NULL
 
                INSERT INTO #only_query_hashes
-               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
@@ -1626,7 +1631,8 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float') ,
         implicit_conversions = CASE WHEN QueryPlan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
-        plan_warnings = CASE WHEN QueryPlan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END
+        plan_warnings = CASE WHEN QueryPlan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
+		is_forced_serial = CASE WHEN QueryPlan.value('count(/p:QueryPlan[1]/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
@@ -1674,6 +1680,7 @@ SET NumberOfDistinctPlans = distinct_plan_count,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
     is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
+	is_forced_serial = CASE WHEN QueryPlan.value('count(//p:QueryPlan[1]/@NonParallelPlanReason)', 'int') > 0 THEN 1 END,
     SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
     SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
     CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
@@ -1864,7 +1871,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
-                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END 
+                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
+				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END
                   , 2, 200000) ;
 
 
@@ -2347,7 +2355,22 @@ BEGIN
                 'Trivial Plans',
                 'http://brentozar.com/blitzcache/trivial-plans',
                 'Trivial plans get almost no optimization. If you''re finding these in the top worst queries, something may be going wrong.');
-    END            
+    
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_forced_serial= 1
+                  )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    25,
+                    10,
+                    'Execution Plans',
+                    'Forced Serialization',
+                    'http://www.brentozar.com/blitzcache/forced-serialization/',
+                    'Something in your plan is forcing a serial query. Further investigation is needed if this is not by design.') ;	
+	
+	
+	END            
     
     IF @export_to_excel = 1
         RETURN
@@ -2454,7 +2477,8 @@ BEGIN
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
                   CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
-                  Case WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END
+                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
+				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END
                   , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2524,7 +2548,10 @@ SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
                                END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
+
 EXEC sp_executesql @sql, N'@top INT, @spid INT', @top, @@SPID ;
 
 
 GO
+
+
