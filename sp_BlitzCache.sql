@@ -166,7 +166,8 @@ KNOWN ISSUES:
   with no spaces between the hash values.
 
 v2.5.2 - 2016-04-28
- - Erik added warnings for Forced Serialization in 2012+ query plans. Sorry, earlier versions.
+ - Erik Darling added warnings for Forced Serialization in 2012+ query plans. Sorry, earlier versions.
+ - Erik Darling added Replication Distributor databases to list of system databases to ignore.
 
 v2.5.1 - 2016-03-15
  - Nick Molyneux fixed an overflow error, and did an amazing job of it.
@@ -206,7 +207,7 @@ v2.4.5 - 2015-04-27
    more than 28,000 days of CPU are safe!
 
 v2.4.4 - 2015-01-09
- - Fixed output to table. Sort order wasn't being obeyed and users limting
+ - Fixed output to table. Sort order wasn't being obeyed and users limiting
    results weren't seeing the same results between displaying to screen and
    saving results to a table.
    Thanks to Gail Jurey for spotting this!
@@ -321,7 +322,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 /* VERSION! */
-RAISERROR (N'Executing sp_BlitzCache v2.5.1', 0, 1) WITH NOWAIT ;
+RAISERROR (N'Executing sp_BlitzCache v2.5.2', 0, 1) WITH NOWAIT ;
 
 DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
 
@@ -1632,7 +1633,7 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float') ,
         implicit_conversions = CASE WHEN QueryPlan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
         plan_warnings = CASE WHEN QueryPlan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
-		is_forced_serial = CASE WHEN QueryPlan.value('count(/p:QueryPlan[1]/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
+		is_forced_serial = CASE WHEN QueryPlan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
@@ -1680,7 +1681,7 @@ SET NumberOfDistinctPlans = distinct_plan_count,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
     is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-	is_forced_serial = CASE WHEN QueryPlan.value('count(//p:QueryPlan[1]/@NonParallelPlanReason)', 'int') > 0 THEN 1 END,
+	is_forced_serial = CASE WHEN QueryPlan.value('count(//p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END,
     SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
     SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
     CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
