@@ -439,7 +439,9 @@ BEGIN CATCH
 
 /* Permission granted or unnecessary? Ok, let's go! */
 
-DECLARE c1 CURSOR  FOR 
+DECLARE c1 CURSOR 
+LOCAL FAST_FORWARD 
+FOR 
 SELECT DatabaseName FROM #DatabaseList ORDER BY DatabaseName
 
 OPEN c1
@@ -1850,7 +1852,7 @@ BEGIN;
                                 AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                 AND 
                                     (count_key_columns > 3 /*More than three key columns.*/
-                                    OR cc.sum_max_length > 15 /*More than 16 bytes in key */)
+                                    OR cc.sum_max_length > 16 /*More than 16 bytes in key */)
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
@@ -1992,7 +1994,8 @@ BEGIN;
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                 AND is_unique=0 /* not unique */
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
-                        ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
+                        ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE )
+
 
 
         END
