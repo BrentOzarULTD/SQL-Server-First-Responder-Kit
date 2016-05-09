@@ -4782,7 +4782,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										'Transaction Log Larger than Data File' AS Finding ,
 										'http://BrentOzar.com/go/biglog' AS URL ,
 										'The database [' + DB_NAME(a.database_id)
-										+ '] has a ' + CAST((a.size * 8 / 1000000) AS NVARCHAR(20)) + ' GB transaction log file, larger than the total data file sizes. This may indicate that transaction log backups are not being performed or not performed often enough.' AS Details
+										+ '] has a ' + CAST((CAST(a.size AS BIGINT) * 8 / 1000000) AS NVARCHAR(20)) + ' GB transaction log file, larger than the total data file sizes. This may indicate that transaction log backups are not being performed or not performed often enough.' AS Details
 								FROM    sys.master_files a
 								WHERE   a.type = 1
 										AND DB_NAME(a.database_id) NOT IN (
