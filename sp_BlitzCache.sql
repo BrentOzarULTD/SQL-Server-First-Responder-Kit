@@ -84,6 +84,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_forced_parameterized bit,
     is_cursor bit,
     is_parallel bit,
+	is_key_lookup_expensive bit,
+	key_lookup_cost float,
 	is_forced_serial bit,
     frequent_execution bit,
     parameter_sniffing bit,
@@ -732,6 +734,8 @@ BEGIN
         is_cursor bit,
         is_parallel bit,
 		is_forced_serial bit,
+		is_key_lookup_expensive bit,
+		key_lookup_cost float,
         frequent_execution bit,
         parameter_sniffing bit,
         unparameterized_query bit,
@@ -1655,6 +1659,21 @@ FROM   ##bou_BlitzCacheProcs p
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
 
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET key_lookup_cost = x.key_lookup_cost
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS key_lookup_cost
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
+
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -1697,7 +1716,6 @@ GROUP BY QueryHash
 ) AS x
 WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
-
 
 /* Update to grab stored procedure name for individual statements */
 UPDATE  p
@@ -1805,7 +1823,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
        near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
        long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
-                           WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END ;
+                           WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
+	   is_key_lookup_expensive = CASE WHEN key_lookup_cost >= QueryPlanCost * .5 THEN 1 END;
 
 
 
@@ -1873,7 +1892,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
-				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END
+				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
+				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END
                   , 2, 200000) ;
 
 
@@ -2369,7 +2389,19 @@ BEGIN
                     'Forced Serialization',
                     'http://www.brentozar.com/blitzcache/forced-serialization/',
                     'Something in your plan is forcing a serial query. Further investigation is needed if this is not by design.') ;	
-	
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_key_lookup_expensive= 1
+                  )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    26,
+                    100,
+                    'Execution Plans',
+                    'Expensive Key Lookups',
+                    'No URL yet',
+                    'There''s a key lookup in your plan that costs >=50% of the total plan cost.') ;	
 	
 	END            
     
@@ -2479,8 +2511,9 @@ BEGIN
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
                   CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
                   CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
-				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END
-                  , 2, 200000) AS opserver_warning , ' + @nl ;
+				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
+                  CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END
+				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
     SET @columns += N'        ExecutionCount AS [# Executions],
