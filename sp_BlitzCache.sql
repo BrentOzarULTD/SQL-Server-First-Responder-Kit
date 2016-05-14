@@ -86,6 +86,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_parallel bit,
 	is_key_lookup_expensive bit,
 	key_lookup_cost float,
+	is_sort_expensive bit,
+	sort_cost float,
 	is_forced_serial bit,
     frequent_execution bit,
     parameter_sniffing bit,
@@ -166,6 +168,12 @@ KNOWN ISSUES:
 - SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
 - @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
   with no spaces between the hash values.
+
+  v2.5.3 - 2016-04-28
+ - Erik Darling added warnings for Expensive Sorts and Key Lookups. 
+	--Will show up when they're >=50% of plan cost, and plan cost is >= 50% of cost threshold for parallelism
+ - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb spills, which aren't recorded in cached plans
+
 
 v2.5.2 - 2016-04-28
  - Erik Darling added warnings for Forced Serialization in 2012+ query plans. Sorry, earlier versions.
@@ -736,6 +744,8 @@ BEGIN
 		is_forced_serial bit,
 		is_key_lookup_expensive bit,
 		key_lookup_cost float,
+		is_sort_expensive bit,
+		sort_cost float,
         frequent_execution bit,
         parameter_sniffing bit,
         unparameterized_query bit,
@@ -1673,6 +1683,19 @@ WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET sort_cost = x.sort_cost
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS sort_cost
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
+
 
 IF @v >= 12
 BEGIN
@@ -1824,7 +1847,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
        long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
-	   is_key_lookup_expensive = CASE WHEN key_lookup_cost >= QueryPlanCost * .5 THEN 1 END;
+	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
+	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END;;
 
 
 
@@ -1893,7 +1917,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
-				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END
+				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END
                   , 2, 200000) ;
 
 
@@ -2402,6 +2427,19 @@ BEGIN
                     'Expensive Key Lookups',
                     'No URL yet',
                     'There''s a key lookup in your plan that costs >=50% of the total plan cost.') ;	
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_sort_expensive= 1
+                  )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    27,
+                    100,
+                    'Execution Plans',
+                    'Expensive Sort',
+                    'No URL yet',
+                    'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
 	
 	END            
     
@@ -2512,7 +2550,8 @@ BEGIN
                   CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
                   CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
-                  CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END
+                  CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
+				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
