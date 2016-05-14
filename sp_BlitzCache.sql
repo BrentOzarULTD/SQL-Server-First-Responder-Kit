@@ -88,6 +88,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	key_lookup_cost float,
 	is_sort_expensive bit,
 	sort_cost float,
+	is_remote_query_expensive bit,
+	remote_query_cost float,
 	is_forced_serial bit,
     frequent_execution bit,
     parameter_sniffing bit,
@@ -170,7 +172,7 @@ KNOWN ISSUES:
   with no spaces between the hash values.
 
   v2.5.3 - 2016-04-28
- - Erik Darling added warnings for Expensive Sorts and Key Lookups. 
+ - Erik Darling added warnings for Expensive Sorts, Key Lookups, and Remote Queries. 
 	--Will show up when they're >=50% of plan cost, and plan cost is >= 50% of cost threshold for parallelism
  - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb spills, which aren't recorded in cached plans
 
@@ -746,6 +748,8 @@ BEGIN
 		key_lookup_cost float,
 		is_sort_expensive bit,
 		sort_cost float,
+		is_remote_query_expensive bit,
+		remote_query_cost float,
         frequent_execution bit,
         parameter_sniffing bit,
         unparameterized_query bit,
@@ -1696,6 +1700,18 @@ WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET remote_query_cost = x.remote_query_cost
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS remote_query_cost
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
 
 IF @v >= 12
 BEGIN
@@ -1848,7 +1864,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END;;
+	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
+	   is_remote_query_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND remote_query_cost >= QueryPlanCost * .5 THEN 1 END;
 
 
 
@@ -1918,7 +1935,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Sort' ELSE '' END
                   , 2, 200000) ;
 
 
@@ -2440,6 +2458,19 @@ BEGIN
                     'Expensive Sort',
                     'No URL yet',
                     'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_remote_query_expensive= 1
+                  )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    28,
+                    100,
+                    'Execution Plans',
+                    'Expensive Remote Query',
+                    'No URL yet',
+                    'There''s a remote query in your plan that costs >=50% of the total plan cost.') ;
 	
 	END            
     
@@ -2551,7 +2582,8 @@ BEGIN
                   CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END
+				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
+				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
