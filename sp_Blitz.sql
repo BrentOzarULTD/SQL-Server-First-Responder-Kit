@@ -32,11 +32,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 50, @VersionDate = '20160408'
+	SELECT @Version = 51, @VersionDate = '20160515'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v50 - 2016/04/08
+	sp_Blitz (TM) v51 - 2016/05/15
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -57,6 +57,9 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes in v51 - 2016/05/15
+      - Bug fixes.
 
      Changes in v50 - 2016/04/08
       - Fixed bug in check ID 2 that would fail on a database with multiple log
@@ -547,7 +550,7 @@ AS
 										'Backup' AS FindingsGroup ,
 										'Backups Not Performed Recently' AS Finding ,
 										'http://BrentOzar.com/go/nobak' AS URL ,
-										'Database ' + d.Name + ' last backed up: '
+										'Database ' + d.name + ' last backed up: '
 										+ COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
 								FROM    master.sys.databases d
 										LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -930,7 +933,7 @@ AS
 					  ''Performance'' AS FindingsGroup,
 					  ''Server Triggers Enabled'' AS Finding,
 					  ''http://BrentOzar.com/go/logontriggers/'' AS URL,
-					  (''Server Trigger ['' + [name] ++ ''] is enabled, so it runs every time someone logs in.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details FROM sys.server_triggers WHERE is_disabled = 0 AND is_ms_shipped = 0'
+					  (''Server Trigger ['' + [name] ++ ''] is enabled.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details FROM sys.server_triggers WHERE is_disabled = 0 AND is_ms_shipped = 0'
 								EXECUTE(@StringToExecute)
 							END;
 					END
@@ -4914,7 +4917,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										cr.name AS Finding ,
 										'http://www.BrentOzar.com/blitz/sp_configure/' AS URL ,
 										( 'This sp_configure option isn''t running under its set value.  Its set value is '
-										  + CAST(cr.[Value] AS VARCHAR(100))
+										  + CAST(cr.[value] AS VARCHAR(100))
 										  + ' and its running value is '
 										  + CAST(cr.value_in_use AS VARCHAR(100))
 										  + '. When someone does a RECONFIGURE or restarts the instance, this setting will start taking effect.' ) AS Details
@@ -5384,23 +5387,23 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													,'Wait Stats' AS FindingsGroup
 													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
 													,'http://BrentOzar.com/go/waits' AS URL
-													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
 													CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
 													CAST(CAST(
 														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER ())
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
+														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
 													CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
 													CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
 													THEN
 														CAST(
 															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
 																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
-															AS NUMERIC(10,1))
+															AS NUMERIC(18,1))
 													ELSE 0 END AS NVARCHAR(40)) + N' ms average wait time.'
 											FROM    os
 											ORDER BY SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) DESC;
@@ -5774,4 +5777,3 @@ EXEC [dbo].[sp_Blitz]
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
 */
-
