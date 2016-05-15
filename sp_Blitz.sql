@@ -2990,6 +2990,7 @@ AS
 								WHERE cFree.object_name LIKE N'%Memory Manager%'
 									AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
 									AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
+                                    AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
 
 							END
 
