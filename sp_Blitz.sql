@@ -101,66 +101,6 @@ AS
 	- Dev or Evaluation Edition in use (173)
 	- Buffer Pool Extension enabled (174)
 
-    Changes in v46 - 2016/01/06
- 	- Thomas Franz suggested that the severity level be 10, not 20, when sp_Blitz
-	  fails to install due to a SQL 2000 compat level issue.
-
-   	Changes in v45 - 2016/01/06
-	- Oops! Fixed a SQL 2005 compatibility bug.
-
-   	Changes in v44 - 2016/01/05
-	- Reorganized and reprioritized a lot of the checks.
-	- Added check 165 for too much free memory. (Sounds like a good thing, but
-	  turns out it can indicate queries with inaccurately huge memory grants.)
-    - Tobias Ortmann reported a bug in missing new default configs in SQL 2014.
-	- Upped "slow storage" warnings to 200ms for reads, 100ms for writes, and 
-	  only throw warnings on files with more than 100,000 reads or writes.
-	  Yes, those thresholds are horrifically high, but that is the point.
-	- "Old compat level" warning now only fires for level 90 and older, not
-	  a lower compat level than model. With the new Cardinality Estimator, we
-	  have seen a lot of people running at an older-than-model level, and that
-	  is fine - it should not generate an "old" warning.
-	- Bug fixes.
-
-   	Changes in v43 - December 28, 2015
-	- Ken Nelson identified a bug in checks 97 & 154 for the skip-checks table.
-     - Removed not-really-useful checks for endpoints (9), extraneous backups
-       for ReportServerTempDB (127), Agent XPs enabled (1006), Database Mail
-       XPs enabled (1015).
-     - Backup compression warning (116) now checks not just the default config
-       setting, but also to see if uncompressed full backups have been done in
-       the last 2 weeks.
-     - Default file growth size checks for 1MB or percent growths (82, 158) now
-       include the full file name and size in the details column, and only alert
-       for files over 1GB in size.
-     - Log file larger than data files check (75) now reports the log file size
-       in the details column.
-     - Tables in msdb check (28) now ignores Database Tuning Advisor tables.
-     - Untrusted foreign keys check (48) now ignores master, model, msdb,
-       ReportServer, ReportServerTempDB. 
-     - User-created stats check (122) now reports the number of user-created
-       stats in the details column.
-     - Bug fixes.
-
-   	Changes in v42 - September 7, 2015
-     - Added check 163 for SQL Server 2016 databases with Query Store disabled.
-     - Added a few ignorable waits.
-     - Do not say no-significant-waits-found if we detected poison waits.
-     - Stop people from trying to install it in SQL Server 2000 compat mode.
-     - Bug fixes.
-
-   	Changes in v41 - June 18, 2015
-     - Added check 162 for CMEMTHREAD waits on servers with >= 8 logical
-        processors per NUMA node.
-     - Added check 159 for NUMA nodes reporting dangerously low memory in
-        sys.dm_os_nodes.
-     - Added check 161 for a high number of cached plans per KB 3026083.
-     - Fixed a bug in the SkipChecks routines. Reported by Kevin Collins.
-     - Backup-to-same-drive-as-databases check (93) now includes the number of
-        backups that were done so you can tell if it was a one-off problem, or if
-        all backups are going to the wrong place.
-     - Bug fixes and improvements.
-
 	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
 
@@ -172,8 +112,8 @@ AS
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
 	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
-	@IgnorePrioritiesBelow		100=ignore priorities below 100
-	@IgnorePrioritiesAbove		100=ignore priorities above 100
+	@IgnorePrioritiesBelow		50=ignore priorities below 50
+	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
 
 
@@ -650,7 +590,7 @@ AS
 							Finding, URL,
 							Details)
 					  SELECT 8 AS CheckID,
-					  190 AS Priority,
+					  230 AS Priority,
 					  ''Security'' AS FindingsGroup,
 					  ''Server Audits Running'' AS Finding,
 					  ''http://BrentOzar.com/go/audits'' AS URL,
@@ -770,7 +710,7 @@ AS
 								  Details
 								)
 								SELECT  4 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Sysadmins' AS Finding ,
 										'http://BrentOzar.com/go/sa' AS URL ,
@@ -796,7 +736,7 @@ AS
 								  Details
 								)
 								SELECT  5 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Security Admins' AS Finding ,
 										'http://BrentOzar.com/go/sa' AS URL ,
@@ -821,7 +761,7 @@ AS
 								  [Details]
 								)
 								SELECT  104 AS [CheckID] ,
-										10 AS [Priority] ,
+										230 AS [Priority] ,
 										'Security' AS [FindingsGroup] ,
 										'Login Can Control Server' AS [Finding] ,
 										'http://BrentOzar.com/go/sa' AS [URL] ,
@@ -850,7 +790,7 @@ AS
 								  Details
 								)
 								SELECT  6 AS CheckID ,
-										200 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Jobs Owned By Users' AS Finding ,
 										'http://BrentOzar.com/go/owners' AS URL ,
@@ -876,7 +816,7 @@ AS
 								  Details
 								)
 								SELECT  7 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Stored Procedure Runs at Startup' AS Finding ,
 										'http://BrentOzar.com/go/startup' AS URL ,
@@ -2106,7 +2046,7 @@ AS
 								)
 								SELECT  55 AS CheckID ,
 										[name] AS DatabaseName ,
-										200 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Database Owner <> SA' AS Finding ,
 										'http://BrentOzar.com/go/owndb' AS URL ,
@@ -2133,7 +2073,7 @@ AS
 								  Details
 								)
 								SELECT  57 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'SQL Agent Job Runs at Startup' AS Finding ,
 										'http://BrentOzar.com/go/startup' AS URL ,
@@ -2379,7 +2319,7 @@ AS
 								)
 								SELECT  105 AS CheckID ,
 										'master' ,
-										50 AS Priority ,
+										200 AS Priority ,
 										'Reliability' AS FindingGroup ,
 										'Extended Stored Procedures in Master' AS Finding ,
 										'http://BrentOzar.com/go/clr' AS URL ,
@@ -2821,7 +2761,7 @@ AS
 				                        )
 				                        SELECT DISTINCT 148 AS CheckID ,
 						                        d.[name] AS DatabaseName ,
-						                        50 AS Priority ,
+						                        170 AS Priority ,
 						                        'Reliability' AS FindingsGroup ,
 						                        'Database Files on Network File Shares' AS Finding ,
 						                        'http://BrentOzar.com/go/nas' AS URL ,
@@ -2851,7 +2791,7 @@ AS
 				                        )
 				                        SELECT DISTINCT 149 AS CheckID ,
 						                        d.[name] AS DatabaseName ,
-						                        50 AS Priority ,
+						                        170 AS Priority ,
 						                        'Reliability' AS FindingsGroup ,
 						                        'Database Files Stored in Azure' AS Finding ,
 						                        'http://BrentOzar.com/go/azurefiles' AS URL ,
@@ -3978,7 +3918,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 86 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 							END
 
 
@@ -4203,7 +4143,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								        FROM    #SkipChecks
 								        WHERE   DatabaseName IS NULL AND CheckID = 80 )
 					        BEGIN
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 50, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
 					        END
 
 					END /* IF @CheckUserDatabaseObjects = 1 */
@@ -4611,7 +4551,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 									)
 									SELECT  68 AS CheckID ,
 											DB2.DbName AS DatabaseName ,
-											50 AS PRIORITY ,
+											1 AS PRIORITY ,
 											'Reliability' AS FindingsGroup ,
 											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
 											'http://BrentOzar.com/go/checkdb' AS URL ,
