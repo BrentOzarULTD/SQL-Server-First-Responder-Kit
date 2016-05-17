@@ -590,7 +590,7 @@ AS
 							Finding, URL,
 							Details)
 					  SELECT 8 AS CheckID,
-					  190 AS Priority,
+					  230 AS Priority,
 					  ''Security'' AS FindingsGroup,
 					  ''Server Audits Running'' AS Finding,
 					  ''http://BrentOzar.com/go/audits'' AS URL,
@@ -710,7 +710,7 @@ AS
 								  Details
 								)
 								SELECT  4 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Sysadmins' AS Finding ,
 										'http://BrentOzar.com/go/sa' AS URL ,
@@ -736,7 +736,7 @@ AS
 								  Details
 								)
 								SELECT  5 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Security Admins' AS Finding ,
 										'http://BrentOzar.com/go/sa' AS URL ,
@@ -761,7 +761,7 @@ AS
 								  [Details]
 								)
 								SELECT  104 AS [CheckID] ,
-										10 AS [Priority] ,
+										230 AS [Priority] ,
 										'Security' AS [FindingsGroup] ,
 										'Login Can Control Server' AS [Finding] ,
 										'http://BrentOzar.com/go/sa' AS [URL] ,
@@ -790,7 +790,7 @@ AS
 								  Details
 								)
 								SELECT  6 AS CheckID ,
-										200 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Jobs Owned By Users' AS Finding ,
 										'http://BrentOzar.com/go/owners' AS URL ,
@@ -816,7 +816,7 @@ AS
 								  Details
 								)
 								SELECT  7 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Stored Procedure Runs at Startup' AS Finding ,
 										'http://BrentOzar.com/go/startup' AS URL ,
@@ -2046,7 +2046,7 @@ AS
 								)
 								SELECT  55 AS CheckID ,
 										[name] AS DatabaseName ,
-										200 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'Database Owner <> SA' AS Finding ,
 										'http://BrentOzar.com/go/owndb' AS URL ,
@@ -2073,7 +2073,7 @@ AS
 								  Details
 								)
 								SELECT  57 AS CheckID ,
-										10 AS Priority ,
+										230 AS Priority ,
 										'Security' AS FindingsGroup ,
 										'SQL Agent Job Runs at Startup' AS Finding ,
 										'http://BrentOzar.com/go/startup' AS URL ,
@@ -3918,7 +3918,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 86 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 20, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 							END
 
 
