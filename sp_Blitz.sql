@@ -2627,13 +2627,16 @@ AS
 
 							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
 							   (@ProductVersionMajor = 11 AND @ProductVersionMinor <= 2100) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 2500) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 4000) OR
-							   (@ProductVersionMajor = 9 AND @ProductVersionMinor <= 5000)
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 6000) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 6000) OR
+							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									VALUES(128, 20, 'Reliability', 'Unsupported Build of SQL Server', 'http://BrentOzar.com/go/unsupported',
-										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.');
+										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + 
+										CASE WHEN @ProductVersionMajor > 9 THEN
+										CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.'
+										ELSE ' is no longer support by Microsoft. You should be making plans to upgrade to a modern version of SQL Server.' END);
 								END;
 
 							END;
