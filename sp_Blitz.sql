@@ -4694,14 +4694,14 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										'TraceFlag On' AS Finding ,
 										'http://www.BrentOzar.com/go/traceflags/' AS URL ,
 										'Trace flag ' + 
-										CASE WHEN [T].[TraceFlag] = '2330' THEN 'You have Trace Flag 2330 enabled globally. Using this trace Flag disables missing index requests'
-											 WHEN [T].[TraceFlag] = '1211' THEN 'You have Trace Flag 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
-											 WHEN [T].[TraceFlag] = '1224' THEN 'You have Trace Flag 1224 enabled globally. Using this Trace Flag disables lock escalation based on the number of locks being taken. You shouldn''t have done that, Dave.'
-											 WHEN [T].[TraceFlag] = '652'  THEN 'You have Trace Flag 652 enabled globally. Using this Trace Flag disables pre-fetching during index scans. If you hate slow queries, you should turn that off.'
-											 WHEN [T].[TraceFlag] = '661'  THEN 'You have Trace Flag 661 enabled globally. Using this Trace Flag disables ghost record removal. Who you gonna call? No one, turn that thing off.'
-											 WHEN [T].[TraceFlag] = '1806'  THEN 'You have Trace Flag 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
-											 WHEN [T].[TraceFlag] = '3505'  THEN 'You have Trace Flag 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
-											 WHEN [T].[TraceFlag] = '8649'  THEN 'You have Trace Flag 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
+										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests'
+											 WHEN [T].[TraceFlag] = '1211' THEN ' 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
+											 WHEN [T].[TraceFlag] = '1224' THEN ' 1224 enabled globally. Using this Trace Flag disables lock escalation based on the number of locks being taken. You shouldn''t have done that, Dave.'
+											 WHEN [T].[TraceFlag] = '652'  THEN ' 652 enabled globally. Using this Trace Flag disables pre-fetching during index scans. If you hate slow queries, you should turn that off.'
+											 WHEN [T].[TraceFlag] = '661'  THEN ' 661 enabled globally. Using this Trace Flag disables ghost record removal. Who you gonna call? No one, turn that thing off.'
+											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
+											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
+											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
 										     ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
