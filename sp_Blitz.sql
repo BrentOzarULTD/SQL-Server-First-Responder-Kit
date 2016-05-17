@@ -32,11 +32,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 51, @VersionDate = '20160515'
+	SELECT @Version = 51, @VersionDate = '20160517'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v51 - 2016/05/15
+	sp_Blitz (TM) v51 - 2016/05/17
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,7 +58,9 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v51 - 2016/05/15
+     Changes in v51 - 2016/05/17
+      - Reprioritized a bunch of checks, like moving security warnings down to
+         priority 230, so that you can use @IgnorePrioritiesAbove = 50 better.
       - Bug fixes.
 
      Changes in v50 - 2016/04/08
