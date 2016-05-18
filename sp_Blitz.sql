@@ -3195,7 +3195,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											FROM    sys.all_objects
 											WHERE   name = 'dm_server_memory_dumps' )
 					BEGIN
-						IF EXISTS (SELECT * FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(year, -1, GETDATE()))
+						IF 5 <= (SELECT COUNT(*) FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(year, -1, GETDATE()))
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
 									  [Priority] ,
