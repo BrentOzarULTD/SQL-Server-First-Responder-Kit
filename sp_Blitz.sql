@@ -2084,7 +2084,8 @@ AS
 								FROM    msdb.dbo.sysschedules sched
 										JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
-								WHERE   sched.freq_type = 64;
+								WHERE   sched.freq_type = 64
+								        AND sched.enabled = 1;
 					END
 
 
