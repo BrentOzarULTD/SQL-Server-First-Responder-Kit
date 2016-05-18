@@ -26,17 +26,18 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
+	@BringThePain TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 51, @VersionDate = '20160517'
+	SELECT @Version = 52, @VersionDate = '20160518'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v51 - 2016/05/17
+	sp_Blitz (TM) v52 - 2016/05/18
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -57,6 +58,12 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes in v52 - 2016/05/18
+      - If there are 50+ user databases, you have to turn on @BringThePain = 1
+	    in order to do @CheckUserDatabaseObjects = 1. (Speeds up sp_Blitz on
+		servers with hundreds or thousands of databases.)
+      - Bug fixes.
 
      Changes in v51 - 2016/05/17
       - Reprioritized a bunch of checks, like moving security warnings down to
@@ -432,6 +439,14 @@ AS
 		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
 		IF @OutputType = 'CSV'
 			SET @CheckProcedureCache = 0;
+
+		/* Only run CheckUserDatabaseObjects if there are less than 50 databases. */
+		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
+			BEGIN
+			SET @CheckUserDatabaseObjects = 0;
+			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary insanity for the server and/or user.';
+			PRINT 'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
+			END
 
 		/* Sanitize our inputs */
 		SELECT
