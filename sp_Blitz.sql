@@ -33,11 +33,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 52, @VersionDate = '20160518'
+	SELECT @Version = 51, @VersionDate = '20160518'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v52 - 2016/05/18
+	sp_Blitz (TM) v51 - 2016/05/18
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -59,7 +59,7 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v52 - 2016/05/18
+     Changes in v51 - 2016/05/18
 	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
 	    More info: https://support.microsoft.com/en-us/kb/2033238
       - New check for snapshot backups possibly freezing IO. Looking for 50GB+
@@ -67,9 +67,6 @@ AS
       - If there are 50+ user databases, you have to turn on @BringThePain = 1
 	    in order to do @CheckUserDatabaseObjects = 1. (Speeds up sp_Blitz on
 		servers with hundreds or thousands of databases.)
-      - Bug fixes.
-
-     Changes in v51 - 2016/05/17
       - Reprioritized a bunch of checks, like moving security warnings down to
          priority 230, so that you can use @IgnorePrioritiesAbove = 50 better.
       - Bug fixes.
