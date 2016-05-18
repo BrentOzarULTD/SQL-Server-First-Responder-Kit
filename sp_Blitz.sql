@@ -26,17 +26,18 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
+	@BringThePain TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 51, @VersionDate = '20160517'
+	SELECT @Version = 51, @VersionDate = '20160518'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v51 - 2016/05/17
+	sp_Blitz (TM) v51 - 2016/05/18
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -58,7 +59,14 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v51 - 2016/05/17
+     Changes in v51 - 2016/05/18
+	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
+	    More info: https://support.microsoft.com/en-us/kb/2033238
+      - New check for snapshot backups possibly freezing IO. Looking for 50GB+
+	    backups that complete in under 60 seconds. (178)
+      - If there are 50+ user databases, you have to turn on @BringThePain = 1
+	    in order to do @CheckUserDatabaseObjects = 1. (Speeds up sp_Blitz on
+		servers with hundreds or thousands of databases.)
       - Reprioritized a bunch of checks, like moving security warnings down to
          priority 230, so that you can use @IgnorePrioritiesAbove = 50 better.
       - Bug fixes.
@@ -433,6 +441,14 @@ AS
 		IF @OutputType = 'CSV'
 			SET @CheckProcedureCache = 0;
 
+		/* Only run CheckUserDatabaseObjects if there are less than 50 databases. */
+		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
+			BEGIN
+			SET @CheckUserDatabaseObjects = 0;
+			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary insanity for the server and/or user.';
+			PRINT 'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
+			END
+
 		/* Sanitize our inputs */
 		SELECT
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
@@ -697,6 +713,37 @@ AS
 								WHERE   bs.backup_start_date <= DATEADD(dd, -60,
 																  GETDATE())
 								ORDER BY backup_set_id ASC;
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 178 )
+					AND EXISTS (SELECT *
+									FROM msdb.dbo.backupset bs
+									WHERE bs.type = 'D'
+									AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
+					BEGIN
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT 178 AS CheckID ,
+										200 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'Snapshot Backups Occurring' AS Finding ,
+										'http://BrentOzar.com/go/snaps' AS URL ,
+										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
+								FROM msdb.dbo.backupset bs
+								WHERE bs.type = 'D'
+								AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -2084,7 +2131,8 @@ AS
 								FROM    msdb.dbo.sysschedules sched
 										JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
-								WHERE   sched.freq_type = 64;
+								WHERE   sched.freq_type = 64
+								        AND sched.enabled = 1;
 					END
 
 
@@ -3195,7 +3243,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											FROM    sys.all_objects
 											WHERE   name = 'dm_server_memory_dumps' )
 					BEGIN
-						IF EXISTS (SELECT * FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(year, -1, GETDATE()))
+						IF 5 <= (SELECT COUNT(*) FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(year, -1, GETDATE()))
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
 									  [Priority] ,
@@ -3384,6 +3432,33 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								END
 			
 			
+			/* Reliability - Dangerous Third Party Modules - 179 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 179 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+							SELECT
+							179 AS [CheckID] ,
+							5 AS [Priority] ,
+							'Reliability' AS [FindingsGroup] ,
+							'Dangerous Third Party Modules' AS [Finding] ,
+							'https://support.microsoft.com/en-us/kb/2033238' AS [URL] ,
+							( COALESCE(company, '') + ' - ' + COALESCE(description, '') + ' - ' + COALESCE(name, '') + ' - suspected dangerous third party module is installed.') AS [Details]
+							FROM sys.dm_os_loaded_modules 
+							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') /* McAfee VirusScan Enterprise */
+							OR UPPER(name) LIKE UPPER('%\HIPI.DLL') OR UPPER(name) LIKE UPPER('%\HcSQL.dll') OR UPPER(name) LIKE UPPER('%\HcApi.dll') OR UPPER(name) LIKE UPPER('%\HcThe.dll') /* McAfee Host Intrusion */
+							OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED.DLL') OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED_x64.DLL') OR UPPER(name) LIKE UPPER('%\SWI_IFSLSP_64.dll') /* Sophos AV */
+							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
+
+					END
 			
 			
 
