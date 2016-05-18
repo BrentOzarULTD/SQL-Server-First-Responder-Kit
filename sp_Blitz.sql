@@ -60,6 +60,8 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
      Changes in v52 - 2016/05/18
+	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
+	    More info: https://support.microsoft.com/en-us/kb/2033238
       - New check for snapshot backups possibly freezing IO. Looking for 50GB+
 	    backups that complete in under 60 seconds. (178)
       - If there are 50+ user databases, you have to turn on @BringThePain = 1
@@ -3433,6 +3435,33 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								END
 			
 			
+			/* Reliability - Dangerous Third Party Modules - 179 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 179 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+							SELECT
+							179 AS [CheckID] ,
+							5 AS [Priority] ,
+							'Reliability' AS [FindingsGroup] ,
+							'Dangerous Third Party Modules' AS [Finding] ,
+							'https://support.microsoft.com/en-us/kb/2033238' AS [URL] ,
+							( COALESCE(company, '') + ' - ' + COALESCE(description, '') + ' - ' + COALESCE(name, '') + ' - suspected dangerous third party module is installed.') AS [Details]
+							FROM sys.dm_os_loaded_modules 
+							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') /* McAfee VirusScan Enterprise */
+							OR UPPER(name) LIKE UPPER('%\HIPI.DLL') OR UPPER(name) LIKE UPPER('%\HcSQL.dll') OR UPPER(name) LIKE UPPER('%\HcApi.dll') OR UPPER(name) LIKE UPPER('%\HcThe.dll') /* McAfee Host Intrusion */
+							OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED.DLL') OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED_x64.DLL') OR UPPER(name) LIKE UPPER('%\SWI_IFSLSP_64.dll') /* Sophos AV */
+							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
+
+					END
 			
 			
 
