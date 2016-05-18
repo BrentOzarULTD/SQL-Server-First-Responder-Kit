@@ -60,6 +60,8 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
      Changes in v52 - 2016/05/18
+      - New check for snapshot backups possibly freezing IO. Looking for 50GB+
+	    backups that complete in under 60 seconds. (178)
       - If there are 50+ user databases, you have to turn on @BringThePain = 1
 	    in order to do @CheckUserDatabaseObjects = 1. (Speeds up sp_Blitz on
 		servers with hundreds or thousands of databases.)
@@ -712,6 +714,37 @@ AS
 								WHERE   bs.backup_start_date <= DATEADD(dd, -60,
 																  GETDATE())
 								ORDER BY backup_set_id ASC;
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 178 )
+					AND EXISTS (SELECT *
+									FROM msdb.dbo.backupset bs
+									WHERE bs.type = 'D'
+									AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
+					BEGIN
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT 178 AS CheckID ,
+										200 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'Snapshot Backups Occurring' AS Finding ,
+										'http://BrentOzar.com/go/snaps' AS URL ,
+										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
+								FROM msdb.dbo.backupset bs
+								WHERE bs.type = 'D'
+								AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 					END
 
 				IF NOT EXISTS ( SELECT  1
