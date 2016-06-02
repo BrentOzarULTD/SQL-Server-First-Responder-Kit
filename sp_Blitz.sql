@@ -5334,7 +5334,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
 												'REDO_THREAD_PENDING_WORK',
 												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER'))
+												'BROKER_TRANSMITTER',
+												'QDS_ASYNC_QUEUE'))
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
