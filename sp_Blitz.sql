@@ -1,7 +1,3 @@
-IF EXISTS(SELECT * FROM sys.databases WHERE compatibility_level < 80)
-	RAISERROR ('sp_Blitz cannot be installed when databases are in pre-2000 compatibility mode. For information: http://BrentOzar.com/blitz/', 10,1) WITH LOG, NOWAIT;
-GO
-
 IF OBJECT_ID('dbo.sp_Blitz') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;')
 GO
@@ -33,11 +29,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 51, @VersionDate = '20160518'
+	SELECT @Version = 52, @VersionDate = '20160602'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v51 - 2016/05/18
+	sp_Blitz (TM) v52 - 2016/06/02
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -50,7 +46,7 @@ AS
 	To contribute code: http://www.brentozar.com/contributing-code/
 
 	Known limitations of this version:
-	 - No support for SQL Server 2000 or compatibility mode 80.
+	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
@@ -58,6 +54,15 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes in v52 - 2016/06/02
+	  - SQL Server 2016 compatibility. 2016 RTM ships with some questionable
+	    database-level options like heaps in DWDiagnostics, target recovery
+		time changed in the DW* databases, and l_certSignSmDetach as a new
+		default sysadmin login, so ignoring those.
+	  - If databases have an old compatibility level that does not support CTEs
+	    then @CheckUserDatabaseObjects is set to 0 to avoid problems with
+		current checks. Get on the current compat level, Grandpa.
 
      Changes in v51 - 2016/05/18
 	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
@@ -79,37 +84,6 @@ AS
      - Amazon RDS compatibility, but to do that, we have to skip a bunch of checks.
 	   RDS does not allow you to query MSDB, configure TempDB, make
 	   server-level sp_configure settings, etc.
-
-    Changes in v48 - 2016/03/20
-    - Julie Citro massively improved the check for stored procedures with a
-      recompile hint in them. (78)
-  	- These new checks brought to you by Erik Darling:
-	- Multiple Extended Events sessions running (176)
-	- Startup parameter -x in use, disabling monitoring (177)
-    - TempDB has >16 data files (175)
-    - Along with some changes:
-    - Improved full text repopulation check to ignore change_tracking_state_desc AUTO (113)
-    - DBCC CHECKDB checks now ignore TempDB (68)
-    - Poison wait times are now reported in Days:Hours:Minutes, and are only
-      reported if they exceed 60 seconds (instead of 5)
-    - The missing log backups alert now includes the log file size.
-    - Trace flag alerts now include more details about dangerous trace flags.
-    - Some per-database checks were running even when @CheckUserDatabaseObjects
-      was set to 0. (Performance tuning sp_Blitz for thousands of databases.)
-    - The high number of cached plans warning (161) reported the wrong limit for cached
-	  plans in the detail message.
-
-    Changes in v47 - 2016/03/12
- 	- These new changes brought to you by Erik Darling:
-	- Locked pages in memory (check 166)
-	- Agent currently offline (167)
-	- Full text daemon offline (168)
-	- SQL Server running as NT Service rather than an AD account (169)
-	- Agent running as NT Service rather than an AD account (170)
-	- Memory dumps in the last year (171)
-	- Windows version (172)
-	- Dev or Evaluation Edition in use (173)
-	- Buffer Pool Extension enabled (174)
 
 	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
@@ -236,6 +210,15 @@ AS
 					set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 			END
 
+		/* If the server has any databases on Antiques Roadshow, skip the checks that would break due to CTEs. */
+		IF @CheckUserDatabaseObjects = 1 AND EXISTS(SELECT * FROM sys.databases WHERE compatibility_level < 90)
+		BEGIN
+			SET @CheckUserDatabaseObjects = 0;
+			PRINT 'Databases with compatibility level < 90 found, so setting @CheckUserDatabaseObjects = 0.';
+			PRINT 'The database-level checks rely on CTEs, which are not supported in SQL 2000 compat level databases.';
+			PRINT 'Get with the cool kids and switch to a current compatibility level, Grandpa. To find the problems, run:';
+			PRINT 'SELECT * FROM sys.databases WHERE compatibility_level < 90;';
+		END
 
 
 			/* If the server is Amazon RDS, skip checks that it doesn't allow */
@@ -769,7 +752,8 @@ AS
 								WHERE   l.sysadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
 										AND l.denylogin = 0
-										AND l.name NOT LIKE 'NT SERVICE\%';
+										AND l.name NOT LIKE 'NT SERVICE\%'
+										AND l.name <> 'l_certSignSmDetach'; /* Added in SQL 2016 */
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -3047,10 +3031,12 @@ AS
 						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
 						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
+						/* Not alerting for this since we actually want it and we have a separate check for it:
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_query_store_on', 0, 139, 210, 'Query Store Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
 						  WHERE name = 'is_query_store_on' AND object_id = OBJECT_ID('sys.databases');
+						*/
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_cdc_enabled', 0, 140, 210, 'Change Data Capture Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
@@ -3081,10 +3067,17 @@ AS
 						WHILE @@FETCH_STATUS = 0
 						BEGIN 
 
-						    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
-						       SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
-						        FROM sys.databases d
-						        WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+							/* DW* databases ship with Target Recovery Time (142) set to a non-default number */
+						    IF @CurrentCheckID = 142
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
+									FROM sys.databases d
+									WHERE d.database_id > 4 AND d.[name] NOT IN (''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'') AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+							ELSE
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
+									FROM sys.databases d
+									WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
 						    EXEC (@StringToExecute);
 
 						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails 
@@ -3513,7 +3506,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                              ''Query Store Disabled'',
 		                              ''http://BrentOzar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
-		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''ReportServer'', ''ReportServerTempDB'')';
+		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
 							END
 
 
@@ -3754,7 +3747,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		  INNER JOIN sys.databases sd ON sd.name = ''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL
-		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
+		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -3806,7 +3799,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		  INNER JOIN sys.databases sd ON sd.name = ''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL
-		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
+		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -4223,7 +4216,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								        FROM    #SkipChecks
 								        WHERE   DatabaseName IS NULL AND CheckID = 80 )
 					        BEGIN
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics'' ';
 					        END
 
 					END /* IF @CheckUserDatabaseObjects = 1 */
@@ -5341,7 +5334,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
 												'REDO_THREAD_PENDING_WORK',
 												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER'))
+												'BROKER_TRANSMITTER',
+												'QDS_ASYNC_QUEUE'))
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
