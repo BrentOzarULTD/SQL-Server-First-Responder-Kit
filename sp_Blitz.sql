@@ -1,7 +1,3 @@
-IF EXISTS(SELECT * FROM sys.databases WHERE compatibility_level < 80)
-	RAISERROR ('sp_Blitz cannot be installed when databases are in pre-2000 compatibility mode. For information: http://BrentOzar.com/blitz/', 10,1) WITH LOG, NOWAIT;
-GO
-
 IF OBJECT_ID('dbo.sp_Blitz') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;')
 GO
@@ -26,7 +22,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
-	@BringThePain TINYINT = 0 ,
+    @BringThePain TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
@@ -46,11 +42,12 @@ AS
 	new versions for free, watch training videos on how it works, get more info on
 	the findings, and more.
 
-	To request a feature or change: http://support.brentozar.com/
+	To report a bug or request a feature: http://support.brentozar.com/
 	To contribute code: http://www.brentozar.com/contributing-code/
 
 	Known limitations of this version:
-	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+	 - We only support SQL Server versions that Microsoft supports - sorry, 2005.
+	   This might work on 2005, but you are taking your chances.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
@@ -64,6 +61,9 @@ AS
 	    database-level options like heaps in DWDiagnostics, target recovery
 		time changed in the DW* databases, and l_certSignSmDetach as a new
 		default sysadmin login, so ignoring those.
+	  - If databases have an old compatibility level that does not support CTEs
+	    then @CheckUserDatabaseObjects is set to 0 to avoid problems with
+		current checks. Get on the current compat level, Grandpa.
 
      Changes in v51 - 2016/05/18
 	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
@@ -85,37 +85,6 @@ AS
      - Amazon RDS compatibility, but to do that, we have to skip a bunch of checks.
 	   RDS does not allow you to query MSDB, configure TempDB, make
 	   server-level sp_configure settings, etc.
-
-    Changes in v48 - 2016/03/20
-    - Julie Citro massively improved the check for stored procedures with a
-      recompile hint in them. (78)
-  	- These new checks brought to you by Erik Darling:
-	- Multiple Extended Events sessions running (176)
-	- Startup parameter -x in use, disabling monitoring (177)
-    - TempDB has >16 data files (175)
-    - Along with some changes:
-    - Improved full text repopulation check to ignore change_tracking_state_desc AUTO (113)
-    - DBCC CHECKDB checks now ignore TempDB (68)
-    - Poison wait times are now reported in Days:Hours:Minutes, and are only
-      reported if they exceed 60 seconds (instead of 5)
-    - The missing log backups alert now includes the log file size.
-    - Trace flag alerts now include more details about dangerous trace flags.
-    - Some per-database checks were running even when @CheckUserDatabaseObjects
-      was set to 0. (Performance tuning sp_Blitz for thousands of databases.)
-    - The high number of cached plans warning (161) reported the wrong limit for cached
-	  plans in the detail message.
-
-    Changes in v47 - 2016/03/12
- 	- These new changes brought to you by Erik Darling:
-	- Locked pages in memory (check 166)
-	- Agent currently offline (167)
-	- Full text daemon offline (168)
-	- SQL Server running as NT Service rather than an AD account (169)
-	- Agent running as NT Service rather than an AD account (170)
-	- Memory dumps in the last year (171)
-	- Windows version (172)
-	- Dev or Evaluation Edition in use (173)
-	- Buffer Pool Extension enabled (174)
 
 	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
@@ -242,6 +211,15 @@ AS
 					set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
 			END
 
+		/* If the server has any databases on Antiques Roadshow, skip the checks that would break due to CTEs. */
+		IF @CheckUserDatabaseObjects = 1 AND EXISTS(SELECT * FROM sys.databases WHERE compatibility_level < 90)
+		BEGIN
+			SET @CheckUserDatabaseObjects = 0;
+			PRINT 'Databases with compatibility level < 90 found, so setting @CheckUserDatabaseObjects = 0.';
+			PRINT 'The database-level checks rely on CTEs, which are not supported in SQL 2000 compat level databases.';
+			PRINT 'Get with the cool kids and switch to a current compatibility level, Grandpa. To find the problems, run:';
+			PRINT 'SELECT * FROM sys.databases WHERE compatibility_level < 90;';
+		END
 
 
 			/* If the server is Amazon RDS, skip checks that it doesn't allow */
