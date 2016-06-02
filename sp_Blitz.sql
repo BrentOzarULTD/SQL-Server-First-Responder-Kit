@@ -33,11 +33,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 51, @VersionDate = '20160518'
+	SELECT @Version = 52, @VersionDate = '20160602'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v51 - 2016/05/18
+	sp_Blitz (TM) v52 - 2016/06/02
 
 	(C) 2016, Brent Ozar Unlimited.
 	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
@@ -50,7 +50,7 @@ AS
 	To contribute code: http://www.brentozar.com/contributing-code/
 
 	Known limitations of this version:
-	 - No support for SQL Server 2000 or compatibility mode 80.
+	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
@@ -58,6 +58,12 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes in v52 - 2016/06/02
+	  - SQL Server 2016 compatibility. 2016 RTM ships with some questionable
+	    database-level options like heaps in DWDiagnostics, target recovery
+		time changed in the DW* databases, and l_certSignSmDetach as a new
+		default sysadmin login, so ignoring those.
 
      Changes in v51 - 2016/05/18
 	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
@@ -769,7 +775,8 @@ AS
 								WHERE   l.sysadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
 										AND l.denylogin = 0
-										AND l.name NOT LIKE 'NT SERVICE\%';
+										AND l.name NOT LIKE 'NT SERVICE\%'
+										AND l.name <> 'l_certSignSmDetach'; /* Added in SQL 2016 */
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -3047,10 +3054,12 @@ AS
 						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
 						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
+						/* Not alerting for this since we actually want it and we have a separate check for it:
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_query_store_on', 0, 139, 210, 'Query Store Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
 						  WHERE name = 'is_query_store_on' AND object_id = OBJECT_ID('sys.databases');
+						*/
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_cdc_enabled', 0, 140, 210, 'Change Data Capture Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns 
@@ -3081,10 +3090,17 @@ AS
 						WHILE @@FETCH_STATUS = 0
 						BEGIN 
 
-						    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
-						       SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
-						        FROM sys.databases d
-						        WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+							/* DW* databases ship with Target Recovery Time (142) set to a non-default number */
+						    IF @CurrentCheckID = 142
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
+									FROM sys.databases d
+									WHERE d.database_id > 4 AND d.[name] NOT IN (''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'') AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+							ELSE
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
+									FROM sys.databases d
+									WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
 						    EXEC (@StringToExecute);
 
 						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails 
@@ -3513,7 +3529,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                              ''Query Store Disabled'',
 		                              ''http://BrentOzar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
-		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''ReportServer'', ''ReportServerTempDB'')';
+		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
 							END
 
 
@@ -3754,7 +3770,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		  INNER JOIN sys.databases sd ON sd.name = ''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL
-		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
+		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -3806,7 +3822,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		  INNER JOIN sys.databases sd ON sd.name = ''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL
-		  AND sd.name <> ''tempdb'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
+		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S''';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -4223,7 +4239,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								        FROM    #SkipChecks
 								        WHERE   DatabaseName IS NULL AND CheckID = 80 )
 					        BEGIN
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2';
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics'' ';
 					        END
 
 					END /* IF @CheckUserDatabaseObjects = 1 */
