@@ -22,7 +22,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
-    @BringThePain TINYINT = 0 ,
+	@BringThePain TINYINT = 0 ,
     @Help TINYINT = 0 ,
     @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
@@ -42,12 +42,11 @@ AS
 	new versions for free, watch training videos on how it works, get more info on
 	the findings, and more.
 
-	To report a bug or request a feature: http://support.brentozar.com/
+	To request a feature or change: http://support.brentozar.com/
 	To contribute code: http://www.brentozar.com/contributing-code/
 
 	Known limitations of this version:
-	 - We only support SQL Server versions that Microsoft supports - sorry, 2005.
-	   This might work on 2005, but you are taking your chances.
+	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
