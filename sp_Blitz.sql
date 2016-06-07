@@ -2406,7 +2406,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: RESOURCE_SEMAPHORE'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
-											CAST(SUM([wait_time_ms]) / 10000 / 1000 / 60 / 60 / 24 AS VARCHAR) + CAST(CONVERT(TIME, DATEADD(ms, SUM([wait_time_ms] / 10000 % 1000), DATEADD(ss, SUM([wait_time_ms] / 10000000), 0))) AS VARCHAR) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'RESOURCE_SEMAPHORE'
 									GROUP BY wait_type
