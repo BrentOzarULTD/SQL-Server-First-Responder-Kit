@@ -3452,7 +3452,84 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
 
 					END
-			
+
+			/*Find shrink database tasks*/
+
+			IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 180 )
+					BEGIN
+						;
+						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						,[maintenance_plan_steps] AS (
+							SELECT [name]
+								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
+							FROM [msdb].[dbo].[sysssispackages]
+							WHERE [packagetype] = 6
+						   )
+							INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+										[Priority] ,
+										[FindingsGroup] ,
+										[Finding] ,
+										[URL] ,
+										[Details] )									  
+						SELECT
+						180 AS [CheckID] ,
+						100 AS [Priority] ,
+						'Performance' AS [FindingsGroup] ,
+						'Shrink Database Step In Maintenance Plan' AS [Finding] ,
+						'http://BrentOzar.com/go/autoshrink' AS [URL] ,									  
+						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.' AS [Details] 
+						FROM [maintenance_plan_steps] [mps]
+							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+						WHERE [c].[value]('(@dts:ObjectName)', 'VARCHAR(128)') = 'Shrink Database Task'
+
+						END
+
+
+		/*Find repetitive maintenance tasks*/
+		IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 181 )
+				BEGIN
+						;
+						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						,[maintenance_plan_steps] AS (
+							SELECT [name]
+								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
+							FROM [msdb].[dbo].[sysssispackages]
+							WHERE [packagetype] = 6
+							), [maintenance_plan_table] AS (
+						SELECT [mps].[name]
+							,[c].[value]('(@dts:ObjectName)', 'NVARCHAR(128)') AS [step_name]
+						FROM [maintenance_plan_steps] [mps]
+							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+						), [mp_steps_pretty] AS (SELECT DISTINCT [m1].[name] ,
+								STUFF((SELECT N', ' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name] 
+								FOR XML PATH(N'')), 1, 2, N'') AS [maintenance_plan_steps]
+						FROM [maintenance_plan_table] AS [m1])
+						
+							INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+										[Priority] ,
+										[FindingsGroup] ,
+										[Finding] ,
+										[URL] ,
+										[Details] )						
+						
+						SELECT
+						181 AS [CheckID] ,
+						100 AS [Priority] ,
+						'Performance' AS [FindingsGroup] ,
+						'Repetitive Steps In Maintenance Plans' AS [Finding] ,
+						'https://ola.hallengren.com/' AS [URL] , 
+						'The maintenance plan ' + [m].[name] + ' is doing repetitive work on indexes and statistics. Perhaps it''s time to try something more modern?' AS [Details]
+						FROM [mp_steps_pretty] m
+						WHERE m.[maintenance_plan_steps] LIKE '%Rebuild%Reorganize%'
+						OR m.[maintenance_plan_steps] LIKE '%Rebuild%Update%'
+
+						END
 			
 
 				IF @CheckUserDatabaseObjects = 1
