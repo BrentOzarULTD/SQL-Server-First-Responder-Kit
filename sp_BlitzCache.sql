@@ -121,316 +121,215 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzCache
-    @get_help BIT = 0,
-    @top INT = 10,
-    @sort_order VARCHAR(50) = 'CPU',
-    @use_triggers_anyway BIT = NULL,
-    @export_to_excel BIT = 0,
-    @results VARCHAR(10) = 'simple',
-    @output_database_name NVARCHAR(128) = NULL ,
-    @output_schema_name NVARCHAR(256) = NULL ,
-    @output_table_name NVARCHAR(256) = NULL ,
-    @configuration_database_name NVARCHAR(128) = NULL ,
-    @configuration_schema_name NVARCHAR(256) = NULL ,
-    @configuration_table_name NVARCHAR(256) = NULL ,
-    @duration_filter DECIMAL(38,4) = NULL ,
-    @hide_summary BIT = 0 ,
-    @ignore_system_db BIT = 1 ,
-    @only_query_hashes VARCHAR(MAX) = NULL ,
-    @ignore_query_hashes VARCHAR(MAX) = NULL ,
-    @sql_handle VARCHAR(MAX) = NULL ,
-    @query_filter VARCHAR(10) = 'ALL' ,
-    @database_name NVARCHAR(128) = NULL ,
-    @reanalyze BIT = 0 ,
-    @skip_analysis BIT = 0 ,
-    @whole_cache BIT = 0 /* This will forcibly set @top to 2,147,483,647 */
+    @Help BIT = 0,
+    @Top INT = 10,
+    @SortOrder VARCHAR(50) = 'CPU',
+    @UseTriggersAnyway BIT = NULL,
+    @ExportToExcel BIT = 0,
+    @ExpertMode TINYINT = 0,
+    @OutputServerName NVARCHAR(256) = NULL ,
+    @OutputDatabaseName NVARCHAR(256) = NULL ,
+    @OutputSchemaName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(256) = NULL ,
+    @ConfigurationDatabaseName NVARCHAR(128) = NULL ,
+    @ConfigurationSchemaName NVARCHAR(256) = NULL ,
+    @ConfigurationTableName NVARCHAR(256) = NULL ,
+    @DurationFilter DECIMAL(38,4) = NULL ,
+    @HideSummary BIT = 0 ,
+    @IgnoreSystemDBs BIT = 1 ,
+    @OnlyQueryHashes VARCHAR(MAX) = NULL ,
+    @IgnoreQueryHashes VARCHAR(MAX) = NULL ,
+    @OnlySqlHandles VARCHAR(MAX) = NULL ,
+    @QueryFilter VARCHAR(10) = 'ALL' ,
+    @DatabaseName NVARCHAR(128) = NULL ,
+    @Reanalyze BIT = 0 ,
+    @SkipAnalysis BIT = 0 ,
+    @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
 WITH RECOMPILE
-/******************************************
-sp_BlitzCache (TM) 2016, Brent Ozar Unlimited.
-(C) 2016, Brent Ozar Unlimited.
-See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
+AS
+BEGIN
+SET NOCOUNT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+IF @Help = 1 PRINT '
+sp_BlitzCache from http://FirstResponderKit.org
+	
+This script displays your most resource-intensive queries from the plan cache,
+and points to ways you can tune these queries to make them faster.
 
 
+To learn more, visit http://FirstResponderKit.org where you can download new
+versions for free, watch training videos on how it works, get more info on
+the findings, contribute your own code, and more.
 
-Description: Displays a server level view of the SQL Server plan cache.
+Known limitations of this version:
+ - This query will not run on SQL Server 2005.
+ - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
+   excluded by default.
+ - @IgnoreQueryHashes and @only_query_hashes require a CSV list of hashes
+   with no spaces between the hash values.
+ - @OutputServerName is not functional yet.
 
-Output: One result set is presented that contains data from the statement,
-procedure, and trigger stats DMVs.
+Unknown limitations of this version:
+ - May or may not be vulnerable to the wick effect.
 
-To learn more, visit http://brentozar.com/blitzcache/
-where you can download new versions for free, watch training videos on
-how it works, get more info on the findings, and more. To contribute
-code and see your name in the change log, submit your improvements &
-ideas to https://support.brentozar.com
+Changes in v3.0 - YYYY/MM/DD:
+ - BREAKING CHANGE: Standardized input & output parameters to be
+   consistent across the entire First Responder Kit. This also means the old
+   old output parameter @Version is no more, because we are switching to
+   semantic versioning.
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+ - BREAKING CHANGE: The output table now adds a CheckDate field with a data
+   type of DATETIMEOFFSET, and removes SampleTime. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
+ - Summary output now moved to the bottom instead of the top.
 
+Changes in v2.5.3 - 2016-04-28:
+ - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
+   Will show up when they are >=50% of plan cost, and plan cost is >= 50% of 
+   cost threshold for parallelism.
+ - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb 
+   spills, which are not recorded in cached plans.
 
+Changes in v2.5.2 - 2016-04-28:
+ - Erik Darling added warnings for Forced Serialization in 2012+ query plans. 
+   Sorry, earlier versions.
+ - Erik Darling added Replication Distributor databases to list of system 
+   databases to ignore.
 
-KNOWN ISSUES:
-- This query will not run on SQL Server 2005.
-- SQL Server 2008 and 2008R2 have a bug in trigger stats (see below).
-- @ignore_query_hashes and @only_query_hashes require a CSV list of hashes
-  with no spaces between the hash values.
-
-  v2.5.3 - 2016-04-28
- - Erik Darling added warnings for Expensive Sorts, Key Lookups, and Remote Queries. 
-	--Will show up when they're >=50% of plan cost, and plan cost is >= 50% of cost threshold for parallelism
- - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb spills, which aren't recorded in cached plans
-
-
-v2.5.2 - 2016-04-28
- - Erik Darling added warnings for Forced Serialization in 2012+ query plans. Sorry, earlier versions.
- - Erik Darling added Replication Distributor databases to list of system databases to ignore.
-
-v2.5.1 - 2016-03-15
+Changes in v2.5.1 - 2016-03-15:
  - Nick Molyneux fixed an overflow error, and did an amazing job of it.
 
-v2.5.0 - 2015-10-23
+Changes in v2.5.0 - 2015-10-23:
  - Now with errors when required values are set to NULL. Thanks to Raul
    Gonzalez for pointing this out.
- - changing default @top to 10
+ - changing default @Top to 10
  - Added a @skip_analysis to avoid the XML processing overhead
- - Added QueryHash and QueryPlanHash to @export_to_excel and expert mode
+ - Added QueryHash and QueryPlanHash to @ExportToExcel and expert mode
  - Adding sort order for recent compiles.
  - Fixing potential INT overflow in totals temp table
  - Fixing slow sort performance on xpm and friends
  - Added compilation info (memory, CPU, time) and plan size to output
  - Re-structured XML processing for more better performance
 
-v2.4.6 - 2015-06-18
- - temporary object cleanup will actually occur - thanks to Bob Klimes for
-   spotting this
- - adding memory grants to expert mode and export to excel mode
- - parent object name is now displayed next to statements that come from a
-   stored procedure
- - run clean up in ##bou_BlitzCacheProcs before executing - this should 
-   prevent duplicate records from building up over multiple executions on 
-   the same SPID.
- - added a @sql_handle parameter to filter on queries from a specific 
-   sql_handle or sql_handles
- - added support for filtering on database name
+MIT License
 
-v2.4.5 - 2015-04-27
- - sp_BlitzCache will no longer fail if @reanalyze = 1 AND sp_BlitzCache has
-   never been run.
- - sp_BlitzCache can be run from multiple SPIDs.
- - Triggers will no longer cause sp_BlitzCache to notice itself.
- - Fixed an int overflow when determining execution time. Now using DATEDIFF
-   on minutes of execution time instead of seconds. Queries that have used 
-   more than 28,000 days of CPU are safe!
+Copyright (c) 2016 Brent Ozar Unlimited
 
-v2.4.4 - 2015-01-09
- - Fixed output to table. Sort order wasn't being obeyed and users limiting
-   results weren't seeing the same results between displaying to screen and
-   saving results to a table.
-   Thanks to Gail Jurey for spotting this!
- - Fixed an error where running with reanalyze after export_to_excel would
-   prevent a summary from being generated.
- - Added query plan cost to export_to_excel output.
- - Cleaned up export_to_excel output to match column order to screen display.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-v2.4.3 - 2014-11-11
- - Fix to remove confusing implicit conversion checks. Warnings will only be
-   generated when a plan affecting convert is in place.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-v2.4.2 - 2014-11-04
- - Hotfix - Randall Petty found a stray comma in the export_to_excel output.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'
 
-v2.4.1 - 2014-10-31
- - Hotfix - Denis Gobo pointed out that the global temp table names could
-   conflict with everyone else's global temp table rates.
-
-v2.4 - 2014-10-31
- - Fixed a logical error in output table detection - thanks to Michael
-   Bluett for pointing that out.
- - Fixed a bug where sorting on average executions broke the query.
-   Thanks to Andrew Notarian and Calvin Jones for submitting this.
- - Added @query_filter to allow output restrictions to only procedures
-   or individual statements
- - Adds a check for trivial execution plans.
- - Adds @reanalyze. When set to 1, this re-scans existing results rather
-   than running all of the logic again. Bonus: contains GOTO.
- - Now displaying set options!
-
-v2.3 - 2014-06-07
- - Added opserver specific output
- - Adding a `@only_query_hashes` parameter to limit results to a select set of
-   query hashes.
- - Adding a `@ignore_query_hashes` parameter to exclude specific queries from
-   analysis.
-
-v2.2 - 2014-05-20
- - Added sorting on averages
- - Added configuration table parameters. Includes help messages for the
-   allowed parameters and default values.
- - Missing index warning now displays the number of missing indexes.
- - Changing display to milliseconds instead of microseconds.
- - Adding a flag to ignore system databases. This is on by default.
- - Correcting a typo found by Michael Zilberstein. Thanks!
- - Fixing an XML bug for implicit conversion detection - contributed by Michael Zilberstein.
- - Added a check for unparameterized queries.
-
-v2.1 - 2014-04-30
- - Added @duration_filter. Queries are now filtered during collection based on duration.
- - Added results summary table and hide_summary parameter.
- - Added check for > 1000 executions per minute.
- - Added check for queries with missing indexes.
- - Added check for queries with warnings in the execution plan.
- - Added check for queries using cursors.
- - Query cost will be displayed next to the execution plan for a query.
- - Added a check for plan guides and forced plans.
- - An asterisk will be displayed next to the name of queries that have gone parallel.
- - Added a check for parallel plans.
- - Added @results parameter - options are 'narrow', 'simple', and 'expert'
- - Added a check for plans using a downlevel cardinality estimator
- - Added checks for plans with implicit conversions or plan affecting convert warnings
- - Added check for queries with spill warnings
- - Consolidated warning detection into a smaller number of T-SQL statements
- - Added a Warnings column
- - Added "busy loops" check
- - Fixed bug where long-running query threshold was 300 microseconds, not seconds
-
-v2.0 - 2014-03-23
- - Created a stored procedure
- - Added write information
- - Added option to export to a single table
- - Corrected accidental exclusion of trigger information
-
-v1.4 - 2014-02-17
- - MOAR BUG FIXES
- - Corrected multiple sorting bugs that cause confusing displays of query
-   results that weren't necessarily the top anything.
- - Updated all modification timestamps to use ISO 8601 formatting because it's
-   correct, sorry Britain.
- - Added a check for SQL Server 2008R2 build greater than SP1.
-   Thanks to Kevan Riley for spotting this.
- - Added the stored procedure or trigger name to the Query Type column.
-   Initial suggestion from Kevan Riley.
- - Corrected erronous math that could allow for % CPU/Duration/Executions/Reads
-   being higher than 100% for batches/procedures with multiple poorly
-   performing statements in them.
-
-v1.3 - 2014-02-06
- - As they say on the app store, "Bug fixes"
- - Reorganized this to put the standard, gotta-run stuff at the top.
- - Switched to YYYY/MM/DD because Brits.
-
-v1.2 - 2014-02-04
-- Removed debug code
-- Fixed output where SQL Server 2008 and early don't support min_rows,
-  max_rows, and total_rows.
-  SQL Server 2008 and earlier will now return NULL for those columns.
-
-v1.1 - 2014-02-02
-- Incorporated sys.dm_exec_plan_attributes as recommended by Andrey
-  and Michael J. Swart.
-- Added additional detail columns for plan cache analysis including
-  min/max rows, total rows.
-- Streamlined collection of data.
-
-
-
-*******************************************/
-AS
-SET NOCOUNT ON;
-SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-/* VERSION! */
-RAISERROR (N'Executing sp_BlitzCache v2.5.2', 0, 1) WITH NOWAIT ;
 
 DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
 
-IF @get_help = 1
+IF @Help = 1
 BEGIN
-    SELECT N'@get_help' AS [Parameter Name] ,
+    SELECT N'@Help' AS [Parameter Name] ,
            N'BIT' AS [Data Type] ,
            N'Displays this help message.' AS [Parameter Description]
 
     UNION ALL
-    SELECT N'@top',
+    SELECT N'@Top',
            N'INT',
            N'The number of records to retrieve and analyze from the plan cache. The following DMVs are used as the plan cache: dm_exec_query_stats, dm_exec_procedure_stats, dm_exec_trigger_stats.'
 
     UNION ALL
-    SELECT N'@sort_order',
+    SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @sort_order will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
-    SELECT N'@use_triggers_anyway',
+    SELECT N'@UseTriggersAnyway',
            N'BIT',
            N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
 
     UNION ALL
-    SELECT N'@export_to_excel',
+    SELECT N'@ExportToExcel',
            N'BIT',
            N'Prepare output for exporting to Excel. Newlines and additional whitespace are removed from query text and the execution plan is not displayed.'
 
     UNION ALL
-    SELECT N'@results',
-           N'VARCHAR(10)',
-           N'Results mode. Options are "Narrow", "Simple", or "Expert". This determines which columns will be displayed in the analysis of the plan cache.'
+    SELECT N'@ExpertMode',
+           N'TINYINT',
+           N'Default 0. When set to 1, results include more columns. When 2, mode is optimized for Opserver, the open source dashboard.'
 
     UNION ALL
-    SELECT N'@output_database_name',
+    SELECT N'@OutputDatabaseName',
            N'NVARCHAR(128)',
            N'The output database. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
     UNION ALL
-    SELECT N'@output_schema_name',
+    SELECT N'@OutputSchemaName',
            N'NVARCHAR(256)',
            N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
     UNION ALL
-    SELECT N'@output_table_name',
+    SELECT N'@OutputTableName',
            N'NVARCHAR(256)',
            N'The output table. If this does not exist, it will be created for you.'
 
     UNION ALL
-    SELECT N'@duration_filter',
+    SELECT N'@DurationFilter',
            N'DECIMAL(38,4)',
-           N'Excludes queries with an average duration (in seconds) less than @duration_filter.'
+           N'Excludes queries with an average duration (in seconds) less than @DurationFilter.'
 
     UNION ALL
-    SELECT N'@hide_summary',
+    SELECT N'@HideSummary',
            N'BIT',
            N'Hides the findings summary result set.'
 
     UNION ALL
-    SELECT N'@ignore_system_db',
+    SELECT N'@IgnoreSystemDBs',
            N'BIT',
            N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
 
     UNION ALL
-    SELECT N'@only_query_hashes',
+    SELECT N'@OnlyQueryHashes',
            N'VARCHAR(MAX)',
            N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
 
     UNION ALL
-    SELECT N'@ignore_query_hashes',
+    SELECT N'@IgnoreQueryHashes',
            N'VARCHAR(MAX)',
            N'A list of query hashes to ignore.'
     
     UNION ALL
-    SELECT N'@sql_handle',
+    SELECT N'@OnlySqlHandles',
            N'VARCHAR(MAX)',
            N'One or more sql_handles to use for filtering results.'
 
     UNION ALL
-    SELECT N'@database_name',
+    SELECT N'@DatabaseName',
            N'NVARCHAR(128)',
            N'A database name which is used for filtering results.'
 
     UNION ALL
-    SELECT N'@whole_cache',
+    SELECT N'@BringThePain',
            N'BIT',
            N'This forces sp_BlitzCache to examine the entire plan cache. Be careful running this on servers with a lot of memory or a large execution plan cache.'
 
     UNION ALL
-    SELECT N'@query_filter',
+    SELECT N'@QueryFilter',
            N'VARCHAR(10)',
            N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).'
 
     UNION ALL
-    SELECT N'@reanalyze',
+    SELECT N'@Reanalyze',
            N'BIT',
            N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results';
            
@@ -655,12 +554,12 @@ BEGIN
 END
 
 /* validate user inputs */
-IF @top IS NULL 
-    OR @sort_order IS NULL 
-    OR @query_filter IS NULL 
-    OR @reanalyze IS NULL
+IF @Top IS NULL 
+    OR @SortOrder IS NULL 
+    OR @QueryFilter IS NULL 
+    OR @Reanalyze IS NULL
 BEGIN
-    RAISERROR(N'Several parameters (@top, @sort_order, @query_filter, @renalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
+    RAISERROR(N'Several parameters (@Top, @SortOrder, @QueryFilter, @renalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
     RETURN;
 END
 
@@ -779,47 +678,49 @@ BEGIN
     );
 END
 
-DECLARE @duration_filter_i INT,
+DECLARE @DurationFilter_i INT,
         @msg NVARCHAR(4000) ;
 
 RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 
+IF @BringThePain = 1
+   SET @Top = 2147483647;
+
 /* Change duration from seconds to milliseconds */
-IF @duration_filter IS NOT NULL
-  SET @duration_filter_i = CAST((@duration_filter * 1000.0) AS INT)
+IF @DurationFilter IS NOT NULL
+  SET @DurationFilter_i = CAST((@DurationFilter * 1000.0) AS INT)
 
-SET @database_name = LTRIM(RTRIM(@database_name)) ;
+SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
 
-SET @sort_order = LOWER(@sort_order);
-SET @sort_order = REPLACE(REPLACE(@sort_order, 'average', 'avg'), '.', '');
-SET @sort_order = REPLACE(@sort_order, 'executions per minute', 'avg executions');
-SET @sort_order = REPLACE(@sort_order, 'executions / minute', 'avg executions');
-SET @sort_order = REPLACE(@sort_order, 'xpm', 'avg executions');
-SET @sort_order = REPLACE(@sort_order, 'recent compilations', 'compiles');
+SET @SortOrder = LOWER(@SortOrder);
+SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
+SET @SortOrder = REPLACE(@SortOrder, 'executions per minute', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'executions / minute', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'xpm', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 
 
-
-IF @sort_order NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles')
-  SET @sort_order = 'cpu';
+  SET @SortOrder = 'cpu';
 
-SELECT @output_database_name = QUOTENAME(@output_database_name),
-       @output_schema_name   = QUOTENAME(@output_schema_name),
-       @output_table_name    = QUOTENAME(@output_table_name);
+SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+       @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
+       @OutputTableName    = QUOTENAME(@OutputTableName);
 
-SET @query_filter = LOWER(@query_filter);
+SET @QueryFilter = LOWER(@QueryFilter);
 
-IF LEFT(@query_filter, 3) NOT IN ('all', 'sta', 'pro')
-  SET @query_filter = 'all';
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
+  SET @QueryFilter = 'all';
 
-IF @reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
-  SET @reanalyze = 0;
+IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
+  SET @Reanalyze = 0;
 
-if @skip_analysis = 1
-    SET @hide_summary = 1;
+if @SkipAnalysis = 1
+    SET @HideSummary = 1;
 
-IF @reanalyze = 1 
+IF @Reanalyze = 1 
     GOTO Results
 
 DELETE FROM ##bou_BlitzCacheProcs
@@ -880,22 +781,22 @@ CREATE TABLE #configuration (
 
 
 
-SET @sql_handle = LTRIM(RTRIM(@sql_handle)) ;
-SET @only_query_hashes = LTRIM(RTRIM(@only_query_hashes)) ;
-SET @ignore_query_hashes = LTRIM(RTRIM(@ignore_query_hashes)) ;
+SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
+SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
+SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
 
 DECLARE @individual VARCHAR(100) ;
 
-IF @sql_handle IS NOT NULL
-    AND LEN(@sql_handle) > 0
+IF @OnlySqlHandles IS NOT NULL
+    AND LEN(@OnlySqlHandles) > 0
 BEGIN
     SET @individual = '';
 
-    WHILE LEN(@sql_handle) > 0
+    WHILE LEN(@OnlySqlHandles) > 0
     BEGIN
-        IF PATINDEX('%,%', @sql_handle) > 0
+        IF PATINDEX('%,%', @OnlySqlHandles) > 0
         BEGIN  
-               SET @individual = SUBSTRING(@sql_handle, 0, PATINDEX('%,%',@sql_handle)) ;
+               SET @individual = SUBSTRING(@OnlySqlHandles, 0, PATINDEX('%,%',@OnlySqlHandles)) ;
                
                INSERT INTO #only_sql_handles
                select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
@@ -903,12 +804,12 @@ BEGIN
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
-               SET @sql_handle = SUBSTRING(@sql_handle, LEN(@individual + ',') + 1, LEN(@sql_handle)) ;
+               SET @OnlySqlHandles = SUBSTRING(@OnlySqlHandles, LEN(@individual + ',') + 1, LEN(@OnlySqlHandles)) ;
         END
         ELSE
         BEGIN
-               SET @individual = @sql_handle
-               SET @sql_handle = NULL
+               SET @individual = @OnlySqlHandles
+               SET @OnlySqlHandles = NULL
 
                INSERT INTO #only_sql_handles
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
@@ -919,9 +820,9 @@ BEGIN
     END
 END    
 
-IF ((@only_query_hashes IS NOT NULL AND LEN(@only_query_hashes) > 0)
-    OR (@ignore_query_hashes IS NOT NULL AND LEN(@ignore_query_hashes) > 0))
-   AND LEFT(@query_filter, 3) = 'pro'
+IF ((@OnlyQueryHashes IS NOT NULL AND LEN(@OnlyQueryHashes) > 0)
+    OR (@IgnoreQueryHashes IS NOT NULL AND LEN(@IgnoreQueryHashes) > 0))
+   AND LEFT(@QueryFilter, 3) = 'pro'
 BEGIN
    RAISERROR('You cannot limit by query hash and filter by stored procedure', 16, 1);
    RETURN;
@@ -931,19 +832,19 @@ END
    #only_query_hashes temp table. This will be used to narrow down
    results.
 
-   Just a reminder: Using @only_query_hashes will ignore stored
+   Just a reminder: Using @OnlyQueryHashes will ignore stored
    procedures and triggers.
  */
-IF @only_query_hashes IS NOT NULL
-   AND LEN(@only_query_hashes) > 0
+IF @OnlyQueryHashes IS NOT NULL
+   AND LEN(@OnlyQueryHashes) > 0
 BEGIN
     SET @individual = '';
 
-   WHILE LEN(@only_query_hashes) > 0
+   WHILE LEN(@OnlyQueryHashes) > 0
    BEGIN
-        IF PATINDEX('%,%', @only_query_hashes) > 0
+        IF PATINDEX('%,%', @OnlyQueryHashes) > 0
         BEGIN  
-               SET @individual = SUBSTRING(@only_query_hashes, 0, PATINDEX('%,%',@only_query_hashes)) ;
+               SET @individual = SUBSTRING(@OnlyQueryHashes, 0, PATINDEX('%,%',@OnlyQueryHashes)) ;
                
                INSERT INTO #only_query_hashes
                select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
@@ -951,12 +852,12 @@ BEGIN
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
-               SET @only_query_hashes = SUBSTRING(@only_query_hashes, LEN(@individual + ',') + 1, LEN(@only_query_hashes)) ;
+               SET @OnlyQueryHashes = SUBSTRING(@OnlyQueryHashes, LEN(@individual + ',') + 1, LEN(@OnlyQueryHashes)) ;
         END
         ELSE
         BEGIN
-               SET @individual = @only_query_hashes
-               SET @only_query_hashes = NULL
+               SET @individual = @OnlyQueryHashes
+               SET @OnlyQueryHashes = NULL
 
                INSERT INTO #only_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
@@ -973,27 +874,27 @@ END
 
    Stored procedures and triggers will still be queried.
  */
-IF @ignore_query_hashes IS NOT NULL
-   AND LEN(@ignore_query_hashes) > 0
+IF @IgnoreQueryHashes IS NOT NULL
+   AND LEN(@IgnoreQueryHashes) > 0
 BEGIN
    SET @individual = '' ;
 
-   WHILE LEN(@ignore_query_hashes) > 0
+   WHILE LEN(@IgnoreQueryHashes) > 0
    BEGIN
-        IF PATINDEX('%,%', @ignore_query_hashes) > 0
+        IF PATINDEX('%,%', @IgnoreQueryHashes) > 0
         BEGIN  
-               SET @individual = SUBSTRING(@ignore_query_hashes, 0, PATINDEX('%,%',@ignore_query_hashes)) ;
+               SET @individual = SUBSTRING(@IgnoreQueryHashes, 0, PATINDEX('%,%',@IgnoreQueryHashes)) ;
                
                INSERT INTO #ignore_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
                
-               SET @ignore_query_hashes = SUBSTRING(@ignore_query_hashes, LEN(@individual + ',') + 1, LEN(@ignore_query_hashes)) ;
+               SET @IgnoreQueryHashes = SUBSTRING(@IgnoreQueryHashes, LEN(@individual + ',') + 1, LEN(@IgnoreQueryHashes)) ;
         END
         ELSE
         BEGIN
-               SET @individual = @ignore_query_hashes ;
-               SET @ignore_query_hashes = NULL ;
+               SET @individual = @IgnoreQueryHashes ;
+               SET @IgnoreQueryHashes = NULL ;
 
                INSERT INTO #ignore_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
@@ -1002,12 +903,12 @@ BEGIN
    END
 END
 
-IF @configuration_database_name IS NOT NULL
+IF @ConfigurationDatabaseName IS NOT NULL
 BEGIN
    DECLARE @config_sql NVARCHAR(MAX) = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
-        + QUOTENAME(@configuration_database_name)
-        + '.' + QUOTENAME(@configuration_schema_name)
-        + '.' + QUOTENAME(@configuration_table_name)
+        + QUOTENAME(@ConfigurationDatabaseName)
+        + '.' + QUOTENAME(@ConfigurationSchemaName)
+        + '.' + QUOTENAME(@ConfigurationTableName)
         + ' ; ' ;
    EXEC(@config_sql);
 END
@@ -1050,7 +951,7 @@ INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, To
                     min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
 
 SET @body += N'
-FROM   (SELECT TOP (@top) *,
+FROM   (SELECT TOP (@Top) *,
                CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE()) 
                           ELSE NULL END) as MONEY) as age_minutes,
@@ -1079,12 +980,12 @@ END
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
-IF @ignore_system_db = 1
+IF @IgnoreSystemDBs = 1
     SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
-IF @database_name IS NOT NULL OR @database_name <> ''
+IF @DatabaseName IS NOT NULL OR @DatabaseName <> ''
     SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID('
-                 + QUOTENAME(@database_name, N'''')
+                 + QUOTENAME(@DatabaseName, N'''')
                  + N') ' + @nl;
 
 IF (SELECT COUNT(*) FROM #only_sql_handles) > 0
@@ -1099,7 +1000,7 @@ BEGIN
     SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl ;
 END
 
-IF @duration_filter IS NOT NULL
+IF @DurationFilter IS NOT NULL
     SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
 
 
@@ -1109,7 +1010,7 @@ IF @duration_filter IS NOT NULL
    plans for processing.
  */
 SELECT @body += '        ORDER BY ' +
-                CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
+                CASE @SortOrder WHEN 'cpu' THEN 'total_worker_time'
                                  WHEN 'reads' THEN 'total_logical_reads'
                                  WHEN 'writes' THEN 'total_logical_writes'
                                  WHEN 'duration' THEN 'total_elapsed_time'
@@ -1152,7 +1053,7 @@ SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q) + @nl ;
 
 
 SET @plans_triggers_select_list += N'
-SELECT TOP (@top)
+SELECT TOP (@Top)
        @@SPID ,
        ''Procedure: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
@@ -1221,12 +1122,12 @@ SELECT TOP (@top)
        age_minutes_lifetime '
 
 
-IF LEFT(@query_filter, 3) IN ('all', 'sta')
+IF LEFT(@QueryFilter, 3) IN ('all', 'sta')
 BEGIN
     SET @sql += @insert_list;
     
     SET @sql += N'
-    SELECT TOP (@top)
+    SELECT TOP (@Top)
            @@SPID ,
            ''Statement'' AS QueryType,
            COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
@@ -1311,15 +1212,15 @@ BEGIN
     
     SET @sql += @body_order + @nl + @nl + @nl;
 
-    IF @sort_order = 'compiles'
+    IF @SortOrder = 'compiles'
     BEGIN
         SET @sql = REPLACE(@sql, '#sortable#', 'creation_time');
     END
 END
 
 
-IF (@query_filter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0)
-   OR (LEFT(@query_filter, 3) = 'pro')
+IF (@QueryFilter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0)
+   OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
     SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Stored Procedure') ;
@@ -1327,7 +1228,7 @@ BEGIN
     SET @sql += REPLACE(@body, '#view#', 'dm_exec_procedure_stats') ; 
     SET @sql += @body_where ;
 
-    IF @ignore_system_db = 1
+    IF @IgnoreSystemDBs = 1
        SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
     SET @sql += @body_order + @nl + @nl + @nl ;
@@ -1346,9 +1247,9 @@ END
  * This is why we can't have nice things.
  *
  ******************************************************************************/
-IF (@use_triggers_anyway = 1 OR @v >= 11)
+IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-   AND (@query_filter = 'all')
+   AND (@QueryFilter = 'all')
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -1361,7 +1262,7 @@ BEGIN
 
    SET @sql += @body_where ;
 
-   IF @ignore_system_db = 1
+   IF @IgnoreSystemDBs = 1
       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
    
    SET @sql += @body_order + @nl + @nl + @nl ;
@@ -1371,7 +1272,7 @@ END
 
 DECLARE @sort NVARCHAR(MAX);
 
-SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'total_worker_time'
+SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'total_worker_time'
                                 WHEN 'reads' THEN 'total_logical_reads'
                                 WHEN 'writes' THEN 'total_logical_writes'
                                 WHEN 'duration' THEN 'total_elapsed_time'
@@ -1410,7 +1311,7 @@ WHERE x.rn = 1
 OPTION (RECOMPILE);
 ';
 
-SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'TotalCPU'
+SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'TotalCPU'
                                 WHEN 'reads' THEN 'TotalReads'
                                 WHEN 'writes' THEN 'TotalWrites'
                                 WHEN 'duration' THEN 'TotalDuration'
@@ -1428,17 +1329,17 @@ SELECT @sort = CASE @sort_order WHEN 'cpu' THEN 'TotalCPU'
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
-IF @reanalyze = 0
+IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 
-    EXEC sp_executesql @sql, N'@top INT, @min_duration INT', @top, @duration_filter_i;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
 
 
 /* Compute the total CPU, etc across our active set of the plan cache.
- * Yes, there's a flaw - this doesn't include anything outside of our @top
+ * Yes, there's a flaw - this doesn't include anything outside of our @Top
  * metric.
  */
 RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
@@ -1768,7 +1669,7 @@ WHERE   QueryType = 'Statement'
 
 
 
-IF @skip_analysis = 1
+IF @SkipAnalysis = 1
     GOTO Results ;
 
 
@@ -1952,9 +1853,9 @@ SET    Warnings = SUBSTRING(
 
 
 Results:
-IF @output_database_name IS NOT NULL
-   AND @output_schema_name IS NOT NULL
-   AND @output_table_name IS NOT NULL
+IF @OutputDatabaseName IS NOT NULL
+   AND @OutputSchemaName IS NOT NULL
+   AND @OutputTableName IS NOT NULL
 BEGIN
     RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
 
@@ -1962,20 +1863,21 @@ BEGIN
     DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
 
     SET @insert_sql = 'USE '
-        + @output_database_name
+        + @OutputDatabaseName
         + '; IF EXISTS(SELECT * FROM '
-        + @output_database_name
+        + @OutputDatabaseName
         + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @output_schema_name
+        + @OutputSchemaName
         + ''') AND NOT EXISTS (SELECT * FROM '
-        + @output_database_name
+        + @OutputDatabaseName
         + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-        + @output_schema_name + ''' AND QUOTENAME(TABLE_NAME) = '''
-        + @output_table_name + ''') CREATE TABLE '
-        + @output_schema_name + '.'
-        + @output_table_name
+        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+        + @OutputTableName + ''') CREATE TABLE '
+        + @OutputSchemaName + '.'
+        + @OutputTableName
         + N'(ID bigint NOT NULL IDENTITY(1,1),
           ServerName nvarchar(256),
+		  CheckDate DATETIMEOFFSET,
           Version nvarchar(256),
           QueryType nvarchar(256),
           Warnings varchar(max),
@@ -2017,25 +1919,24 @@ BEGIN
           QueryPlan xml,
           NumberOfPlans int,
           NumberOfDistinctPlans int,
-          SampleTime DATETIME DEFAULT(GETDATE())
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     EXEC sp_executesql @insert_sql ;
 
     SET @insert_sql =N' IF EXISTS(SELECT * FROM '
-          + @output_database_name
+          + @OutputDatabaseName
           + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-          + @output_schema_name + N''') '
+          + @OutputSchemaName + N''') '
           + 'INSERT '
-          + @output_database_name + '.'
-          + @output_schema_name + '.'
-          + @output_table_name
-          + N' (ServerName, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+          + @OutputDatabaseName + '.'
+          + @OutputSchemaName + '.'
+          + @OutputTableName
+          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory) '
-          + N'SELECT TOP (@top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', '
+          + N'SELECT TOP (@Top) '
+          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
@@ -2043,7 +1944,7 @@ BEGIN
           + N' SerialRequiredMemory, SerialDesiredMemory '
           + N' FROM ##bou_BlitzCacheProcs '
           
-    SELECT @insert_sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
                                                     WHEN 'reads' THEN ' TotalReads '
                                                     WHEN 'writes' THEN ' TotalWrites '
                                                     WHEN 'duration' THEN ' TotalDuration '
@@ -2058,11 +1959,11 @@ BEGIN
 
     SET @insert_sql += N' OPTION (RECOMPILE) ; '    
     
-    EXEC sp_executesql @insert_sql, N'@top INT', @top;
+    EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
 
     RETURN
 END
-ELSE IF @export_to_excel = 1
+ELSE IF @ExportToExcel = 1
 BEGIN
     RAISERROR('Displaying results with Excel formatting (no plans).', 0, 1) WITH NOWAIT;
 
@@ -2071,7 +1972,7 @@ BEGIN
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000);
 
     SET @sql = N'
-    SELECT  TOP (@top)
+    SELECT  TOP (@Top)
             DatabaseName AS [Database Name],
             QueryPlanCost AS [Cost],
             QueryText,
@@ -2115,7 +2016,7 @@ BEGIN
     FROM    ##bou_BlitzCacheProcs
     WHERE   1 = 1 ' + @nl
 
-    SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
+    SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
                               WHEN 'reads' THEN ' TotalReads '
                               WHEN 'writes' THEN ' TotalWrites '
                               WHEN 'duration' THEN ' TotalDuration '
@@ -2130,12 +2031,156 @@ BEGIN
 
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql, N'@top INT', @top ;
+    EXEC sp_executesql @sql, N'@Top INT', @Top ;
 END
 
-IF @hide_summary = 0
+
+RAISERROR('Displaying analysis of plan cache.', 0, 1) WITH NOWAIT;
+
+DECLARE @columns NVARCHAR(MAX) = N'' ;
+
+IF @ExpertMode = 0
 BEGIN
-    IF @reanalyze = 0
+    SET @columns = N' DatabaseName AS [Database],
+    QueryPlanCost AS [Cost],
+    QueryText AS [Query Text],
+    QueryType AS [Query Type],
+    Warnings AS [Warnings],
+    ExecutionCount AS [# Executions],
+    ExecutionsPerMinute AS [Executions / Minute],
+    PercentExecutions AS [Execution Weight],
+    TotalCPU AS [Total CPU (ms)],
+    AverageCPU AS [Avg CPU (ms)],
+    PercentCPU AS [CPU Weight],
+    TotalDuration AS [Total Duration (ms)],
+    AverageDuration AS [Avg Duration (ms)],
+    PercentDuration AS [Duration Weight],
+    TotalReads AS [Total Reads],
+    AverageReads AS [Avg Reads],
+    PercentReads AS [Read Weight],
+    TotalWrites AS [Total Writes],
+    AverageWrites AS [Avg Writes],
+    PercentWrites AS [Write Weight],
+    AverageReturnedRows AS [Average Rows],
+    PlanCreationTime AS [Created At],
+    LastExecutionTime AS [Last Execution],
+    QueryPlan AS [Query Plan],
+    COALESCE(SetOptions, '''') AS [SET Options] ';
+END
+ELSE
+BEGIN
+    SET @columns = N' DatabaseName AS [Database],
+        QueryText AS [Query Text],
+        QueryType AS [Query Type],
+        Warnings AS [Warnings], ' + @nl
+
+    IF @ExpertMode = 2 /* Opserver */
+    BEGIN
+        SET @columns += '        SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
+                  CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
+                  CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
+                  CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
+                  CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
+                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
+                  CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
+                  CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
+                  CASE WHEN is_cursor = 1 THEN '', 4'' ELSE '''' END +
+                  CASE WHEN is_parallel = 1 THEN '', 6'' ELSE '''' END +
+                  CASE WHEN near_parallel = 1 THEN '', 7'' ELSE '''' END +
+                  CASE WHEN frequent_execution = 1 THEN '', 1'' ELSE '''' END +
+                  CASE WHEN plan_warnings = 1 THEN '', 8'' ELSE '''' END +
+                  CASE WHEN parameter_sniffing = 1 THEN '', 2'' ELSE '''' END +
+                  CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
+                  CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
+                  CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
+                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
+                  CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
+                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
+                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
+				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
+                  CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
+				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
+				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
+				  , 2, 200000) AS opserver_warning , ' + @nl ;
+    END
+    
+    SET @columns += N'        ExecutionCount AS [# Executions],
+        ExecutionsPerMinute AS [Executions / Minute],
+        PercentExecutions AS [Execution Weight],
+        SerialDesiredMemory AS [Serial Desired Memory],
+        SerialRequiredMemory AS [Serial Required Memory],
+        TotalCPU AS [Total CPU (ms)],
+        AverageCPU AS [Avg CPU (ms)],
+        PercentCPU AS [CPU Weight],
+        TotalDuration AS [Total Duration (ms)],
+        AverageDuration AS [Avg Duration (ms)],
+        PercentDuration AS [Duration Weight],
+        TotalReads AS [Total Reads],
+        AverageReads AS [Average Reads],
+        PercentReads AS [Read Weight],
+        TotalWrites AS [Total Writes],
+        AverageWrites AS [Average Writes],
+        PercentWrites AS [Write Weight],
+        PercentExecutionsByType AS [% Executions (Type)],
+        PercentCPUByType AS [% CPU (Type)],
+        PercentDurationByType AS [% Duration (Type)],
+        PercentReadsByType AS [% Reads (Type)],
+        PercentWritesByType AS [% Writes (Type)],
+        TotalReturnedRows AS [Total Rows],
+        AverageReturnedRows AS [Avg Rows],
+        MinReturnedRows AS [Min Rows],
+        MaxReturnedRows AS [Max Rows],
+        NumberOfPlans AS [# Plans],
+        NumberOfDistinctPlans AS [# Distinct Plans],
+        PlanCreationTime AS [Created At],
+        LastExecutionTime AS [Last Execution],
+        QueryPlanCost AS [Query Plan Cost],
+        QueryPlan AS [Query Plan],
+        CachedPlanSize AS [Cached Plan Size (KB)],
+        CompileTime AS [Compile Time (ms)],
+        CompileCPU AS [Compile CPU (ms)],
+        CompileMemory AS [Compile memory (KB)],
+        COALESCE(SetOptions, '''') AS [SET Options],
+        PlanHandle AS [Plan Handle],
+        SqlHandle AS [SQL Handle],
+        QueryHash AS [Query Hash],
+        QueryPlanHash AS [Query Plan Hash],
+        StatementStartOffset,
+        StatementEndOffset ';
+END
+
+
+
+SET @sql = N'
+SELECT  TOP (@Top) ' + @columns + @nl + N'
+FROM    ##bou_BlitzCacheProcs
+WHERE   SPID = @spid ' + @nl
+
+SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
+                                                WHEN 'reads' THEN ' TotalReads '
+                                                WHEN 'writes' THEN ' TotalWrites '
+                                                WHEN 'duration' THEN ' TotalDuration '
+                                                WHEN 'executions' THEN ' ExecutionCount '
+                                                WHEN 'compiles' THEN ' PlanCreationTime '
+                                                WHEN 'avg cpu' THEN 'AverageCPU'
+                                                WHEN 'avg reads' THEN 'AverageReads'
+                                                WHEN 'avg writes' THEN 'AverageWrites'
+                                                WHEN 'avg duration' THEN 'AverageDuration'
+                                                WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+                               END + N' DESC '
+SET @sql += N' OPTION (RECOMPILE) ; '
+
+
+EXEC sp_executesql @sql, N'@Top INT, @spid INT', @Top, @@SPID ;
+
+
+IF @HideSummary = 0 AND @ExportToExcel = 0
+BEGIN
+    IF @Reanalyze = 0
     BEGIN
         RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
@@ -2475,9 +2520,6 @@ BEGIN
 	
 	END            
     
-    IF @export_to_excel = 1
-        RETURN
-
     SELECT  Priority,
             FindingsGroup,
             Finding,
@@ -2497,166 +2539,7 @@ BEGIN
 END
 
 
-
-RAISERROR('Displaying analysis of plan cache.', 0, 1) WITH NOWAIT;
-
-DECLARE @columns NVARCHAR(MAX) = N'' ;
-
-IF LOWER(@results) = 'narrow'
-BEGIN
-    SET @columns = N' DatabaseName AS [Database],
-    QueryPlanCost AS [Cost],
-    QueryText AS [Query Text],
-    QueryType AS [Query Type],
-    Warnings AS [Warnings],
-    ExecutionCount AS [# Executions],
-    AverageCPU AS [Average CPU (ms)],
-    AverageDuration AS [Average Duration (ms)],
-    AverageReads AS [Average Reads],
-    AverageWrites AS [Average Writes],
-    AverageReturnedRows AS [Average Rows Returned],
-    PlanCreationTime AS [Created At],
-    LastExecutionTime AS [Last Execution],
-    QueryPlan AS [Query] ';
 END
-ELSE IF LOWER(@results) = 'simple'
-BEGIN
-    SET @columns = N' DatabaseName AS [Database],
-    QueryPlanCost AS [Cost],
-    QueryText AS [Query Text],
-    QueryType AS [Query Type],
-    Warnings AS [Warnings],
-    ExecutionCount AS [# Executions],
-    ExecutionsPerMinute AS [Executions / Minute],
-    PercentExecutions AS [Execution Weight],
-    TotalCPU AS [Total CPU (ms)],
-    AverageCPU AS [Avg CPU (ms)],
-    PercentCPU AS [CPU Weight],
-    TotalDuration AS [Total Duration (ms)],
-    AverageDuration AS [Avg Duration (ms)],
-    PercentDuration AS [Duration Weight],
-    TotalReads AS [Total Reads],
-    AverageReads AS [Avg Reads],
-    PercentReads AS [Read Weight],
-    TotalWrites AS [Total Writes],
-    AverageWrites AS [Avg Writes],
-    PercentWrites AS [Write Weight],
-    AverageReturnedRows AS [Average Rows],
-    PlanCreationTime AS [Created At],
-    LastExecutionTime AS [Last Execution],
-    QueryPlan AS [Query Plan],
-    COALESCE(SetOptions, '''') AS [SET Options] ';
-END
-ELSE
-BEGIN
-    SET @columns = N' DatabaseName AS [Database],
-        QueryText AS [Query Text],
-        QueryType AS [Query Type],
-        Warnings AS [Warnings], ' + @nl
-
-    IF LOWER(@results) = 'opserver1'
-    BEGIN
-        SET @columns += '        SUBSTRING(
-                  CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
-                  CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
-                  CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
-                  CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
-                  CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
-                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
-                  CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
-                  CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
-                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
-                  CASE WHEN is_cursor = 1 THEN '', 4'' ELSE '''' END +
-                  CASE WHEN is_parallel = 1 THEN '', 6'' ELSE '''' END +
-                  CASE WHEN near_parallel = 1 THEN '', 7'' ELSE '''' END +
-                  CASE WHEN frequent_execution = 1 THEN '', 1'' ELSE '''' END +
-                  CASE WHEN plan_warnings = 1 THEN '', 8'' ELSE '''' END +
-                  CASE WHEN parameter_sniffing = 1 THEN '', 2'' ELSE '''' END +
-                  CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
-                  CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
-                  CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
-                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
-                  CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
-                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
-                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
-                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
-				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
-                  CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
-				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
-				  , 2, 200000) AS opserver_warning , ' + @nl ;
-    END
-    
-    SET @columns += N'        ExecutionCount AS [# Executions],
-        ExecutionsPerMinute AS [Executions / Minute],
-        PercentExecutions AS [Execution Weight],
-        SerialDesiredMemory AS [Serial Desired Memory],
-        SerialRequiredMemory AS [Serial Required Memory],
-        TotalCPU AS [Total CPU (ms)],
-        AverageCPU AS [Avg CPU (ms)],
-        PercentCPU AS [CPU Weight],
-        TotalDuration AS [Total Duration (ms)],
-        AverageDuration AS [Avg Duration (ms)],
-        PercentDuration AS [Duration Weight],
-        TotalReads AS [Total Reads],
-        AverageReads AS [Average Reads],
-        PercentReads AS [Read Weight],
-        TotalWrites AS [Total Writes],
-        AverageWrites AS [Average Writes],
-        PercentWrites AS [Write Weight],
-        PercentExecutionsByType AS [% Executions (Type)],
-        PercentCPUByType AS [% CPU (Type)],
-        PercentDurationByType AS [% Duration (Type)],
-        PercentReadsByType AS [% Reads (Type)],
-        PercentWritesByType AS [% Writes (Type)],
-        TotalReturnedRows AS [Total Rows],
-        AverageReturnedRows AS [Avg Rows],
-        MinReturnedRows AS [Min Rows],
-        MaxReturnedRows AS [Max Rows],
-        NumberOfPlans AS [# Plans],
-        NumberOfDistinctPlans AS [# Distinct Plans],
-        PlanCreationTime AS [Created At],
-        LastExecutionTime AS [Last Execution],
-        QueryPlanCost AS [Query Plan Cost],
-        QueryPlan AS [Query Plan],
-        CachedPlanSize AS [Cached Plan Size (KB)],
-        CompileTime AS [Compile Time (ms)],
-        CompileCPU AS [Compile CPU (ms)],
-        CompileMemory AS [Compile memory (KB)],
-        COALESCE(SetOptions, '''') AS [SET Options],
-        PlanHandle AS [Plan Handle],
-        SqlHandle AS [SQL Handle],
-        QueryHash AS [Query Hash],
-        QueryPlanHash AS [Query Plan Hash],
-        StatementStartOffset,
-        StatementEndOffset ';
-END
-
-
-
-SET @sql = N'
-SELECT  TOP (@top) ' + @columns + @nl + N'
-FROM    ##bou_BlitzCacheProcs
-WHERE   SPID = @spid ' + @nl
-
-SELECT @sql += N' ORDER BY ' + CASE @sort_order WHEN 'cpu' THEN ' TotalCPU '
-                                                WHEN 'reads' THEN ' TotalReads '
-                                                WHEN 'writes' THEN ' TotalWrites '
-                                                WHEN 'duration' THEN ' TotalDuration '
-                                                WHEN 'executions' THEN ' ExecutionCount '
-                                                WHEN 'compiles' THEN ' PlanCreationTime '
-                                                WHEN 'avg cpu' THEN 'AverageCPU'
-                                                WHEN 'avg reads' THEN 'AverageReads'
-                                                WHEN 'avg writes' THEN 'AverageWrites'
-                                                WHEN 'avg duration' THEN 'AverageDuration'
-                                                WHEN 'avg executions' THEN 'ExecutionsPerMinute'
-                               END + N' DESC '
-SET @sql += N' OPTION (RECOMPILE) ; '
-
-
-EXEC sp_executesql @sql, N'@top INT, @spid INT', @top, @@SPID ;
-
 
 GO
 

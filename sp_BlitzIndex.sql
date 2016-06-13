@@ -14,134 +14,106 @@ GO
 
 ALTER PROCEDURE dbo.sp_BlitzIndex
     @DatabaseName NVARCHAR(128) = null, /*Defaults to current DB if not specified*/
-    @Mode tinyint=0, /*0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details*/
     @SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
     @TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
+    @Mode tinyint=0, /*0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details*/
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter tinyint = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
     @GetAllDatabases BIT = 0,
     @BringThePain bit = 0,
-    @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */
-/*
-sp_BlitzIndex(R) Mar 20, 2016 (v3.0)
-
-(C) 2016, Brent Ozar Unlimited(R). 
-See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
-
-For help and how-to info, visit http://www.BrentOzar.com/BlitzIndex
-
-How to use:
---    Diagnose:
-        EXEC dbo.sp_BlitzIndex @DatabaseName='AdventureWorks';
---    Return detail for a specific table:
-        EXEC dbo.sp_BlitzIndex @DatabaseName='AdventureWorks', @SchemaName='Person', @TableName='Person';
-
-Known limitations of this version:
- - Does not include FULLTEXT indexes. (A possibility in the future, let us know if you're interested.)
- - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
- --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it's important for the user to understand if it's going to be offline and not just run a script.
- --        Example 2: they do not include all the options the index may have been created with (padding, compression filegroup/partition scheme etc.)
- --        (The compression and filegroup index create syntax isn't trivial because it's set at the partition level and isn't trivial to code. Two people have voted for wanting it so far.)
- - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
- - Found something? Let us know at help@brentozar.com.
-
- Thanks for using sp_BlitzIndex(R)!
- Sincerely,
- The Humans of Brent Ozar Unlimited(R)
-
-CHANGE LOG :
-    Mar 20, 2016 (3.0)
-        Prioritized results
-        Moved URL to near the end of columns
-        Added 100k/day minimum benefit to high-value missing index recs
-        Expanded avg query cost on missing indexes to 4 decimal places
-        Formatted number of uses on missing indexes to use commas (money format)
-        Changed benefit formula to divide benefit number by uptime
-        When using either @Mode = 0 or @GetAllDatabases = 1, results are limited to:
-         *    Duplicate indexes where both are larger than @ThresholdMB
-         *    Blocking with a high threshold ( TBD)
-         *    Unread indexes larger than @ThresholdMB
-         *    Heaps larger than @ThresholdMB with updates or deletes
-         *    Identities about to run out of room
-         *    The top 20 missing indexes
-         *    Abnormal psychology stuff (as an FYI for query / index tuning)
-        Running @GetAllDatabases requires an override parameter (@BringThePain = 1) to run against 50+ databases
-
-    June 24, 2015 (v2.03)
-        Updated documentation to show we have a registered trademark. Thanks Post Office!
-    Jan 30, 2014 (v2.02)
-        Standardized calling parameters with sp_AskBrent(R) and sp_BlitzIndex(R). (@DatabaseName instead of @database_name, etc)
-        Added check_id 80 and 81-- what appear to be the most frequently used indexes (workaholics)
-        Added index_operational_stats info to table level output -- recent scans vs lookups
-        Broke index_usage_stats output into two categories, scans and lookups (also in table level output)
-        Changed db name, table name, index name to 128 length
-        Fixed findings_group column length in #BlitzIndexResults (fixed issues for users w/ longer db names)
-        Fixed issue where identities nearing end of range were only detected if the check was run with a specific db context
-            Fixed extra tab in @SchemaName= that made pasting into Excel awkward/wrong
-        Added abnormal psychology check for clustered columnstore indexes (and general support for detecting them)
-        Standardized underscores in create TSQL for missing indexes
-        Better error message when running in table mode and the table isn't found.
-        Added current timestamp to the header based on user request. (Didn't add startup time-- sorry! Too many things reset usage info, don't want to mislead anyone.)
-        Added fillfactor to index create statements.
-        Changed all index create statements to ONLINE=?, SORT_IN_TEMPDB=?. The user should decide at index create time what's right for them.
-    May 26, 2013 (v2.01)
-        Added check_id 28: Non-unqiue clustered indexes. (This should have been checked in for an earlier version, it slipped by).
-    May 14, 2013 (v2.0) - Added data types and max length to all columns (keys, includes, secret columns)
-        Set sp_blitz to default to current DB if database_name is not specified when called
-        Added @Filter:  
-            0=no filter (default)
-            1=Don't throw low-usage warnings for objects with 0 reads (helpful for dev/non-production environments)
-            2=Only report on objects >= 250MB (helps focus on larger indexes). Still runs a few database-wide checks as well.
-        Added list of all columns and types in table for runs using: @DatabaseName, @SchemaName, @TableName
-        Added count of total number of indexes a column is part of.
-        Added check_id 25: Addicted to nullable columns. (All or all but one column is nullable.)
-        Added check_id 66 and 67 to flag tables/indexes created within 1 week or modified within 48 hours.
-        Added check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).
-        Added check_id 27: Addicted to strings. Looks for tables with 4 or more columns, of which all or all but one are string or LOB types.
-        Added check_id 68: Identity columns within 30% of the end of range (tinyint, smallint, int) AND
-            Negative identity seeds or identity increments <> 1
-        Added check_id 69: Column collation does not match database collation
-        Added check_id 70: Replicated columns. This identifies which columns are in at least one replication publication.
-        Added check_id 71: Cascading updates or cascading deletes.
-        Split check_id 40 into two checks: fillfactor on nonclustered indexes < 80%, fillfactor on clustered indexes < 90%
-        Added check_id 33: Potential filtered indexes based on column names.
-        Fixed bug where you couldn't see detailed view for indexed views. 
-            (Ex: EXEC dbo.sp_BlitzIndex @DatabaseName='AdventureWorks', @SchemaName='Production', @TableName='vProductAndDescription';)
-        Added four index usage columns to table detail output: last_user_seek, last_user_scan, last_user_lookup, last_user_update
-        Modified check_id 24. This now looks for wide clustered indexes (> 3 columns OR > 16 bytes).
-            Previously just simplistically looked for multiple column CX.
-        Removed extra spacing (non-breaking) in more_info column.
-        Fixed bug where create t-sql didn't include filter (for filtered indexes)
-        Fixed formatting bug where "magic number" in table detail view didn't have commas
-        Neatened up column names in result sets.
-    April 8, 2013 (v1.5) - Fixed breaking bug for partitioned tables with > 10(ish) partitions
-        Added schema_name to suggested create statement for PKs
-        Handled "magic_benefit_number" values for missing indexes >= 922,337,203,685,477
-        Added count of NC indexes to Index Hoarder: Multi-column clustered index finding
-        Added link to EULA
-        Simplified aggressive index checks (blocking). Multiple checks confused people more than it helped.
-            Left only "Total lock wait time > 5 minutes (row + page)".
-        Added CheckId 25 for non-unique clustered indexes. 
-        The "Create TSQL" column now shows a commented out drop command for disabled non-clustered indexes
-        Updated query which joins to sys.dm_operational_stats DMV when running against 2012 for performance reasons
-    December 20, 2012 (v1.4) - Fixed bugs for instances using a case-sensitive collation
-        Added support to identify compressed indexes
-        Added basic support for columnstore, XML, and spatial indexes
-        Added "Abnormal Psychology" diagnosis to alert you to special index types in a database
-        Removed hypothetical indexes and disabled indexes from "multiple personality disorders"
-        Fixed bug where hypothetical indexes weren't showing up in "self-loathing indexes"
-        Fixed bug where the partitioning key column was displayed in the key of aligned nonclustered indexes on partitioned tables
-        Added set options to the script so procedure is created with required settings for its use of computed columns
-
-*/
-AS 
-
+    @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
+    @OutputServerName NVARCHAR(256) = NULL ,
+    @OutputDatabaseName NVARCHAR(256) = NULL ,
+    @OutputSchemaName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(256) = NULL ,
+	@Help TINYINT = 0,
+	@VersionDate DATETIME = NULL OUTPUT
+AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-
 DECLARE @Version VARCHAR(30);
-DECLARE @VersionDate DATETIME;
+SET @Version = '4.0';
+SET @VersionDate = '20160320';
+IF @Help = 1 PRINT '
+/*
+sp_BlitzIndex from http://FirstResponderKit.org
+	
+This script analyzes the design and performance of your indexes.
+
+To learn more, visit http://FirstResponderKit.org where you can download new
+versions for free, watch training videos on how it works, get more info on
+the findings, contribute your own code, and more.
+
+Known limitations of this version:
+ - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+ - The @OutputDatabaseName parameters are not functional yet. To check the
+   status of this enhancement request, visit:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/221
+ - Does not analyze columnstore, spatial, XML, or full text indexes. If you
+   would like to contribute code to analyze those, head over to Github and
+   check out the issues list: http://FirstResponderKit.org
+ - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
+ --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it is important 
+           for the user to understand if it is going to be offline and not just run a script.
+ --        Example 2: they do not include all the options the index may have been created with (padding, compression
+           filegroup/partition scheme etc.)
+ --        (The compression and filegroup index create syntax is not trivial because it is set at the partition 
+           level and is not trivial to code.)
+ - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
+
+Unknown limitations of this version:
+ - We knew them once, but we forgot.
+
+Changes in v4.0 - YYYY/MM/DD:
+ - BREAKING CHANGE: Standardized input & output parameters to be
+   consistent across the entire First Responder Kit. This also means the old
+   old output parameter @Version is no more, because we are switching to
+   semantic versioning. 	 
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+
+Changes in v3.0 - 2016/03/20:
+ - Prioritized results
+ - Moved URL to near the end of columns
+ - Added 100k/day minimum benefit to high-value missing index recs
+ - Expanded avg query cost on missing indexes to 4 decimal places
+ - Formatted number of uses on missing indexes to use commas (money format)
+ - Changed benefit formula to divide benefit number by uptime
+ - When using either @Mode = 0 or @GetAllDatabases = 1, results are limited to:
+    *    Duplicate indexes where both are larger than @ThresholdMB
+    *    Blocking with a high threshold ( TBD)
+    *    Unread indexes larger than @ThresholdMB
+    *    Heaps larger than @ThresholdMB with updates or deletes
+    *    Identities about to run out of room
+    *    The top 20 missing indexes
+    *    Abnormal psychology stuff (as an FYI for query / index tuning)
+ - Running @GetAllDatabases requires an override parameter (@BringThePain = 1) to run against 50+ databases
+
+MIT License
+
+Copyright (c) 2016 Brent Ozar Unlimited
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'
+
+
+
 DECLARE @DaysUptime NUMERIC(23,2);
 DECLARE @DatabaseID INT;
 DECLARE @ObjectID INT;
@@ -158,8 +130,6 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 
-SET @Version = '3.0';
-SET @VersionDate = '20160320';
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/

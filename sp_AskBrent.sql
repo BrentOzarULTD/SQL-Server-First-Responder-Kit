@@ -5,11 +5,13 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_AskBrent]
     @Question NVARCHAR(MAX) = NULL ,
-    @AsOf DATETIME = NULL ,
+    @Help TINYINT = 0 ,
+    @AsOf DATETIMEOFFSET = NULL ,
     @ExpertMode TINYINT = 0 ,
     @Seconds INT = 5 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
-    @OutputDatabaseName NVARCHAR(128) = NULL ,
+    @OutputServerName NVARCHAR(256) = NULL ,
+    @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputTableNameFileStats NVARCHAR(256) = NULL ,
@@ -17,88 +19,90 @@ ALTER PROCEDURE [dbo].[sp_AskBrent]
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
-    @SkipChecksQueries TINYINT = 1 ,
+    @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
-    @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SET @VersionDate = '20160427'
 
-/*
-sp_AskBrent (TM)
+IF @Help = 1 PRINT '
+sp_AskBrent from http://FirstResponderKit.org
+	
+This script gives you a prioritized list of why your SQL Server is slow right now.
 
-(C) 2016, Brent Ozar Unlimited.
-See http://www.BrentOzar.com/go/eula for the End User Licensing Agreement.
+This is not an overall health check - for that, check out sp_Blitz.
 
-Sure, the server needs tuning - but why is it slow RIGHT NOW?
-sp_AskBrent performs quick checks for things like:
-
-* Blocking queries that have been running a long time
-* Backups, restores, DBCCs
-* Recently cleared plan cache
-* Transactions that are rolling back
-
-To learn more, visit http://www.BrentOzar.com/askbrent/ where you can download
-new versions for free, watch training videos on how it works, get more info on
-the findings, and more.
+To learn more, visit http://FirstResponderKit.org where you can download new
+versions for free, watch training videos on how it works, get more info on
+the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - No support for SQL Server 2000 or compatibility mode 80.
+ - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000. It
+   may work just fine on 2005, and if it does, hug your parents. Just don''t
+   file support issues if it breaks.
  - If a temp table called #CustomPerfmonCounters exists for any other session,
    but not our session, this stored proc will fail with an error saying the
-   temp table #CustomPerfmonCounters doesn't exist.
+   temp table #CustomPerfmonCounters does not exist.
+ - @OutputServerName is not functional yet.
 
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
+
+Changes in v24 - YYYY/MM/DD
+ - BREAKING CHANGE: Standardized input & output parameters to be
+   consistent across the entire First Responder Kit. This also means the old
+   old output parameter @Version is no more, because we are switching to
+   semantic versioning. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+ - BREAKING CHANGE: The CheckDate field datatype is now DATETIMEOFFSET. This
+   makes it easier to combine results from multiple servers into one table even
+   when servers are in different data centers, different time zones. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
 
 Changes in v23 - April 27, 2016
  - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
 
  Changes in v22 - April 19, 2016
  - New @SinceStartup parameter. Defaults to 0. When turned on with 1, it sets
-   @Seconds = 0, @ExpertMode = 1, and skips results for what's running now and
+   @Seconds = 0, @ExpertMode = 1, and skips results for what is running now and
    the headline-news result set (the first two).
  - If @Seconds = 0, output waits in hours instead of seconds. This only changes
-   the onscreen results - it doesn't change the table results, because I don't
-   want to break existing table storage by changing output data.
+   the onscreen results - not the table results, because I try not to break the
+   existing table storage by changing output data.
  - Added wait time per core per second (or per hour) in the ExpertMode wait
    stats output.
 
-Changes in v21 - January 6, 2016
- - Big breaking change: the first result set now shows you what is running.
-   sp_AskBrent then takes another 5 seconds to do its sampling.
+MIT License
 
-Changes in v20 - January 1, 2016
- - Andy McAuley fixed a SQL Server 2005 compatibility bug.
- - Trevor Hawkins fixed a bug in the view creation for looking at historical
-   table captures.
- - Bug fixes.
+Copyright (c) 2016 Brent Ozar Unlimited
 
-Changes in v19 - October 6, 2015
- - If @OutputTable* parameters are populated, we also create a set of views to
-   query the output tables. The views have the same database/schema/name as the
-   output tables, and add _Delta as a suffix. Seriously, you do not want to see
-   how the dynamic SQL works: http://dba.stackexchange.com/questions/12127/
- - @OutputTable* was rounding times to minutes, which wasn't a problem before,
-   but now that we're more closely examining the output and using it for
-   trending, every second matters.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Changes in v18 - September 11, 2015
- - Bug fixes. No improvements, just bug fixes.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Changes in v17 - July 19, 2015
- - Improving Azure SQL Database compatibility. (I didn't say it was fully
-   compatible yet, I'm just saying it's more compatible than it was.)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-*/
+'
 
 
-SELECT @Version = 23, @VersionDate = '20160427'
-
+RAISERROR('Setting up configuration variables',10,1) WITH NOWAIT;
 DECLARE @StringToExecute NVARCHAR(4000),
     @ParmDefinitions NVARCHAR(4000),
     @Parm1 NVARCHAR(4000),
@@ -108,8 +112,9 @@ DECLARE @StringToExecute NVARCHAR(4000),
     @StockWarningFooter NVARCHAR(100),
     @StockDetailsHeader NVARCHAR(100),
     @StockDetailsFooter NVARCHAR(100),
-    @StartSampleTime DATETIME,
-    @FinishSampleTime DATETIME,
+    @StartSampleTime DATETIMEOFFSET,
+    @FinishSampleTime DATETIMEOFFSET,
+	@FinishSampleTimeWaitFor DATETIME,
     @ServiceName sysname,
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
@@ -130,8 +135,9 @@ SELECT
     @OutputTableNamePerfmonStats = QUOTENAME(@OutputTableNamePerfmonStats),
     @OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
     @LineFeed = CHAR(13) + CHAR(10),
-    @StartSampleTime = GETDATE(),
-    @FinishSampleTime = DATEADD(ss, @Seconds, GETDATE()),
+    @StartSampleTime = SYSDATETIMEOFFSET(),
+    @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
+	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
     @OurSessionID = @@SPID;
 
 
@@ -139,21 +145,20 @@ IF @SinceStartup = 1
     SELECT @Seconds = 0, @ExpertMode = 1;
 
 IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
-    SELECT @StartSampleTime = DATEADD(ms, AVG(-wait_time_ms), GETDATE()), @FinishSampleTime = GETDATE()
+    SELECT @StartSampleTime = DATEADD(ms, AVG(-wait_time_ms), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.dm_os_wait_stats w
         WHERE wait_type IN ('BROKER_TASK_STOP','DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
                             'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_DISPATCHER_WAIT','XE_TIMER_EVENT')
 ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
-    SELECT @StartSampleTime = create_date , @FinishSampleTime = GETDATE()
+    SELECT @StartSampleTime = create_date , @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.databases
         WHERE database_id = 2;
 ELSE
-    SELECT @StartSampleTime = GETDATE(), @FinishSampleTime = DATEADD(ss, @Seconds, GETDATE());
+    SELECT @StartSampleTime = SYSDATETIMEOFFSET(), @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET());
 
 IF @OutputType = 'SCHEMA'
 BEGIN
-    SELECT @Version AS Version,
-    FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [HowToStopIt] NVARCHAR(MAX), [QueryPlan] XML, [QueryText] NVARCHAR(MAX)'
+    SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [HowToStopIt] NVARCHAR(MAX), [QueryPlan] XML, [QueryText] NVARCHAR(MAX)'
 
 END
 ELSE IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
@@ -307,7 +312,7 @@ BEGIN
           HowToStopIt NVARCHAR(MAX) NULL,
           QueryPlan [XML] NULL,
           QueryText NVARCHAR(MAX) NULL,
-          StartTime DATETIME NULL,
+          StartTime DATETIMEOFFSET NULL,
           LoginName NVARCHAR(128) NULL,
           NTUserName NVARCHAR(128) NULL,
           OriginalLoginName NVARCHAR(128) NULL,
@@ -324,14 +329,14 @@ BEGIN
 
     IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL
         DROP TABLE #WaitStats;
-    CREATE TABLE #WaitStats (Pass TINYINT NOT NULL, wait_type NVARCHAR(60), wait_time_ms BIGINT, signal_wait_time_ms BIGINT, waiting_tasks_count BIGINT, SampleTime DATETIME);
+    CREATE TABLE #WaitStats (Pass TINYINT NOT NULL, wait_type NVARCHAR(60), wait_time_ms BIGINT, signal_wait_time_ms BIGINT, waiting_tasks_count BIGINT, SampleTime DATETIMEOFFSET);
 
     IF OBJECT_ID('tempdb..#FileStats') IS NOT NULL
         DROP TABLE #FileStats;
     CREATE TABLE #FileStats (
         ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
         Pass TINYINT NOT NULL,
-        SampleTime DATETIME NOT NULL,
+        SampleTime DATETIMEOFFSET NOT NULL,
         DatabaseID INT NOT NULL,
         FileID INT NOT NULL,
         DatabaseName NVARCHAR(256) ,
@@ -354,7 +359,7 @@ BEGIN
     CREATE TABLE #QueryStats (
         ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
         Pass INT NOT NULL,
-        SampleTime DATETIME NOT NULL,
+        SampleTime DATETIMEOFFSET NOT NULL,
         [sql_handle] VARBINARY(64),
         statement_start_offset INT,
         statement_end_offset INT,
@@ -367,7 +372,7 @@ BEGIN
         total_logical_reads BIGINT,
         total_clr_time BIGINT,
         total_elapsed_time BIGINT,
-        creation_time DATETIME,
+        creation_time DATETIMEOFFSET,
         query_hash BINARY(8),
         query_plan_hash BINARY(8),
         Points TINYINT
@@ -378,7 +383,7 @@ BEGIN
     CREATE TABLE #PerfmonStats (
         ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
         Pass TINYINT NOT NULL,
-        SampleTime DATETIME NOT NULL,
+        SampleTime DATETIMEOFFSET NOT NULL,
         [object_name] NVARCHAR(128) NOT NULL,
         [counter_name] NVARCHAR(128) NOT NULL,
         [instance_name] NVARCHAR(128) NULL,
@@ -456,7 +461,7 @@ BEGIN
         FROM sys.dm_os_performance_counters;
     ELSE
         BEGIN
-        SET @StringToExecute = 'INSERT INTO #PerfmonStats(object_name, Pass, SampleTime, counter_name, cntr_type) SELECT CASE WHEN @@SERVICENAME = ''MSSQLSERVER'' THEN ''SQLServer'' ELSE ''MSSQL$'' + @@SERVICENAME END, 0, GETDATE(), ''stuffing'', 0 ;'
+        SET @StringToExecute = 'INSERT INTO #PerfmonStats(object_name, Pass, SampleTime, counter_name, cntr_type) SELECT CASE WHEN @@SERVICENAME = ''MSSQLSERVER'' THEN ''SQLServer'' ELSE ''MSSQL$'' + @@SERVICENAME END, 0, SYSDATETIMEOFFSET(), ''stuffing'', 0 ;'
         EXEC(@StringToExecute);
         SELECT @ServiceName = object_name FROM #PerfmonStats;
         DELETE #PerfmonStats;
@@ -471,52 +476,56 @@ BEGIN
        this list to see what ran the most. */
 
     /* Populate #QueryStats. SQL 2005 doesn't have query hash or query plan hash. */
-    IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
-        BEGIN
-        IF @FilterPlansByDatabase IS NULL
-            BEGIN
-            SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
-                                        FROM sys.dm_exec_query_stats qs
-                                        WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
-            END
-        ELSE
-            BEGIN
-            SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
-                                        FROM sys.dm_exec_query_stats qs
-                                            CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
-                                            INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
-                                        WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()))
-                                            AND attr.attribute = ''dbid'';';
-            END
-        END
-    ELSE
-        BEGIN
-        IF @FilterPlansByDatabase IS NULL
-            BEGIN
-            SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
-                                        FROM sys.dm_exec_query_stats qs
-                                        WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()));';
-            END
-        ELSE
-            BEGIN
-            SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 1 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
-                                        FROM sys.dm_exec_query_stats qs
-                                        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
-                                        INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
-                                        WHERE qs.last_execution_time >= (DATEADD(ss, -10, GETDATE()))
-                                            AND attr.attribute = ''dbid'';';
-            END
-        END
-    IF @SkipChecksQueries = 0 EXEC(@StringToExecute);
+    IF @CheckProcedureCache = 1 
+	BEGIN
+		RAISERROR('@CheckProcedureCache = 1, capturing first pass of plan cache',10,1) WITH NOWAIT;
+		IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+			BEGIN
+			IF @FilterPlansByDatabase IS NULL
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 1 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											WHERE qs.last_execution_time >= (DATEADD(ss, -10, SYSDATETIMEOFFSET()));';
+				END
+			ELSE
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 1 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+												CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+												INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+											WHERE qs.last_execution_time >= (DATEADD(ss, -10, SYSDATETIMEOFFSET()))
+												AND attr.attribute = ''dbid'';';
+				END
+			END
+		ELSE
+			BEGIN
+			IF @FilterPlansByDatabase IS NULL
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 1 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											WHERE qs.last_execution_time >= (DATEADD(ss, -10, SYSDATETIMEOFFSET()));';
+				END
+			ELSE
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 1 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+											INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+											WHERE qs.last_execution_time >= (DATEADD(ss, -10, SYSDATETIMEOFFSET()))
+												AND attr.attribute = ''dbid'';';
+				END
+			END
+		EXEC(@StringToExecute);
 
-    /* Get the totals for the entire plan cache */
-    INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
-    SELECT -1 AS Pass, GETDATE(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
-        FROM sys.dm_exec_query_stats qs;
+		/* Get the totals for the entire plan cache */
+		INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
+		SELECT -1 AS Pass, SYSDATETIMEOFFSET(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
+			FROM sys.dm_exec_query_stats qs;
+    END /*IF @CheckProcedureCache = 1 */
 
 
     IF EXISTS (SELECT *
@@ -606,10 +615,11 @@ BEGIN
 
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
+	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
     SELECT
         1 AS Pass,
-        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE GETDATE() END AS SampleTime,
+        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
         os.wait_type,
         CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END as sum_wait_time_ms,
         CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END as sum_signal_wait_time_ms,
@@ -664,7 +674,7 @@ BEGIN
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
     SELECT
         1 AS Pass,
-        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE GETDATE() END AS SampleTime,
+        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
         mf.[database_id],
         mf.[file_id],
         DB_NAME(vfs.database_id) AS [db_name],
@@ -686,11 +696,15 @@ BEGIN
 
     INSERT INTO #PerfmonStats (Pass, SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
     SELECT         1 AS Pass,
-        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE GETDATE() END AS SampleTime, RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), CASE @Seconds WHEN 0 THEN 0 ELSE dmv.cntr_value END, dmv.cntr_type
+        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime, RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), CASE @Seconds WHEN 0 THEN 0 ELSE dmv.cntr_value END, dmv.cntr_type
         FROM #PerfmonCounters counters
         INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.counter_name) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS)
+
+
+	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
+
 
     /* Maintenance Tasks Running - Backup Running - CheckID 1 */
     IF @Seconds > 0
@@ -728,7 +742,7 @@ BEGIN
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
     BEGIN
-        SET @StringToExecute = 'UPDATE #AskBrentResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, GETDATE()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #AskBrentResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, GETDATE()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
+        SET @StringToExecute = 'UPDATE #AskBrentResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #AskBrentResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
         EXEC(@StringToExecute);
     END
 
@@ -863,11 +877,11 @@ BEGIN
     AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     LEFT OUTER JOIN sys.dm_exec_requests rBlocker ON tBlocked.blocking_session_id = rBlocker.session_id
       WHERE NOT EXISTS (SELECT * FROM sys.dm_os_waiting_tasks tBlocker WHERE tBlocker.session_id = tBlocked.blocking_session_id AND tBlocker.blocking_session_id IS NOT NULL)
-      AND s.last_request_start_time < DATEADD(SECOND, -30, GETDATE())
+      AND s.last_request_start_time < DATEADD(SECOND, -30, SYSDATETIMEOFFSET())
     */
 
     /* Query Problems - Plan Cache Erased Recently */
-    IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+    IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
         INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
@@ -916,7 +930,7 @@ BEGIN
     AND     request_status = N'GRANT'
     AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     WHERE s.status = 'sleeping'
-    AND s.last_request_end_time < DATEADD(ss, -10, GETDATE())
+    AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIMEOFFSET())
     AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
     AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
 
@@ -1028,17 +1042,22 @@ BEGIN
 
         END /* IF @Seconds < 30 */
 
+	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
+
 
     /* End of checks. If we haven't waited @Seconds seconds, wait. */
-    IF GETDATE() < @FinishSampleTime
-        WAITFOR TIME @FinishSampleTime;
+    IF SYSDATETIMEOFFSET() < @FinishSampleTime
+		BEGIN
+		RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
+        WAITFOR TIME @FinishSampleTimeWaitFor;
+		END
 
-
+	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
     SELECT
         2 AS Pass,
-        GETDATE() AS SampleTime,
+        SYSDATETIMEOFFSET() AS SampleTime,
         os.wait_type,
         SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) as sum_wait_time_ms,
         SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) as sum_signal_wait_time_ms,
@@ -1091,7 +1110,7 @@ BEGIN
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
     SELECT         2 AS Pass,
-        GETDATE() AS SampleTime,
+        SYSDATETIMEOFFSET() AS SampleTime,
         mf.[database_id],
         mf.[file_id],
         DB_NAME(vfs.database_id) AS [db_name],
@@ -1115,7 +1134,7 @@ BEGIN
 
     INSERT INTO #PerfmonStats (Pass, SampleTime, [object_name],[counter_name],[instance_name],[cntr_value],[cntr_type])
     SELECT         2 AS Pass,
-        GETDATE() AS SampleTime,
+        SYSDATETIMEOFFSET() AS SampleTime,
         RTRIM(dmv.object_name), RTRIM(dmv.counter_name), RTRIM(dmv.instance_name), dmv.cntr_value, dmv.cntr_type
         FROM #PerfmonCounters counters
         INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.counter_name) COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -1145,7 +1164,7 @@ BEGIN
 
 
     /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
-    IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0
+    IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
             INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -1153,30 +1172,79 @@ BEGIN
                 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
 
         END
-    ELSE /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
+    ELSE IF @CheckProcedureCache = 1
         BEGIN
 
 
+		RAISERROR('@CheckProcedureCache = 1, capturing second pass of plan cache',10,1) WITH NOWAIT;
+
         /* Populate #QueryStats. SQL 2005 doesn't have query hash or query plan hash. */
+		IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+			BEGIN
+			IF @FilterPlansByDatabase IS NULL
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											WHERE qs.last_execution_time >= @StartSampleTimeText;';
+				END
+			ELSE
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+												CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+												INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+											WHERE qs.last_execution_time >= @StartSampleTimeText
+												AND attr.attribute = ''dbid'';';
+				END
+			END
+		ELSE
+			BEGIN
+			IF @FilterPlansByDatabase IS NULL
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											WHERE qs.last_execution_time >= @StartSampleTimeText';
+				END
+			ELSE
+				BEGIN
+				SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
+											SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+											FROM sys.dm_exec_query_stats qs
+											CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS attr
+											INNER JOIN #FilterPlansByDatabase dbs ON CAST(attr.value AS INT) = dbs.DatabaseID
+											WHERE qs.last_execution_time >= @StartSampleTimeText
+												AND attr.attribute = ''dbid'';';
+				END
+			END
+		/* Old version pre-2016/06/13:
         IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
             SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
+                                        SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, NULL AS query_hash, NULL AS query_plan_hash, 0
                                         FROM sys.dm_exec_query_stats qs
                                         WHERE qs.last_execution_time >= @StartSampleTimeText;';
         ELSE
             SET @StringToExecute = N'INSERT INTO #QueryStats ([sql_handle], Pass, SampleTime, statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, Points)
-                                        SELECT [sql_handle], 2 AS Pass, GETDATE(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
+                                        SELECT [sql_handle], 2 AS Pass, SYSDATETIMEOFFSET(), statement_start_offset, statement_end_offset, plan_generation_num, plan_handle, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time, query_hash, query_plan_hash, 0
                                         FROM sys.dm_exec_query_stats qs
                                         WHERE qs.last_execution_time >= @StartSampleTimeText;';
+		*/
         SET @ParmDefinitions = N'@StartSampleTimeText NVARCHAR(100)';
-        SET @Parm1 = CONVERT(NVARCHAR(100), @StartSampleTime, 127);
+        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(@StartSampleTime AS DATETIME), 127);
+
         EXECUTE sp_executesql @StringToExecute, @ParmDefinitions, @StartSampleTimeText = @Parm1;
+
+		RAISERROR('@CheckProcedureCache = 1, totaling up plan cache metrics',10,1) WITH NOWAIT;
 
         /* Get the totals for the entire plan cache */
         INSERT INTO #QueryStats (Pass, SampleTime, execution_count, total_worker_time, total_physical_reads, total_logical_writes, total_logical_reads, total_clr_time, total_elapsed_time, creation_time)
-        SELECT 0 AS Pass, GETDATE(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
+        SELECT 0 AS Pass, SYSDATETIMEOFFSET(), SUM(execution_count), SUM(total_worker_time), SUM(total_physical_reads), SUM(total_logical_writes), SUM(total_logical_reads), SUM(total_clr_time), SUM(total_elapsed_time), MIN(creation_time)
             FROM sys.dm_exec_query_stats qs;
 
+
+		RAISERROR('@CheckProcedureCache = 1, so analyzing execution plans',10,1) WITH NOWAIT;
         /*
         Pick the most resource-intensive queries to review. Update the Points field
         in #QueryStats - if a query is in the top 10 for logical reads, CPU time,
@@ -1288,8 +1356,10 @@ BEGIN
             WHERE attr.attribute = 'dbid'
 
 
-        END /* IF DATEDIFF(ss, @FinishSampleTime, GETDATE()) > 10 AND @ExpertMode = 0 */
+        END /* IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1 */
 
+
+	RAISERROR('Analyzing changes between first and second passes of DMVs',10,1) WITH NOWAIT;
 
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
@@ -1527,6 +1597,8 @@ BEGIN
 
         END /* IF @Seconds < 30 */
 
+	RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
+
 
     /* If we didn't find anything, apologize. */
     IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE Priority < 250)
@@ -1543,9 +1615,9 @@ BEGIN
         VALUES  ( -1 ,
                   1 ,
                   'No Problems Found' ,
-                  'From Brent Ozar Unlimited' ,
-                  'http://www.BrentOzar.com/askbrent/' ,
-                  'Try running our more in-depth checks: http://www.BrentOzar.com/blitz/' + @LineFeed + 'or there may not be an unusual SQL Server performance problem. '
+                  'From Your Community Volunteers' ,
+                  'http://FirstResponderKit.org/' ,
+                  'Try running our more in-depth checks with sp_Blitz, or there may not be an unusual SQL Server performance problem. '
                 );
 
     END /*IF NOT EXISTS (SELECT * FROM #AskBrentResults) */
@@ -1562,9 +1634,9 @@ BEGIN
         VALUES  ( -1 ,
                   255 ,
                   'Thanks!' ,
-                  'From Brent Ozar Unlimited' ,
-                  'http://www.BrentOzar.com/askbrent/' ,
-                  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com. '
+                  'From Your Community Volunteers' ,
+                  'http://FirstResponderKit.org/' ,
+                  'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
                 );
 
         INSERT  INTO #AskBrentResults
@@ -1578,14 +1650,14 @@ BEGIN
                 )
         VALUES  ( -1 ,
                   0 ,
-                  'sp_AskBrent (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
-                  'From Brent Ozar Unlimited' ,
-                  'http://www.BrentOzar.com/askbrent/' ,
-                  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+                  'sp_AskBrent ' + CAST(CONVERT(DATETIMEOFFSET, @VersionDate, 102) AS VARCHAR(100)),
+                  'From Your Community Volunteers' ,
+                  'http://FirstResponderKit.org/' ,
+                  'We hope you found this tool useful.'
                 );
 
                 /* Outdated sp_AskBrent - sp_AskBrent is Over 6 Months Old */
-                IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
+                IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
                         INSERT  INTO #AskBrentResults
                                 ( CheckID ,
@@ -1599,7 +1671,7 @@ BEGIN
                                         0 AS Priority ,
                                         'Outdated sp_AskBrent' AS FindingsGroup ,
                                         'sp_AskBrent is Over 6 Months Old' AS Finding ,
-                                        'http://www.BrentOzar.com/askbrent/' AS URL ,
+                                        'http://FirstResponderKit.org/' AS URL ,
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_AskBrent is not one of those things - time to go download the current one.' AS Details
                     END
 
@@ -1629,8 +1701,7 @@ BEGIN
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
-                AskBrentVersion INT,
+                CheckDate DATETIMEOFFSET,
                 CheckID INT NOT NULL,
                 Priority TINYINT NOT NULL,
                 FindingsGroup VARCHAR(50) NOT NULL,
@@ -1640,7 +1711,7 @@ BEGIN
                 HowToStopIt [XML] NULL,
                 QueryPlan [XML] NULL,
                 QueryText NVARCHAR(MAX) NULL,
-                StartTime DATETIME NULL,
+                StartTime DATETIMEOFFSET NULL,
                 LoginName NVARCHAR(128) NULL,
                 NTUserName NVARCHAR(128) NULL,
                 OriginalLoginName NVARCHAR(128) NULL,
@@ -1660,10 +1731,9 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
+            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', ' + CAST(@Version AS NVARCHAR(128))
-            + ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1674,8 +1744,7 @@ BEGIN
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
-                AskBrentVersion INT,
+                CheckDate DATETIMEOFFSET,
                 CheckID INT NOT NULL,
                 Priority TINYINT NOT NULL,
                 FindingsGroup VARCHAR(50) NOT NULL,
@@ -1685,7 +1754,7 @@ BEGIN
                 HowToStopIt [XML] NULL,
                 QueryPlan [XML] NULL,
                 QueryText NVARCHAR(MAX) NULL,
-                StartTime DATETIME NULL,
+                StartTime DATETIMEOFFSET NULL,
                 LoginName NVARCHAR(128) NULL,
                 NTUserName NVARCHAR(128) NULL,
                 OriginalLoginName NVARCHAR(128) NULL,
@@ -1698,10 +1767,9 @@ BEGIN
                 CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableName
-            + ' (ServerName, CheckDate, AskBrentVersion, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
+            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', ' + CAST(@Version AS NVARCHAR(128))
-            + ', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -1734,7 +1802,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 DatabaseID INT NOT NULL,
                 FileID INT NOT NULL,
                 DatabaseName NVARCHAR(256) ,
@@ -1799,7 +1867,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 DatabaseID INT NOT NULL,
                 FileID INT NOT NULL,
                 DatabaseName NVARCHAR(256) ,
@@ -1854,7 +1922,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 [object_name] NVARCHAR(128) NOT NULL,
                 [counter_name] NVARCHAR(128) NOT NULL,
                 [instance_name] NVARCHAR(128) NULL,
@@ -1908,7 +1976,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 [object_name] NVARCHAR(128) NOT NULL,
                 [counter_name] NVARCHAR(128) NOT NULL,
                 [instance_name] NVARCHAR(128) NULL,
@@ -1956,7 +2024,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 wait_type NVARCHAR(60),
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
@@ -2007,7 +2075,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
                 ServerName NVARCHAR(128),
-                CheckDate DATETIME,
+                CheckDate DATETIMEOFFSET,
                 wait_type NVARCHAR(60),
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
@@ -2400,7 +2468,6 @@ BEGIN
     INSERT INTO #BrentAnswers VALUES ('Have you tried adding an index?');
     INSERT INTO #BrentAnswers VALUES ('Have you tried dropping an index?');
     INSERT INTO #BrentAnswers VALUES ('You can''t prove anything.');
-    INSERT INTO #BrentAnswers VALUES ('If you watched our Tuesday webcasts, you''d already know the answer to that.');
     INSERT INTO #BrentAnswers VALUES ('Please phrase the question in the form of an answer.');
     INSERT INTO #BrentAnswers VALUES ('Outlook not so good. Access even worse.');
     INSERT INTO #BrentAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
@@ -2414,7 +2481,6 @@ BEGIN
     INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
     INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
     INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
-    INSERT INTO #BrentAnswers VALUES ('What do I look like, a Microsoft Certified Master? Oh, wait...');
     INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
     INSERT INTO #BrentAnswers VALUES ('Have you tried restoring TempDB?');
     SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
