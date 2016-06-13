@@ -3,9 +3,9 @@
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
 * When you want an overall health check, run [sp_Blitz](#sp_blitz-overall-health-check).
-* To learn which queries have been using the most resources, run [sp_BlitzCache](sp_blitzcache-find-the-most-resource-intensive-queries).
-* To analyze which indexes are missing or slowing you down, run [sp_BlitzIndex](sp_blitzindex-tune-your-indexes).
-* To find out why the server is slow right now, run [sp_AskBrent](sp_askbrent-real-time-performance-advice).
+* To learn which queries have been using the most resources, run [sp_BlitzCache](#sp_blitzcache-find-the-most-resource-intensive-queries).
+* To analyze which indexes are missing or slowing you down, run [sp_BlitzIndex](#sp_blitzindex-tune-your-indexes).
+* To find out why the server is slow right now, run [sp_AskBrent](#sp_askbrent-real-time-performance-advice).
 
 To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/zipball/master), then run the SQL files in the master database. (You can use other databases if you prefer.)
 
@@ -23,6 +23,7 @@ Got a feature request? [Open a Github issue.](https://github.com/BrentOzarULTD/S
 
 Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now:
 
+![sp_Blitz](http://u.brentozar.com/github-images/sp_Blitz.png)
 
 Output columns include:
 
