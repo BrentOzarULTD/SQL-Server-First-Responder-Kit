@@ -15,35 +15,29 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @SkipChecksTable NVARCHAR(256) = NULL ,
     @IgnorePrioritiesBelow INT = NULL ,
     @IgnorePrioritiesAbove INT = NULL ,
-    @OutputDatabaseName NVARCHAR(128) = NULL ,
+	@OutputServerName NVARCHAR(256) = NULL ,
+    @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @EmailRecipients VARCHAR(MAX) = NULL ,
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
-	@BringThePain TINYINT = 0 ,
+    @BringThePain TINYINT = 0 ,
     @Help TINYINT = 0 ,
-    @Version INT = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SELECT @Version = 52, @VersionDate = '20160602'
+	SET @VersionDate = '20160602'
 
 	IF @Help = 1 PRINT '
 	/*
-	sp_Blitz (TM) v52 - 2016/06/02
+	sp_Blitz from http://FirstResponderKit.org
 
-	(C) 2016, Brent Ozar Unlimited.
-	See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
-
-	To learn more, visit http://www.BrentOzar.com/blitz where you can download
-	new versions for free, watch training videos on how it works, get more info on
-	the findings, and more.
-
-	To request a feature or change: http://support.brentozar.com/
-	To contribute code: http://www.brentozar.com/contributing-code/
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
 	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
@@ -54,6 +48,14 @@ AS
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes in v53 - YYYY/MM/DD
+	  - BREAKING CHANGE: Standardized input & output parameters to be
+         consistent across the entire First Responder Kit. This also means the old
+         old output parameter @Version is no more, because we are switching to
+         semantic versioning. 	 
+	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+
 
      Changes in v52 - 2016/06/02
 	  - SQL Server 2016 compatibility. 2016 RTM ships with some questionable
@@ -104,8 +106,7 @@ AS
 	*/'
 	ELSE IF @OutputType = 'SCHEMA'
 	BEGIN
-		SELECT @Version AS Version,
-		FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT'
+		SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT'
 
 	END
 	ELSE /* IF @OutputType = 'SCHEMA' */
@@ -120,9 +121,7 @@ AS
 
 		#BlitzResults has a CheckID field, but there's no Check table. As we do
 		checks, we insert data into this table, and we manually put in the CheckID.
-		We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
-		download that from http://www.BrentOzar.com/blitz/documentation/ - you'll
-		see why it can help shortly.
+		For a list of checks, visit http://FirstResponderKit.org.
 		*/
 		DECLARE @StringToExecute NVARCHAR(4000)
 			,@curr_tracefilename NVARCHAR(500)
@@ -5574,9 +5573,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				VALUES  ( -1 ,
 						  255 ,
 						  'Thanks!' ,
-						  'From Brent Ozar Unlimited' ,
-						  'http://www.BrentOzar.com/blitz/' ,
-						  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+						  'From Your Community Volunteers' ,
+						  'http://FirstResponderKit.org' ,
+						  'We hope you found this tool useful.'
 						);
 
 				INSERT  INTO #BlitzResults
@@ -5590,10 +5589,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 						)
 				VALUES  ( -1 ,
 						  0 ,
-						  'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
-						  'From Brent Ozar Unlimited' ,
-						  'http://www.BrentOzar.com/blitz/' ,
-						  'Thanks from the Brent Ozar Unlimited team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+						  'sp_Blitz ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
+						  'SQL Server First Responder Kit' ,
+						  'http://FirstResponderKit.org/' ,
+						  'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
 
 						);
 
@@ -5610,7 +5609,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 						  254 ,
 						  'Rundate' ,
 						  GETDATE() ,
-						  'http://www.BrentOzar.com/blitz/' ,
+						  'http://FirstResponderKit.org/' ,
 						  'Captain''s log: stardate something and something...';
 						  
 				IF @EmailRecipients IS NOT NULL
@@ -5620,8 +5619,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					SELECT * INTO ##BlitzResults FROM #BlitzResults;
 					SET @query_result_separator = char(9);
 					SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup, Finding, Details; SET NOCOUNT OFF;';
-					SET @EmailSubject = 'sp_Blitz (TM) Results for ' + @@SERVERNAME;
-					SET @EmailBody = 'sp_Blitz (TM) v' + CAST(@Version AS VARCHAR(20)) + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. From Brent Ozar Unlimited: http://www.BrentOzar.com/blitz/';
+					SET @EmailSubject = 'sp_Blitz Results for ' + @@SERVERNAME;
+					SET @EmailBody = 'sp_Blitz ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. http://FirstResponderKit.org';
 					IF @EmailProfile IS NULL
 						EXEC msdb.dbo.sp_send_dbmail
 							@recipients = @EmailRecipients,
@@ -5677,7 +5676,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
 								ServerName NVARCHAR(128),
 								CheckDate DATETIME,
-								BlitzVersion INT,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
 								Finding VARCHAR(200) ,
@@ -5696,10 +5694,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ @OutputDatabaseName + '.'
 							+ @OutputSchemaName + '.'
 							+ @OutputTableName
-							+ ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-							+ ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+							+ ''', GETDATE(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
 						EXEC(@StringToExecute);
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -5712,7 +5709,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
 								ServerName NVARCHAR(128),
 								CheckDate DATETIME,
-								BlitzVersion INT,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
 								Finding VARCHAR(200) ,
@@ -5725,10 +5721,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
 							+ ' INSERT '
 							+ @OutputTableName
-							+ ' (ServerName, CheckDate, BlitzVersion, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', GETDATE(), ' + CAST(@Version AS NVARCHAR(128))
-							+ ', CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+							+ ''', GETDATE(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
 						EXEC(@StringToExecute);
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
