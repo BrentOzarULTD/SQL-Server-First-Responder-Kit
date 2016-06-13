@@ -3,9 +3,9 @@
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
 * When you want an overall health check, run [sp_Blitz](#sp_blitz-overall-health-check).
-* To learn which queries have been using the most resources, run sp_BlitzCache.
-* To analyze which indexes are missing or slowing you down, run sp_BlitzIndex.
-* To find out why the server is slow right now, run sp_AskBrent.
+* To learn which queries have been using the most resources, run [sp_BlitzCache](sp_blitzcache-find-the-most-resource-intensive-queries).
+* To analyze which indexes are missing or slowing you down, run [sp_BlitzIndex](sp_blitzindex-tune-your-indexes).
+* To find out why the server is slow right now, run [sp_AskBrent](sp_askbrent-real-time-performance-advice).
 
 To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/zipball/master), then run the SQL files in the master database. (You can use other databases if you prefer.)
 
@@ -21,17 +21,64 @@ Got a feature request? [Open a Github issue.](https://github.com/BrentOzarULTD/S
 
 ## sp_Blitz: Overall Health Check
 
-(stub - describe the big picture here)
+Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now:
+
+
+Output columns include:
+
+* Priority - 1 is the most urgent, stuff that could get you fired. The warnings get progressively less urgent.
+* FindingsGroup, Findings - describe the problem sp_Blitz found on the server.
+* DatabaseName - the database having the problem. If it's null, it's a server-wide problem.
+* URL - copy/paste this into a browser for more information.
+* Details - not just bland text, but dynamically generated stuff with more info.
+
+Commonly used parameters:
+
+* @CheckUserDatabaseObjects = 0 - by default, we check inside user databases for things like triggers or heaps. Turn this off (0) to make checks go faster, or ignore stuff you can't fix if you're managing third party databases. If a server has 50+ databases, @CheckUserDatabaseObjects is automatically turned off unless...
+* @BringThePain = 1 - required if you want to run @CheckUserDatabaseObjects = 1 with over 50 databases. It's gonna be slow.
+* @CheckServerInfo = 1 - includes additional rows at priority 250 with server configuration details like service accounts. 
+* @IgnorePrioritiesAbove = 50 - if you want a daily bulletin of the most important warnings, set @IgnorePrioritiesAbove = 50 to only get the urgent stuff.
 
 ### Advanced sp_Blitz Parameters
 
-(stub - describe the lesser-used stuff)
+In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_Blitz:
+
+#### Writing sp_Blitz Output to a Table
+
+```SQL
+sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputDatabaseName = 'BlitzResults';
+```
+
+Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if necessary, then adds the output of sp_Blitz into this table. This table is designed to support multiple outputs from multiple servers, so you can track your server's configuration history over time.
+
+#### Skipping Checks or Databases
+
+```SQL
+CREATE TABLE dbo.BlitzChecksToSkip (
+ServerName NVACHAR(128),
+DatabaseName NVARCHAR(128),
+CheckID INT
+);
+GO
+INSERT INTO dbo.BlitzChecksToSkip (ServerName, DatabaseName, CheckID)
+VALUES (NULL, 'SalesDB', 50)
+sp_Blitz @SkipChecksDatabase = 'DBAtools', @SkipChecksSchema = 'dbo', @SkipChecksTable = 'BlitzChecksToSkip'
+```
+
+Checks for the existence of a table named Fred - just kidding, named DBAtools.dbo.BlitzChecksToSkip. The table needs at least the columns shown above (ServerName, DatabaseName, and CheckID). For each row:
+
+* If the DatabaseName is populated but CheckID is null, then all checks will be skipped for that database
+* If both DatabaseName and CheckID are populated, then that check will be skipped for that database
+* If CheckID is populated but DatabaseName is null, then that check will be skipped for all databases
+
 
 ## sp_BlitzCache: Find the Most Resource-Intensive Queries
 
 (stub - describe the big picture here)
 
 ### Advanced sp_BlitzCache Parameters
+
+In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
 (stub - describe the lesser-used stuff)
 
@@ -41,6 +88,8 @@ Got a feature request? [Open a Github issue.](https://github.com/BrentOzarULTD/S
 
 ### Advanced sp_BlitzIndex Parameters
 
+In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
+
 (stub - describe the lesser-used stuff)
 
 ## sp_AskBrent: Real-Time Performance Advice
@@ -48,6 +97,8 @@ Got a feature request? [Open a Github issue.](https://github.com/BrentOzarULTD/S
 (stub - describe the big picture here)
 
 ### Advanced sp_AskBrent Parameters
+
+In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_AskBrent:
 
 (stub - describe the lesser-used stuff)
 
