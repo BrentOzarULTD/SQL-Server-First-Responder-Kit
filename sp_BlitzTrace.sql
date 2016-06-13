@@ -7,28 +7,6 @@ SET QUOTED_IDENTIFIER ON;
 SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
-
-/*
--- Welcome to the beta release of sp_BlitzTrace (TM) -- Version 0.2, released 2015-01-03
--- BrentOzar.com/BlitzTrace
--- Things you can do....
-
---List running sessions
-exec sp_BlitzTrace @Action='start';
-
---Start a trace for a session. You specify the @SessionID and @TargetPath
-exec sp_BlitzTrace @SessionId=52, @TargetPath='S:\XEvents\Traces\', @Action='start';
-
---Stop a session
-exec sp_BlitzTrace @Action='stop';
-
---Read the results. You can move the files to another server and read there by specifying a @TargetPath.
-exec sp_BlitzTrace @Action='read';
-
---Drop the session. This does NOT delete files created in @TargetPath.
-exec sp_BlitzTrace @Action='drop';
-*/
-
 IF OBJECT_ID('dbo.sp_BlitzTrace') IS NOT NULL
     DROP PROCEDURE dbo.sp_BlitzTrace
 GO
@@ -45,21 +23,70 @@ CREATE PROCEDURE dbo.sp_BlitzTrace
     @MaxFileSizeMB INT = 256,
     @TraceExecutionPlansAndKillMyPerformance BIT = 0, /* Non-production environments only */
     @MaxRolloverFiles INT = 4,
-    @MaxDispatchLatencySeconds INT = 5 /* 0 is unlimited! */
+    @MaxDispatchLatencySeconds INT = 5 /* 0 is unlimited! */,
+    @Help TINYINT = 0
 
 WITH RECOMPILE
 AS
-    /* (c) 2014 Brent Ozar Unlimited (R) */
-    /* See http://BrentOzar.com/go/eula for the End User License Agreement */
+IF @Help = 1 PRINT '
+/*
+sp_BlitzTrace from http://FirstResponderKit.org
+
+Description: Starts, stops, and reads Extended Events traces.
+
+--List running sessions
+exec sp_BlitzTrace @Action=''start'';
+
+--Start a trace for a session. You specify the @SessionID and @TargetPath
+exec sp_BlitzTrace @SessionId=52, @TargetPath=''S:\XEvents\Traces\'', @Action=''start'';
+
+--Stop a session
+exec sp_BlitzTrace @Action=''stop'';
+
+--Read the results. You can move the files to another server and read there by specifying a @TargetPath.
+exec sp_BlitzTrace @Action=''read'';
+
+--Drop the session. This does NOT delete files created in @TargetPath.
+exec sp_BlitzTrace @Action=''drop'';
+
+To learn more, visit http://FirstResponderKit.org where you can download new
+versions for free, watch training videos on how it works, get more info on
+the findings, contribute your own code, and more.
+
+Known limitations of this version:
+ - Extended Events can be hard.
+
+Unknown limitations of this version:
+ - Probably a lot. This is one of our lesser-tested scripts.
+
+Changes in v1.0 - YYYY/MM/DD
+ - Switched to MIT licensing.
+ - Added @Help parameter.
+
+MIT License
+
+Copyright (c) 2016 Brent Ozar Unlimited
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'
 
     DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
-
-    RAISERROR (N'*******************START HERE*******************',0,1) WITH NOWAIT;
-    RAISERROR (N'(c) 2014 Brent Ozar Unlimited (R).',0,1) WITH NOWAIT;
-    RAISERROR (N'See http://BrentOzar.com/go/eula for the End User License Agreement.',0,1) WITH NOWAIT;
-    RAISERROR (N'Sp_BlitzTrace version 0.1, released on 2014-11-11.',0,1) WITH NOWAIT;
-    RAISERROR (N'*****************Let''s Do This!*****************',0,1) WITH NOWAIT;
-    RAISERROR (@nl,0,1) WITH NOWAIT;
 
     SET NOCOUNT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;

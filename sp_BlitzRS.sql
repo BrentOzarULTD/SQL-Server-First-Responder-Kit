@@ -12,14 +12,16 @@ GO
 
 
 ALTER PROCEDURE [dbo].[sp_BlitzRS]
-(@WhoGetsWhat TINYINT = 0)
+@WhoGetsWhat TINYINT = 0,
+@Help TINYINT = 0
 WITH RECOMPILE
-/******************************************
-sp_BlitzRS (TM) 2014, Brent Ozar Unlimited.
-(C) 2014, Brent Ozar Unlimited.
-See http://BrentOzar.com/go/eula for the End User Licensing Agreement.
-
-
+AS
+BEGIN
+SET NOCOUNT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+IF @Help = 1 PRINT '
+/*
+sp_BlitzRS from http://FirstResponderKit.org
 
 Description: Displays information about a single SQL Server Reporting
 Services instance based on the ReportServer database contents. Run this 
@@ -29,19 +31,23 @@ necessarily the server running the SSRS service).
 Output: One result set is presented that contains data from the ReportServer
 database tables. Other result sets can be included via parameter.
 
-To learn more, visit http://brentozar.com/blitzRS/
-where you can download new versions for free, watch training videos on
-how it works, get more info on the findings, and more. To contribute
-code, file bugs, and see your name in the change log, visit:
-http://support.brentozar.com/
+To learn more, visit http://FirstResponderKit.org where you can download new
+versions for free, watch training videos on how it works, get more info on
+the findings, contribute your own code, and more.
 
-
-KNOWN ISSUES:
+Known limitations of this version:
 - This query will not run on SQL Server 2005.
 - Looks for the ReportServer database only.
 - May run for several minutes if the catalog is large (1,000+ items).
 - Will not identify data-driven subscription source query information
   such as tables, parameters, or recipients.
+
+Unknown limitations of this version:
+ - None.  (If we knew them, they would be known. Duh.)
+
+Changes in v1.0 - YYYY/MM/DD
+ - Switched to MIT licensing.
+ - Added @Help parameter.
 
 v0.92 - 2014-09-22
  - Fixed issue where query would try to parse images and other objects as XML.
@@ -56,14 +62,28 @@ v0.9 - 2014-09-16
 v0.8 - 2014-08-29
  - Added "who gets what" parameter and query.
 
+MIT License
 
+Copyright (c) 2016 Brent Ozar Unlimited
 
-*******************************************/
-AS
-BEGIN
-SET NOCOUNT ON;
-SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'
 IF OBJECT_ID('tempdb..#BlitzRSResults') IS NOT NULL
     DROP TABLE #BlitzRSResults;
 
