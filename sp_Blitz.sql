@@ -59,7 +59,10 @@ AS
          old output parameter @Version is no more, because we are switching to
          semantic versioning. 	 
 	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
-
+	 - BREAKING CHANGE: The CheckDate field datatype is now DATETIMEOFFSET. This
+	   makes it easier to combine results from multiple servers into one table even
+	   when servers are in different data centers, different time zones. More info:
+	   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
 
      Changes in v52 - 2016/06/02
 	  - SQL Server 2016 compatibility. 2016 RTM ships with some questionable
@@ -5701,7 +5704,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ @OutputTableName
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
 								ServerName NVARCHAR(128),
-								CheckDate DATETIME,
+								CheckDate DATETIMEOFFSET,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
 								Finding VARCHAR(200) ,
@@ -5722,7 +5725,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ @OutputTableName
 							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', GETDATE(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
 						EXEC(@StringToExecute);
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -5734,7 +5737,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ @OutputTableName
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
 								ServerName NVARCHAR(128),
-								CheckDate DATETIME,
+								CheckDate DATETIMEOFFSET,
 								Priority TINYINT ,
 								FindingsGroup VARCHAR(50) ,
 								Finding VARCHAR(200) ,
@@ -5749,7 +5752,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ @OutputTableName
 							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', GETDATE(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
 						EXEC(@StringToExecute);
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
