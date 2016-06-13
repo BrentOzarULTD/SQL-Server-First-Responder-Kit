@@ -3,6 +3,7 @@ IF OBJECT_ID('dbo.sp_Blitz') IS NULL
 GO
 
 ALTER PROCEDURE [dbo].[sp_Blitz]
+    @Help TINYINT = 0 ,
     @CheckUserDatabaseObjects TINYINT = 1 ,
     @CheckProcedureCache TINYINT = 0 ,
     @OutputType VARCHAR(20) = 'TABLE' ,
@@ -15,7 +16,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @SkipChecksTable NVARCHAR(256) = NULL ,
     @IgnorePrioritiesBelow INT = NULL ,
     @IgnorePrioritiesAbove INT = NULL ,
-	@OutputServerName NVARCHAR(256) = NULL ,
+    @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
@@ -24,7 +25,6 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
-    @Help TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
 AS
     SET NOCOUNT ON;
@@ -34,6 +34,9 @@ AS
 	IF @Help = 1 PRINT '
 	/*
 	sp_Blitz from http://FirstResponderKit.org
+	
+	This script checks the health of your SQL Server and gives you a prioritized
+	to-do list of the most urgent things you should consider fixing.
 
 	To learn more, visit http://FirstResponderKit.org where you can download new
 	versions for free, watch training videos on how it works, get more info on
@@ -45,6 +48,7 @@ AS
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
 	   but does work the second time. (Hoo, boy, this will be fun to debug.)
+      - @OutputServerName is not functional yet.
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
