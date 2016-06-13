@@ -2,7 +2,7 @@
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
-* When you want an overall health check, run [sp_Blitz](#sp_Blitz:-Overall-Health-Check).
+* When you want an overall health check, run [sp_Blitz](#sp_blitz-overall-health-check).
 * To learn which queries have been using the most resources, run sp_BlitzCache.
 * To analyze which indexes are missing or slowing you down, run sp_BlitzIndex.
 * To find out why the server is slow right now, run sp_AskBrent.
