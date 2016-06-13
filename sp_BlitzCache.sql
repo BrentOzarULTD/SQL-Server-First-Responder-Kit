@@ -176,8 +176,11 @@ Changes in v3.0 - YYYY/MM/DD:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
    old output parameter @Version is no more, because we are switching to
-   semantic versioning. 	 
+   semantic versioning.
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+ - BREAKING CHANGE: The output table now adds a CheckDate field with a data
+   type of DATETIMEOFFSET, and removes SampleTime. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
  - Summary output now moved to the bottom instead of the top.
 
 Changes in v2.5.3 - 2016-04-28:
@@ -1874,6 +1877,7 @@ BEGIN
         + @OutputTableName
         + N'(ID bigint NOT NULL IDENTITY(1,1),
           ServerName nvarchar(256),
+		  CheckDate DATETIMEOFFSET,
           Version nvarchar(256),
           QueryType nvarchar(256),
           Warnings varchar(max),
@@ -1915,7 +1919,6 @@ BEGIN
           QueryPlan xml,
           NumberOfPlans int,
           NumberOfDistinctPlans int,
-          SampleTime DATETIME DEFAULT(GETDATE())
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     EXEC sp_executesql @insert_sql ;
@@ -1928,12 +1931,12 @@ BEGIN
           + @OutputDatabaseName + '.'
           + @OutputSchemaName + '.'
           + @OutputTableName
-          + N' (ServerName, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory) '
           + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', '
+          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
