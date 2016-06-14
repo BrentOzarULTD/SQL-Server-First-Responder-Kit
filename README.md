@@ -110,19 +110,6 @@ In addition to the [parameters common to many of the stored procedures](paramete
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist.
 * @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
 
-
-## How to Contribute Code
-
-Before you start, check the [Github issues list.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) Search for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
-
-If you've got a new idea that isn't covered in an existing issue, open a Github issue for it. Outline what you'd like to do, and how you'd like to code it. This just helps make sure other users agree that it's a good idea to add to these tools.
-
-To start coding, [open a new Github branch.](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/) This lets you code in your own area without impacting anyone else. When your code is ready, test it on a case-sensitive instance of the oldest supported version of SQL Server (2008), and the newest version (2016).
-
-When it's ready for review, make a pull request, and one of the core contributors can check your work.
-
-Feel free to hop into Slack and ask us questions before you get started. [Join SQLServer.slack.com](https://sql-server-slack.herokuapp.com/), and we're in the [#FirstResponderKit channel](https://sqlserver.slack.com/messages/firstresponderkit/). We welcome newcomers, and there's always a way you can help.
-
 ## License
 
 The SQL Server First Responder Kit uses the MIT License.
