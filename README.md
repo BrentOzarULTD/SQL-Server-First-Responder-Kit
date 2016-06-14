@@ -114,4 +114,4 @@ In addition to the [parameters common to many of the stored procedures](paramete
 
 ## License
 
-The SQL Server First Responder Kit uses the MIT License.
+[The SQL Server First Responder Kit uses the MIT License.](LICENSE.md)
