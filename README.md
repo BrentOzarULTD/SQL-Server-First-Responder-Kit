@@ -13,11 +13,13 @@ Only Microsoft-supported versions of SQL Server are supported here - sorry, 2005
 
 ## How to Get Support
 
+Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](CONTRIBUTING.md#the-contributor-covenant-code-of-conduct).
+
 Want to talk to the developers? [Join SQLServer.slack.com](https://sql-server-slack.herokuapp.com/), and we're in the [#FirstResponderKit channel](https://sqlserver.slack.com/messages/firstresponderkit/).
 
 Got a question? Ask it on [DBA.StackExchange.com](http://dba.stackexchange.com). Tag your question with the script name, like sp_Blitz, sp_BlitzCache, sp_BlitzIndex, etc, and we’ll be alerted of it right away.
 
-Got a feature request? [Open a Github issue.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) Github is the source control tool where we work with the public on improving the First Responder Kit.
+Want to contribute by writing, testing, or documenting code, or suggesting a new check? [Read the contributing.md file](CONTRIBUTING.md).
 
 ## sp_Blitz: Overall Health Check
 
