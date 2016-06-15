@@ -65,6 +65,8 @@ Changes in v24 - YYYY/MM/DD
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
  - Added BROKER_TRANSMITTER to list of ignorable wait types. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/268
+ - Also ignore REDO_THREAD_PENDING_WORK, UCS_SESSION_REGISTRATION. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/174
  - Only show what queries are running now if @ExpertMode = 1. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/266
 
