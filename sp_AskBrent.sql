@@ -670,7 +670,9 @@ BEGIN
         'QDS_ASYNC_QUEUE',
         'QDS_SHUTDOWN_QUEUE',
         'SLEEP_SYSTEMTASK',
-        'BROKER_TRANSMITTER'
+        'BROKER_TRANSMITTER',
+        'REDO_THREAD_PENDING_WORK',
+        'UCS_SESSION_REGISTRATION'
     )
     ORDER BY sum_wait_time_ms DESC;
 
@@ -1108,7 +1110,10 @@ BEGIN
         'RESOURCE_GOVERNOR_IDLE',
         'QDS_ASYNC_QUEUE',
         'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK'
+        'SLEEP_SYSTEMTASK',
+        'BROKER_TRANSMITTER',
+        'REDO_THREAD_PENDING_WORK',
+        'UCS_SESSION_REGISTRATION'
     )
     ORDER BY sum_wait_time_ms DESC;
 
