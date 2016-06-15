@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160427'
+SET @VersionDate = '20160615'
 
 IF @Help = 1 PRINT '
 sp_AskBrent from http://FirstResponderKit.org
@@ -63,6 +63,8 @@ Changes in v24 - YYYY/MM/DD
    makes it easier to combine results from multiple servers into one table even
    when servers are in different data centers, different time zones. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
+ - Added BROKER_TRANSMITTER to list of ignorable wait types. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/268
 
 Changes in v23 - April 27, 2016
  - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
@@ -294,7 +296,7 @@ BEGIN
     #AskBrentResults has a CheckID field, but there's no Check table. As we do
     checks, we insert data into this table, and we manually put in the CheckID.
     We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
-    download that from http://www.BrentOzar.com/askbrent/ if you want to build
+    download that from http://FirstResponderKit.org if you want to build
     a tool that relies on the output of sp_AskBrent.
     */
 
@@ -665,7 +667,8 @@ BEGIN
         'RESOURCE_GOVERNOR_IDLE',
         'QDS_ASYNC_QUEUE',
         'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK'
+        'SLEEP_SYSTEMTASK',
+        'BROKER_TRANSMITTER'
     )
     ORDER BY sum_wait_time_ms DESC;
 
