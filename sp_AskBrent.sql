@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160427'
+SET @VersionDate = '20160615'
 
 IF @Help = 1 PRINT '
 sp_AskBrent from http://FirstResponderKit.org
@@ -63,6 +63,12 @@ Changes in v24 - YYYY/MM/DD
    makes it easier to combine results from multiple servers into one table even
    when servers are in different data centers, different time zones. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
+ - Added BROKER_TRANSMITTER to list of ignorable wait types. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/268
+ - Also ignore REDO_THREAD_PENDING_WORK, UCS_SESSION_REGISTRATION. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/174
+ - Only show what queries are running now if @ExpertMode = 1. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/266
 
 Changes in v23 - April 27, 2016
  - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
@@ -280,7 +286,7 @@ BEGIN
                         ORDER BY [r].[start_time];'
     END
 
-    IF @SinceStartup = 0 AND @Seconds > 0
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
         EXEC(@StringToExecute);
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
@@ -294,7 +300,7 @@ BEGIN
     #AskBrentResults has a CheckID field, but there's no Check table. As we do
     checks, we insert data into this table, and we manually put in the CheckID.
     We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
-    download that from http://www.BrentOzar.com/askbrent/ if you want to build
+    download that from http://FirstResponderKit.org if you want to build
     a tool that relies on the output of sp_AskBrent.
     */
 
@@ -665,7 +671,10 @@ BEGIN
         'RESOURCE_GOVERNOR_IDLE',
         'QDS_ASYNC_QUEUE',
         'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK'
+        'SLEEP_SYSTEMTASK',
+        'BROKER_TRANSMITTER',
+        'REDO_THREAD_PENDING_WORK',
+        'UCS_SESSION_REGISTRATION'
     )
     ORDER BY sum_wait_time_ms DESC;
 
@@ -1103,7 +1112,10 @@ BEGIN
         'RESOURCE_GOVERNOR_IDLE',
         'QDS_ASYNC_QUEUE',
         'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK'
+        'SLEEP_SYSTEMTASK',
+        'BROKER_TRANSMITTER',
+        'REDO_THREAD_PENDING_WORK',
+        'UCS_SESSION_REGISTRATION'
     )
     ORDER BY sum_wait_time_ms DESC;
 
@@ -2452,6 +2464,105 @@ BEGIN
 
     DROP TABLE #AskBrentResults;
 
+
+    /* What's running right now? This is the first (and last) result set. */
+    IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+    BEGIN
+    SET @StringToExecute = 'SELECT [r].[start_time] ,
+                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+                                [s].[session_id] ,
+                                [s].[status] ,
+                                [dest].[text] ,
+                                [deqp].[query_plan] ,
+                                [s].[cpu_time] ,
+                                [s].[memory_usage] ,
+                                [s].[reads] ,
+                                [s].[writes] ,
+                                [s].[logical_reads] ,
+                                [r].[blocking_session_id] ,
+                                [r].[wait_type] ,
+                                [r].[wait_time] ,
+                                [r].[last_wait_type] ,
+                                [r].[wait_resource] ,
+                                [r].[estimated_completion_time] ,
+                                [r].[deadlock_priority] ,
+                                [r].[granted_query_memory] ,
+                                CASE [s].[transaction_isolation_level]
+                                  WHEN 0 THEN ''Unspecified''
+                                  WHEN 1 THEN ''Read Uncommitted''
+                                  WHEN 2 THEN ''Read Committed''
+                                  WHEN 3 THEN ''Repeatable Read''
+                                  WHEN 4 THEN ''Serializable''
+                                  WHEN 5 THEN ''Snapshot''
+                                  ELSE ''WHAT HAVE YOU DONE?''
+                                END AS [transaction_isolation_level] ,
+                                [s].[nt_domain] ,
+                                [s].[host_name] ,
+                                [s].[nt_user_name] ,
+                                [s].[program_name] ,
+                                [s].[client_interface_name],
+                                [r].sql_handle, 
+                                [r].plan_handle
+                        FROM    [sys].[dm_exec_sessions] AS [s]
+                        JOIN    [sys].[dm_exec_requests] AS [r]
+                        ON      [r].[session_id] = [s].[session_id]
+                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
+                        WHERE    [r].[session_id] <> @@SPID
+                                AND [s].[is_user_process] = 1
+                        ORDER BY [r].[start_time];'
+    END
+    ELSE
+    BEGIN
+    SET @StringToExecute = 'SELECT [r].[start_time] ,
+                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+                                [s].[session_id] ,
+                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
+                                [s].[status] ,
+                                [dest].[text] ,
+                                [deqp].[query_plan] ,
+                                [s].[cpu_time] ,
+                                [s].[memory_usage] ,
+                                [s].[reads] ,
+                                [s].[writes] ,
+                                [s].[logical_reads] ,
+                                [r].[blocking_session_id] ,
+                                [r].[wait_type] ,
+                                [r].[wait_time] ,
+                                [r].[last_wait_type] ,
+                                [r].[wait_resource] ,
+                                [r].[estimated_completion_time] ,
+                                [r].[open_transaction_count] ,
+                                [r].[deadlock_priority] ,
+                                [r].[granted_query_memory] ,
+                                CASE [s].[transaction_isolation_level]
+                                  WHEN 0 THEN ''Unspecified''
+                                  WHEN 1 THEN ''Read Uncommitted''
+                                  WHEN 2 THEN ''Read Committed''
+                                  WHEN 3 THEN ''Repeatable Read''
+                                  WHEN 4 THEN ''Serializable''
+                                  WHEN 5 THEN ''Snapshot''
+                                  ELSE ''WHAT HAVE YOU DONE?''
+                                END AS [transaction_isolation_level] ,
+                                [s].[nt_domain] ,
+                                [s].[host_name] ,
+                                [s].[nt_user_name] ,
+                                [s].[program_name] ,
+                                [s].[client_interface_name],
+                                [r].sql_handle, 
+                                [r].plan_handle
+                        FROM    [sys].[dm_exec_sessions] AS [s]
+                        JOIN    [sys].[dm_exec_requests] AS [r]
+                        ON      [r].[session_id] = [s].[session_id]
+                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
+                        WHERE    [r].[session_id] <> @@SPID
+                                AND [s].[is_user_process] = 1
+                        ORDER BY [r].[start_time];'
+    END
+
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
+        EXEC(@StringToExecute);
 
 END /* IF @Question IS NULL */
 ELSE IF @Question IS NOT NULL
