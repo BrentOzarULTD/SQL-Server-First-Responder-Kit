@@ -71,6 +71,11 @@ Changes in v4.0 - YYYY/MM/DD:
    old output parameter @Version is no more, because we are switching to
    semantic versioning. 	 
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
+- Bug fixes and improvements
+	- Erik Darling:
+		-Changed index_sanity_id to be NULLable in #IndexPartitionSanity
+		-Changed version check to only ever use LEFT JOIN query to get partition information.
+		 This was taking upwards of 6 minutes with 15k partitions.
 
 Changes in v3.0 - 2016/03/20:
  - Prioritized results
@@ -266,7 +271,7 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
         CREATE TABLE #IndexSanitySize
             (
               [index_sanity_size_id] INT IDENTITY NOT NULL ,
-              [index_sanity_id] INT NOT NULL ,
+              [index_sanity_id] INT NULL ,
               [database_id] INT NOT NULL,
               partition_count INT NOT NULL ,
               total_rows BIGINT NOT NULL ,
@@ -806,10 +811,10 @@ BEGIN TRY
 
         IF (SELECT LEFT(@SQLServerProductVersion,
               CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <> 11 --Anything other than 2012 
+              )) <= 2147483647 --Anything other than 2012 
         BEGIN
 
-            RAISERROR (N'Using non-2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+            RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
             --NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
             --This is because of quirks prior to SQL Server 2012 and in 2014 with this DMV.
