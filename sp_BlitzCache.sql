@@ -1838,7 +1838,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Sort' ELSE '' END
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
                   , 2, 200000) ;
 
 
