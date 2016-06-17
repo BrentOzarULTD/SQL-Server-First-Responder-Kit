@@ -50,8 +50,24 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     PlanCreationTime datetime,
     LastExecutionTime datetime,
     PlanHandle varbinary(64),
+	[Remove Plan Handle From Cache] AS 
+		CASE WHEN [PlanHandle] IS NOT NULL 
+		THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
+		ELSE 'N/A' END,
     SqlHandle varbinary(64),
+	[Remove SQL Handle From Cache] AS 
+	CASE WHEN [SQLHandle] IS NOT NULL 
+	THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ');'
+	ELSE 'N/A' END,
+	[SQL Handle More Info] AS 
+		CASE WHEN [SqlHandle] IS NOT NULL 
+		THEN 'EXEC sp_BlitzCache @OnlySQLHandles = ''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '''; '
+		ELSE 'N/A' END,
     QueryHash binary(8),
+	[Query Hash More Info] AS 
+		CASE WHEN [QueryHash] IS NOT NULL 
+		THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
+		ELSE 'N/A' END,
     QueryPlanHash binary(8),
     StatementStartOffset int,
     StatementEndOffset int,
@@ -182,6 +198,13 @@ Changes in v3.0 - YYYY/MM/DD:
    type of DATETIMEOFFSET, and removes SampleTime. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
  - Summary output now moved to the bottom instead of the top.
+ - Erik Darling added columns to @ExpertMode = 1 results ~ONLY~
+     Will show up when you use an Output Table
+     Will not show up in Excel exports
+     -Query Hash More Info, and SQL Handle More Info  give you
+      sp_BlitzIndex style queries to get more information about specific queries
+     -Remove Plan Handle From Cache, and Remove SQL Handle From Cache give you
+      DBCC FREEPROCCACHE statements to remove items from Plan Cache
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
@@ -608,8 +631,24 @@ BEGIN
         PlanCreationTime datetime,
         LastExecutionTime datetime,
         PlanHandle varbinary(64),
-        SqlHandle varbinary(64),
-        QueryHash binary(8),
+		[Remove Plan Handle From Cache] AS 
+			CASE WHEN [PlanHandle] IS NOT NULL 
+			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
+			ELSE 'N/A' END,
+		SqlHandle varbinary(64),
+			[Remove SQL Handle From Cache] AS 
+			CASE WHEN [SQLHandle] IS NOT NULL 
+			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ');'
+			ELSE 'N/A' END,
+		[SQL Handle More Info] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN 'EXEC sp_BlitzCache @OnlySQLHandles = ''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '''; '
+			ELSE 'N/A' END,
+		QueryHash binary(8),
+		[Query Hash More Info] AS 
+			CASE WHEN [QueryHash] IS NOT NULL 
+			THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
+			ELSE 'N/A' END,
         QueryPlanHash binary(8),
         StatementStartOffset int,
         StatementEndOffset int,
@@ -1906,9 +1945,26 @@ BEGIN
           ExecutionsPerMinute money,
           PlanCreationTime datetime,
           LastExecutionTime datetime,
-          PlanHandle varbinary(64),
-          SqlHandle varbinary(64),
-          QueryHash binary(8),
+		  PlanHandle varbinary(64),
+		  [Remove Plan Handle From Cache] AS 
+			CASE WHEN [PlanHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  SqlHandle varbinary(64),
+			[Remove SQL Handle From Cache] AS 
+			CASE WHEN [SQLHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  [SQL Handle More Info] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlySQLHandles = '''''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+		  QueryHash binary(8),
+		  [Query Hash More Info] AS 
+			CASE WHEN [QueryHash] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+          QueryPlanHash binary(8),
           StatementStartOffset int,
           StatementEndOffset int,
           MinReturnedRows bigint,
@@ -1922,6 +1978,7 @@ BEGIN
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     EXEC sp_executesql @insert_sql ;
+
 
     SET @insert_sql =N' IF EXISTS(SELECT * FROM '
           + @OutputDatabaseName
@@ -2010,6 +2067,8 @@ BEGIN
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
             StatementEndOffset,
+			PlanHandle AS [Plan Handle],  
+			SqlHandle AS [SQL Handle],  
             QueryHash,
             QueryPlanHash,
             COALESCE(SetOptions, '''') AS [SET Options]
@@ -2064,6 +2123,8 @@ BEGIN
     AverageReturnedRows AS [Average Rows],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
+	PlanHandle AS [Plan Handle], 
+	SqlHandle AS [SQL Handle], 
     QueryPlan AS [Query Plan],
     COALESCE(SetOptions, '''') AS [SET Options] ';
 END
@@ -2145,12 +2206,16 @@ BEGIN
         CompileCPU AS [Compile CPU (ms)],
         CompileMemory AS [Compile memory (KB)],
         COALESCE(SetOptions, '''') AS [SET Options],
-        PlanHandle AS [Plan Handle],
-        SqlHandle AS [SQL Handle],
+		PlanHandle AS [Plan Handle], 
+		SqlHandle AS [SQL Handle], 
+		[SQL Handle More Info],
         QueryHash AS [Query Hash],
+		[Query Hash More Info],
         QueryPlanHash AS [Query Plan Hash],
         StatementStartOffset,
-        StatementEndOffset ';
+        StatementEndOffset,
+		[Remove Plan Handle From Cache],
+		[Remove SQL Handle From Cache] ';
 END
 
 
