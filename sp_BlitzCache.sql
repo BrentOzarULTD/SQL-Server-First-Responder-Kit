@@ -56,12 +56,12 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		ELSE 'N/A' END,
     SqlHandle varbinary(64),
 	[Remove SQL Handle From Cache] AS 
-	CASE WHEN [SQLHandle] IS NOT NULL 
-	THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ');'
+	CASE WHEN [SqlHandle] IS NOT NULL 
+	THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
 	ELSE 'N/A' END,
 	[SQL Handle More Info] AS 
 		CASE WHEN [SqlHandle] IS NOT NULL 
-		THEN 'EXEC sp_BlitzCache @OnlySQLHandles = ''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '''; '
+		THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
 		ELSE 'N/A' END,
     QueryHash binary(8),
 	[Query Hash More Info] AS 
@@ -205,6 +205,7 @@ Changes in v3.0 - YYYY/MM/DD:
       sp_BlitzIndex style queries to get more information about specific queries
      -Remove Plan Handle From Cache, and Remove SQL Handle From Cache give you
       DBCC FREEPROCCACHE statements to remove items from Plan Cache
+	  -FIX: @IgnoreQueryHashes was not working. Should be working now.
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
@@ -637,12 +638,12 @@ BEGIN
 			ELSE 'N/A' END,
 		SqlHandle varbinary(64),
 			[Remove SQL Handle From Cache] AS 
-			CASE WHEN [SQLHandle] IS NOT NULL 
-			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ');'
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
 			ELSE 'N/A' END,
 		[SQL Handle More Info] AS 
 			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN 'EXEC sp_BlitzCache @OnlySQLHandles = ''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '''; '
+			THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
 			ELSE 'N/A' END,
 		QueryHash binary(8),
 		[Query Hash More Info] AS 
@@ -990,7 +991,7 @@ INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, To
                     min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
 
 SET @body += N'
-FROM   (SELECT TOP (@Top) *,
+FROM   (SELECT TOP (@Top) x.*, xpa.*,
                CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE()) 
                           ELSE NULL END) as MONEY) as age_minutes,
@@ -1000,22 +1001,6 @@ FROM   (SELECT TOP (@Top) *,
         FROM   sys.#view# x
                CROSS APPLY (SELECT * FROM sys.dm_exec_plan_attributes(x.plan_handle) AS ixpa 
                             WHERE ixpa.attribute = ''dbid'') AS xpa ' + @nl ;
-
-/* filtering for query hashes */
-IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-BEGIN
-    SET @body += N'               LEFT JOIN #ignore_query_hashes iqh ON iqh.query_hash = qs.query_hash ' + @nl ;
-END
-
-IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-BEGIN
-    SET @body += N'                         AND iqh.query_hash IS NULL ' + @nl ;
-END
-/* end filtering for query hashes */
-
-
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
@@ -1307,8 +1292,6 @@ BEGIN
    SET @sql += @body_order + @nl + @nl + @nl ;
 END
 
-
-
 DECLARE @sort NVARCHAR(MAX);
 
 SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'total_worker_time'
@@ -1367,6 +1350,14 @@ SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'TotalCPU'
                END ;
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
+
+DECLARE @p1	VARCHAR(MAX) = SUBSTRING(@sql, 0,8000)
+DECLARE @p2	VARCHAR(MAX) = SUBSTRING(@sql, 8001,16000)
+DECLARE @p3	VARCHAR(MAX) = SUBSTRING(@sql, 16001,24000)
+
+PRINT @p1
+PRINT @p2
+PRINT @p3
 
 IF @Reanalyze = 0
 BEGIN
@@ -1952,12 +1943,12 @@ BEGIN
 			ELSE ''N/A'' END,
 		  SqlHandle varbinary(64),
 			[Remove SQL Handle From Cache] AS 
-			CASE WHEN [SQLHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SQLHandle], 1) + '');''
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
 			ELSE ''N/A'' END,
 		  [SQL Handle More Info] AS 
 			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlySQLHandles = '''''' + CONVERT(VARCHAR(128), [SQLHandle], 1) + ''''''; ''
+			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
 			ELSE ''N/A'' END,
 		  QueryHash binary(8),
 		  [Query Hash More Info] AS 
