@@ -188,7 +188,7 @@ Known limitations of this version:
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
-Changes in v3.0 - YYYY/MM/DD:
+Changes in v3.0 - 2016/06/18:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
    old output parameter @Version is no more, because we are switching to
@@ -206,6 +206,8 @@ Changes in v3.0 - YYYY/MM/DD:
      -Remove Plan Handle From Cache, and Remove SQL Handle From Cache give you
       DBCC FREEPROCCACHE statements to remove items from Plan Cache
 	  -FIX: @IgnoreQueryHashes was not working. Should be working now.
+ - Fixed ##bou_BlitzCacheResults not cleaned out after each pass. More info:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
@@ -756,6 +758,8 @@ IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
 
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
   SET @Reanalyze = 0;
+ELSE IF @Reanalyze = 0
+  TRUNCATE TABLE ##bou_BlitzCacheResults;
 
 if @SkipAnalysis = 1
     SET @HideSummary = 1;
