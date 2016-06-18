@@ -912,7 +912,8 @@ END
    values will be inserted into #ignore_query_hashes. This is used to
    exclude values from query results.
 
-   Stored procedures and triggers will still be queried.
+   Just a reminder: Using @OnlyQueryHashes will ignore stored
+   procedures and triggers.
  */
 IF @IgnoreQueryHashes IS NOT NULL
    AND LEN(@IgnoreQueryHashes) > 0
@@ -1004,6 +1005,7 @@ FROM   (SELECT TOP (@Top) x.*, xpa.*,
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
+
 IF @IgnoreSystemDBs = 1
     SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
@@ -1023,6 +1025,15 @@ IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
 BEGIN
     SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl ;
 END
+
+/* filtering for query hashes */
+IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+BEGIN
+    SET @body += N'               AND NOT EXISTS(SELECT 1/0 FROM #ignore_query_hashes iq WHERE iq.query_hash = x.query_hash) ' + @nl ;
+END
+/* end filtering for query hashes */
+
 
 IF @DurationFilter IS NOT NULL
     SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
@@ -1061,14 +1072,14 @@ SELECT @body += '        ORDER BY ' +
 
 
                           
-SET @body += N') AS qs
-       CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
+SET @body += N') AS qs 
+	   CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(CAST(total_elapsed_time AS BIGINT) / 1000.0) AS t_TotalElapsed,
                          SUM(CAST(total_worker_time AS BIGINT) / 1000.0) AS t_TotalWorker,
                          SUM(CAST(total_logical_reads AS BIGINT)) AS t_TotalReads,
                          SUM(CAST(total_logical_writes AS BIGINT)) AS t_TotalWrites
                   FROM   sys.#view#) AS t
-        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+       CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
 
@@ -1243,7 +1254,7 @@ BEGIN
 END
 
 
-IF (@QueryFilter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0)
+IF (@QueryFilter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
@@ -1273,6 +1284,7 @@ END
  ******************************************************************************/
 IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (@QueryFilter = 'all')
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
