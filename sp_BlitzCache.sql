@@ -1351,14 +1351,6 @@ SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'TotalCPU'
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
-DECLARE @p1	VARCHAR(MAX) = SUBSTRING(@sql, 0,8000)
-DECLARE @p2	VARCHAR(MAX) = SUBSTRING(@sql, 8001,16000)
-DECLARE @p3	VARCHAR(MAX) = SUBSTRING(@sql, 16001,24000)
-
-PRINT @p1
-PRINT @p2
-PRINT @p3
-
 IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
