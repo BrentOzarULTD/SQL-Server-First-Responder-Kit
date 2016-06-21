@@ -7,7 +7,7 @@ You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's you
 * To analyze which indexes are missing or slowing you down, run [sp_BlitzIndex](#sp_blitzindex-tune-your-indexes).
 * To find out why the server is slow right now, run [sp_AskBrent](#sp_askbrent-real-time-performance-advice).
 
-To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/zipball/master), then run the SQL files in the master database. (You can use other databases if you prefer.)
+To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/releases), then run the SQL files in the master database. (You can use other databases if you prefer.)
 
 Only Microsoft-supported versions of SQL Server are supported here - sorry, 2005 and 2000. Some of these may work some of the time on 2005, but no promises, and don't file a support issue when they fail.
 
