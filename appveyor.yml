@@ -1,86 +1,16 @@
-# version format
 version: 1.0.{build}
-
-# branches to build
 branches:
-  # whitelist
   only:
-    - master
-
-  # blacklist
-  except:
-    - gh-pages
-
-#---------------------------------#
-#    environment configuration    #
-#---------------------------------#
-
-# environment variables
-environment:
-  my_var1: value1
-  my_var2: value2
-  # this is how to set encrypted variable. Go to "Encrypt data" page in account menu to encrypt data.
-  my_secure_var1:
-    secure: FW3tJ3fMncxvs58/ifSP7w==
-
-# environment:
-#  global:
-#    connection_string: server=12;password=13;
-#    service_url: https://127.0.0.1:8090
-#
-#  matrix:
-#  - db: mysql
-#    provider: mysql
-#
-#  - db: mssql
-#    provider: mssql
-#    password:
-#      secure: $#(JFDA)jQ@#$
-
-# enable service required for build/tests
+  - master
 services:
-  - mssql2014           # start SQL Server 2014 Express
-  - mssql2014rs         # start SQL Server 2014 Express and Reporting Services
-  - mssql2012sp1        # start SQL Server 2012 SP1 Express
-  - mssql2012sp1rs      # start SQL Server 2012 SP1 Express and Reporting Services
-  - mssql2008r2sp2      # start SQL Server 2008 R2 SP2 Express
-  - mssql2008r2sp2rs    # start SQL Server 2008 R2 SP2 Express and Reporting Services
-
-# scripts that run after cloning repository
-install:
-  # to run script as a PowerShell command prepend it with ps:
-  - ps: Write-Host 'This is PowerShell'
-
-# Automatically register private account and/or project AppVeyor NuGet feeds.
-nuget:
-  account_feed: true
-  project_feed: true
-  disable_publish_on_pr: true     # disable publishing of .nupkg artifacts to
-                                  # account/project feeds for pull request builds
-
-# scripts to run after build
-after_build:
-  - ps: Write-Host 'After build phase is beginning'
-  
-# to disable automatic builds
-build: off
-
-#---------------------------------#
-#       tests configuration       #
-#---------------------------------#
-
-# scripts to run before tests
-before_test:
-  - ps: Write-Host "Test phase is beginning"
-
-# scripts to run after tests
-after_test:
-  - ps: Write-Host "Test phase is ended"
-
-# to run your custom scripts instead of automatic tests
+- mssql2012sp1
+- mssql2012sp1rs
+- mssql2008r2sp2
+- mssql2008r2sp2rs
+- mssql2014
+- mssql2014rs
+- mssql2016
+build_script:
+- ps: Write-Host 'Building...'
 test_script:
-  - ps: Write-Host "Testing..."
-  - ps: ls
-
-# to disable automatic tests 
-test: off
+- ps: Write-Host 'Testing...'
