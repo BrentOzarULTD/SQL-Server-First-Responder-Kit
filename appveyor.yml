@@ -63,7 +63,7 @@ after_build:
   - ps: Write-Host 'After build phase is beginning'
   
 # to disable automatic builds
-#build: off
+build: off
 
 #---------------------------------#
 #       tests configuration       #
@@ -83,4 +83,4 @@ test_script:
   - ps: ls
 
 # to disable automatic tests 
-#test: off
+test: off
