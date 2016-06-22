@@ -44,7 +44,7 @@ Commonly used parameters:
 
 ### Advanced sp_Blitz Parameters
 
-In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_Blitz:
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_Blitz:
 
 #### Writing sp_Blitz Output to a Table
 
@@ -81,7 +81,7 @@ Checks for the existence of a table named Fred - just kidding, named DBAtools.db
 
 ### Advanced sp_BlitzCache Parameters
 
-In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
 (stub - describe the lesser-used stuff)
 
@@ -91,7 +91,7 @@ In addition to the [parameters common to many of the stored procedures](paramete
 
 ### Advanced sp_BlitzIndex Parameters
 
-In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
 
 (stub - describe the lesser-used stuff)
 
@@ -101,7 +101,7 @@ In addition to the [parameters common to many of the stored procedures](paramete
 
 ### Advanced sp_AskBrent Parameters
 
-In addition to the [parameters common to many of the stored procedures](parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_AskBrent:
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_AskBrent:
 
 (stub - describe the lesser-used stuff)
 
