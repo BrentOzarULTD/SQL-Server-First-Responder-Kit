@@ -1,4 +1,8 @@
 # SQL Server First Responder Kit
+[![licence badge]][licence]
+[![stars badge]][stars]
+[![forks badge]][forks]
+[![issues badge]][issues]
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
@@ -115,3 +119,14 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 ## License
 
 [The SQL Server First Responder Kit uses the MIT License.](LICENSE.md)
+
+
+[licence badge]:https://img.shields.io/badge/license-MIT-blue.svg
+[stars badge]:https://img.shields.io/github/stars/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
+[forks badge]:https://img.shields.io/github/forks/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
+[issues badge]:https://img.shields.io/github/issues/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
+
+[licence]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md
+[stars]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/stargazers
+[forks]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/network
+[issues]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
