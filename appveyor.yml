@@ -14,3 +14,4 @@ build_script:
 - ps: Write-Host 'Building...'
 test_script:
 - ps: Write-Host 'Testing...'
+- ps: ls
