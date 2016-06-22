@@ -9,10 +9,8 @@ services:
 - mssql2008r2sp2rs
 - mssql2014
 - mssql2014rs
-- mssql2016
 build_script:
 - ps: Write-Host 'Building...'
-- ps: sqlcmd -S "(local)\SQL2016" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
 - ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
 - ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
 - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
