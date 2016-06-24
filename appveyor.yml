@@ -12,9 +12,29 @@ services:
 build_script:
 - ps: Write-Host 'Building...'
 - ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzRS.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzTrace.sql -d "master"
+
 - ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzRS.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzTrace.sql -d "master"
+
 - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzRS.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzTrace.sql -d "master"
 
 test_script:
 - ps: Write-Host 'Testing...'
+- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i tests.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i tests.sql -d "master"
+- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master"
 - ps: ls
