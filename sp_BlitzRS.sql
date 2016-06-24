@@ -1,5 +1,5 @@
 IF NOT EXISTS (SELECT * FROM sys.databases where name = 'ReportServer')
-	GOTO end:
+	GOTO end
 
 USE [ReportServer]
 GO
