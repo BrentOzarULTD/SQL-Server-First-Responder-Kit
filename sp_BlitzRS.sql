@@ -1,17 +1,16 @@
 IF NOT EXISTS (SELECT * FROM sys.databases where name = 'ReportServer')
-	GOTO end
+	GOTO end_now
 
 USE [ReportServer]
-GO
 /****** Object:  StoredProcedure [dbo].[sp_BlitzRS]    Script Date: 9/9/2014 10:02:33 PM ******/
 SET ANSI_NULLS ON
-GO
+
 SET QUOTED_IDENTIFIER ON
-GO
+
 
 IF OBJECT_ID('dbo.sp_BlitzRS') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzRS AS RETURN 0;')
-GO
+  
 
 
 ALTER PROCEDURE [dbo].[sp_BlitzRS]
@@ -968,4 +967,4 @@ IF @WhoGetsWhat = 1
 
 END
 
-end:
+end_now:
