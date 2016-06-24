@@ -1,3 +1,6 @@
+IF NOT EXISTS (SELECT * FROM sys.databases where name = 'ReportServer')
+	GOTO end:
+
 USE [ReportServer]
 GO
 /****** Object:  StoredProcedure [dbo].[sp_BlitzRS]    Script Date: 9/9/2014 10:02:33 PM ******/
@@ -965,3 +968,4 @@ IF @WhoGetsWhat = 1
 
 END
 
+end:
