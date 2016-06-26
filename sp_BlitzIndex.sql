@@ -362,17 +362,19 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
         )
 
         CREATE TABLE #DatabaseList (
-            DatabaseName NVARCHAR(256)
+			DatabaseName NVARCHAR(256)
         )
 
 IF @GetAllDatabases = 1
     BEGIN
         INSERT INTO #DatabaseList (DatabaseName)
-        SELECT    DB_NAME(database_id)
+        SELECT  DB_NAME(database_id)
         FROM    sys.databases
-        WHERE    user_access_desc='MULTI_USER'
-            AND state_desc = 'ONLINE'
-            AND database_id > 4;
+        WHERE user_access_desc='MULTI_USER'
+        AND state_desc = 'ONLINE'
+        AND database_id > 4
+		AND DB_NAME(database_id) NOT IN ('ReportServer','ReportServerTempDB')
+		AND is_distributor = 0;
     END
 ELSE
     BEGIN
@@ -428,11 +430,14 @@ BEGIN
     RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
     RAISERROR (@DatabaseName, 0, 1) WITH NOWAIT;
 
-SELECT    @DatabaseID = database_id
-FROM    sys.databases
-WHERE    [name] = @DatabaseName
-    AND user_access_desc='MULTI_USER'
-    AND state_desc = 'ONLINE';
+SELECT   @DatabaseID = [database_id]
+FROM     sys.databases
+         WHERE [name] = @DatabaseName
+		 AND user_access_desc='MULTI_USER'
+         AND state_desc = 'ONLINE'
+         AND database_id > 4
+		 AND DB_NAME(database_id) NOT IN ('ReportServer','ReportServerTempDB')
+		 AND is_distributor = 0;
 
 /* Last startup */
 SELECT @DaysUptime = CAST(DATEDIFF(hh,create_date,getdate())/24. as numeric (23,2))
