@@ -1763,11 +1763,10 @@ END
 
 DECLARE @ctp INT ;
 
-SELECT  @ctp = CAST(value AS INT)
+SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
 FROM    sys.configurations
 WHERE   name = 'cost threshold for parallelism'
 OPTION (RECOMPILE);
-
 
 
 /* Update to populate checks columns */
