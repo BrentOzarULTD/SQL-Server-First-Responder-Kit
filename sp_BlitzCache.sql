@@ -917,7 +917,7 @@ END
    values will be inserted into #ignore_query_hashes. This is used to
    exclude values from query results.
 
-   Just a reminder: Using @OnlyQueryHashes will ignore stored
+   Just a reminder: Using @IgnoreQueryHashes will ignore stored
    procedures and triggers.
  */
 IF @IgnoreQueryHashes IS NOT NULL
