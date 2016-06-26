@@ -434,10 +434,7 @@ SELECT   @DatabaseID = [database_id]
 FROM     sys.databases
          WHERE [name] = @DatabaseName
          AND user_access_desc='MULTI_USER'
-         AND state_desc = 'ONLINE'
-         AND database_id > 4
-         AND DB_NAME(database_id) NOT IN ('ReportServer','ReportServerTempDB')
-         AND is_distributor = 0;
+         AND state_desc = 'ONLINE';
 
 /* Last startup */
 SELECT @DaysUptime = CAST(DATEDIFF(hh,create_date,getdate())/24. as numeric (23,2))
