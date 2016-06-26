@@ -102,8 +102,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_parallel bit,
 	is_key_lookup_expensive bit,
 	key_lookup_cost float,
-	is_sort_expensive bit,
-	sort_cost float,
 	is_remote_query_expensive bit,
 	remote_query_cost float,
 	is_forced_serial bit,
@@ -209,6 +207,7 @@ Changes in v3.0 - 2016/06/26:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
  - Fixed ##bou_BlitzCacheResults not filtered by session id. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/305
+ - 
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
@@ -688,8 +687,6 @@ BEGIN
 		is_forced_serial bit,
 		is_key_lookup_expensive bit,
 		key_lookup_cost float,
-		is_sort_expensive bit,
-		sort_cost float,
 		is_remote_query_expensive bit,
 		remote_query_cost float,
         frequent_execution bit,
@@ -1627,18 +1624,6 @@ WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET sort_cost = x.sort_cost
-FROM (
-SELECT 
-       qs.SqlHandle,
-	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS sort_cost
-FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -1804,7 +1789,6 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND remote_query_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END;
 
@@ -1875,7 +1859,6 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
                   , 2, 200000) ;
 
@@ -2162,7 +2145,6 @@ BEGIN
                   CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
@@ -2552,19 +2534,6 @@ BEGIN
                     'Expensive Key Lookups',
                     'http://www.brentozar.com/blitzcache/expensive-key-lookups/',
                     'There''s a key lookup in your plan that costs >=50% of the total plan cost.') ;	
-
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.is_sort_expensive= 1
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    27,
-                    100,
-                    'Execution Plans',
-                    'Expensive Sort',
-                    'http://www.brentozar.com/blitzcache/expensive-sorts/',
-                    'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
