@@ -116,7 +116,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     long_running bit,
     downlevel_estimator bit,
     implicit_conversions bit,
-    tempdb_spill bit,
     busy_loops bit,
     tvf_join bit,
     tvf_estimate bit,
@@ -702,7 +701,6 @@ BEGIN
         long_running bit,
         downlevel_estimator bit,
         implicit_conversions bit,
-        tempdb_spill bit,
         busy_loops bit,
         tvf_join bit,
         tvf_estimate bit,
@@ -1872,7 +1870,6 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
@@ -2158,7 +2155,6 @@ BEGIN
                   CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
                   CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
-                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
@@ -2413,18 +2409,6 @@ BEGIN
                     'http://brentozar.com/go/implicit',
                     'One or more queries are comparing two fields that are not of the same data type.') ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs
-                   WHERE  tempdb_spill = 1
-				   AND SPID = @@SPID)
-        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (@@SPID,
-                15,
-                10,
-                'Performance',
-                'TempDB Spills',
-                'http://brentozar.com/blitzcache/tempdb-spills/',
-                'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
