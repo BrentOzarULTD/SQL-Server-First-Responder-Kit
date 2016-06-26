@@ -1,9 +1,9 @@
-IF OBJECT_ID('dbo.sp_AskBrent') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_AskBrent AS RETURN 0;')
+IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzFirst AS RETURN 0;')
 GO
 
 
-ALTER PROCEDURE [dbo].[sp_AskBrent]
+ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @Question NVARCHAR(MAX) = NULL ,
     @Help TINYINT = 0 ,
     @AsOf DATETIMEOFFSET = NULL ,
@@ -28,10 +28,10 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160615'
+SET @VersionDate = '20160626'
 
 IF @Help = 1 PRINT '
-sp_AskBrent from http://FirstResponderKit.org
+sp_BlitzFirst from http://FirstResponderKit.org
 	
 This script gives you a prioritized list of why your SQL Server is slow right now.
 
@@ -53,7 +53,8 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v24 - YYYY/MM/DD
+Changes in v24 - 2016/06/26
+ - Renamed from sp_AskBrent.
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
    old output parameter @Version is no more, because we are switching to
@@ -301,7 +302,7 @@ BEGIN
     checks, we insert data into this table, and we manually put in the CheckID.
     We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
     download that from http://FirstResponderKit.org if you want to build
-    a tool that relies on the output of sp_AskBrent.
+    a tool that relies on the output of sp_BlitzFirst.
     */
 
     IF OBJECT_ID('tempdb..#AskBrentResults') IS NOT NULL
@@ -1021,7 +1022,7 @@ BEGIN
         /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
-           end of our sp_AskBrent session. */
+           end of our sp_BlitzFirst session. */
         INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -1579,7 +1580,7 @@ BEGIN
         /* If we're waiting 30+ seconds, run this check at the end.
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
-           end of our sp_AskBrent session. */
+           end of our sp_BlitzFirst session. */
         INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -1662,13 +1663,13 @@ BEGIN
                 )
         VALUES  ( -1 ,
                   0 ,
-                  'sp_AskBrent ' + CAST(CONVERT(DATETIMEOFFSET, @VersionDate, 102) AS VARCHAR(100)),
+                  'sp_BlitzFirst ' + CAST(CONVERT(DATETIMEOFFSET, @VersionDate, 102) AS VARCHAR(100)),
                   'From Your Community Volunteers' ,
                   'http://FirstResponderKit.org/' ,
                   'We hope you found this tool useful.'
                 );
 
-                /* Outdated sp_AskBrent - sp_AskBrent is Over 6 Months Old */
+                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
                         INSERT  INTO #AskBrentResults
@@ -1681,10 +1682,10 @@ BEGIN
                                 )
                                 SELECT 27 AS CheckID ,
                                         0 AS Priority ,
-                                        'Outdated sp_AskBrent' AS FindingsGroup ,
-                                        'sp_AskBrent is Over 6 Months Old' AS Finding ,
+                                        'Outdated sp_BlitzFirst' AS FindingsGroup ,
+                                        'sp_BlitzFirst is Over 6 Months Old' AS Finding ,
                                         'http://FirstResponderKit.org/' AS URL ,
-                                        'Some things get better with age, like fine wine and your T-SQL. However, sp_AskBrent is not one of those things - time to go download the current one.' AS Details
+                                        'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details
                     END
 
 
@@ -2604,20 +2605,20 @@ GO
 
 
 /* How to run it:
-EXEC dbo.sp_AskBrent
+EXEC dbo.sp_BlitzFirst
 
 With extra diagnostic info:
-EXEC dbo.sp_AskBrent @ExpertMode = 1;
+EXEC dbo.sp_BlitzFirst @ExpertMode = 1;
 
 In Ask a Question mode:
-EXEC dbo.sp_AskBrent 'Is this cursor bad?';
+EXEC dbo.sp_BlitzFirst 'Is this cursor bad?';
 
 Saving output to tables:
-EXEC sp_AskBrent @Seconds = 60
+EXEC sp_BlitzFirst @Seconds = 60
 , @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
-, @OutputTableName = 'AskBrentResults'
-, @OutputTableNameFileStats = 'AskBrentResults_FileStats'
-, @OutputTableNamePerfmonStats = 'AskBrentResults_PerfmonStats'
-, @OutputTableNameWaitStats = 'AskBrentResults_WaitStats'
+, @OutputTableName = 'BlitzFirstResults'
+, @OutputTableNameFileStats = 'BlitzFirstResults_FileStats'
+, @OutputTableNamePerfmonStats = 'BlitzFirstResults_PerfmonStats'
+, @OutputTableNameWaitStats = 'BlitzFirstResults_WaitStats'
 */
