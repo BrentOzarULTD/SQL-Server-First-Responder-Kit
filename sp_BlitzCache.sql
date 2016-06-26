@@ -207,7 +207,10 @@ Changes in v3.0 - 2016/06/26:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
  - Fixed ##bou_BlitzCacheResults not filtered by session id. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/305
- - 
+ - Erik Darling removed tempdb spills and expensive sorts from warnings.
+   Neither one works properly with cached plans.
+   Cleaned up documentation
+   Fixed bug related to CTFP being set to 0
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
