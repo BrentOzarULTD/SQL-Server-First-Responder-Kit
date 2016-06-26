@@ -188,7 +188,7 @@ Known limitations of this version:
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
-Changes in v3.0 - 2016/06/18:
+Changes in v3.0 - 2016/06/26:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
    old output parameter @Version is no more, because we are switching to

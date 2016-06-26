@@ -34,7 +34,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
 SET @Version = '4.0';
-SET @VersionDate = '20160320';
+SET @VersionDate = '20160626';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -65,7 +65,7 @@ Known limitations of this version:
 Unknown limitations of this version:
  - We knew them once, but we forgot.
 
-Changes in v4.0 - YYYY/MM/DD:
+Changes in v4.0 - 2016/06/26:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
    old output parameter @Version is no more, because we are switching to
@@ -140,7 +140,7 @@ SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARC
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @FilterMB=250;
 
-RAISERROR(N'Starting run. sp_BlitzIndex(R) v3.0 - March 20, 2016', 0,1) WITH NOWAIT;
+RAISERROR(N'Starting run. sp_BlitzIndex(R) v4.0 - June 26, 2016', 0,1) WITH NOWAIT;
 
 IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
     DROP TABLE #IndexSanity;
@@ -1427,10 +1427,10 @@ BEGIN
         WHERE s.[object_id]=@ObjectID
         UNION ALL
         SELECT     N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) +             
-                N' (sp_BlitzIndex(R) v2.02 - Jan 30, 2014)' ,   
-                N'From Brent Ozar Unlimited(R)' ,   
-                N'http://www.BrentOzar.com/BlitzIndex' ,
-                N'Thanks from the Brent Ozar Unlimited(R) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+                N' (sp_BlitzIndex(R) v4.0 - June 26, 2016)' ,   
+                N'SQL Server First Responder Kit' ,   
+                N'http://FirstResponderKit.org' ,
+                N'From Your Community Volunteers',
                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 as display_order
     )
@@ -2763,7 +2763,7 @@ BEGIN;
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( -1, 0 , 
-		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://www.BrentOzar.com/BlitzIndex/', 
+		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://FirstResponderKit.org/', 
                    'Fine wine gets better with age, but this sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + ' is more like bad cheese. Time to get a new one.',
                     N'',N'',N''
                     );
@@ -2776,8 +2776,8 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) END, 
-                    N'From Brent Ozar Unlimited(R)' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N'Thanks from the Brent Ozar Unlimited(R) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+                    N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
+                    N''
                     , N'',N''
                     );
         END
@@ -2788,8 +2788,8 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) END, 
-                    N'From Brent Ozar Unlimited(R)' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N'Thanks from the Brent Ozar Unlimited(R) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+                    N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
+                    N''
                     , N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -2797,7 +2797,7 @@ BEGIN;
             VALUES  ( 1, 0 , 
 		           'No Major Problems Found',
                    'Nice Work!',
-                   'http://www.BrentOzar.com/BlitzIndex', 'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 'The new default Mode 0 only looks for very serious index issues.', '', ''
+                   'http://FirstResponderKit.org', 'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 'The new default Mode 0 only looks for very serious index issues.', '', ''
                     );
 
         END
@@ -2808,8 +2808,8 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) END, 
-                    N'From Brent Ozar Unlimited(R)' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N'Thanks from the Brent Ozar Unlimited(R) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.'
+                    N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+                    N''
                     , N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -2817,7 +2817,7 @@ BEGIN;
             VALUES  ( 1, 0 , 
 		           'No Problems Found',
                    'Nice job! Or more likely, you have a nearly empty database.',
-                   'http://www.BrentOzar.com/BlitzIndex', 'Time to go read some blog posts.', '', '', ''
+                   'http://FirstResponderKit.org', 'Time to go read some blog posts.', '', '', ''
                     );
 
         END
@@ -2925,9 +2925,9 @@ BEGIN;
         UNION ALL
         SELECT    N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)    ,        
                 N'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),   
-                N'From Brent Ozar Unlimited(R)' ,   
-                N'http://BrentOzar.com/BlitzIndex' ,
-                N'Thanks from the Brent Ozar Unlimited(R) team.  We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+                N'From Your Community Volunteers' ,   
+                N'http://FirstResponderKit.org' ,
+                N'',
                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 NULL,0 as display_order
@@ -3034,10 +3034,10 @@ BEGIN;
         UNION ALL
         SELECT                 
             N'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),   
-            N'From Brent Ozar Unlimited(R)' ,   
-            N'http://BrentOzar.com/BlitzIndex' ,
+            N'From Your Community Volunteers' ,   
+            N'http://FirstResponderKit.org' ,
             100000000000,
-            N'Thanks from the Brent Ozar Unlimited(R) team. We hope you found this tool useful, and if you need help relieving your SQL Server pains, email us at Help@BrentOzar.com.',
+            N'',
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
             NULL, 0 as display_order
         ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC

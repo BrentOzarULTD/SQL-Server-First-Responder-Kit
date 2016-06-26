@@ -59,7 +59,7 @@ Known limitations of this version:
 Unknown limitations of this version:
  - Probably a lot. This is one of our lesser-tested scripts.
 
-Changes in v1.0 - YYYY/MM/DD
+Changes in v1.0 - 2016/06/26
  - Switched to MIT licensing.
  - Added @Help parameter.
 

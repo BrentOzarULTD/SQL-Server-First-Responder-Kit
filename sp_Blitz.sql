@@ -29,7 +29,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160602'
+	SET @VersionDate = '20160626'
 
 	IF @Help = 1 PRINT '
 	/*
@@ -53,7 +53,7 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v53 - YYYY/MM/DD
+     Changes in v53 - 2016/06/26
 	  - BREAKING CHANGE: Standardized input & output parameters to be
          consistent across the entire First Responder Kit. This also means the old
          old output parameter @Version is no more, because we are switching to
