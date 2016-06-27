@@ -1,0 +1,41 @@
+version: 1.0.{build}
+branches:
+  only:
+  - master
+services:
+- mssql2012sp1
+- mssql2012sp1rs
+- mssql2008r2sp2
+- mssql2008r2sp2rs
+- mssql2014
+- mssql2014rs
+
+artifacts: 
+  - path: SQL_Server_First_Responder_Kit.zip
+    name: scripts 
+
+build_script:
+  - ps: Write-Host 'Building...'
+  - ps: .\install.ps1
+
+test_script:
+  - ps: Write-Host 'Testing...'
+  - ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+  - ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+  - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+
+after_test:
+  - ps: Write-Host 'Packaging ...'
+  - ps: 7z a SQL_Server_First_Responder_Kit.zip sp_*.sql -r
+  - ps: ls
+
+deploy:
+  provider: GitHub
+  auth_token:
+    secure: CqWatOZAITE7uTenY58ol4QEap/qkCiI6V1TiJnpW4pLPucOJrjw+QPJY5/JLUZ/ # you need to generate a token from github and encrypt it using the encryption tool from appveyor and put the encrypted value to here.
+  artifact: scripts           # upload all NuGet packages to release assets
+  draft: false                # if you want to build on draft releases turn this on
+  prerelease: false           # if you want to build on prereleases turn this on
+  on:
+    branch: master                 # release from master branch only
+    appveyor_repo_tag: true        # deploy on tag push only  

@@ -3,6 +3,8 @@
 [![stars badge]][stars]
 [![forks badge]][forks]
 [![issues badge]][issues]
+[![AppVeyor branch](https://img.shields.io/appveyor/ci/BrentOzarULTD/SQL-Server-First-Responder-Kit/master.svg?maxAge=2592000)]()
+[![GitHub release](https://img.shields.io/github/release/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg?maxAge=2592000)](https://ci.appveyor.com/api/projects/BrentOzarULTD/SQL-Server-First-Responder-Kit/artifacts/SQL_Server_First_Responder_Kit.zip?branch=master)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
