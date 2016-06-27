@@ -23,7 +23,8 @@ artifacts:
   - path: SQL_Server_First_Responder_Kit.zip
     name: scripts 
     
-before_package:
+before_deploy:
+  - ps: Write-Host 'Packaging ...'
   - ps: 7z a SQL_Server_First_Responder_Kit.zip sp_*.sql -r
   - ps: ls
 
