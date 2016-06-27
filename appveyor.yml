@@ -20,11 +20,11 @@ test_script:
 - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
 
 artifacts: 
-  - path: SQL-Server-First-Responder-Kit.zip
+  - path: SQL_Server_First_Responder_Kit.zip
     name: scripts 
     
 before_package:
-  - ps: 7z a SQL-Server-First-Responder-Kit.zip sp_*.sql -r
+  - ps: 7z a SQL_Server_First_Responder_Kit.zip sp_*.sql -r
 
 deploy:
   provider: GitHub
