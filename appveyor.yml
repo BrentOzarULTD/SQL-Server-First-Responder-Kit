@@ -9,21 +9,22 @@ services:
 - mssql2008r2sp2rs
 - mssql2014
 - mssql2014rs
-build_script:
-- ps: Write-Host 'Building...'
-- ps: .\install.ps1
-
-test_script:
-- ps: Write-Host 'Testing...'
-- ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
-- ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
-- ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
 
 artifacts: 
   - path: SQL_Server_First_Responder_Kit.zip
     name: scripts 
-    
-before_deploy:
+
+build_script:
+  - ps: Write-Host 'Building...'
+  - ps: .\install.ps1
+
+test_script:
+  - ps: Write-Host 'Testing...'
+  - ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+  - ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+  - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+
+after_test:
   - ps: Write-Host 'Packaging ...'
   - ps: 7z a SQL_Server_First_Responder_Kit.zip sp_*.sql -r
   - ps: ls
