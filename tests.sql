@@ -11,4 +11,4 @@ WHERE
 	and sp.name in ('sp_AskBrent', 'sp_Blitz', 'sp_BlitzCache', 'sp_BlitzIndex', 'sp_BlitzRS', 'sp_BlitzTrace')
 
 IF @@ROWCOUNT > 0 
-	RAISERROR ('Underscore(s) found in parameter names', 1,0);
+	RAISERROR ('Underscore(s) found in parameter names', 16,0);
