@@ -3,7 +3,8 @@
 [![stars badge]][stars]
 [![forks badge]][forks]
 [![issues badge]][issues]
-![appveyor badge]
+[![AppVeyor branch](https://img.shields.io/appveyor/ci/selmanay/SQL-Server-First-Responder-Kit/master.svg?maxAge=2592000)]()
+[![GitHub release](https://img.shields.io/github/release/selmanay/SQL-Server-First-Responder-Kit.svg?maxAge=2592000)](https://ci.appveyor.com/api/projects/selmanay/SQL-Server-First-Responder-Kit/artifacts/SQL_Server_First_Responder_Kit.zip?branch=master)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
@@ -126,7 +127,6 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 [stars badge]:https://img.shields.io/github/stars/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
 [forks badge]:https://img.shields.io/github/forks/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
 [issues badge]:https://img.shields.io/github/issues/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
-[appveyor badge]:https://ci.appveyor.com/api/projects/status/github/selmanay/SQL-Server-First-Responder-Kit?branch=master&svg=true
 
 [licence]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md
 [stars]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/stargazers
