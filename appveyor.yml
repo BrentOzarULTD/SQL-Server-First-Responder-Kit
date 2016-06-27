@@ -18,3 +18,21 @@ test_script:
 - ps: sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
 - ps: sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
 - ps: sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i tests.sql -d "master" -b
+
+artifacts: 
+  - path: SQL-Server-First-Responder-Kit.zip
+    name: scripts 
+    
+before_package:
+  - ps: 7z a SQL-Server-First-Responder-Kit.zip sp_*.sql -r
+
+deploy:
+  provider: GitHub
+  auth_token:
+    secure: CqWatOZAITE7uTenY58ol4QEap/qkCiI6V1TiJnpW4pLPucOJrjw+QPJY5/JLUZ/ # your encrypted token from GitHub
+  artifact: scripts           # upload all NuGet packages to release assets
+  draft: false                # if you want to build on draft releases turn this on
+  prerelease: false           # if you want to build on prereleases turn this on
+  on:
+    branch: master                 # release from master branch only
+    appveyor_repo_tag: true        # deploy on tag push only  
