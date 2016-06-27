@@ -32,7 +32,7 @@ after_test:
 deploy:
   provider: GitHub
   auth_token:
-    secure: CqWatOZAITE7uTenY58ol4QEap/qkCiI6V1TiJnpW4pLPucOJrjw+QPJY5/JLUZ/ # your encrypted token from GitHub
+    secure: CqWatOZAITE7uTenY58ol4QEap/qkCiI6V1TiJnpW4pLPucOJrjw+QPJY5/JLUZ/ # you need to generate a token from github and encrypt it using the encryption tool from appveyor and put the encrypted value to here.
   artifact: scripts           # upload all NuGet packages to release assets
   draft: false                # if you want to build on draft releases turn this on
   prerelease: false           # if you want to build on prereleases turn this on
