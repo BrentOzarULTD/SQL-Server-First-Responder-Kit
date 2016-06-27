@@ -28,7 +28,6 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
 	@Help TINYINT = 0,
-	@selman_ay int = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
