@@ -1,4 +1,4 @@
-# sp_AskBrent Checks by Priority
+# sp_BlitzFirst Checks by Priority
 
 This table lists all checks ordered by priority. 
 
