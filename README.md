@@ -103,9 +103,9 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 (stub - describe the big picture here)
 
-### Advanced sp_AskBrent Parameters
+### Advanced sp_BlitzFirst Parameters
 
-In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_AskBrent:
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzFirst:
 
 (stub - describe the lesser-used stuff)
 
