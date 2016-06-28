@@ -102,8 +102,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_parallel bit,
 	is_key_lookup_expensive bit,
 	key_lookup_cost float,
-	is_sort_expensive bit,
-	sort_cost float,
 	is_remote_query_expensive bit,
 	remote_query_cost float,
 	is_forced_serial bit,
@@ -116,7 +114,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     long_running bit,
     downlevel_estimator bit,
     implicit_conversions bit,
-    tempdb_spill bit,
     busy_loops bit,
     tvf_join bit,
     tvf_estimate bit,
@@ -210,6 +207,10 @@ Changes in v3.0 - 2016/06/26:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
  - Fixed ##bou_BlitzCacheResults not filtered by session id. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/305
+ - Erik Darling removed tempdb spills and expensive sorts from warnings.
+   Neither one works properly with cached plans.
+   Cleaned up documentation
+   Fixed bug related to CTFP being set to 0
 
 Changes in v2.5.3 - 2016-04-28:
  - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
@@ -689,8 +690,6 @@ BEGIN
 		is_forced_serial bit,
 		is_key_lookup_expensive bit,
 		key_lookup_cost float,
-		is_sort_expensive bit,
-		sort_cost float,
 		is_remote_query_expensive bit,
 		remote_query_cost float,
         frequent_execution bit,
@@ -702,7 +701,6 @@ BEGIN
         long_running bit,
         downlevel_estimator bit,
         implicit_conversions bit,
-        tempdb_spill bit,
         busy_loops bit,
         tvf_join bit,
         tvf_estimate bit,
@@ -919,7 +917,7 @@ END
    values will be inserted into #ignore_query_hashes. This is used to
    exclude values from query results.
 
-   Just a reminder: Using @OnlyQueryHashes will ignore stored
+   Just a reminder: Using @IgnoreQueryHashes will ignore stored
    procedures and triggers.
  */
 IF @IgnoreQueryHashes IS NOT NULL
@@ -1629,18 +1627,6 @@ WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET sort_cost = x.sort_cost
-FROM (
-SELECT 
-       qs.SqlHandle,
-	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS sort_cost
-FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -1780,11 +1766,10 @@ END
 
 DECLARE @ctp INT ;
 
-SELECT  @ctp = CAST(value AS INT)
+SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
 FROM    sys.configurations
 WHERE   name = 'cost threshold for parallelism'
 OPTION (RECOMPILE);
-
 
 
 /* Update to populate checks columns */
@@ -1806,7 +1791,6 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND remote_query_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END;
 
@@ -1872,13 +1856,11 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
                   , 2, 200000) ;
 
@@ -2158,7 +2140,6 @@ BEGIN
                   CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
                   CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
-                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
@@ -2166,7 +2147,6 @@ BEGIN
                   CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
@@ -2413,18 +2393,6 @@ BEGIN
                     'http://brentozar.com/go/implicit',
                     'One or more queries are comparing two fields that are not of the same data type.') ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs
-                   WHERE  tempdb_spill = 1
-				   AND SPID = @@SPID)
-        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (@@SPID,
-                15,
-                10,
-                'Performance',
-                'TempDB Spills',
-                'http://brentozar.com/blitzcache/tempdb-spills/',
-                'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -2568,19 +2536,6 @@ BEGIN
                     'Expensive Key Lookups',
                     'http://www.brentozar.com/blitzcache/expensive-key-lookups/',
                     'There''s a key lookup in your plan that costs >=50% of the total plan cost.') ;	
-
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.is_sort_expensive= 1
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    27,
-                    100,
-                    'Execution Plans',
-                    'Expensive Sort',
-                    'http://www.brentozar.com/blitzcache/expensive-sorts/',
-                    'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
