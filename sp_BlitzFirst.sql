@@ -126,7 +126,214 @@ DECLARE @StringToExecute NVARCHAR(4000),
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
-    @ObjectFullName NVARCHAR(2000);
+    @ObjectFullName NVARCHAR(2000),
+	@ErrorMessage NVARCHAR(800);
+
+BEGIN /*Output Parameter Validation*/
+	/*User has specified an OutputServerName*/
+	IF (@OutputServerName IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase since there's an OutputServer*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputServerName, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputServerName, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+			BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputServerName, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputDatabase*/
+	IF (@OutputDatabaseName IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputDatabaseName, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputDatabaseName, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputSchema*/
+	IF (@OutputSchemaName IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputSchemaName, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputSchemaName, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputTable*/
+	IF (@OutputTableName IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableName, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableName, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputTable for WaitStats*/
+	IF (@OutputTableNameWaitStats IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameWaitStats, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameWaitStats, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameWaitStats, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for FileStats*/
+		IF (ISNULL(@OutputTableNameFileStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameWaitStats, but have not specified a value for @OutputTableNameFileStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for PerfmonStats*/
+		IF (ISNULL(@OutputTableNamePerfmonStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameWaitStats, but have not specified a value for @OutputTableNamePerfmonStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputTable for FileStats*/
+	IF (@OutputTableNameFileStats IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameFileStats, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameFileStats, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameFileStats, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for WaitStats*/
+		IF (ISNULL(@OutputTableNameWaitStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameFileStats, but have not specified a value for @OutputTableNameWaitStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for PerfmonStats*/
+		IF (ISNULL(@OutputTableNamePerfmonStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNameFileStats, but have not specified a value for @OutputTableNamePerfmonStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*User has specified an OutputTable for PerfmonStats*/
+	IF (@OutputTableNamePerfmonStats IS NOT NULL)
+	BEGIN
+		/*Validate user also specified an OutputDatabase*/
+		IF (ISNULL(@OutputDatabaseName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNamePerfmonStats, but have not specified a value for @OutputDatabaseName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputSchema*/
+		IF (ISNULL(@OutputSchemaName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNamePerfmonStats, but have not specified a value for @OutputSchemaName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable*/
+		IF (ISNULL(@OutputTableName,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNamePerfmonStats, but have not specified a value for @OutputTableName. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for FileStats*/
+		IF (ISNULL(@OutputTableNameFileStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNamePerfmonStats, but have not specified a value for @OutputTableNameFileStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		/*Validate user also specified an OutputTable for WaitStats*/
+		IF (ISNULL(@OutputTableNameWaitStats,'')='')
+		BEGIN
+			SET @ErrorMessage = 'You have specified a value for @OutputTableNamePerfmonStats, but have not specified a value for @OutputTableNameWaitStats. No data will be logged to a table.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+	END
+
+	/*Validate that @OutputDatabaseName equals a valid database*/
+	IF ((@OutputDatabaseName IS NOT NULL) AND (@OutputServerName IS NULL))
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM master.sys.databases WHERE name = @OutputDatabaseName)
+		BEGIN
+			SET @ErrorMessage = 'You have specified an OutputDatabaseName (' + @OutputDatabaseName + ') that does not exist on ' + @@SERVERNAME + '. Please change the @OutputDatabaseName parameter to a database that exists on this server, or create a new database with the name you specified.'
+			RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+		END
+		ELSE
+		BEGIN
+			/*Validate that @OutputSchemaName equals a valid schema in the database*/
+			IF ((@OutputSchemaName IS NOT NULL) AND (@OutputServerName IS NULL))
+			BEGIN
+				DECLARE @SchemaCheck TABLE (Val INT)
+				INSERT INTO @SchemaCheck
+				EXEC ('SELECT 1 FROM [' + @OutputDatabaseName + '].sys.schemas WHERE name = ''' + @OutputSchemaName + '''')
+				IF NOT EXISTS (SELECT 1 FROM @SchemaCheck)
+				BEGIN
+					SET @ErrorMessage = 'You have specified an OutputSchema (' + @OutputSchemaName + ') that does not exist in the specified OutputDatabase (' + @OutputDatabaseName + ') on ' + @@SERVERNAME + '. Please change the @OutputSchemaName parameter to a schema that exists in this database, or create a new schema with the name you specified.'
+					RAISERROR(@ErrorMessage,16,1) WITH LOG, NOWAIT
+				END
+			END
+		END
+	END
+END
 
 /* Sanitize our inputs */
 SELECT
