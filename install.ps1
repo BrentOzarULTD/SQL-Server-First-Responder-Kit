@@ -1,4 +1,4 @@
-sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master" -b
+sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzFirst.sql -d "master" -b
 sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master" -b
 sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master" -b
 sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master" -b
@@ -9,7 +9,7 @@ if ($result -eq 'ReportServer')
   sqlcmd -S "(local)\SQL2014" -U "sa" -P "Password12!" -i sp_BlitzRS.sql -d "master" -b
 }
 
-sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master" -b
+sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzFirst.sql -d "master" -b
 sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master" -b
 sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master" -b
 sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master" -b
@@ -20,7 +20,7 @@ if ($result -eq 'ReportServer')
   sqlcmd -S "(local)\SQL2012SP1" -U "sa" -P "Password12!" -i sp_BlitzRS.sql -d "master" -b
 }
 
-sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_AskBrent.sql -d "master" -b
+sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzFirst.sql -d "master" -b
 sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_Blitz.sql -d "master" -b
 sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzCache.sql -d "master" -b
 sqlcmd -S "(local)\SQL2008R2SP2" -U "sa" -P "Password12!" -i sp_BlitzIndex.sql -d "master" -b
