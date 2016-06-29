@@ -1615,9 +1615,9 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CompileTime = query_plan.value('sum(/p:QueryPlan/@CompileTime)', 'float') ,
         CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float') ,
-        implicit_conversions = CASE WHEN QueryPlan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
-        plan_warnings = CASE WHEN QueryPlan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
-		is_forced_serial = CASE WHEN QueryPlan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
+        implicit_conversions = CASE WHEN query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
+        plan_warnings = CASE WHEN query_plan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
+		is_forced_serial = CASE WHEN query_plan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
@@ -1693,7 +1693,6 @@ SET NumberOfDistinctPlans = distinct_plan_count,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
     is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-	is_forced_serial = CASE WHEN QueryPlan.value('count(//p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END,
     SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
     SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
     CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
