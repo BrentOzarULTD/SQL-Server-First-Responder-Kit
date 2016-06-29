@@ -2142,9 +2142,9 @@ BEGIN
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
-                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
-                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
-                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END + 
+                  CASE WHEN unparameterized_query > 0 THEN '', 23'' ELSE '''' END + 
+                  CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
