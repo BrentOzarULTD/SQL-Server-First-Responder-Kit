@@ -2292,7 +2292,7 @@ BEGIN;
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/Indexaphobia' AS URL,
                                 mi.[statement] + 
-                                N' Est. benefit: ' + 
+                                N' Est. benefit per day: ' + 
                                     CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
                                     ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
                                     (magic_benefit_number/@DaysUptime)
