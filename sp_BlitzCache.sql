@@ -1559,24 +1559,50 @@ WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
 
 -- statement level checks
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-                                statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
-                             ELSE
-                                statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
-                        END ,
-        compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
-        compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
-        unmatched_index_count = statement.value('count(//p:UnmatchedIndexes/Parameterization/Object)', 'int') ,
-        is_trivial = CASE WHEN statement.exist('/p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-        unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
-                                     WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
-                                END
-FROM    #statements s
-WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, c1 AS (
+SELECT 
+QueryPlanCost_check = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
+                        statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
+                      ELSE
+                        statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
+					  END ,
+compile_timeout_check = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
+compile_memory_limit_exceeded_check = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
+unmatched_index_count_check = statement.value('count(//p:UnmatchedIndexes/Parameterization/Object)', 'int') ,
+is_trivial_check = CASE WHEN statement.exist('/p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
+unparameterized_query_check = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
+                                  statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
+                              WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
+                                   statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
+                              END,
+s.QueryHash
+FROM  #statements s
+JOIN ##bou_BlitzCacheProcs b
+ON b.QueryHash = s.QueryHash
+), c2 AS (
+SELECT
+    QueryHash,
+    QueryPlanCost = MAX([c1].[QueryPlanCost_check]) ,
+    compile_timeout = MAX([c1].[compile_timeout_check]) ,
+    compile_memory_limit_exceeded = MAX([c1].[compile_memory_limit_exceeded_check]) ,
+    unmatched_index_count = MAX([c1].[unmatched_index_count_check]) ,
+    is_trivial = MAX([c1].[is_trivial_check]) ,
+    unparameterized_query = MAX([c1].[unparameterized_query_check])
+FROM c1
+GROUP BY QueryHash
+)
+UPDATE b
+SET	
+    b.QueryPlanCost = c2.QueryPlanCost,
+    b.compile_timeout = c2.compile_timeout,
+    b.compile_memory_limit_exceeded = c2.compile_memory_limit_exceeded,
+    b.unmatched_index_count = c2.unmatched_index_count,
+    b.is_trivial = c2.is_trivial,
+    b.unparameterized_query = c2.unparameterized_query
+FROM [c2] AS c2
+JOIN ##bou_BlitzCacheProcs AS b
+ON c2.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
 
 -- query level checks
@@ -2127,7 +2153,7 @@ BEGIN
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
                   CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
                   CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
-                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
+                  CASE WHEN is_forced_parameterized > 0 THEN '', 5'' ELSE '''' END +
                   CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
                   CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
@@ -2142,9 +2168,8 @@ BEGIN
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
-                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
-                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
-                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END + 
+                  CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
