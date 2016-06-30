@@ -1375,22 +1375,7 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
-/* Update ##bou_BlitzCacheProcs to get Stored Proc info 
- * This should get totals for all statements in a Stored Proc
- */
 
-UPDATE b
-        SET 
-            b.QueryHash           = b2.QueryHash,
-            b.MinReturnedRows	  = b2.MinReturnedRows,
-            b.MaxReturnedRows	  = b2.MaxReturnedRows,
-            b.AverageReturnedRows =	b2.AverageReturnedRows,
-            b.TotalReturnedRows	  = b2.TotalReturnedRows,
-            b.LastReturnedRows    = b2.LastReturnedRows
-FROM ##bou_BlitzCacheProcs b
-JOIN ##bou_BlitzCacheProcs b2
-ON b2.SqlHandle = b.SqlHandle
-WHERE b.QueryHash IS NULL
 
 /* Compute the total CPU, etc across our active set of the plan cache.
  * Yes, there's a flaw - this doesn't include anything outside of our @Top
@@ -1577,7 +1562,7 @@ OPTION (RECOMPILE) ;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , c1 AS (
 SELECT 
-QueryPlanCost_check = CASE WHEN QueryType LIKE '%Procedure%' THEN
+QueryPlanCost_check = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
                         statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
                       ELSE
                         statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
@@ -1699,6 +1684,11 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
+    QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
+        QueryPlan.value('sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
+        ELSE
+        QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
+        END,
     missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
