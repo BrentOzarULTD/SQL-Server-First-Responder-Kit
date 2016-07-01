@@ -1375,7 +1375,34 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
-
+/* Update ##bou_BlitzCacheProcs to get Stored Proc info 
+ * This should get totals for all statements in a Stored Proc
+ */
+;WITH agg AS (
+    SELECT 
+        b.SqlHandle,
+        MAX(QueryHash) AS QueryHash,
+		SUM(b.MinReturnedRows) AS MinReturnedRows,
+        SUM(b.MaxReturnedRows) AS MaxReturnedRows,
+        SUM(b.AverageReturnedRows) AS AverageReturnedRows,
+        SUM(b.TotalReturnedRows) AS TotalReturnedRows,
+        SUM(b.LastReturnedRows) AS LastReturnedRows
+    FROM ##bou_BlitzCacheProcs b
+	WHERE b.QueryHash IS NOT NULL 
+    GROUP BY b.SqlHandle
+)
+UPDATE b
+    SET 
+        b.QueryHash           = b2.QueryHash,
+		b.MinReturnedRows	  = b2.MinReturnedRows,
+        b.MaxReturnedRows	  = b2.MaxReturnedRows,
+        b.AverageReturnedRows =	b2.AverageReturnedRows,
+        b.TotalReturnedRows	  = b2.TotalReturnedRows,
+        b.LastReturnedRows    = b2.LastReturnedRows
+FROM ##bou_BlitzCacheProcs b
+JOIN agg b2
+ON b2.SqlHandle = b.SqlHandle
+WHERE b.QueryHash IS NULL
 
 /* Compute the total CPU, etc across our active set of the plan cache.
  * Yes, there's a flaw - this doesn't include anything outside of our @Top
@@ -1520,6 +1547,7 @@ OPTION (RECOMPILE) ;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
+		PlanHandle,
         q.n.query('.') AS statement
 INTO    #statements
 FROM    ##bou_BlitzCacheProcs p
@@ -1605,6 +1633,39 @@ JOIN ##bou_BlitzCacheProcs AS b
 ON c2.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
 
+--Gather query costs
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, QueryCost AS (
+  SELECT
+    statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
+    s.PlanHandle,
+    s.SqlHandle,
+    s.QueryHash
+  FROM #statements AS s
+  WHERE PlanHandle IS NOT NULL
+)
+, QueryCostUpdate AS (
+  SELECT
+	SUM(qc.SubTreeCost) OVER (PARTITION BY QueryHash, PlanHandle) PlanTotalQuery,
+    qc.PlanHandle,
+    qc.QueryHash,
+    qc.SqlHandle
+  FROM QueryCost qc
+    WHERE qc.SubTreeCost > 0
+)
+  UPDATE b
+    SET b.QueryPlanCost = 
+    CASE WHEN 
+      b.QueryType LIKE '%Procedure%' THEN 
+         (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
+       ELSE 
+         b.QueryPlanCost 
+    	 END
+  FROM QueryCostUpdate qcu
+    JOIN  ##bou_BlitzCacheProcs AS b
+  ON qcu.SqlHandle = b.SqlHandle
+OPTION (RECOMPILE);
+
 -- query level checks
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  ##bou_BlitzCacheProcs
@@ -1684,11 +1745,6 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-    QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-        QueryPlan.value('sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
-        ELSE
-        QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
-        END,
     missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
