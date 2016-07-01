@@ -2686,9 +2686,9 @@ AS
 							BEGIN
 
 							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor <= 2100) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 6000) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 6000) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 3000) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
