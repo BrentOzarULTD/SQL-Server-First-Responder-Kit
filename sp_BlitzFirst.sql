@@ -292,22 +292,22 @@ BEGIN
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
     /*
-    We start by creating #AskBrentResults. It's a temp table that will store
+    We start by creating #BlitzFirstResults. It's a temp table that will store
     the results from our checks. Throughout the rest of this stored procedure,
     we're running a series of checks looking for dangerous things inside the SQL
     Server. When we find a problem, we insert rows into #BlitzResults. At the
     end, we return these results to the end user.
 
-    #AskBrentResults has a CheckID field, but there's no Check table. As we do
+    #BlitzFirstResults has a CheckID field, but there's no Check table. As we do
     checks, we insert data into this table, and we manually put in the CheckID.
     We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
     download that from http://FirstResponderKit.org if you want to build
     a tool that relies on the output of sp_BlitzFirst.
     */
 
-    IF OBJECT_ID('tempdb..#AskBrentResults') IS NOT NULL
-        DROP TABLE #AskBrentResults;
-    CREATE TABLE #AskBrentResults
+    IF OBJECT_ID('tempdb..#BlitzFirstResults') IS NOT NULL
+        DROP TABLE #BlitzFirstResults;
+    CREATE TABLE #BlitzFirstResults
         (
           ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
           CheckID INT NOT NULL,
@@ -718,7 +718,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Backup Running - CheckID 1 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 1 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -752,14 +752,14 @@ BEGIN
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
     BEGIN
-        SET @StringToExecute = 'UPDATE #AskBrentResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #AskBrentResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
+        SET @StringToExecute = 'UPDATE #BlitzFirstResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #BlitzFirstResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
         EXEC(@StringToExecute);
     END
 
 
     /* Maintenance Tasks Running - DBCC Running - CheckID 2 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 2 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -792,7 +792,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 3 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -825,7 +825,7 @@ BEGIN
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 4 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -853,7 +853,7 @@ BEGIN
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
     /*
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 5 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -893,7 +893,7 @@ BEGIN
     /* Query Problems - Plan Cache Erased Recently */
     IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
             50 AS Priority,
             'Query Problems' AS FindingGroup,
@@ -912,7 +912,7 @@ BEGIN
 
     /* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
     SELECT 8 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -947,7 +947,7 @@ BEGIN
 
     /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
     SELECT 9 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -977,7 +977,7 @@ BEGIN
 
 
     /* Server Performance - Page Life Expectancy Low - CheckID 10 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 10 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -993,7 +993,7 @@ BEGIN
     AND cntr_value < 300
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 21 AS CheckID,
         251 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1005,7 +1005,7 @@ BEGIN
     WHERE database_id > 4
 
     /* Server Info - Database Count - CheckID 22 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 22 AS CheckID,
         251 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1023,7 +1023,7 @@ BEGIN
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
@@ -1037,7 +1037,7 @@ BEGIN
             ) as y
             WHERE 100 - SystemIdle >= 50
 
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
@@ -1180,7 +1180,7 @@ BEGIN
     IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
-            INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://www.BrentOzar.com/go/topqueries',
                 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
 
@@ -1318,7 +1318,7 @@ BEGIN
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
         /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
         SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
             'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -1361,11 +1361,11 @@ BEGIN
                 CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
             WHERE qsNow.Points > 0 AND st.text IS NOT NULL AND qp.query_plan IS NOT NULL
 
-            UPDATE #AskBrentResults
+            UPDATE #BlitzFirstResults
                 SET DatabaseID = CAST(attr.value AS INT),
                 DatabaseName = DB_NAME(CAST(attr.value AS INT))
-            FROM #AskBrentResults
-                CROSS APPLY sys.dm_exec_plan_attributes(#AskBrentResults.PlanHandle) AS attr
+            FROM #BlitzFirstResults
+                CROSS APPLY sys.dm_exec_plan_attributes(#BlitzFirstResults.PlanHandle) AS attr
             WHERE attr.attribute = 'dbid'
 
 
@@ -1376,7 +1376,7 @@ BEGIN
 
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
     SELECT TOP 10 6 AS CheckID,
         200 AS Priority,
         'Wait Stats' AS FindingGroup,
@@ -1391,7 +1391,7 @@ BEGIN
     ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
 
     /* Server Performance - Slow Data File Reads - CheckID 11 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
     SELECT TOP 10 11 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -1412,7 +1412,7 @@ BEGIN
     ORDER BY (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) DESC;
 
     /* Server Performance - Slow Log File Writes - CheckID 12 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
     SELECT TOP 10 12 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -1434,7 +1434,7 @@ BEGIN
 
 
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 13 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -1451,7 +1451,7 @@ BEGIN
 
 
     /* SQL Server Internal Maintenance - Log File Shrinking - CheckID 14 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 14 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -1467,7 +1467,7 @@ BEGIN
         AND value_delta > 0
 
     /* Query Problems - Compilations/Sec High - CheckID 15 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 15 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -1486,7 +1486,7 @@ BEGIN
         AND (psComp.value_delta * 10) > ps.value_delta /* Compilations are more than 10% of batch requests per second */
 
     /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 16 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -1505,7 +1505,7 @@ BEGIN
         AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 19 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1525,7 +1525,7 @@ BEGIN
 
     /* Server Info - SQL Compilations/sec - CheckID 25 */
     IF @ExpertMode = 1
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 25 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1541,7 +1541,7 @@ BEGIN
 
     /* Server Info - SQL Re-Compilations/sec - CheckID 26 */
     IF @ExpertMode = 1
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 26 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1561,7 +1561,7 @@ BEGIN
         WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
         waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime),
         cores(cpu_count) AS (SELECT SUM(1) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1)
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
         SELECT 19 AS CheckID,
             250 AS Priority,
             'Server Info' AS FindingGroup,
@@ -1581,7 +1581,7 @@ BEGIN
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
@@ -1595,7 +1595,7 @@ BEGIN
             ) as y
             WHERE 100 - SystemIdle >= 50
 
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
@@ -1614,10 +1614,10 @@ BEGIN
 
 
     /* If we didn't find anything, apologize. */
-    IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE Priority < 250)
+    IF NOT EXISTS (SELECT * FROM #BlitzFirstResults WHERE Priority < 250)
     BEGIN
 
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1633,10 +1633,10 @@ BEGIN
                   'Try running our more in-depth checks with sp_Blitz, or there may not be an unusual SQL Server performance problem. '
                 );
 
-    END /*IF NOT EXISTS (SELECT * FROM #AskBrentResults) */
+    END /*IF NOT EXISTS (SELECT * FROM #BlitzFirstResults) */
 
         /* Add credits for the nice folks who put so much time into building and maintaining this for free: */
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1652,7 +1652,7 @@ BEGIN
                   'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
                 );
 
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1672,7 +1672,7 @@ BEGIN
                 /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
-                        INSERT  INTO #AskBrentResults
+                        INSERT  INTO #BlitzFirstResults
                                 ( CheckID ,
                                     Priority ,
                                     FindingsGroup ,
@@ -1746,7 +1746,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1782,7 +1782,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -2119,7 +2119,7 @@ BEGIN
     IF @OutputType = 'COUNT' AND @SinceStartup = 0
     BEGIN
         SELECT  COUNT(*) AS Warnings
-        FROM    #AskBrentResults
+        FROM    #BlitzFirstResults
     END
     ELSE
         IF @OutputType = 'Opserver1' AND @SinceStartup = 0
@@ -2165,7 +2165,7 @@ BEGIN
                     [TotalReads] = qsNow.total_logical_reads,
                     [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
                     r.[DetailsInt]
-            FROM    #AskBrentResults r
+            FROM    #BlitzFirstResults r
                 LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
                 LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
                 LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
@@ -2190,7 +2190,7 @@ BEGIN
                     + COALESCE(DatabaseName, '(N/A)') + @separator
                     + COALESCE([URL], '(N/A)') + @separator
                     + COALESCE([Details], '(N/A)')
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             ORDER BY Priority ,
                     FindingsGroup ,
                     CASE
@@ -2210,7 +2210,7 @@ BEGIN
                     CAST(@StockWarningHeader + HowToStopIt + @StockWarningFooter AS XML) AS HowToStopIt,
                     [QueryText],
                     [QueryPlan]
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             WHERE (@Seconds > 0 OR (Priority IN (0, 250, 251, 255))) /* For @Seconds = 0, filter out broken checks for now */
             ORDER BY Priority ,
                     FindingsGroup ,
@@ -2231,7 +2231,7 @@ BEGIN
                     CAST([HowToStopIt] AS NVARCHAR(MAX)) AS HowToStopIt,
                     CAST([QueryText] AS NVARCHAR(MAX)) AS QueryText,
                     CAST([QueryPlan] AS NVARCHAR(MAX)) AS QueryPlan
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             WHERE (@Seconds > 0 OR (Priority IN (0, 250, 251, 255))) /* For @Seconds = 0, filter out broken checks for now */
             ORDER BY Priority ,
                     FindingsGroup ,
@@ -2285,7 +2285,7 @@ BEGIN
                         [TotalReads] = qsNow.total_logical_reads,
                         [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
                         r.[DetailsInt]
-                FROM    #AskBrentResults r
+                FROM    #BlitzFirstResults r
                     LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
                     LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
                     LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
@@ -2463,7 +2463,7 @@ BEGIN
             WHERE qsNow.Pass = 2
         END
 
-    DROP TABLE #AskBrentResults;
+    DROP TABLE #BlitzFirstResults;
 
 
     /* What's running right now? This is the first (and last) result set. */
@@ -2570,32 +2570,32 @@ ELSE IF @Question IS NOT NULL
 
 /* We're playing Magic SQL 8 Ball, so give them an answer. */
 BEGIN
-    IF OBJECT_ID('tempdb..#BrentAnswers') IS NOT NULL
-        DROP TABLE #BrentAnswers;
-    CREATE TABLE #BrentAnswers(Answer VARCHAR(200) NOT NULL);
-    INSERT INTO #BrentAnswers VALUES ('It sounds like a SAN problem.');
-    INSERT INTO #BrentAnswers VALUES ('You know what you need? Bacon.');
-    INSERT INTO #BrentAnswers VALUES ('Talk to the developers about that.');
-    INSERT INTO #BrentAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried adding an index?');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried dropping an index?');
-    INSERT INTO #BrentAnswers VALUES ('You can''t prove anything.');
-    INSERT INTO #BrentAnswers VALUES ('Please phrase the question in the form of an answer.');
-    INSERT INTO #BrentAnswers VALUES ('Outlook not so good. Access even worse.');
-    INSERT INTO #BrentAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
-    INSERT INTO #BrentAnswers VALUES ('Oooo, I read about that once.');
-    INSERT INTO #BrentAnswers VALUES ('I feel your pain.');
-    INSERT INTO #BrentAnswers VALUES ('http://LMGTFY.com');
-    INSERT INTO #BrentAnswers VALUES ('No comprende Ingles, senor.');
-    INSERT INTO #BrentAnswers VALUES ('I don''t have that problem on my Mac.');
-    INSERT INTO #BrentAnswers VALUES ('Is Priority Boost on?');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried rebooting your machine?');
-    INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
-    INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
-    INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
-    INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried restoring TempDB?');
-    SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
+    IF OBJECT_ID('tempdb..#BlitzFirstAnswers') IS NOT NULL
+        DROP TABLE #BlitzFirstAnswers;
+    CREATE TABLE #BlitzFirstAnswers(Answer VARCHAR(200) NOT NULL);
+    INSERT INTO #BlitzFirstAnswers VALUES ('It sounds like a SAN problem.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('You know what you need? Bacon.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Talk to the developers about that.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried adding an index?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried dropping an index?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('You can''t prove anything.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Please phrase the question in the form of an answer.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Outlook not so good. Access even worse.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Oooo, I read about that once.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I feel your pain.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('http://LMGTFY.com');
+    INSERT INTO #BlitzFirstAnswers VALUES ('No comprende Ingles, senor.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I don''t have that problem on my Mac.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Is Priority Boost on?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried rebooting your machine?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Try defragging your cursors.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Duh, Debra.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried restoring TempDB?');
+    SELECT TOP 1 Answer FROM #BlitzFirstAnswers ORDER BY NEWID();
 END
 
 END /* ELSE IF @OutputType = 'SCHEMA' */

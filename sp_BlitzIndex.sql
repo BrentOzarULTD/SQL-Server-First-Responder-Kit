@@ -362,17 +362,19 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
         )
 
         CREATE TABLE #DatabaseList (
-            DatabaseName NVARCHAR(256)
+			DatabaseName NVARCHAR(256)
         )
 
 IF @GetAllDatabases = 1
     BEGIN
         INSERT INTO #DatabaseList (DatabaseName)
-        SELECT    DB_NAME(database_id)
+        SELECT  DB_NAME(database_id)
         FROM    sys.databases
-        WHERE    user_access_desc='MULTI_USER'
-            AND state_desc = 'ONLINE'
-            AND database_id > 4;
+        WHERE user_access_desc='MULTI_USER'
+        AND state_desc = 'ONLINE'
+        AND database_id > 4
+        AND DB_NAME(database_id) NOT IN ('ReportServer','ReportServerTempDB')
+        AND is_distributor = 0;
     END
 ELSE
     BEGIN
@@ -428,11 +430,11 @@ BEGIN
     RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
     RAISERROR (@DatabaseName, 0, 1) WITH NOWAIT;
 
-SELECT    @DatabaseID = database_id
-FROM    sys.databases
-WHERE    [name] = @DatabaseName
-    AND user_access_desc='MULTI_USER'
-    AND state_desc = 'ONLINE';
+SELECT   @DatabaseID = [database_id]
+FROM     sys.databases
+         WHERE [name] = @DatabaseName
+         AND user_access_desc='MULTI_USER'
+         AND state_desc = 'ONLINE';
 
 /* Last startup */
 SELECT @DaysUptime = CAST(DATEDIFF(hh,create_date,getdate())/24. as numeric (23,2))
@@ -811,13 +813,13 @@ BEGIN TRY
 
         IF (SELECT LEFT(@SQLServerProductVersion,
               CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <= 2147483647 --Anything other than 2012 
+              )) <= 2147483647 --Make change here 
         BEGIN
 
             RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
-            --NOTE: we're joining to sys.dm_db_index_operational_stats differently than you might think (not using a cross apply)
-            --This is because of quirks prior to SQL Server 2012 and in 2014 with this DMV.
+            --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
+			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT    ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
                                 ps.object_id, 
@@ -861,11 +863,11 @@ BEGIN TRY
             OPTION    ( RECOMPILE );
             ';
         END
-        ELSE /* Otherwise use this syntax which takes advantage of OUTER APPLY on the os_partitions DMV. 
-        This performs better on 2012 tables using 1000+ partitions. */
+        ELSE 
         BEGIN
         RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
-
+		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
+		--If you have a lot of paritions and this suddenly starts running for a long time, change it back.
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
                                 ps.object_id, 
@@ -2290,7 +2292,7 @@ BEGIN;
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/Indexaphobia' AS URL,
                                 mi.[statement] + 
-                                N' Est. benefit: ' + 
+                                N' Est. benefit per day: ' + 
                                     CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
                                     ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
                                     (magic_benefit_number/@DaysUptime)

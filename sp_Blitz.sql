@@ -2686,9 +2686,9 @@ AS
 							BEGIN
 
 							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor <= 2100) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 6000) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 6000) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 3000) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -5509,10 +5509,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
 													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
-													CAST(CAST(
+													/* CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
-														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% of waits, ' + */
 													CAST(CAST(
 														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER ())
