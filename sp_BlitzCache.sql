@@ -1611,16 +1611,14 @@ OPTION (RECOMPILE);
   SELECT
     statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
     s.PlanHandle,
-    s.SqlHandle,
-    s.QueryHash
+	s.SqlHandle
   FROM #statements AS s
   WHERE PlanHandle IS NOT NULL
 )
 , QueryCostUpdate AS (
   SELECT
-	SUM(qc.SubTreeCost) OVER (PARTITION BY QueryHash, PlanHandle) PlanTotalQuery,
+	SUM(qc.SubTreeCost) OVER (PARTITION BY SqlHandle, PlanHandle) PlanTotalQuery,
     qc.PlanHandle,
-    qc.QueryHash,
     qc.SqlHandle
   FROM QueryCost qc
     WHERE qc.SubTreeCost > 0
