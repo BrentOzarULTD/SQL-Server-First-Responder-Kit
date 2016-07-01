@@ -1547,6 +1547,7 @@ OPTION (RECOMPILE) ;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
+		PlanHandle,
         q.n.query('.') AS statement
 INTO    #statements
 FROM    ##bou_BlitzCacheProcs p
@@ -1589,7 +1590,7 @@ OPTION (RECOMPILE) ;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , c1 AS (
 SELECT 
-QueryPlanCost_check = CASE WHEN QueryType LIKE '%Procedure%' THEN
+QueryPlanCost_check = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
                         statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
                       ELSE
                         statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
@@ -1630,6 +1631,39 @@ SET
 FROM [c2] AS c2
 JOIN ##bou_BlitzCacheProcs AS b
 ON c2.QueryHash = b.QueryHash
+OPTION (RECOMPILE);
+
+--Gather query costs
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, QueryCost AS (
+  SELECT
+    statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
+    s.PlanHandle,
+    s.SqlHandle,
+    s.QueryHash
+  FROM #statements AS s
+  WHERE PlanHandle IS NOT NULL
+)
+, QueryCostUpdate AS (
+  SELECT
+	SUM(qc.SubTreeCost) OVER (PARTITION BY QueryHash, PlanHandle) PlanTotalQuery,
+    qc.PlanHandle,
+    qc.QueryHash,
+    qc.SqlHandle
+  FROM QueryCost qc
+    WHERE qc.SubTreeCost > 0
+)
+  UPDATE b
+    SET b.QueryPlanCost = 
+    CASE WHEN 
+      b.QueryType LIKE '%Procedure%' THEN 
+         (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
+       ELSE 
+         b.QueryPlanCost 
+    	 END
+  FROM QueryCostUpdate qcu
+    JOIN  ##bou_BlitzCacheProcs AS b
+  ON qcu.SqlHandle = b.SqlHandle
 OPTION (RECOMPILE);
 
 -- query level checks
