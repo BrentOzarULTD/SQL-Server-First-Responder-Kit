@@ -1378,17 +1378,29 @@ END
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
  */
-
+;WITH agg AS (
+    SELECT 
+        b.SqlHandle,
+        MAX(QueryHash) AS QueryHash,
+		SUM(b.MinReturnedRows) AS MinReturnedRows,
+        SUM(b.MaxReturnedRows) AS MaxReturnedRows,
+        SUM(b.AverageReturnedRows) AS AverageReturnedRows,
+        SUM(b.TotalReturnedRows) AS TotalReturnedRows,
+        SUM(b.LastReturnedRows) AS LastReturnedRows
+    FROM ##bou_BlitzCacheProcs b
+	WHERE b.QueryHash IS NOT NULL 
+    GROUP BY b.SqlHandle
+)
 UPDATE b
-        SET 
-            b.QueryHash           = b2.QueryHash,
-            b.MinReturnedRows	  = b2.MinReturnedRows,
-            b.MaxReturnedRows	  = b2.MaxReturnedRows,
-            b.AverageReturnedRows =	b2.AverageReturnedRows,
-            b.TotalReturnedRows	  = b2.TotalReturnedRows,
-            b.LastReturnedRows    = b2.LastReturnedRows
+    SET 
+        b.QueryHash           = b2.QueryHash,
+		b.MinReturnedRows	  = b2.MinReturnedRows,
+        b.MaxReturnedRows	  = b2.MaxReturnedRows,
+        b.AverageReturnedRows =	b2.AverageReturnedRows,
+        b.TotalReturnedRows	  = b2.TotalReturnedRows,
+        b.LastReturnedRows    = b2.LastReturnedRows
 FROM ##bou_BlitzCacheProcs b
-JOIN ##bou_BlitzCacheProcs b2
+JOIN agg b2
 ON b2.SqlHandle = b.SqlHandle
 WHERE b.QueryHash IS NULL
 
