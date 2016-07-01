@@ -2307,9 +2307,9 @@ BEGIN;
                         FROM    #MissingIndexes mi
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id
                                         /* Minimum benefit threshold = 100k/day of uptime */
-                        WHERE (magic_benefit_number/@DaysUptime) >= 100000
+                        WHERE @Mode = 4 OR (magic_benefit_number/@DaysUptime) >= 100000
                         ) AS t
-                        WHERE t.rownum <= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN 20 ELSE t.rownum END
+                        WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
                         ORDER BY magic_benefit_number DESC
 
 
