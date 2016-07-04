@@ -35,6 +35,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Databases in Unusual States | http://BrentOzar.com/go/repair | 102 |
 | 20 | Reliability | Memory Dumps Have Occurred | http://BrentOzar.com/go/dump | 171 |
 | 20 | Reliability | Plan Guides Failing | http://BrentOzar.com/go/guides | 164 |
+| 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | http://BrentOzar.com/go/cdrive | 26 |
 | 50 | Performance | Log File Growths Slow | http://BrentOzar.com/go/filegrowth | 151 |
