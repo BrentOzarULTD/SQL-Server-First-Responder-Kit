@@ -1375,7 +1375,32 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
-
+/* Update ##bou_BlitzCacheProcs to get Stored Proc info 
+ * This should get totals for all statements in a Stored Proc
+ */
+;WITH agg AS (
+    SELECT 
+        b.SqlHandle,
+        SUM(b.MinReturnedRows) AS MinReturnedRows,
+        SUM(b.MaxReturnedRows) AS MaxReturnedRows,
+        SUM(b.AverageReturnedRows) AS AverageReturnedRows,
+        SUM(b.TotalReturnedRows) AS TotalReturnedRows,
+        SUM(b.LastReturnedRows) AS LastReturnedRows
+    FROM ##bou_BlitzCacheProcs b
+    WHERE b.QueryHash IS NOT NULL 
+    GROUP BY b.SqlHandle
+)
+UPDATE b
+    SET 
+        b.MinReturnedRows     = b2.MinReturnedRows,
+        b.MaxReturnedRows     = b2.MaxReturnedRows,
+        b.AverageReturnedRows = b2.AverageReturnedRows,
+        b.TotalReturnedRows   = b2.TotalReturnedRows,
+        b.LastReturnedRows    = b2.LastReturnedRows
+FROM ##bou_BlitzCacheProcs b
+JOIN agg b2
+ON b2.SqlHandle = b.SqlHandle
+WHERE b.QueryHash IS NULL
 
 /* Compute the total CPU, etc across our active set of the plan cache.
  * Yes, there's a flaw - this doesn't include anything outside of our @Top
@@ -1520,6 +1545,7 @@ OPTION (RECOMPILE) ;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
+		PlanHandle,
         q.n.query('.') AS statement
 INTO    #statements
 FROM    ##bou_BlitzCacheProcs p
@@ -1559,50 +1585,55 @@ WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
 
 -- statement level checks
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
+                                statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
+                             ELSE
+                                statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
+                        END ,
+        compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
+        compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
+        unmatched_index_count = statement.value('count(//p:UnmatchedIndexes/Parameterization/Object)', 'int') ,
+        is_trivial = CASE WHEN statement.exist('/p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
+        unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
+                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
+                                     WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
+                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
+                                END
+FROM    #statements s
+WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+OPTION (RECOMPILE);
+
+--Gather Stored Proc costs
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-, c1 AS (
-SELECT 
-QueryPlanCost_check = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-                        statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
-                      ELSE
-                        statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
-					  END ,
-compile_timeout_check = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
-compile_memory_limit_exceeded_check = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
-unmatched_index_count_check = statement.value('count(//p:UnmatchedIndexes/Parameterization/Object)', 'int') ,
-is_trivial_check = CASE WHEN statement.exist('/p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-unparameterized_query_check = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
-                                  statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
-                              WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
-                                   statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
-                              END,
-s.QueryHash
-FROM  #statements s
-JOIN ##bou_BlitzCacheProcs b
-ON b.QueryHash = s.QueryHash
-), c2 AS (
-SELECT
-    QueryHash,
-    QueryPlanCost = MAX([c1].[QueryPlanCost_check]) ,
-    compile_timeout = MAX([c1].[compile_timeout_check]) ,
-    compile_memory_limit_exceeded = MAX([c1].[compile_memory_limit_exceeded_check]) ,
-    unmatched_index_count = MAX([c1].[unmatched_index_count_check]) ,
-    is_trivial = MAX([c1].[is_trivial_check]) ,
-    unparameterized_query = MAX([c1].[unparameterized_query_check])
-FROM c1
-GROUP BY QueryHash
+, QueryCost AS (
+  SELECT
+    statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
+    s.PlanHandle,
+	s.SqlHandle
+  FROM #statements AS s
+  WHERE PlanHandle IS NOT NULL
 )
-UPDATE b
-SET	
-    b.QueryPlanCost = c2.QueryPlanCost,
-    b.compile_timeout = c2.compile_timeout,
-    b.compile_memory_limit_exceeded = c2.compile_memory_limit_exceeded,
-    b.unmatched_index_count = c2.unmatched_index_count,
-    b.is_trivial = c2.is_trivial,
-    b.unparameterized_query = c2.unparameterized_query
-FROM [c2] AS c2
-JOIN ##bou_BlitzCacheProcs AS b
-ON c2.QueryHash = b.QueryHash
+, QueryCostUpdate AS (
+  SELECT
+	SUM(qc.SubTreeCost) OVER (PARTITION BY SqlHandle, PlanHandle) PlanTotalQuery,
+    qc.PlanHandle,
+    qc.SqlHandle
+  FROM QueryCost qc
+    WHERE qc.SubTreeCost > 0
+)
+  UPDATE b
+    SET b.QueryPlanCost = 
+    CASE WHEN 
+      b.QueryType LIKE '%Procedure%' THEN 
+         (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
+       ELSE 
+         b.QueryPlanCost 
+    	 END
+  FROM QueryCostUpdate qcu
+    JOIN  ##bou_BlitzCacheProcs AS b
+  ON qcu.SqlHandle = b.SqlHandle
 OPTION (RECOMPILE);
 
 -- query level checks
@@ -1684,12 +1715,12 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-    QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-        QueryPlan.value('sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
+    QueryPlanCost = CASE WHEN QueryType LIKE '%Procedure%' THEN
+        QueryPlanCost
         ELSE
         QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
         END,
-    missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
+	missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
     is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
