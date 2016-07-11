@@ -630,11 +630,11 @@ BEGIN
         1 AS Pass,
         CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
         os.wait_type,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END as sum_wait_time_ms,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END as sum_signal_wait_time_ms,
+        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
+        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
         CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
     FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type not in (
+    WHERE os.wait_type NOT IN (
         'REQUEST_FOR_DEADLOCK_SEARCH',
         'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
         'SQLTRACE_BUFFER_FLUSH',
@@ -1000,8 +1000,8 @@ BEGIN
         251 AS Priority,
         'Server Info' AS FindingGroup,
         'Database Size, Total GB' AS Finding,
-        CAST(SUM (CAST(size AS bigint)*8./1024./1024.) AS VARCHAR(100)) AS Details,
-        SUM (CAST(size AS bigint))*8./1024./1024. AS DetailsInt,
+        CAST(SUM (CAST(size AS BIGINT)*8./1024./1024.) AS VARCHAR(100)) AS Details,
+        SUM (CAST(size AS BIGINT))*8./1024./1024. AS DetailsInt,
         'http://www.BrentOzar.com/askbrent/' AS URL
     FROM #MasterFiles
     WHERE database_id > 4
@@ -1029,28 +1029,28 @@ BEGIN
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
             WHERE 100 - SystemIdle >= 50
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
 
         END /* IF @Seconds < 30 */
 
@@ -1071,11 +1071,11 @@ BEGIN
         2 AS Pass,
         SYSDATETIMEOFFSET() AS SampleTime,
         os.wait_type,
-        SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) as sum_wait_time_ms,
-        SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) as sum_signal_wait_time_ms,
+        SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
+        SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
         SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
     FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type not in (
+    WHERE os.wait_type NOT IN (
         'REQUEST_FOR_DEADLOCK_SEARCH',
         'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
         'SQLTRACE_BUFFER_FLUSH',
@@ -1587,28 +1587,28 @@ BEGIN
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
             WHERE 100 - SystemIdle >= 50
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
 
         END /* IF @Seconds < 30 */
 
@@ -2308,79 +2308,79 @@ BEGIN
             IF @Seconds = 0
                 BEGIN
                 /* Measure waits in hours */
-                ;with max_batch as (
-                    select max(SampleTime) as SampleTime
-                    from #WaitStats
+                ;WITH max_batch AS (
+                    SELECT MAX(SampleTime) AS SampleTime
+                    FROM #WaitStats
                 )
                 SELECT
-                    'WAIT STATS' as Pattern,
-                    b.SampleTime as [Sample Ended],
-                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) as [Hours Sample],
+                    'WAIT STATS' AS Pattern,
+                    b.SampleTime AS [Sample Ended],
+                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
                     wd1.wait_type,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
-                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
-                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
                     N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
-                JOIN #WaitStats wd2 on
+                JOIN #WaitStats wd2 ON
                     wd2.SampleTime =b.SampleTime
                 JOIN #WaitStats wd1 ON
                     wd1.wait_type=wd2.wait_type AND
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
-                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                    AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END
             ELSE
                 BEGIN
                 /* Measure waits in seconds */
-                ;with max_batch as (
-                    select max(SampleTime) as SampleTime
-                    from #WaitStats
+                ;WITH max_batch AS (
+                    SELECT MAX(SampleTime) AS SampleTime
+                    FROM #WaitStats
                 )
                 SELECT
-                    'WAIT STATS' as Pattern,
-                    b.SampleTime as [Sample Ended],
-                    datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
+                    'WAIT STATS' AS Pattern,
+                    b.SampleTime AS [Sample Ended],
+                    DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Seconds Sample],
                     wd1.wait_type,
                     c.[Wait Time (Seconds)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
-                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
-                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
                     N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
-                JOIN #WaitStats wd2 on
+                JOIN #WaitStats wd2 ON
                     wd2.SampleTime =b.SampleTime
                 JOIN #WaitStats wd1 ON
                     wd1.wait_type=wd2.wait_type AND
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
-                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                    AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
 
@@ -2388,11 +2388,11 @@ BEGIN
             -------------------------
             --What happened: #FileStats
             -------------------------
-            WITH readstats as (
-                SELECT 'PHYSICAL READS' as Pattern,
-                ROW_NUMBER() over (order by wd2.avg_stall_read_ms desc) as StallRank,
-                wd2.SampleTime as [Sample Time],
-                datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+            WITH readstats AS (
+                SELECT 'PHYSICAL READS' AS Pattern,
+                ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_read_ms DESC) AS StallRank,
+                wd2.SampleTime AS [Sample Time],
+                DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Sample (seconds)],
                 wd1.DatabaseName ,
                 wd1.FileLogicalName AS [File Name],
                 UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
@@ -2409,12 +2409,12 @@ BEGIN
                   AND wd1.DatabaseID = wd2.DatabaseID
                   AND wd1.FileID = wd2.FileID
             ),
-            writestats as (
+            writestats AS (
                 SELECT
-                'PHYSICAL WRITES' as Pattern,
-                ROW_NUMBER() over (order by wd2.avg_stall_write_ms desc) as StallRank,
-                wd2.SampleTime as [Sample Time],
-                datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+                'PHYSICAL WRITES' AS Pattern,
+                ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_write_ms DESC) AS StallRank,
+                wd2.SampleTime AS [Sample Time],
+                DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Sample (seconds)],
                 wd1.DatabaseName ,
                 wd1.FileLogicalName AS [File Name],
                 UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
@@ -2433,12 +2433,12 @@ BEGIN
             )
             SELECT
                 Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-            from readstats
-            where StallRank <=5 and [MB Read/Written] > 0
-            union all
+            FROM readstats
+            WHERE StallRank <=5 AND [MB Read/Written] > 0
+            UNION ALL
             SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-            from writestats
-            where StallRank <=5 and [MB Read/Written] > 0;
+            FROM writestats
+            WHERE StallRank <=5 AND [MB Read/Written] > 0;
 
 
             -------------------------
