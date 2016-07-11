@@ -2451,6 +2451,7 @@ BEGIN
                 FROM #PerfmonStats pLast
                     INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
                     AND pLast.ID > pFirst.ID
+				WHERE (pLast.cntr_value - pFirst.cntr_value) > 0
                 ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name
 
 
