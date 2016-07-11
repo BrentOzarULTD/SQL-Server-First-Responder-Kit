@@ -1401,6 +1401,7 @@ FROM ##bou_BlitzCacheProcs b
 JOIN agg b2
 ON b2.SqlHandle = b.SqlHandle
 WHERE b.QueryHash IS NULL
+OPTION (RECOMPILE) ;
 
 /* Compute the total CPU, etc across our active set of the plan cache.
  * Yes, there's a flaw - this doesn't include anything outside of our @Top
@@ -1549,7 +1550,8 @@ SELECT  QueryHash ,
         q.n.query('.') AS statement
 INTO    #statements
 FROM    ##bou_BlitzCacheProcs p
-        CROSS APPLY p.QueryPlan.nodes('//p:StmtSimple') AS q(n) ;
+        CROSS APPLY p.QueryPlan.nodes('//p:StmtSimple') AS q(n) 
+OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
@@ -1557,7 +1559,8 @@ SELECT  QueryHash ,
         q.n.query('.') AS query_plan
 INTO    #query_plan
 FROM    #statements p
-        CROSS APPLY p.statement.nodes('//p:QueryPlan') AS q(n) ;
+        CROSS APPLY p.statement.nodes('//p:QueryPlan') AS q(n) 
+OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
@@ -1565,7 +1568,8 @@ SELECT  QueryHash ,
         q.n.query('.') AS relop
 INTO    #relop
 FROM    #query_plan p
-        CROSS APPLY p.query_plan.nodes('//p:RelOp') AS q(n) ;
+        CROSS APPLY p.query_plan.nodes('//p:RelOp') AS q(n) 
+OPTION (RECOMPILE) ;
 
 
 
@@ -1706,7 +1710,8 @@ BEGIN
     UPDATE  p
     SET     downlevel_estimator = CASE WHEN statement.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END
     FROM    ##bou_BlitzCacheProcs p
-            JOIN #statements s ON p.QueryHash = s.QueryHash ;
+            JOIN #statements s ON p.QueryHash = s.QueryHash 
+	OPTION (RECOMPILE) ;
 END ;
 
 /* END Testing using XML nodes to speed up processing */
@@ -1749,7 +1754,7 @@ SET     QueryType = QueryType + ' (parent ' +
 FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
-
+OPTION (RECOMPILE) ;
 
 
 IF @SkipAnalysis = 1
@@ -1848,7 +1853,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
-	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END;
+	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END
+OPTION (RECOMPILE) ;
 
 
 
@@ -1856,11 +1862,10 @@ RAISERROR('Checking for forced parameterization and cursors.', 0, 1) WITH NOWAIT
 
 /* Set options checks */
 UPDATE p
-SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-                                      END ,
-       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-                             WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
-                             END ,
+       SET is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
+       END ,
+       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
+       END ,
        SetOptions = SUBSTRING(
                     CASE WHEN (CAST(pa.value AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
                     CASE WHEN (CAST(pa.value AS INT) & 8 = 8) THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
@@ -1872,8 +1877,8 @@ SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131
                     , 2, 200000)
 FROM   ##bou_BlitzCacheProcs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-WHERE  pa.attribute = 'set_options' ;
-
+WHERE  pa.attribute = 'set_options' 
+OPTION (RECOMPILE) ;
 
 
 /* Cursor checks */
@@ -1881,8 +1886,8 @@ UPDATE p
 SET    is_cursor = CASE WHEN CAST(pa.value AS INT) <> 0 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-WHERE  pa.attribute LIKE '%cursor%' ;
-
+WHERE  pa.attribute LIKE '%cursor%' 
+OPTION (RECOMPILE) ;
 
 
 
@@ -1918,7 +1923,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
-                  , 2, 200000) ;
+                  , 2, 200000) 
+				  OPTION (RECOMPILE) ;
 
 
 
