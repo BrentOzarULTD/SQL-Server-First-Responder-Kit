@@ -222,6 +222,7 @@ BEGIN
                                   WHEN 5 THEN ''Snapshot''
                                   ELSE ''WHAT HAVE YOU DONE?''
                                 END AS [transaction_isolation_level] ,
+								[s].[login_name],
                                 [s].[nt_domain] ,
                                 [s].[host_name] ,
                                 [s].[nt_user_name] ,
@@ -270,6 +271,7 @@ BEGIN
                                   WHEN 5 THEN ''Snapshot''
                                   ELSE ''WHAT HAVE YOU DONE?''
                                 END AS [transaction_isolation_level] ,
+								[s].[login_name],
                                 [s].[nt_domain] ,
                                 [s].[host_name] ,
                                 [s].[nt_user_name] ,
@@ -2498,6 +2500,7 @@ BEGIN
                                   WHEN 5 THEN ''Snapshot''
                                   ELSE ''WHAT HAVE YOU DONE?''
                                 END AS [transaction_isolation_level] ,
+								[s].[login_name],
                                 [s].[nt_domain] ,
                                 [s].[host_name] ,
                                 [s].[nt_user_name] ,
@@ -2546,6 +2549,7 @@ BEGIN
                                   WHEN 5 THEN ''Snapshot''
                                   ELSE ''WHAT HAVE YOU DONE?''
                                 END AS [transaction_isolation_level] ,
+								[s].[login_name],
                                 [s].[nt_domain] ,
                                 [s].[host_name] ,
                                 [s].[nt_user_name] ,
