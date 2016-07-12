@@ -53,7 +53,7 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 #### Writing sp_Blitz Output to a Table
 
 ```SQL
-sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputDatabaseName = 'BlitzResults';
+sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzResults';
 ```
 
 Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if necessary, then adds the output of sp_Blitz into this table. This table is designed to support multiple outputs from multiple servers, so you can track your server's configuration history over time.
