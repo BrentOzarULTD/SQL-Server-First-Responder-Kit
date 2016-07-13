@@ -1406,7 +1406,7 @@ BEGIN
                         data_compression_desc,
                         partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
                FROM     #IndexPartitionSanity ips
-               WHERE    ips.object_id = @ObjectId
+               WHERE    ips.object_id = @ObjectID
 				),
         [grps]
           AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
