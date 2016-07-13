@@ -1398,7 +1398,45 @@ BEGIN
 
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
-    WITH table_mode_cte AS (
+ 
+ ;WITH    [maps]
+          AS ( SELECT   
+                        index_sanity_id,
+						partition_number,
+                        data_compression_desc,
+                        partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
+               FROM     #IndexPartitionSanity ips
+               WHERE    ips.object_id = @ObjectId
+				),
+        [grps]
+          AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
+                        MAX([maps].[partition_number]) AS [MaxKey] ,
+						index_sanity_id,
+						maps.data_compression_desc
+               FROM     [maps]
+               GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
+    SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
+                                                + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
+                                                       THEN +'s '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' - '
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + ' use ' + grps2.data_compression_desc
+                                                       ELSE ' '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' uses '  + grps2.data_compression_desc
+                                                  END AS [Partitions]
+                                         FROM   [grps] AS grps2
+										 WHERE grps2.index_sanity_id = grps.index_sanity_id
+										 ORDER BY grps2.MinKey, grps2.MaxKey
+                                FOR     XML PATH('') ,
+                                            TYPE 
+						).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
+	INTO #partition_compression_info
+	FROM grps;
+
+    	
+	   WITH table_mode_cte AS (
         SELECT 
             s.db_schema_object_indexid, 
             s.key_column_names,
@@ -1408,7 +1446,7 @@ BEGIN
             s.index_usage_summary, 
             sz.index_op_stats,
             ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
-			sz.data_compression_desc,
+			partition_compression_detail ,
             ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
             s.is_referenced_by_foreign_key,
             (SELECT COUNT(*)
@@ -1427,6 +1465,8 @@ BEGIN
             s.index_sanity_id=sz.index_sanity_id
         LEFT JOIN #IndexCreateTsql ct ON 
             s.index_sanity_id=ct.index_sanity_id
+		LEFT JOIN #partition_compression_info pci ON 
+			pci.index_sanity_id = s.index_sanity_id
         WHERE s.[object_id]=@ObjectID
         UNION ALL
         SELECT     N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) +             
@@ -1445,7 +1485,7 @@ BEGIN
             index_usage_summary AS [Usage Stats], 
             index_op_stats AS [Op Stats],
             index_size_summary AS [Size],
-			data_compression_desc AS [Compression Type],
+			partition_compression_detail AS [Compression Type],
             index_lock_wait_summary AS [Lock Waits],
             is_referenced_by_foreign_key AS [Referenced by FK?],
             FKs_covered_by_index AS [FK Covered by Index?],
