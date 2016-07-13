@@ -2494,8 +2494,8 @@ BEGIN;
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
-                    AND /*Exclude recently created tables unless they've been modified after being created.*/
-                    (i.create_date < DATEADD(dd,-7,GETDATE()) OR i.create_date <> i.modify_date)
+                    AND /*Exclude recently created tables.*/
+                    i.create_date < DATEADD(dd,-7,GETDATE()) 
                         OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 68: Identity columns within 30 percent of the end of range', 0,1) WITH NOWAIT;
