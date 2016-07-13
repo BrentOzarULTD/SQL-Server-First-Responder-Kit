@@ -3003,7 +3003,7 @@ BEGIN;
                 1 as [Display Order]
         FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
                 LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-        ORDER BY [Display Order] ASC, [Reserved MB] DESC
+        ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
         OPTION (RECOMPILE);
 
 
