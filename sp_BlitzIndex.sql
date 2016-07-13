@@ -1445,7 +1445,7 @@ BEGIN
             index_usage_summary AS [Usage Stats], 
             index_op_stats AS [Op Stats],
             index_size_summary AS [Size],
-			data_compression_desc AS [Is Compressed?],
+			data_compression_desc AS [Compression Type],
             index_lock_wait_summary AS [Lock Waits],
             is_referenced_by_foreign_key AS [Referenced by FK?],
             FKs_covered_by_index AS [FK Covered by Index?],
