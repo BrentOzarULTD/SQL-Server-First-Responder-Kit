@@ -916,12 +916,12 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
         RAISERROR (N'Inserting data into #IndexPartitionSanity',0,1) WITH NOWAIT;
-        INSERT    #IndexPartitionSanity (        [database_id],
-                                            [object_id], 
-                                            index_id, 
-                                            partition_number, 
-                                            row_count, 
-                                            reserved_MB,
+        INSERT    #IndexPartitionSanity ( [database_id],
+                                          [object_id], 
+                                          index_id, 
+                                          partition_number, 
+                                          row_count, 
+                                          reserved_MB,
                                           reserved_LOB_MB, 
                                           reserved_row_overflow_MB, 
                                           leaf_insert_count,
@@ -1408,6 +1408,7 @@ BEGIN
             s.index_usage_summary, 
             sz.index_op_stats,
             ISNULL(sz.index_size_summary,'') /*disabled NCs will be null*/ AS index_size_summary,
+			sz.data_compression_desc,
             ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
             s.is_referenced_by_foreign_key,
             (SELECT COUNT(*)
@@ -1433,7 +1434,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -1444,6 +1445,7 @@ BEGIN
             index_usage_summary AS [Usage Stats], 
             index_op_stats AS [Op Stats],
             index_size_summary AS [Size],
+			data_compression_desc AS [Is Compressed?],
             index_lock_wait_summary AS [Lock Waits],
             is_referenced_by_foreign_key AS [Referenced by FK?],
             FKs_covered_by_index AS [FK Covered by Index?],
