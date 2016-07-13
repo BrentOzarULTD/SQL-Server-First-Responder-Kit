@@ -265,7 +265,7 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
               page_lock_wait_in_ms BIGINT NULL ,
               index_lock_promotion_attempt_count BIGINT NULL ,
               index_lock_promotion_count BIGINT NULL,
-                data_compression_desc VARCHAR(60) NULL
+              data_compression_desc VARCHAR(60) NULL
             );
 
         CREATE TABLE #IndexSanitySize
@@ -1710,6 +1710,9 @@ BEGIN;
                     JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE    index_id NOT IN ( 0, 1 ) 
                             AND i.is_unique = 0
+							/*Skipping tables created in the last week, or modified in past 2 days*/
+							AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
+							AND i.modify_date > DATEADD(dd,-2,GETDATE()) 
                     OPTION    ( RECOMPILE );
 
                 IF @percent_NC_indexes_unused >= 5 
@@ -1742,6 +1745,9 @@ BEGIN;
                                     AND i.is_unique = 0
                                     AND total_reads = 0
                                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+									/*Skipping tables created in the last week, or modified in past 2 days*/
+									AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
+									AND i.modify_date > DATEADD(dd,-2,GETDATE())
                             GROUP BY i.database_name 
                     OPTION    ( RECOMPILE );
 
@@ -2113,7 +2119,7 @@ BEGIN;
                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                     AND    fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 40: Fillfactor in clustered 90 percent or less', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 40: Fillfactor in clustered 80 percent or less', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT    40 AS check_id, 
@@ -2139,7 +2145,7 @@ BEGIN;
                     JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE    index_id = 1
                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
-                    AND fill_factor BETWEEN 1 AND 90 OPTION    ( RECOMPILE );
+                    AND fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
 
             RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
