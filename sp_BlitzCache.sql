@@ -1787,7 +1787,6 @@ SELECT DISTINCT tf1.SqlHandle , tf1.QueryHash,
 INTO #trace_flags
 FROM tf_pretty AS tf1
 OPTION (RECOMPILE);
-OPTION (RECOMPILE) ;
 
 UPDATE p
 SET    p.trace_flags_session = tf.session_trace_flags
@@ -1958,8 +1957,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
-				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END
-                  , 2, 200000) ;
+				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
