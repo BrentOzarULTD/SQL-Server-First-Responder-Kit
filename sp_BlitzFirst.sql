@@ -221,335 +221,249 @@ BEGIN
 	@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
 
 
-    /* What's running right now? This is the first result set. */
-	IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+    /* What's running right now? This is the first and last result set. */
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-    SET @StringToExecute = N'
-							SELECT  GETDATE() AS [run_date] ,
-					        CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-					        [s].[session_id] ,
-					        [wt].[wait_info] ,
-					        [s].[status] ,
-					        ISNULL(SUBSTRING([dest].[text],
-					                         ( [query_stats].[statement_start_offset] / 2 ) + 1,
-					                         ( ( CASE [query_stats].[statement_end_offset]
-					                               WHEN -1 THEN DATALENGTH([dest].[text])
-					                               ELSE [query_stats].[statement_end_offset]
-					                             END - [query_stats].[statement_start_offset] )
-					                           / 2 ) + 1), [dest].[text]) AS [query_text] ,
-					        [derp].[query_plan] ,
-					        [qmg].[query_cost] ,
-							[r].[blocking_session_id] ,
-					        [s].[cpu_time] ,
-					        [s].[logical_reads] ,
-					        [s].[writes] ,
-					        [s].[reads] AS [physical_reads] ,
-					        [s].[memory_usage] ,
-					        [r].[estimated_completion_time] ,
-					        [r].[deadlock_priority] ,
-					        [r].[granted_query_memory] ,
-					        CASE [s].[transaction_isolation_level]
-					          WHEN 0 THEN ''Unspecified''
-					          WHEN 1 THEN ''Read Uncommitted''
-					          WHEN 2 THEN ''Read Committed''
-					          WHEN 3 THEN ''Repeatable Read''
-					          WHEN 4 THEN ''Serializable''
-					          WHEN 5 THEN ''Snapshot''
-					          ELSE ''WHAT HAVE YOU DONE?''
-					        END AS [transaction_isolation_level] ,
-					        [r].[open_transaction_count] ,
-					        [qmg].[dop] AS [degree_of_parallelism] ,
-					        [qmg].[request_time] ,
-					        COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
-					        [qmg].[requested_memory_kb] ,
-					        [qmg].[granted_memory_kb] ,
-					        CASE WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
-					             THEN ''Query Granted Less Than Query Requested''
-					             ELSE ''Memory Request Granted''
-					        END AS [is_request_granted] ,
-					        [qmg].[required_memory_kb] ,
-					        [qmg].[used_memory_kb] ,
-					        [qmg].[ideal_memory_kb] ,
-					        [qmg].[is_small] ,
-					        [qmg].[timeout_sec] ,
-					        [qmg].[resource_semaphore_id] ,
-					        COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''Memory Already Granted'') AS [wait_order] ,
-					        COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
-					                 ''Memory Already Granted'') AS [wait_time_ms] ,
-					        CASE [qmg].[is_next_candidate]
-					          WHEN 0 THEN ''No''
-					          WHEN 1 THEN ''Yes''
-					          ELSE ''Memory Has Been Granted''
-					        END AS ''Next Candidate For Memory Grant'' ,
-					        [qrs].[target_memory_kb] ,
-					        COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
-					        [qrs].[total_memory_kb] ,
-					        [qrs].[available_memory_kb] ,
-					        [qrs].[granted_memory_kb] ,
-					        [qrs].[used_memory_kb] ,
-					        [qrs].[grantee_count] ,
-					        [qrs].[waiter_count] ,
-					        [qrs].[timeout_error_count] ,
-					        COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [forced_grant_count],
-							[s].[nt_domain] ,
-					        [s].[host_name] ,
-					        [s].[login_name] ,
-					        [s].[nt_user_name] ,
-					        [s].[program_name] ,
-					        [s].[client_interface_name] ,
-					        [s].[login_time] ,
-					        [r].[start_time] 
-					FROM    [sys].[dm_exec_sessions] AS [s]
-					JOIN    [sys].[dm_exec_requests] AS [r]
-					ON      [r].[session_id] = [s].[session_id]
-					LEFT JOIN ( SELECT DISTINCT
-					                    [wait].[session_id] ,
-					                    ( SELECT    [waitwait].[wait_type] + N'' (''
-					                                + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
-					                                + N'' ms) ''
-					                      FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
-					                      WHERE     [waitwait].[session_id] = [wait].[session_id]
-					                      GROUP BY  [waitwait].[wait_type]
-					                      ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
-					                    FOR
-					                      XML PATH('''') ) AS [wait_info]
-					            FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
-					ON      [s].[session_id] = [wt].[session_id]
-					LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
-					ON      [r].[sql_handle] = [query_stats].[sql_handle]
-					        AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
-					        AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					INNER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
-					ON      [r].[session_id] = [qmg].[session_id]
-					INNER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
-					ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
-							AND [qmg].[pool_id] = [qrs].[pool_id]
-					OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-					OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
-					WHERE   [r].[session_id] <> @@SPID
-					        AND [s].[status] <> ''sleeping''
-					ORDER BY 2 DESC;
-					'
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-								[s].[login_name],
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
-	IF @ProductVersionMajor >= 11 
-    BEGIN
-	SELECT @EnhanceFlag = 
-			CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
-				 WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
-				 WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
-				 ELSE 0 
-			END
+	    IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+        BEGIN
+        SET @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,
+					            CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''N/A'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+        END
+	    IF @ProductVersionMajor >= 11 
+        BEGIN
+	    SELECT @EnhanceFlag = 
+			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
+				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     ELSE 0 
+			    END
 
-	SELECT @StringToExecute = N'
-							SELECT  GETDATE() AS [run_date] ,
-					        CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-					        [s].[session_id] ,
-					        [wt].[wait_info] ,
-					        [s].[status] ,
-					        ISNULL(SUBSTRING([dest].[text],
-					                         ( [query_stats].[statement_start_offset] / 2 ) + 1,
-					                         ( ( CASE [query_stats].[statement_end_offset]
-					                               WHEN -1 THEN DATALENGTH([dest].[text])
-					                               ELSE [query_stats].[statement_end_offset]
-					                             END - [query_stats].[statement_start_offset] )
-					                           / 2 ) + 1), [dest].[text]) AS [query_text] ,
-					        [derp].[query_plan] ,
-					        [qmg].[query_cost] ,
-							[r].[blocking_session_id] ,
-					        [s].[cpu_time] ,
-					        [s].[logical_reads] ,
-					        [s].[writes] ,
-					        [s].[reads] AS [physical_reads] ,
-					        [s].[memory_usage] ,
-					        [r].[estimated_completion_time] ,
-					        [r].[deadlock_priority] ,
-					        [r].[granted_query_memory] ,'
-							+ 
-							CASE @EnhanceFlag
-							WHEN 1 THEN @EnhanceSQL
-							ELSE N'' END +
-							N'CASE [s].[transaction_isolation_level]
-					          WHEN 0 THEN ''Unspecified''
-					          WHEN 1 THEN ''Read Uncommitted''
-					          WHEN 2 THEN ''Read Committed''
-					          WHEN 3 THEN ''Repeatable Read''
-					          WHEN 4 THEN ''Serializable''
-					          WHEN 5 THEN ''Snapshot''
-					          ELSE ''WHAT HAVE YOU DONE?''
-					        END AS [transaction_isolation_level] ,
-					        [r].[open_transaction_count] ,
-					        [qmg].[dop] AS [degree_of_parallelism] ,
-					        [qmg].[request_time] ,
-					        COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
-					        [qmg].[requested_memory_kb] ,
-					        [qmg].[granted_memory_kb] ,
-					        CASE WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
-					             THEN ''Query Granted Less Than Query Requested''
-					             ELSE ''Memory Request Granted''
-					        END AS [is_request_granted] ,
-					        [qmg].[required_memory_kb] ,
-					        [qmg].[used_memory_kb] ,
-					        [qmg].[ideal_memory_kb] ,
-					        [qmg].[is_small] ,
-					        [qmg].[timeout_sec] ,
-					        [qmg].[resource_semaphore_id] ,
-					        COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''Memory Already Granted'') AS [wait_order] ,
-					        COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
-					                 ''Memory Already Granted'') AS [wait_time_ms] ,
-					        CASE [qmg].[is_next_candidate]
-					          WHEN 0 THEN ''No''
-					          WHEN 1 THEN ''Yes''
-					          ELSE ''Memory Has Been Granted''
-					        END AS ''Next Candidate For Memory Grant'' ,
-					        [qrs].[target_memory_kb] ,
-					        COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
-					        [qrs].[total_memory_kb] ,
-					        [qrs].[available_memory_kb] ,
-					        [qrs].[granted_memory_kb] ,
-					        [qrs].[used_memory_kb] ,
-					        [qrs].[grantee_count] ,
-					        [qrs].[waiter_count] ,
-					        [qrs].[timeout_error_count] ,
-					        COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [forced_grant_count],
-							[s].[nt_domain] ,
-					        [s].[host_name] ,
-					        [s].[login_name] ,
-					        [s].[nt_user_name] ,
-					        [s].[program_name] ,
-					        [s].[client_interface_name] ,
-					        [s].[login_time] ,
-					        [r].[start_time] 
-					FROM    [sys].[dm_exec_sessions] AS [s]
-					JOIN    [sys].[dm_exec_requests] AS [r]
-					ON      [r].[session_id] = [s].[session_id]
-					LEFT JOIN ( SELECT DISTINCT
-					                    [wait].[session_id] ,
-					                    ( SELECT    [waitwait].[wait_type] + N'' (''
-					                                + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
-					                                + N'' ms) ''
-					                      FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
-					                      WHERE     [waitwait].[session_id] = [wait].[session_id]
-					                      GROUP BY  [waitwait].[wait_type]
-					                      ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
-					                    FOR
-					                      XML PATH('''') ) AS [wait_info]
-					            FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
-					ON      [s].[session_id] = [wt].[session_id]
-					LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
-					ON      [r].[sql_handle] = [query_stats].[sql_handle]
-					        AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
-					        AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					INNER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
-					ON      [r].[session_id] = [qmg].[session_id]
-					INNER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
-					ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
-							AND [qmg].[pool_id] = [qrs].[pool_id]
-					OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-					OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
-					WHERE   [r].[session_id] <> @@SPID
-					        AND [s].[status] <> ''sleeping''
-					ORDER BY 2 DESC;
-					'
+	    SELECT @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,'
+							    + 
+							    CASE @EnhanceFlag
+							    WHEN 1 THEN @EnhanceSQL
+							    ELSE N'' END +
+							    N'CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
 
-	END
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[open_transaction_count] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-								[s].[login_name],
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
+	    END 
 
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
         EXEC(@StringToExecute);
+
+    END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+     
+
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
     /*
@@ -2727,336 +2641,247 @@ BEGIN
 
     DROP TABLE #BlitzFirstResults;
 
-
-    /* What's running right now? This is the first (and last) result set. */
-	IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+    /* What's running right now? This is the first and last result set. */
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-    SET @StringToExecute = N'
-							SELECT  GETDATE() AS [run_date] ,
-					        CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-					        [s].[session_id] ,
-					        [wt].[wait_info] ,
-					        [s].[status] ,
-					        ISNULL(SUBSTRING([dest].[text],
-					                         ( [query_stats].[statement_start_offset] / 2 ) + 1,
-					                         ( ( CASE [query_stats].[statement_end_offset]
-					                               WHEN -1 THEN DATALENGTH([dest].[text])
-					                               ELSE [query_stats].[statement_end_offset]
-					                             END - [query_stats].[statement_start_offset] )
-					                           / 2 ) + 1), [dest].[text]) AS [query_text] ,
-					        [derp].[query_plan] ,
-					        [qmg].[query_cost] ,
-							[r].[blocking_session_id] ,
-					        [s].[cpu_time] ,
-					        [s].[logical_reads] ,
-					        [s].[writes] ,
-					        [s].[reads] AS [physical_reads] ,
-					        [s].[memory_usage] ,
-					        [r].[estimated_completion_time] ,
-					        [r].[deadlock_priority] ,
-					        [r].[granted_query_memory] ,
-					        CASE [s].[transaction_isolation_level]
-					          WHEN 0 THEN ''Unspecified''
-					          WHEN 1 THEN ''Read Uncommitted''
-					          WHEN 2 THEN ''Read Committed''
-					          WHEN 3 THEN ''Repeatable Read''
-					          WHEN 4 THEN ''Serializable''
-					          WHEN 5 THEN ''Snapshot''
-					          ELSE ''WHAT HAVE YOU DONE?''
-					        END AS [transaction_isolation_level] ,
-					        [r].[open_transaction_count] ,
-					        [qmg].[dop] AS [degree_of_parallelism] ,
-					        [qmg].[request_time] ,
-					        COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
-					        [qmg].[requested_memory_kb] ,
-					        [qmg].[granted_memory_kb] ,
-					        CASE WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
-					             THEN ''Query Granted Less Than Query Requested''
-					             ELSE ''Memory Request Granted''
-					        END AS [is_request_granted] ,
-					        [qmg].[required_memory_kb] ,
-					        [qmg].[used_memory_kb] ,
-					        [qmg].[ideal_memory_kb] ,
-					        [qmg].[is_small] ,
-					        [qmg].[timeout_sec] ,
-					        [qmg].[resource_semaphore_id] ,
-					        COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''Memory Already Granted'') AS [wait_order] ,
-					        COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
-					                 ''Memory Already Granted'') AS [wait_time_ms] ,
-					        CASE [qmg].[is_next_candidate]
-					          WHEN 0 THEN ''No''
-					          WHEN 1 THEN ''Yes''
-					          ELSE ''Memory Has Been Granted''
-					        END AS ''Next Candidate For Memory Grant'' ,
-					        [qrs].[target_memory_kb] ,
-					        COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
-					        [qrs].[total_memory_kb] ,
-					        [qrs].[available_memory_kb] ,
-					        [qrs].[granted_memory_kb] ,
-					        [qrs].[used_memory_kb] ,
-					        [qrs].[grantee_count] ,
-					        [qrs].[waiter_count] ,
-					        [qrs].[timeout_error_count] ,
-					        COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [forced_grant_count],
-							[s].[nt_domain] ,
-					        [s].[host_name] ,
-					        [s].[login_name] ,
-					        [s].[nt_user_name] ,
-					        [s].[program_name] ,
-					        [s].[client_interface_name] ,
-					        [s].[login_time] ,
-					        [r].[start_time] 
-					FROM    [sys].[dm_exec_sessions] AS [s]
-					JOIN    [sys].[dm_exec_requests] AS [r]
-					ON      [r].[session_id] = [s].[session_id]
-					LEFT JOIN ( SELECT DISTINCT
-					                    [wait].[session_id] ,
-					                    ( SELECT    [waitwait].[wait_type] + N'' (''
-					                                + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
-					                                + N'' ms) ''
-					                      FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
-					                      WHERE     [waitwait].[session_id] = [wait].[session_id]
-					                      GROUP BY  [waitwait].[wait_type]
-					                      ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
-					                    FOR
-					                      XML PATH('''') ) AS [wait_info]
-					            FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
-					ON      [s].[session_id] = [wt].[session_id]
-					LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
-					ON      [r].[sql_handle] = [query_stats].[sql_handle]
-					        AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
-					        AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					INNER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
-					ON      [r].[session_id] = [qmg].[session_id]
-					INNER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
-					ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
-							AND [qmg].[pool_id] = [qrs].[pool_id]
-					OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-					OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
-					WHERE   [r].[session_id] <> @@SPID
-					        AND [s].[status] <> ''sleeping''
-					ORDER BY 2 DESC;
-					'
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-								[s].[login_name],
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
-	IF @ProductVersionMajor >= 11 
-    BEGIN
-	SELECT @EnhanceFlag = 
-			CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
-				 WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
-				 WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
-				 ELSE 0 
-			END
+	    IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+        BEGIN
+        SET @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,
+					            CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''N/A'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+        END
+	    IF @ProductVersionMajor >= 11 
+        BEGIN
+	    SELECT @EnhanceFlag = 
+			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
+				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     ELSE 0 
+			    END
 
-	SELECT @StringToExecute = N'
-							SELECT  GETDATE() AS [run_date] ,
-					        CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-					        [s].[session_id] ,
-					        [wt].[wait_info] ,
-					        [s].[status] ,
-					        ISNULL(SUBSTRING([dest].[text],
-					                         ( [query_stats].[statement_start_offset] / 2 ) + 1,
-					                         ( ( CASE [query_stats].[statement_end_offset]
-					                               WHEN -1 THEN DATALENGTH([dest].[text])
-					                               ELSE [query_stats].[statement_end_offset]
-					                             END - [query_stats].[statement_start_offset] )
-					                           / 2 ) + 1), [dest].[text]) AS [query_text] ,
-					        [derp].[query_plan] ,
-					        [qmg].[query_cost] ,
-							[r].[blocking_session_id] ,
-					        [s].[cpu_time] ,
-					        [s].[logical_reads] ,
-					        [s].[writes] ,
-					        [s].[reads] AS [physical_reads] ,
-					        [s].[memory_usage] ,
-					        [r].[estimated_completion_time] ,
-					        [r].[deadlock_priority] ,
-					        [r].[granted_query_memory] ,'
-							+ 
-							CASE @EnhanceFlag
-							WHEN 1 THEN @EnhanceSQL
-							ELSE N'' END +
-							N'CASE [s].[transaction_isolation_level]
-					          WHEN 0 THEN ''Unspecified''
-					          WHEN 1 THEN ''Read Uncommitted''
-					          WHEN 2 THEN ''Read Committed''
-					          WHEN 3 THEN ''Repeatable Read''
-					          WHEN 4 THEN ''Serializable''
-					          WHEN 5 THEN ''Snapshot''
-					          ELSE ''WHAT HAVE YOU DONE?''
-					        END AS [transaction_isolation_level] ,
-					        [r].[open_transaction_count] ,
-					        [qmg].[dop] AS [degree_of_parallelism] ,
-					        [qmg].[request_time] ,
-					        COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
-					        [qmg].[requested_memory_kb] ,
-					        [qmg].[granted_memory_kb] ,
-					        CASE WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
-					             THEN ''Query Granted Less Than Query Requested''
-					             ELSE ''Memory Request Granted''
-					        END AS [is_request_granted] ,
-					        [qmg].[required_memory_kb] ,
-					        [qmg].[used_memory_kb] ,
-					        [qmg].[ideal_memory_kb] ,
-					        [qmg].[is_small] ,
-					        [qmg].[timeout_sec] ,
-					        [qmg].[resource_semaphore_id] ,
-					        COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''Memory Already Granted'') AS [wait_order] ,
-					        COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
-					                 ''Memory Already Granted'') AS [wait_time_ms] ,
-					        CASE [qmg].[is_next_candidate]
-					          WHEN 0 THEN ''No''
-					          WHEN 1 THEN ''Yes''
-					          ELSE ''Memory Has Been Granted''
-					        END AS ''Next Candidate For Memory Grant'' ,
-					        [qrs].[target_memory_kb] ,
-					        COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
-					        [qrs].[total_memory_kb] ,
-					        [qrs].[available_memory_kb] ,
-					        [qrs].[granted_memory_kb] ,
-					        [qrs].[used_memory_kb] ,
-					        [qrs].[grantee_count] ,
-					        [qrs].[waiter_count] ,
-					        [qrs].[timeout_error_count] ,
-					        COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
-					                 ''Small Query Resource Semaphore'') AS [forced_grant_count],
-							[s].[nt_domain] ,
-					        [s].[host_name] ,
-					        [s].[login_name] ,
-					        [s].[nt_user_name] ,
-					        [s].[program_name] ,
-					        [s].[client_interface_name] ,
-					        [s].[login_time] ,
-					        [r].[start_time] 
-					FROM    [sys].[dm_exec_sessions] AS [s]
-					JOIN    [sys].[dm_exec_requests] AS [r]
-					ON      [r].[session_id] = [s].[session_id]
-					LEFT JOIN ( SELECT DISTINCT
-					                    [wait].[session_id] ,
-					                    ( SELECT    [waitwait].[wait_type] + N'' (''
-					                                + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
-					                                + N'' ms) ''
-					                      FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
-					                      WHERE     [waitwait].[session_id] = [wait].[session_id]
-					                      GROUP BY  [waitwait].[wait_type]
-					                      ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
-					                    FOR
-					                      XML PATH('''') ) AS [wait_info]
-					            FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
-					ON      [s].[session_id] = [wt].[session_id]
-					LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
-					ON      [r].[sql_handle] = [query_stats].[sql_handle]
-					        AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
-					        AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					INNER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
-					ON      [r].[session_id] = [qmg].[session_id]
-					INNER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
-					ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
-							AND [qmg].[pool_id] = [qrs].[pool_id]
-					OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-					OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
-					WHERE   [r].[session_id] <> @@SPID
-					        AND [s].[status] <> ''sleeping''
-					ORDER BY 2 DESC;
-					'
+	    SELECT @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,'
+							    + 
+							    CASE @EnhanceFlag
+							    WHEN 1 THEN @EnhanceSQL
+							    ELSE N'' END +
+							    N'CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
 
-	END
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[open_transaction_count] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-								[s].[login_name],
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
+	    END 
 
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
         EXEC(@StringToExecute);
+
+    END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
 
 END /* IF @Question IS NULL */
 ELSE IF @Question IS NOT NULL
