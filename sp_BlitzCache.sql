@@ -75,7 +75,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     MaxReturnedRows bigint,
     AverageReturnedRows money,
     TotalReturnedRows bigint,
-    LastReturnedRows bigint,
+    LastReturnedRows bigint,trace_flags_global varchar(1000),
     QueryText nvarchar(max),
     QueryPlan xml,
     /* these next four columns are the total for the type of query.
@@ -128,6 +128,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     age_minutes money,
     age_minutes_lifetime money,
     is_trivial bit,
+	trace_flags_session varchar(1000),
     SetOptions VARCHAR(MAX),
     Warnings VARCHAR(MAX)
 );
@@ -715,6 +716,7 @@ BEGIN
         age_minutes money,
         age_minutes_lifetime money,
         is_trivial bit,
+		trace_flags_session varchar(1000),
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1754,8 +1756,43 @@ SET     QueryType = QueryType + ' (parent ' +
 FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
-OPTION (RECOMPILE) ;
 
+/* Trace Flag Checks 2014 SP2 only (Until 2016 updates?)*/
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, tf_pretty AS (
+SELECT  qp.QueryHash,
+		qp.SqlHandle,
+		q.n.value('@Value', 'INT') AS trace_flag,
+		q.n.value('@Scope', 'VARCHAR(10)') AS scope
+FROM    #query_plan qp
+CROSS APPLY qp.query_plan.nodes('/p:QueryPlan/p:TraceFlags/p:TraceFlag') AS q(n)
+)
+SELECT DISTINCT tf1.SqlHandle , tf1.QueryHash,
+    STUFF((
+          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          FROM  tf_pretty AS tf2 
+          WHERE tf1.SqlHandle = tf2.SqlHandle 
+		  AND tf1.QueryHash = tf2.QueryHash
+		  AND tf2.scope = 'Global'
+        FOR XML PATH(N'')), 1, 2, N''
+      ) AS global_trace_flags,
+    STUFF((
+          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          FROM  tf_pretty AS tf2 
+          WHERE tf1.SqlHandle = tf2.SqlHandle 
+		  AND tf1.QueryHash = tf2.QueryHash
+		  AND tf2.scope = 'Session'
+        FOR XML PATH(N'')), 1, 2, N''
+      ) AS session_trace_flags
+INTO #trace_flags
+FROM tf_pretty AS tf1
+OPTION (RECOMPILE);
+
+UPDATE p
+SET    p.trace_flags_session = tf.session_trace_flags
+FROM   ##bou_BlitzCacheProcs p
+JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash --AND tf.SqlHandle = p.PlanHandle
+OPTION(RECOMPILE);
 
 IF @SkipAnalysis = 1
     GOTO Results ;
@@ -1891,9 +1928,6 @@ OPTION (RECOMPILE) ;
 
 
 
-
-
-
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 
 /* Populate warnings */
@@ -1922,6 +1956,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
@@ -2208,7 +2244,8 @@ BEGIN
                   CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
+				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END  + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN '' , 29'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2610,6 +2647,33 @@ BEGIN
                     'Expensive Remote Query',
                     'http://www.brentozar.com/blitzcache/expensive-remote-query/',
                     'There''s a remote query in your plan that costs >=50% of the total plan cost.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.trace_flags_session IS NOT NULL
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    29,
+                    100,
+                    'Trace Flags',
+                    'Session Level Trace FLags Enabled',
+                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
+                    'Someone is enabling session level Trace Flags in a query.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #trace_flags AS tf 
+                   WHERE  tf.global_trace_flags IS NOT NULL
+				   )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    999,
+                    255,
+                    'Global Trace Flags Enabled',
+                    'You have Global Trace Flags enabled on your server',
+                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
+                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
 	
 	END            
     
