@@ -1949,7 +1949,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
                   CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
-                  CASE WHEN downlevel_estimator = 1 THEN ', Legacy C.E.' ELSE '' END +
+                  CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
@@ -2474,7 +2474,7 @@ BEGIN
                     13,
                     200,
                     'Cardinality',
-                    'Legacy C.E.',
+                    'Legacy Cardinality Estimator in Use',
                     'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
                     'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
 
