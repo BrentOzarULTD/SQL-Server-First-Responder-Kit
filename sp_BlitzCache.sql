@@ -75,7 +75,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     MaxReturnedRows bigint,
     AverageReturnedRows money,
     TotalReturnedRows bigint,
-    LastReturnedRows bigint,
+    LastReturnedRows bigint,trace_flags_global varchar(1000),
     QueryText nvarchar(max),
     QueryPlan xml,
     /* these next four columns are the total for the type of query.
@@ -102,8 +102,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     is_parallel bit,
 	is_key_lookup_expensive bit,
 	key_lookup_cost float,
-	is_sort_expensive bit,
-	sort_cost float,
 	is_remote_query_expensive bit,
 	remote_query_cost float,
 	is_forced_serial bit,
@@ -116,7 +114,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     long_running bit,
     downlevel_estimator bit,
     implicit_conversions bit,
-    tempdb_spill bit,
     busy_loops bit,
     tvf_join bit,
     tvf_estimate bit,
@@ -131,6 +128,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
     age_minutes money,
     age_minutes_lifetime money,
     is_trivial bit,
+	trace_flags_session varchar(1000),
     SetOptions VARCHAR(MAX),
     Warnings VARCHAR(MAX)
 );
@@ -188,6 +186,20 @@ Known limitations of this version:
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
+Changes in v3.1 - 2016/07/15:
+ - Show cost for stored procedures:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/339
+ - Warn about trace flags added at the query level, and global trace flags:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/361
+ - Add warnings about Remote Queries:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/315
+ - Do not show Forced Plans warning if the real cause is forced parameterization:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/343
+ - Fix divide-by-zero error if Cost Threshold for Parallelism is 0:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/358
+ - Fix warning for unparameterized query:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/334
+
 Changes in v3.0 - 2016/06/26:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
@@ -210,34 +222,11 @@ Changes in v3.0 - 2016/06/26:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
  - Fixed ##bou_BlitzCacheResults not filtered by session id. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/305
+ - Erik Darling removed tempdb spills and expensive sorts from warnings.
+   Neither one works properly with cached plans.
+   Cleaned up documentation
+   Fixed bug related to CTFP being set to 0
 
-Changes in v2.5.3 - 2016-04-28:
- - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
-   Will show up when they are >=50% of plan cost, and plan cost is >= 50% of 
-   cost threshold for parallelism.
- - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb 
-   spills, which are not recorded in cached plans.
-
-Changes in v2.5.2 - 2016-04-28:
- - Erik Darling added warnings for Forced Serialization in 2012+ query plans. 
-   Sorry, earlier versions.
- - Erik Darling added Replication Distributor databases to list of system 
-   databases to ignore.
-
-Changes in v2.5.1 - 2016-03-15:
- - Nick Molyneux fixed an overflow error, and did an amazing job of it.
-
-Changes in v2.5.0 - 2015-10-23:
- - Now with errors when required values are set to NULL. Thanks to Raul
-   Gonzalez for pointing this out.
- - changing default @Top to 10
- - Added a @skip_analysis to avoid the XML processing overhead
- - Added QueryHash and QueryPlanHash to @ExportToExcel and expert mode
- - Adding sort order for recent compiles.
- - Fixing potential INT overflow in totals temp table
- - Fixing slow sort performance on xpm and friends
- - Added compilation info (memory, CPU, time) and plan size to output
- - Re-structured XML processing for more better performance
 
 MIT License
 
@@ -689,8 +678,6 @@ BEGIN
 		is_forced_serial bit,
 		is_key_lookup_expensive bit,
 		key_lookup_cost float,
-		is_sort_expensive bit,
-		sort_cost float,
 		is_remote_query_expensive bit,
 		remote_query_cost float,
         frequent_execution bit,
@@ -702,7 +689,6 @@ BEGIN
         long_running bit,
         downlevel_estimator bit,
         implicit_conversions bit,
-        tempdb_spill bit,
         busy_loops bit,
         tvf_join bit,
         tvf_estimate bit,
@@ -717,6 +703,7 @@ BEGIN
         age_minutes money,
         age_minutes_lifetime money,
         is_trivial bit,
+		trace_flags_session varchar(1000),
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -919,7 +906,7 @@ END
    values will be inserted into #ignore_query_hashes. This is used to
    exclude values from query results.
 
-   Just a reminder: Using @OnlyQueryHashes will ignore stored
+   Just a reminder: Using @IgnoreQueryHashes will ignore stored
    procedures and triggers.
  */
 IF @IgnoreQueryHashes IS NOT NULL
@@ -1377,7 +1364,33 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
-
+/* Update ##bou_BlitzCacheProcs to get Stored Proc info 
+ * This should get totals for all statements in a Stored Proc
+ */
+;WITH agg AS (
+    SELECT 
+        b.SqlHandle,
+        SUM(b.MinReturnedRows) AS MinReturnedRows,
+        SUM(b.MaxReturnedRows) AS MaxReturnedRows,
+        SUM(b.AverageReturnedRows) AS AverageReturnedRows,
+        SUM(b.TotalReturnedRows) AS TotalReturnedRows,
+        SUM(b.LastReturnedRows) AS LastReturnedRows
+    FROM ##bou_BlitzCacheProcs b
+    WHERE b.QueryHash IS NOT NULL 
+    GROUP BY b.SqlHandle
+)
+UPDATE b
+    SET 
+        b.MinReturnedRows     = b2.MinReturnedRows,
+        b.MaxReturnedRows     = b2.MaxReturnedRows,
+        b.AverageReturnedRows = b2.AverageReturnedRows,
+        b.TotalReturnedRows   = b2.TotalReturnedRows,
+        b.LastReturnedRows    = b2.LastReturnedRows
+FROM ##bou_BlitzCacheProcs b
+JOIN agg b2
+ON b2.SqlHandle = b.SqlHandle
+WHERE b.QueryHash IS NULL
+OPTION (RECOMPILE) ;
 
 /* Compute the total CPU, etc across our active set of the plan cache.
  * Yes, there's a flaw - this doesn't include anything outside of our @Top
@@ -1522,10 +1535,12 @@ OPTION (RECOMPILE) ;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
+		PlanHandle,
         q.n.query('.') AS statement
 INTO    #statements
 FROM    ##bou_BlitzCacheProcs p
-        CROSS APPLY p.QueryPlan.nodes('//p:StmtSimple') AS q(n) ;
+        CROSS APPLY p.QueryPlan.nodes('//p:StmtSimple') AS q(n) 
+OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
@@ -1533,7 +1548,8 @@ SELECT  QueryHash ,
         q.n.query('.') AS query_plan
 INTO    #query_plan
 FROM    #statements p
-        CROSS APPLY p.statement.nodes('//p:QueryPlan') AS q(n) ;
+        CROSS APPLY p.statement.nodes('//p:QueryPlan') AS q(n) 
+OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
@@ -1541,7 +1557,8 @@ SELECT  QueryHash ,
         q.n.query('.') AS relop
 INTO    #relop
 FROM    #query_plan p
-        CROSS APPLY p.query_plan.nodes('//p:RelOp') AS q(n) ;
+        CROSS APPLY p.query_plan.nodes('//p:RelOp') AS q(n) 
+OPTION (RECOMPILE) ;
 
 
 
@@ -1581,6 +1598,37 @@ FROM    #statements s
 WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
 
+--Gather Stored Proc costs
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, QueryCost AS (
+  SELECT
+    statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
+    s.PlanHandle,
+	s.SqlHandle
+  FROM #statements AS s
+  WHERE PlanHandle IS NOT NULL
+)
+, QueryCostUpdate AS (
+  SELECT
+	SUM(qc.SubTreeCost) OVER (PARTITION BY SqlHandle, PlanHandle) PlanTotalQuery,
+    qc.PlanHandle,
+    qc.SqlHandle
+  FROM QueryCost qc
+    WHERE qc.SubTreeCost > 0
+)
+  UPDATE b
+    SET b.QueryPlanCost = 
+    CASE WHEN 
+      b.QueryType LIKE '%Procedure%' THEN 
+         (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
+       ELSE 
+         b.QueryPlanCost 
+    	 END
+  FROM QueryCostUpdate qcu
+    JOIN  ##bou_BlitzCacheProcs AS b
+  ON qcu.SqlHandle = b.SqlHandle
+OPTION (RECOMPILE);
+
 -- query level checks
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  ##bou_BlitzCacheProcs
@@ -1591,9 +1639,9 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CompileTime = query_plan.value('sum(/p:QueryPlan/@CompileTime)', 'float') ,
         CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float') ,
-        implicit_conversions = CASE WHEN QueryPlan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
-        plan_warnings = CASE WHEN QueryPlan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
-		is_forced_serial = CASE WHEN QueryPlan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
+        implicit_conversions = CASE WHEN query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
+        plan_warnings = CASE WHEN query_plan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
+		is_forced_serial = CASE WHEN query_plan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
@@ -1629,18 +1677,6 @@ WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET sort_cost = x.sort_cost
-FROM (
-SELECT 
-       qs.SqlHandle,
-	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS sort_cost
-FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -1663,7 +1699,8 @@ BEGIN
     UPDATE  p
     SET     downlevel_estimator = CASE WHEN statement.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END
     FROM    ##bou_BlitzCacheProcs p
-            JOIN #statements s ON p.QueryHash = s.QueryHash ;
+            JOIN #statements s ON p.QueryHash = s.QueryHash 
+	OPTION (RECOMPILE) ;
 END ;
 
 /* END Testing using XML nodes to speed up processing */
@@ -1672,16 +1709,15 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-    QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-        QueryPlan.value('sum(//p:StmtSimple/@StatementSubTreeCost)', 'float')
+    QueryPlanCost = CASE WHEN QueryType LIKE '%Procedure%' THEN
+        QueryPlanCost
         ELSE
         QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
         END,
-    missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
+	missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
     unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
     is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-	is_forced_serial = CASE WHEN QueryPlan.value('count(//p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END,
     SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
     SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
     CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
@@ -1708,7 +1744,42 @@ FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
 
+/* Trace Flag Checks 2014 SP2 only (Until 2016 updates?)*/
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, tf_pretty AS (
+SELECT  qp.QueryHash,
+		qp.SqlHandle,
+		q.n.value('@Value', 'INT') AS trace_flag,
+		q.n.value('@Scope', 'VARCHAR(10)') AS scope
+FROM    #query_plan qp
+CROSS APPLY qp.query_plan.nodes('/p:QueryPlan/p:TraceFlags/p:TraceFlag') AS q(n)
+)
+SELECT DISTINCT tf1.SqlHandle , tf1.QueryHash,
+    STUFF((
+          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          FROM  tf_pretty AS tf2 
+          WHERE tf1.SqlHandle = tf2.SqlHandle 
+		  AND tf1.QueryHash = tf2.QueryHash
+		  AND tf2.scope = 'Global'
+        FOR XML PATH(N'')), 1, 2, N''
+      ) AS global_trace_flags,
+    STUFF((
+          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          FROM  tf_pretty AS tf2 
+          WHERE tf1.SqlHandle = tf2.SqlHandle 
+		  AND tf1.QueryHash = tf2.QueryHash
+		  AND tf2.scope = 'Session'
+        FOR XML PATH(N'')), 1, 2, N''
+      ) AS session_trace_flags
+INTO #trace_flags
+FROM tf_pretty AS tf1
+OPTION (RECOMPILE);
 
+UPDATE p
+SET    p.trace_flags_session = tf.session_trace_flags
+FROM   ##bou_BlitzCacheProcs p
+JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash --AND tf.SqlHandle = p.PlanHandle
+OPTION(RECOMPILE);
 
 IF @SkipAnalysis = 1
     GOTO Results ;
@@ -1780,11 +1851,10 @@ END
 
 DECLARE @ctp INT ;
 
-SELECT  @ctp = CAST(value AS INT)
+SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
 FROM    sys.configurations
 WHERE   name = 'cost threshold for parallelism'
 OPTION (RECOMPILE);
-
 
 
 /* Update to populate checks columns */
@@ -1806,9 +1876,9 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_remote_query_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND remote_query_cost >= QueryPlanCost * .5 THEN 1 END,
-	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END;
+	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
+	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END
+OPTION (RECOMPILE) ;
 
 
 
@@ -1816,11 +1886,10 @@ RAISERROR('Checking for forced parameterization and cursors.', 0, 1) WITH NOWAIT
 
 /* Set options checks */
 UPDATE p
-SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-                                      END ,
-       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-                             WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
-                             END ,
+       SET is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
+       END ,
+       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
+       END ,
        SetOptions = SUBSTRING(
                     CASE WHEN (CAST(pa.value AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
                     CASE WHEN (CAST(pa.value AS INT) & 8 = 8) THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
@@ -1832,8 +1901,8 @@ SET    is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131
                     , 2, 200000)
 FROM   ##bou_BlitzCacheProcs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-WHERE  pa.attribute = 'set_options' ;
-
+WHERE  pa.attribute = 'set_options' 
+OPTION (RECOMPILE) ;
 
 
 /* Cursor checks */
@@ -1841,11 +1910,8 @@ UPDATE p
 SET    is_cursor = CASE WHEN CAST(pa.value AS INT) <> 0 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
-WHERE  pa.attribute LIKE '%cursor%' ;
-
-
-
-
+WHERE  pa.attribute LIKE '%cursor%' 
+OPTION (RECOMPILE) ;
 
 
 
@@ -1872,15 +1938,16 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN tempdb_spill = 1 THEN ', TempDB Spills' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
                   CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
-                  , 2, 200000) ;
+                  , 2, 200000) 
+				  OPTION (RECOMPILE) ;
 
 
 
@@ -2145,7 +2212,7 @@ BEGIN
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
                   CASE WHEN busy_loops = 1 THEN '', 16'' ELSE '''' END +
                   CASE WHEN is_forced_plan = 1 THEN '', 3'' ELSE '''' END +
-                  CASE WHEN is_forced_parameterized = 1 THEN '', 5'' ELSE '''' END +
+                  CASE WHEN is_forced_parameterized > 0 THEN '', 5'' ELSE '''' END +
                   CASE WHEN unparameterized_query = 1 THEN '', 23'' ELSE '''' END +
                   CASE WHEN missing_index_count > 0 THEN '', 10'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END +                  
@@ -2158,16 +2225,14 @@ BEGIN
                   CASE WHEN long_running = 1 THEN '', 9'' ELSE '''' END +
                   CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
-                  CASE WHEN tempdb_spill = 1 THEN '', 15'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
                   CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
-                  CASE WHEN unmatched_index_count > 0 THEN '', 22'', ELSE '''' END + 
-                  CASE WHEN unparameterized_query > 0 THEN '', 23'', ELSE '''' END + 
-                  CASE WHEN is_trivial = 1 THEN '', 24'', ELSE '''' END + 
+                  CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END + 
+                  CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 27'' ELSE '''' END + 
-				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END
+				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END  + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN '' , 29'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2413,18 +2478,6 @@ BEGIN
                     'http://brentozar.com/go/implicit',
                     'One or more queries are comparing two fields that are not of the same data type.') ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs
-                   WHERE  tempdb_spill = 1
-				   AND SPID = @@SPID)
-        INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-        VALUES (@@SPID,
-                15,
-                10,
-                'Performance',
-                'TempDB Spills',
-                'http://brentozar.com/blitzcache/tempdb-spills/',
-                'TempDB spills detected. Queries are unable to allocate enough memory to proceed normally.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -2571,19 +2624,6 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.is_sort_expensive= 1
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    27,
-                    100,
-                    'Execution Plans',
-                    'Expensive Sort',
-                    'http://www.brentozar.com/blitzcache/expensive-sorts/',
-                    'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
-
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs p
                    WHERE  p.is_remote_query_expensive= 1
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -2594,6 +2634,33 @@ BEGIN
                     'Expensive Remote Query',
                     'http://www.brentozar.com/blitzcache/expensive-remote-query/',
                     'There''s a remote query in your plan that costs >=50% of the total plan cost.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.trace_flags_session IS NOT NULL
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    29,
+                    100,
+                    'Trace Flags',
+                    'Session Level Trace FLags Enabled',
+                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
+                    'Someone is enabling session level Trace Flags in a query.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #trace_flags AS tf 
+                   WHERE  tf.global_trace_flags IS NOT NULL
+				   )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    999,
+                    255,
+                    'Global Trace Flags Enabled',
+                    'You have Global Trace Flags enabled on your server',
+                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
+                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
 	
 	END            
     

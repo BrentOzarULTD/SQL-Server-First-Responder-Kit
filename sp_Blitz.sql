@@ -29,7 +29,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160626'
+	SET @VersionDate = '20160715'
 
 	IF @Help = 1 PRINT '
 	/*
@@ -53,6 +53,17 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
+     Changes in v53.1 - 2016/07/15
+      - Warn about 2016 Query Store cleanup bug in Standard, Evaluation, Express:
+         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/352
+      - Updating list of supported SQL Server versions:
+         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/344
+      - Fixing bug in wait stats percentages:
+         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/324
+	  - For the full list of improvements and fixes in this version, see:
+         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/3?closed=1
+
+
      Changes in v53 - 2016/06/26
 	  - BREAKING CHANGE: Standardized input & output parameters to be
          consistent across the entire First Responder Kit. This also means the old
@@ -63,38 +74,6 @@ AS
 	   makes it easier to combine results from multiple servers into one table even
 	   when servers are in different data centers, different time zones. More info:
 	   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
-
-     Changes in v52 - 2016/06/02
-	  - SQL Server 2016 compatibility. 2016 RTM ships with some questionable
-	    database-level options like heaps in DWDiagnostics, target recovery
-		time changed in the DW* databases, and l_certSignSmDetach as a new
-		default sysadmin login, so ignoring those.
-	  - If databases have an old compatibility level that does not support CTEs
-	    then @CheckUserDatabaseObjects is set to 0 to avoid problems with
-		current checks. Get on the current compat level, Grandpa.
-
-     Changes in v51 - 2016/05/18
-	  - Thomas Rushton added a check for dangerous third-party modules. (179) 
-	    More info: https://support.microsoft.com/en-us/kb/2033238
-      - New check for snapshot backups possibly freezing IO. Looking for 50GB+
-	    backups that complete in under 60 seconds. (178)
-      - If there are 50+ user databases, you have to turn on @BringThePain = 1
-	    in order to do @CheckUserDatabaseObjects = 1. (Speeds up sp_Blitz on
-		servers with hundreds or thousands of databases.)
-      - Reprioritized a bunch of checks, like moving security warnings down to
-         priority 230, so that you can use @IgnorePrioritiesAbove = 50 better.
-      - Bug fixes.
-
-     Changes in v50 - 2016/04/08
-      - Fixed bug in check ID 2 that would fail on a database with multiple log
-	    files, that also has not had a backup in two weeks.
-
-    Changes in v49 - 2016/04/06
-     - Amazon RDS compatibility, but to do that, we have to skip a bunch of checks.
-	   RDS does not allow you to query MSDB, configure TempDB, make
-	   server-level sp_configure settings, etc.
-
-	For prior changes, see: http://www.BrentOzar.com/blitz/changelog/
 
 
 	Parameter explanations:
@@ -2686,9 +2665,9 @@ AS
 							BEGIN
 
 							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor <= 2100) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor <= 6000) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor <= 6000) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 3000) OR
+							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
+							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -3612,6 +3591,32 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                              ''http://BrentOzar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
 		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
+							END
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 182 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
+							AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
+							BEGIN
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 182,
+		                              ''?'',
+		                              20,
+		                              ''Reliability'',
+		                              ''Query Store Cleanup Disabled'',
+		                              ''http://BrentOzar.com/go/cleanup'',
+		                              (''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run.'')
+		                              FROM [?].sys.database_query_store_options WHERE desired_state <> 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
 							END
 
 
@@ -5509,10 +5514,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
 													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
-													CAST(CAST(
+													/* CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
-														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+														AS NUMERIC(18,1)) AS NVARCHAR(40)) + N'% of waits, ' + */
 													CAST(CAST(
 														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER ())

@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160626'
+SET @VersionDate = '20160715'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -53,6 +53,14 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v25 - 2016/07/15
+ - Add new memory grants columns to 2012-2016 live queries output:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/362
+ - Add SQL login to live queries output:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/354
+ - Filter Perfmon counter display to skip counters with zeroes. Still logged to table though:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/356
+
 Changes in v24 - 2016/06/26
  - Renamed from sp_AskBrent.
  - BREAKING CHANGE: Standardized input & output parameters to be
@@ -71,18 +79,6 @@ Changes in v24 - 2016/06/26
  - Only show what queries are running now if @ExpertMode = 1. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/266
 
-Changes in v23 - April 27, 2016
- - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
-
- Changes in v22 - April 19, 2016
- - New @SinceStartup parameter. Defaults to 0. When turned on with 1, it sets
-   @Seconds = 0, @ExpertMode = 1, and skips results for what is running now and
-   the headline-news result set (the first two).
- - If @Seconds = 0, output waits in hours instead of seconds. This only changes
-   the onscreen results - not the table results, because I try not to break the
-   existing table storage by changing output data.
- - Added wait time per core per second (or per hour) in the ExpertMode wait
-   stats output.
 
 MIT License
 
@@ -110,7 +106,7 @@ SOFTWARE.
 
 
 RAISERROR('Setting up configuration variables',10,1) WITH NOWAIT;
-DECLARE @StringToExecute NVARCHAR(4000),
+DECLARE @StringToExecute NVARCHAR(MAX),
     @ParmDefinitions NVARCHAR(4000),
     @Parm1 NVARCHAR(4000),
     @OurSessionID INT,
@@ -191,123 +187,298 @@ END /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchem
 ELSE IF @Question IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
 
-    /* What's running right now? This is the first result set. */
-    IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
-    BEGIN
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
-    ELSE
-    BEGIN
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[open_transaction_count] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
+	/* Get the major and minor build numbers */
+	DECLARE  @ProductVersion NVARCHAR(128)
+			,@ProductVersionMajor DECIMAL(10,2)
+			,@ProductVersionMinor DECIMAL(10,2)
+			,@EnhanceFlag BIT = 0
+			,@EnhanceSQL NVARCHAR(MAX) = 
+						N'[query_stats].last_dop,
+						  [query_stats].min_dop,
+						  [query_stats].max_dop,
+						  [query_stats].last_grant_kb,
+						  [query_stats].min_grant_kb,
+						  [query_stats].max_grant_kb,
+						  [query_stats].last_used_grant_kb,
+						  [query_stats].min_used_grant_kb,
+						  [query_stats].max_used_grant_kb,
+						  [query_stats].last_ideal_grant_kb,
+						  [query_stats].min_ideal_grant_kb,
+						  [query_stats].max_ideal_grant_kb,
+						  [query_stats].last_reserved_threads,
+						  [query_stats].min_reserved_threads,
+						  [query_stats].max_reserved_threads,
+						  [query_stats].last_used_threads,
+						  [query_stats].min_used_threads,
+						  [query_stats].max_used_threads,'
 
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
+	SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
+	SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
+	@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
+
+
+    /* What's running right now? This is the first and last result set. */
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+    BEGIN
+	    IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+        BEGIN
+        SET @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,
+					            CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''N/A'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+        END
+	    IF @ProductVersionMajor >= 11 
+        BEGIN
+	    SELECT @EnhanceFlag = 
+			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
+				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     ELSE 0 
+			    END
+
+	    SELECT @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,'
+							    + 
+							    CASE @EnhanceFlag
+							    WHEN 1 THEN @EnhanceSQL
+							    ELSE N'' END +
+							    N'CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+
+	    END 
+
         EXEC(@StringToExecute);
+
+    END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+     
+
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
     /*
-    We start by creating #AskBrentResults. It's a temp table that will store
+    We start by creating #BlitzFirstResults. It's a temp table that will store
     the results from our checks. Throughout the rest of this stored procedure,
     we're running a series of checks looking for dangerous things inside the SQL
     Server. When we find a problem, we insert rows into #BlitzResults. At the
     end, we return these results to the end user.
 
-    #AskBrentResults has a CheckID field, but there's no Check table. As we do
+    #BlitzFirstResults has a CheckID field, but there's no Check table. As we do
     checks, we insert data into this table, and we manually put in the CheckID.
     We (Brent Ozar Unlimited) maintain a list of the checks by ID#. You can
     download that from http://FirstResponderKit.org if you want to build
     a tool that relies on the output of sp_BlitzFirst.
     */
 
-    IF OBJECT_ID('tempdb..#AskBrentResults') IS NOT NULL
-        DROP TABLE #AskBrentResults;
-    CREATE TABLE #AskBrentResults
+    IF OBJECT_ID('tempdb..#BlitzFirstResults') IS NOT NULL
+        DROP TABLE #BlitzFirstResults;
+    CREATE TABLE #BlitzFirstResults
         (
           ID INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
           CheckID INT NOT NULL,
@@ -628,11 +799,11 @@ BEGIN
         1 AS Pass,
         CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
         os.wait_type,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END as sum_wait_time_ms,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END as sum_signal_wait_time_ms,
+        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
+        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
         CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
     FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type not in (
+    WHERE os.wait_type NOT IN (
         'REQUEST_FOR_DEADLOCK_SEARCH',
         'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
         'SQLTRACE_BUFFER_FLUSH',
@@ -718,7 +889,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Backup Running - CheckID 1 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 1 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -752,14 +923,14 @@ BEGIN
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
     BEGIN
-        SET @StringToExecute = 'UPDATE #AskBrentResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #AskBrentResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
+        SET @StringToExecute = 'UPDATE #BlitzFirstResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #BlitzFirstResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
         EXEC(@StringToExecute);
     END
 
 
     /* Maintenance Tasks Running - DBCC Running - CheckID 2 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 2 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -792,7 +963,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 3 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -825,7 +996,7 @@ BEGIN
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 4 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -853,7 +1024,7 @@ BEGIN
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
     /*
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 5 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -893,7 +1064,7 @@ BEGIN
     /* Query Problems - Plan Cache Erased Recently */
     IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
             50 AS Priority,
             'Query Problems' AS FindingGroup,
@@ -912,7 +1083,7 @@ BEGIN
 
     /* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
     SELECT 8 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -947,7 +1118,7 @@ BEGIN
 
     /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
     SELECT 9 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -977,7 +1148,7 @@ BEGIN
 
 
     /* Server Performance - Page Life Expectancy Low - CheckID 10 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 10 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -993,19 +1164,19 @@ BEGIN
     AND cntr_value < 300
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 21 AS CheckID,
         251 AS Priority,
         'Server Info' AS FindingGroup,
         'Database Size, Total GB' AS Finding,
-        CAST(SUM (CAST(size AS bigint)*8./1024./1024.) AS VARCHAR(100)) AS Details,
-        SUM (CAST(size AS bigint))*8./1024./1024. AS DetailsInt,
+        CAST(SUM (CAST(size AS BIGINT)*8./1024./1024.) AS VARCHAR(100)) AS Details,
+        SUM (CAST(size AS BIGINT))*8./1024./1024. AS DetailsInt,
         'http://www.BrentOzar.com/askbrent/' AS URL
     FROM #MasterFiles
     WHERE database_id > 4
 
     /* Server Info - Database Count - CheckID 22 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 22 AS CheckID,
         251 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1023,32 +1194,32 @@ BEGIN
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
             WHERE 100 - SystemIdle >= 50
 
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
 
         END /* IF @Seconds < 30 */
 
@@ -1069,11 +1240,11 @@ BEGIN
         2 AS Pass,
         SYSDATETIMEOFFSET() AS SampleTime,
         os.wait_type,
-        SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) as sum_wait_time_ms,
-        SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) as sum_signal_wait_time_ms,
+        SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
+        SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
         SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
     FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type not in (
+    WHERE os.wait_type NOT IN (
         'REQUEST_FOR_DEADLOCK_SEARCH',
         'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
         'SQLTRACE_BUFFER_FLUSH',
@@ -1180,7 +1351,7 @@ BEGIN
     IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
-            INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://www.BrentOzar.com/go/topqueries',
                 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.')
 
@@ -1318,7 +1489,7 @@ BEGIN
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
         /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
         SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
             'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -1361,11 +1532,11 @@ BEGIN
                 CROSS APPLY sys.dm_exec_query_plan(qsNow.plan_handle) AS qp
             WHERE qsNow.Points > 0 AND st.text IS NOT NULL AND qp.query_plan IS NOT NULL
 
-            UPDATE #AskBrentResults
+            UPDATE #BlitzFirstResults
                 SET DatabaseID = CAST(attr.value AS INT),
                 DatabaseName = DB_NAME(CAST(attr.value AS INT))
-            FROM #AskBrentResults
-                CROSS APPLY sys.dm_exec_plan_attributes(#AskBrentResults.PlanHandle) AS attr
+            FROM #BlitzFirstResults
+                CROSS APPLY sys.dm_exec_plan_attributes(#BlitzFirstResults.PlanHandle) AS attr
             WHERE attr.attribute = 'dbid'
 
 
@@ -1376,7 +1547,7 @@ BEGIN
 
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
     SELECT TOP 10 6 AS CheckID,
         200 AS Priority,
         'Wait Stats' AS FindingGroup,
@@ -1391,7 +1562,7 @@ BEGIN
     ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
 
     /* Server Performance - Slow Data File Reads - CheckID 11 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
     SELECT TOP 10 11 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -1412,7 +1583,7 @@ BEGIN
     ORDER BY (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) DESC;
 
     /* Server Performance - Slow Log File Writes - CheckID 12 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
     SELECT TOP 10 12 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
@@ -1434,7 +1605,7 @@ BEGIN
 
 
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 13 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -1451,7 +1622,7 @@ BEGIN
 
 
     /* SQL Server Internal Maintenance - Log File Shrinking - CheckID 14 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 14 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
@@ -1467,7 +1638,7 @@ BEGIN
         AND value_delta > 0
 
     /* Query Problems - Compilations/Sec High - CheckID 15 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 15 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -1486,7 +1657,7 @@ BEGIN
         AND (psComp.value_delta * 10) > ps.value_delta /* Compilations are more than 10% of batch requests per second */
 
     /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 16 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -1505,7 +1676,7 @@ BEGIN
         AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 19 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1525,7 +1696,7 @@ BEGIN
 
     /* Server Info - SQL Compilations/sec - CheckID 25 */
     IF @ExpertMode = 1
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 25 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1541,7 +1712,7 @@ BEGIN
 
     /* Server Info - SQL Re-Compilations/sec - CheckID 26 */
     IF @ExpertMode = 1
-    INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 26 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
@@ -1561,7 +1732,7 @@ BEGIN
         WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
         waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime),
         cores(cpu_count) AS (SELECT SUM(1) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1)
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
         SELECT 19 AS CheckID,
             250 AS Priority,
             'Server Info' AS FindingGroup,
@@ -1581,32 +1752,32 @@ BEGIN
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
             WHERE 100 - SystemIdle >= 50
 
-        INSERT INTO #AskBrentResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') as SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
                 FROM (
-                    SELECT TOP 1 CONVERT(XML, record) as record
+                    SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) as y
+            ) AS y
 
         END /* IF @Seconds < 30 */
 
@@ -1614,10 +1785,10 @@ BEGIN
 
 
     /* If we didn't find anything, apologize. */
-    IF NOT EXISTS (SELECT * FROM #AskBrentResults WHERE Priority < 250)
+    IF NOT EXISTS (SELECT * FROM #BlitzFirstResults WHERE Priority < 250)
     BEGIN
 
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1633,10 +1804,10 @@ BEGIN
                   'Try running our more in-depth checks with sp_Blitz, or there may not be an unusual SQL Server performance problem. '
                 );
 
-    END /*IF NOT EXISTS (SELECT * FROM #AskBrentResults) */
+    END /*IF NOT EXISTS (SELECT * FROM #BlitzFirstResults) */
 
         /* Add credits for the nice folks who put so much time into building and maintaining this for free: */
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1652,7 +1823,7 @@ BEGIN
                   'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
                 );
 
-        INSERT  INTO #AskBrentResults
+        INSERT  INTO #BlitzFirstResults
                 ( CheckID ,
                   Priority ,
                   FindingsGroup ,
@@ -1672,7 +1843,7 @@ BEGIN
                 /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
-                        INSERT  INTO #AskBrentResults
+                        INSERT  INTO #BlitzFirstResults
                                 ( CheckID ,
                                     Priority ,
                                     FindingsGroup ,
@@ -1746,7 +1917,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1782,7 +1953,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #AskBrentResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -2119,7 +2290,7 @@ BEGIN
     IF @OutputType = 'COUNT' AND @SinceStartup = 0
     BEGIN
         SELECT  COUNT(*) AS Warnings
-        FROM    #AskBrentResults
+        FROM    #BlitzFirstResults
     END
     ELSE
         IF @OutputType = 'Opserver1' AND @SinceStartup = 0
@@ -2165,7 +2336,7 @@ BEGIN
                     [TotalReads] = qsNow.total_logical_reads,
                     [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
                     r.[DetailsInt]
-            FROM    #AskBrentResults r
+            FROM    #BlitzFirstResults r
                 LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
                 LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
                 LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
@@ -2190,7 +2361,7 @@ BEGIN
                     + COALESCE(DatabaseName, '(N/A)') + @separator
                     + COALESCE([URL], '(N/A)') + @separator
                     + COALESCE([Details], '(N/A)')
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             ORDER BY Priority ,
                     FindingsGroup ,
                     CASE
@@ -2210,7 +2381,7 @@ BEGIN
                     CAST(@StockWarningHeader + HowToStopIt + @StockWarningFooter AS XML) AS HowToStopIt,
                     [QueryText],
                     [QueryPlan]
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             WHERE (@Seconds > 0 OR (Priority IN (0, 250, 251, 255))) /* For @Seconds = 0, filter out broken checks for now */
             ORDER BY Priority ,
                     FindingsGroup ,
@@ -2231,7 +2402,7 @@ BEGIN
                     CAST([HowToStopIt] AS NVARCHAR(MAX)) AS HowToStopIt,
                     CAST([QueryText] AS NVARCHAR(MAX)) AS QueryText,
                     CAST([QueryPlan] AS NVARCHAR(MAX)) AS QueryPlan
-            FROM    #AskBrentResults
+            FROM    #BlitzFirstResults
             WHERE (@Seconds > 0 OR (Priority IN (0, 250, 251, 255))) /* For @Seconds = 0, filter out broken checks for now */
             ORDER BY Priority ,
                     FindingsGroup ,
@@ -2285,7 +2456,7 @@ BEGIN
                         [TotalReads] = qsNow.total_logical_reads,
                         [TotalReadsPercent] = CAST(100.0 * qsNow.total_logical_reads / qsTotal.total_logical_reads AS DECIMAL(6,2)),
                         r.[DetailsInt]
-                FROM    #AskBrentResults r
+                FROM    #BlitzFirstResults r
                     LEFT OUTER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
                     LEFT OUTER JOIN #QueryStats qsTotalFirst ON qsTotalFirst.Pass = -1
                     LEFT OUTER JOIN #QueryStats qsNow ON r.QueryStatsNowID = qsNow.ID
@@ -2306,79 +2477,79 @@ BEGIN
             IF @Seconds = 0
                 BEGIN
                 /* Measure waits in hours */
-                ;with max_batch as (
-                    select max(SampleTime) as SampleTime
-                    from #WaitStats
+                ;WITH max_batch AS (
+                    SELECT MAX(SampleTime) AS SampleTime
+                    FROM #WaitStats
                 )
                 SELECT
-                    'WAIT STATS' as Pattern,
-                    b.SampleTime as [Sample Ended],
-                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) as [Hours Sample],
+                    'WAIT STATS' AS Pattern,
+                    b.SampleTime AS [Sample Ended],
+                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
                     wd1.wait_type,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
-                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
-                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
                     N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
-                JOIN #WaitStats wd2 on
+                JOIN #WaitStats wd2 ON
                     wd2.SampleTime =b.SampleTime
                 JOIN #WaitStats wd1 ON
                     wd1.wait_type=wd2.wait_type AND
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
-                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                    AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END
             ELSE
                 BEGIN
                 /* Measure waits in seconds */
-                ;with max_batch as (
-                    select max(SampleTime) as SampleTime
-                    from #WaitStats
+                ;WITH max_batch AS (
+                    SELECT MAX(SampleTime) AS SampleTime
+                    FROM #WaitStats
                 )
                 SELECT
-                    'WAIT STATS' as Pattern,
-                    b.SampleTime as [Sample Ended],
-                    datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Seconds Sample],
+                    'WAIT STATS' AS Pattern,
+                    b.SampleTime AS [Sample Ended],
+                    DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Seconds Sample],
                     wd1.wait_type,
                     c.[Wait Time (Seconds)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
-                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) as NUMERIC(4,1))
+                     THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
-                        cast((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) as numeric(12,1))
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
                     N'http://www.brentozar.com/sql/wait-stats/#' + wd1.wait_type AS URL
                 FROM  max_batch b
-                JOIN #WaitStats wd2 on
+                JOIN #WaitStats wd2 ON
                     wd2.SampleTime =b.SampleTime
                 JOIN #WaitStats wd1 ON
                     wd1.wait_type=wd2.wait_type AND
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    cast((wd2.wait_time_ms-wd1.wait_time_ms)/1000. as numeric(12,1)) as [Wait Time (Seconds)],
-                    cast((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. as numeric(12,1)) as [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    and wd2.wait_time_ms-wd1.wait_time_ms > 0
+                    AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
 
@@ -2386,11 +2557,11 @@ BEGIN
             -------------------------
             --What happened: #FileStats
             -------------------------
-            WITH readstats as (
-                SELECT 'PHYSICAL READS' as Pattern,
-                ROW_NUMBER() over (order by wd2.avg_stall_read_ms desc) as StallRank,
-                wd2.SampleTime as [Sample Time],
-                datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+            WITH readstats AS (
+                SELECT 'PHYSICAL READS' AS Pattern,
+                ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_read_ms DESC) AS StallRank,
+                wd2.SampleTime AS [Sample Time],
+                DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Sample (seconds)],
                 wd1.DatabaseName ,
                 wd1.FileLogicalName AS [File Name],
                 UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
@@ -2407,12 +2578,12 @@ BEGIN
                   AND wd1.DatabaseID = wd2.DatabaseID
                   AND wd1.FileID = wd2.FileID
             ),
-            writestats as (
+            writestats AS (
                 SELECT
-                'PHYSICAL WRITES' as Pattern,
-                ROW_NUMBER() over (order by wd2.avg_stall_write_ms desc) as StallRank,
-                wd2.SampleTime as [Sample Time],
-                datediff(ss,wd1.SampleTime, wd2.SampleTime) as [Sample (seconds)],
+                'PHYSICAL WRITES' AS Pattern,
+                ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_write_ms DESC) AS StallRank,
+                wd2.SampleTime AS [Sample Time],
+                DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Sample (seconds)],
                 wd1.DatabaseName ,
                 wd1.FileLogicalName AS [File Name],
                 UPPER(SUBSTRING(wd1.PhysicalName, 1, 2)) AS [Drive] ,
@@ -2431,12 +2602,12 @@ BEGIN
             )
             SELECT
                 Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-            from readstats
-            where StallRank <=5 and [MB Read/Written] > 0
-            union all
+            FROM readstats
+            WHERE StallRank <=5 AND [MB Read/Written] > 0
+            UNION ALL
             SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
-            from writestats
-            where StallRank <=5 and [MB Read/Written] > 0;
+            FROM writestats
+            WHERE StallRank <=5 AND [MB Read/Written] > 0;
 
 
             -------------------------
@@ -2451,6 +2622,7 @@ BEGIN
                 FROM #PerfmonStats pLast
                     INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
                     AND pLast.ID > pFirst.ID
+				WHERE (pLast.cntr_value - pFirst.cntr_value) > 0
                 ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name
 
 
@@ -2463,139 +2635,281 @@ BEGIN
             WHERE qsNow.Pass = 2
         END
 
-    DROP TABLE #AskBrentResults;
+    DROP TABLE #BlitzFirstResults;
 
-
-    /* What's running right now? This is the first (and last) result set. */
-    IF @@VERSION LIKE 'Microsoft SQL Server 2005%'
+    /* What's running right now? This is the first and last result set. */
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
-    ELSE
-    BEGIN
-    SET @StringToExecute = 'SELECT [r].[start_time] ,
-                                CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
-                                [s].[session_id] ,
-                                DB_NAME([r].[database_id]) AS [DatabaseName] ,
-                                [s].[status] ,
-                                [dest].[text] ,
-                                [deqp].[query_plan] ,
-                                [s].[cpu_time] ,
-                                [s].[memory_usage] ,
-                                [s].[reads] ,
-                                [s].[writes] ,
-                                [s].[logical_reads] ,
-                                [r].[blocking_session_id] ,
-                                [r].[wait_type] ,
-                                [r].[wait_time] ,
-                                [r].[last_wait_type] ,
-                                [r].[wait_resource] ,
-                                [r].[estimated_completion_time] ,
-                                [r].[open_transaction_count] ,
-                                [r].[deadlock_priority] ,
-                                [r].[granted_query_memory] ,
-                                CASE [s].[transaction_isolation_level]
-                                  WHEN 0 THEN ''Unspecified''
-                                  WHEN 1 THEN ''Read Uncommitted''
-                                  WHEN 2 THEN ''Read Committed''
-                                  WHEN 3 THEN ''Repeatable Read''
-                                  WHEN 4 THEN ''Serializable''
-                                  WHEN 5 THEN ''Snapshot''
-                                  ELSE ''WHAT HAVE YOU DONE?''
-                                END AS [transaction_isolation_level] ,
-                                [s].[nt_domain] ,
-                                [s].[host_name] ,
-                                [s].[nt_user_name] ,
-                                [s].[program_name] ,
-                                [s].[client_interface_name],
-                                [r].sql_handle, 
-                                [r].plan_handle
-                        FROM    [sys].[dm_exec_sessions] AS [s]
-                        JOIN    [sys].[dm_exec_requests] AS [r]
-                        ON      [r].[session_id] = [s].[session_id]
-                        CROSS APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
-                        OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [deqp]
-                        WHERE    [r].[session_id] <> @@SPID
-                                AND [s].[is_user_process] = 1
-                        ORDER BY [r].[start_time];'
-    END
+	    IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
+        BEGIN
+        SET @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,
+					            CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''N/A'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+        END
+	    IF @ProductVersionMajor >= 11 
+        BEGIN
+	    SELECT @EnhanceFlag = 
+			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
+				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     ELSE 0 
+			    END
 
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
+	    SELECT @StringToExecute = N'
+							    SELECT  GETDATE() AS [run_date] ,
+					            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
+					            [s].[session_id] ,
+					            [wt].[wait_info] ,
+					            [s].[status] ,
+					            ISNULL(SUBSTRING([dest].[text],
+					                             ( [query_stats].[statement_start_offset] / 2 ) + 1,
+					                             ( ( CASE [query_stats].[statement_end_offset]
+					                                   WHEN -1 THEN DATALENGTH([dest].[text])
+					                                   ELSE [query_stats].[statement_end_offset]
+					                                 END - [query_stats].[statement_start_offset] )
+					                               / 2 ) + 1), [dest].[text]) AS [query_text] ,
+					            [derp].[query_plan] ,
+					            [qmg].[query_cost] ,
+							    [r].[blocking_session_id] ,
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
+					            [s].[memory_usage] ,
+					            [r].[estimated_completion_time] ,
+					            [r].[deadlock_priority] ,'
+							    + 
+							    CASE @EnhanceFlag
+							    WHEN 1 THEN @EnhanceSQL
+							    ELSE N'' END +
+							    N'CASE [s].[transaction_isolation_level]
+					              WHEN 0 THEN ''Unspecified''
+					              WHEN 1 THEN ''Read Uncommitted''
+					              WHEN 2 THEN ''Read Committed''
+					              WHEN 3 THEN ''Repeatable Read''
+					              WHEN 4 THEN ''Serializable''
+					              WHEN 5 THEN ''Snapshot''
+					              ELSE ''WHAT HAVE YOU DONE?''
+					            END AS [transaction_isolation_level] ,
+					            [r].[open_transaction_count] ,
+					            [qmg].[dop] AS [degree_of_parallelism] ,
+					            [qmg].[request_time] ,
+					            COALESCE(CAST([qmg].[grant_time] AS VARCHAR), ''Memory Not Granted'') AS [grant_time] ,
+					            [qmg].[requested_memory_kb] ,
+					            [qmg].[granted_memory_kb] AS [grant_memory_kb],
+					            CASE WHEN [qmg].[grant_time] IS NULL THEN ''N/A''
+                                     WHEN [qmg].[requested_memory_kb] < [qmg].[granted_memory_kb]
+					                 THEN ''Query Granted Less Than Query Requested''
+					                 ELSE ''Memory Request Granted''
+					            END AS [is_request_granted] ,
+					            [qmg].[required_memory_kb] ,
+					            [qmg].[used_memory_kb] ,
+					            [qmg].[ideal_memory_kb] ,
+					            [qmg].[is_small] ,
+					            [qmg].[timeout_sec] ,
+					            [qmg].[resource_semaphore_id] ,
+					            COALESCE(CAST([qmg].[wait_order] AS VARCHAR), ''N/A'') AS [wait_order] ,
+					            COALESCE(CAST([qmg].[wait_time_ms] AS VARCHAR),
+					                     ''N/A'') AS [wait_time_ms] ,
+					            CASE [qmg].[is_next_candidate]
+					              WHEN 0 THEN ''No''
+					              WHEN 1 THEN ''Yes''
+					              ELSE ''N/A''
+					            END AS ''Next Candidate For Memory Grant'' ,
+					            [qrs].[target_memory_kb] ,
+					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
+					            [qrs].[total_memory_kb] ,
+					            [qrs].[available_memory_kb] ,
+					            [qrs].[granted_memory_kb] ,
+					            [qrs].[used_memory_kb] ,
+					            [qrs].[grantee_count] ,
+					            [qrs].[waiter_count] ,
+					            [qrs].[timeout_error_count] ,
+					            COALESCE(CAST([qrs].[forced_grant_count] AS VARCHAR),
+					                     ''Small Query Resource Semaphore'') AS [forced_grant_count],
+							    [s].[nt_domain] ,
+					            [s].[host_name] ,
+					            [s].[login_name] ,
+					            [s].[nt_user_name] ,
+					            [s].[program_name] ,
+					            [s].[client_interface_name] ,
+					            [s].[login_time] ,
+					            [r].[start_time] 
+					    FROM    [sys].[dm_exec_sessions] AS [s]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
+					    ON      [r].[session_id] = [s].[session_id]
+					    LEFT JOIN ( SELECT DISTINCT
+					                        [wait].[session_id] ,
+					                        ( SELECT    [waitwait].[wait_type] + N'' (''
+					                                    + CAST(SUM([waitwait].[wait_duration_ms]) AS NVARCHAR(128))
+					                                    + N'' ms) ''
+					                          FROM      [sys].[dm_os_waiting_tasks] AS [waitwait]
+					                          WHERE     [waitwait].[session_id] = [wait].[session_id]
+					                          GROUP BY  [waitwait].[wait_type]
+					                          ORDER BY  SUM([waitwait].[wait_duration_ms]) DESC
+					                        FOR
+					                          XML PATH('''') ) AS [wait_info]
+					                FROM    [sys].[dm_os_waiting_tasks] AS [wait] ) AS [wt]
+					    ON      [s].[session_id] = [wt].[session_id]
+					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
+					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
+					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
+					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    ON      [r].[session_id] = [qmg].[session_id]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
+							    AND [qmg].[pool_id] = [qrs].[pool_id]
+					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
+					    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
+					    WHERE   [r].[session_id] <> @@SPID
+					            AND [s].[status] <> ''sleeping''
+					    ORDER BY 2 DESC;
+					    '
+
+	    END 
+
         EXEC(@StringToExecute);
+
+    END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
 
 END /* IF @Question IS NULL */
 ELSE IF @Question IS NOT NULL
 
 /* We're playing Magic SQL 8 Ball, so give them an answer. */
 BEGIN
-    IF OBJECT_ID('tempdb..#BrentAnswers') IS NOT NULL
-        DROP TABLE #BrentAnswers;
-    CREATE TABLE #BrentAnswers(Answer VARCHAR(200) NOT NULL);
-    INSERT INTO #BrentAnswers VALUES ('It sounds like a SAN problem.');
-    INSERT INTO #BrentAnswers VALUES ('You know what you need? Bacon.');
-    INSERT INTO #BrentAnswers VALUES ('Talk to the developers about that.');
-    INSERT INTO #BrentAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried adding an index?');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried dropping an index?');
-    INSERT INTO #BrentAnswers VALUES ('You can''t prove anything.');
-    INSERT INTO #BrentAnswers VALUES ('Please phrase the question in the form of an answer.');
-    INSERT INTO #BrentAnswers VALUES ('Outlook not so good. Access even worse.');
-    INSERT INTO #BrentAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
-    INSERT INTO #BrentAnswers VALUES ('Oooo, I read about that once.');
-    INSERT INTO #BrentAnswers VALUES ('I feel your pain.');
-    INSERT INTO #BrentAnswers VALUES ('http://LMGTFY.com');
-    INSERT INTO #BrentAnswers VALUES ('No comprende Ingles, senor.');
-    INSERT INTO #BrentAnswers VALUES ('I don''t have that problem on my Mac.');
-    INSERT INTO #BrentAnswers VALUES ('Is Priority Boost on?');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried rebooting your machine?');
-    INSERT INTO #BrentAnswers VALUES ('Try defragging your cursors.');
-    INSERT INTO #BrentAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
-    INSERT INTO #BrentAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
-    INSERT INTO #BrentAnswers VALUES ('Duh, Debra.');
-    INSERT INTO #BrentAnswers VALUES ('Have you tried restoring TempDB?');
-    SELECT TOP 1 Answer FROM #BrentAnswers ORDER BY NEWID();
+    IF OBJECT_ID('tempdb..#BlitzFirstAnswers') IS NOT NULL
+        DROP TABLE #BlitzFirstAnswers;
+    CREATE TABLE #BlitzFirstAnswers(Answer VARCHAR(200) NOT NULL);
+    INSERT INTO #BlitzFirstAnswers VALUES ('It sounds like a SAN problem.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('You know what you need? Bacon.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Talk to the developers about that.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried adding an index?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried dropping an index?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('You can''t prove anything.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Please phrase the question in the form of an answer.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Outlook not so good. Access even worse.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Oooo, I read about that once.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I feel your pain.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('http://LMGTFY.com');
+    INSERT INTO #BlitzFirstAnswers VALUES ('No comprende Ingles, senor.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I don''t have that problem on my Mac.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Is Priority Boost on?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried rebooting your machine?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Try defragging your cursors.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
+    INSERT INTO #BlitzFirstAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Duh, Debra.');
+    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried restoring TempDB?');
+    SELECT TOP 1 Answer FROM #BlitzFirstAnswers ORDER BY NEWID();
 END
 
 END /* ELSE IF @OutputType = 'SCHEMA' */
