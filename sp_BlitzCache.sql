@@ -186,6 +186,20 @@ Known limitations of this version:
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
+Changes in v3.1 - 2016/07/15:
+ - Show cost for stored procedures:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/339
+ - Warn about trace flags added at the query level, and global trace flags:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/361
+ - Add warnings about Remote Queries:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/315
+ - Do not show Forced Plans warning if the real cause is forced parameterization:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/343
+ - Fix divide-by-zero error if Cost Threshold for Parallelism is 0:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/358
+ - Fix warning for unparameterized query:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/334
+
 Changes in v3.0 - 2016/06/26:
  - BREAKING CHANGE: Standardized input & output parameters to be
    consistent across the entire First Responder Kit. This also means the old
@@ -213,33 +227,6 @@ Changes in v3.0 - 2016/06/26:
    Cleaned up documentation
    Fixed bug related to CTFP being set to 0
 
-Changes in v2.5.3 - 2016-04-28:
- - Erik Darling added warnings for Expensive Sorts, Key Lookups, Remote Queries. 
-   Will show up when they are >=50% of plan cost, and plan cost is >= 50% of 
-   cost threshold for parallelism.
- - Erik Darling found possible bug from 2014-04-30 trying to warn for tempdb 
-   spills, which are not recorded in cached plans.
-
-Changes in v2.5.2 - 2016-04-28:
- - Erik Darling added warnings for Forced Serialization in 2012+ query plans. 
-   Sorry, earlier versions.
- - Erik Darling added Replication Distributor databases to list of system 
-   databases to ignore.
-
-Changes in v2.5.1 - 2016-03-15:
- - Nick Molyneux fixed an overflow error, and did an amazing job of it.
-
-Changes in v2.5.0 - 2015-10-23:
- - Now with errors when required values are set to NULL. Thanks to Raul
-   Gonzalez for pointing this out.
- - changing default @Top to 10
- - Added a @skip_analysis to avoid the XML processing overhead
- - Added QueryHash and QueryPlanHash to @ExportToExcel and expert mode
- - Adding sort order for recent compiles.
- - Fixing potential INT overflow in totals temp table
- - Fixing slow sort performance on xpm and friends
- - Added compilation info (memory, CPU, time) and plan size to output
- - Re-structured XML processing for more better performance
 
 MIT License
 

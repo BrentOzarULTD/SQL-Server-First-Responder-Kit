@@ -33,8 +33,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.0';
-SET @VersionDate = '20160626';
+SET @Version = '4.1';
+SET @VersionDate = '20160715';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -64,6 +64,18 @@ Known limitations of this version:
 
 Unknown limitations of this version:
  - We knew them once, but we forgot.
+
+Changes in v4.1 - 2016/07/15:
+ - Compression information in @Mode = 2:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/18
+ - Use recently-modified check to improve indexes-not-in-use recommendations:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/220
+ - Alphabetical sort for @GetAllDatabases = 1, @Mode = 2 output:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/351
+ - Remove per-day cost filter for missing indexes in @Mode = 4:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/338
+ - Missing index benefit is now labeled per-day to make it more obvious:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/330
 
 Changes in v4.0 - 2016/06/26:
  - BREAKING CHANGE: Standardized input & output parameters to be
