@@ -2431,7 +2431,7 @@ BEGIN
                     13,
                     200,
                     'Cardinality',
-                    'Legacy Cardinality Estimator in Use',
+                    'Legacy C.E.',
                     'http://brentozar.com/blitzcache/legacy-cardinality-estimator/',
                     'A legacy cardinality estimator is being used by one or more queries. Investigate whether you need to be using this cardinality estimator. This may be caused by compatibility levels, global trace flags, or query level trace flags.');
 
