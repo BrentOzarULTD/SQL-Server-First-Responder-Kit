@@ -23,38 +23,38 @@ CREATE TABLE ##bou_BlitzCacheResults (
 
 CREATE TABLE ##bou_BlitzCacheProcs (
     SPID INT ,
-    QueryType nvarchar(256),
+    QueryType NVARCHAR(256),
     DatabaseName sysname,
-    AverageCPU decimal(38,4),
-    AverageCPUPerMinute decimal(38,4),
-    TotalCPU decimal(38,4),
-    PercentCPUByType money,
-    PercentCPU money,
-    AverageDuration decimal(38,4),
-    TotalDuration decimal(38,4),
-    PercentDuration money,
-    PercentDurationByType money,
-    AverageReads bigint,
-    TotalReads bigint,
-    PercentReads money,
-    PercentReadsByType money,
-    ExecutionCount bigint,
-    PercentExecutions money,
-    PercentExecutionsByType money,
-    ExecutionsPerMinute money,
-    TotalWrites bigint,
-    AverageWrites money,
-    PercentWrites money,
-    PercentWritesByType money,
-    WritesPerMinute money,
-    PlanCreationTime datetime,
-    LastExecutionTime datetime,
-    PlanHandle varbinary(64),
+    AverageCPU DECIMAL(38,4),
+    AverageCPUPerMinute DECIMAL(38,4),
+    TotalCPU DECIMAL(38,4),
+    PercentCPUByType MONEY,
+    PercentCPU MONEY,
+    AverageDuration DECIMAL(38,4),
+    TotalDuration DECIMAL(38,4),
+    PercentDuration MONEY,
+    PercentDurationByType MONEY,
+    AverageReads BIGINT,
+    TotalReads BIGINT,
+    PercentReads MONEY,
+    PercentReadsByType MONEY,
+    ExecutionCount BIGINT,
+    PercentExecutions MONEY,
+    PercentExecutionsByType MONEY,
+    ExecutionsPerMinute MONEY,
+    TotalWrites BIGINT,
+    AverageWrites MONEY,
+    PercentWrites MONEY,
+    PercentWritesByType MONEY,
+    WritesPerMinute MONEY,
+    PlanCreationTime DATETIME,
+    LastExecutionTime DATETIME,
+    PlanHandle VARBINARY(64),
 	[Remove Plan Handle From Cache] AS 
 		CASE WHEN [PlanHandle] IS NOT NULL 
 		THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
 		ELSE 'N/A' END,
-    SqlHandle varbinary(64),
+    SqlHandle VARBINARY(64),
 	[Remove SQL Handle From Cache] AS 
 	CASE WHEN [SqlHandle] IS NOT NULL 
 	THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
@@ -63,72 +63,72 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		CASE WHEN [SqlHandle] IS NOT NULL 
 		THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
 		ELSE 'N/A' END,
-    QueryHash binary(8),
+    QueryHash BINARY(8),
 	[Query Hash More Info] AS 
 		CASE WHEN [QueryHash] IS NOT NULL 
 		THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
 		ELSE 'N/A' END,
-    QueryPlanHash binary(8),
-    StatementStartOffset int,
-    StatementEndOffset int,
-    MinReturnedRows bigint,
-    MaxReturnedRows bigint,
-    AverageReturnedRows money,
-    TotalReturnedRows bigint,
-    LastReturnedRows bigint,trace_flags_global varchar(1000),
-    QueryText nvarchar(max),
-    QueryPlan xml,
+    QueryPlanHash BINARY(8),
+    StatementStartOffset INT,
+    StatementEndOffset INT,
+    MinReturnedRows BIGINT,
+    MaxReturnedRows BIGINT,
+    AverageReturnedRows MONEY,
+    TotalReturnedRows BIGINT,
+    LastReturnedRows BIGINT,trace_flags_global VARCHAR(1000),
+    QueryText NVARCHAR(MAX),
+    QueryPlan XML,
     /* these next four columns are the total for the type of query.
         don't actually use them for anything apart from math by type.
         */
-    TotalWorkerTimeForType bigint,
-    TotalElapsedTimeForType bigint,
-    TotalReadsForType bigint,
-    TotalExecutionCountForType bigint,
-    TotalWritesForType bigint,
-    NumberOfPlans int,
-    NumberOfDistinctPlans int,
-    SerialDesiredMemory float,
-    SerialRequiredMemory float,
-    CachedPlanSize float,
-    CompileTime float,
-    CompileCPU float ,
-    CompileMemory float ,
-    min_worker_time bigint,
-    max_worker_time bigint,
-    is_forced_plan bit,
-    is_forced_parameterized bit,
-    is_cursor bit,
-    is_parallel bit,
-	is_key_lookup_expensive bit,
-	key_lookup_cost float,
-	is_remote_query_expensive bit,
-	remote_query_cost float,
-	is_forced_serial bit,
-    frequent_execution bit,
-    parameter_sniffing bit,
-    unparameterized_query bit,
-    near_parallel bit,
-    plan_warnings bit,
-    plan_multiple_plans bit,
-    long_running bit,
-    downlevel_estimator bit,
-    implicit_conversions bit,
-    busy_loops bit,
-    tvf_join bit,
-    tvf_estimate bit,
-    compile_timeout bit,
-    compile_memory_limit_exceeded bit,
-    warning_no_join_predicate bit,
-    QueryPlanCost float,
-    missing_index_count int,
-    unmatched_index_count int,
-    min_elapsed_time bigint,
-    max_elapsed_time bigint,
-    age_minutes money,
-    age_minutes_lifetime money,
-    is_trivial bit,
-	trace_flags_session varchar(1000),
+    TotalWorkerTimeForType BIGINT,
+    TotalElapsedTimeForType BIGINT,
+    TotalReadsForType BIGINT,
+    TotalExecutionCountForType BIGINT,
+    TotalWritesForType BIGINT,
+    NumberOfPlans INT,
+    NumberOfDistinctPlans INT,
+    SerialDesiredMemory FLOAT,
+    SerialRequiredMemory FLOAT,
+    CachedPlanSize FLOAT,
+    CompileTime FLOAT,
+    CompileCPU FLOAT ,
+    CompileMemory FLOAT ,
+    min_worker_time BIGINT,
+    max_worker_time BIGINT,
+    is_forced_plan BIT,
+    is_forced_parameterized BIT,
+    is_cursor BIT,
+    is_parallel BIT,
+	is_key_lookup_expensive BIT,
+	key_lookup_cost FLOAT,
+	is_remote_query_expensive BIT,
+	remote_query_cost FLOAT,
+	is_forced_serial BIT,
+    frequent_execution BIT,
+    parameter_sniffing BIT,
+    unparameterized_query BIT,
+    near_parallel BIT,
+    plan_warnings BIT,
+    plan_multiple_plans BIT,
+    long_running BIT,
+    downlevel_estimator BIT,
+    implicit_conversions BIT,
+    busy_loops BIT,
+    tvf_join BIT,
+    tvf_estimate BIT,
+    compile_timeout BIT,
+    compile_memory_limit_exceeded BIT,
+    warning_no_join_predicate BIT,
+    QueryPlanCost FLOAT,
+    missing_index_count INT,
+    unmatched_index_count INT,
+    min_elapsed_time BIGINT,
+    max_elapsed_time BIGINT,
+    age_minutes MONEY,
+    age_minutes_lifetime MONEY,
+    is_trivial BIT,
+	trace_flags_session VARCHAR(1000),
     SetOptions VARCHAR(MAX),
     Warnings VARCHAR(MAX)
 );
@@ -252,7 +252,7 @@ SOFTWARE.
 '
 
 
-DECLARE @nl nvarchar(2) = NCHAR(13) + NCHAR(10) ;
+DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
 IF @Help = 1
 BEGIN
@@ -598,38 +598,38 @@ IF OBJECT_ID('tempdb.dbo.##bou_BlitzCacheProcs') IS NULL
 BEGIN
     CREATE TABLE ##bou_BlitzCacheProcs (
         SPID INT ,
-        QueryType nvarchar(256),
+        QueryType NVARCHAR(256),
         DatabaseName sysname,
-        AverageCPU decimal(38,4),
-        AverageCPUPerMinute decimal(38,4),
-        TotalCPU decimal(38,4),
-        PercentCPUByType money,
-        PercentCPU money,
-        AverageDuration decimal(38,4),
-        TotalDuration decimal(38,4),
-        PercentDuration money,
-        PercentDurationByType money,
-        AverageReads bigint,
-        TotalReads bigint,
-        PercentReads money,
-        PercentReadsByType money,
-        ExecutionCount bigint,
-        PercentExecutions money,
-        PercentExecutionsByType money,
-        ExecutionsPerMinute money,
-        TotalWrites bigint,
-        AverageWrites money,
-        PercentWrites money,
-        PercentWritesByType money,
-        WritesPerMinute money,
-        PlanCreationTime datetime,
-        LastExecutionTime datetime,
-        PlanHandle varbinary(64),
+        AverageCPU DECIMAL(38,4),
+        AverageCPUPerMinute DECIMAL(38,4),
+        TotalCPU DECIMAL(38,4),
+        PercentCPUByType MONEY,
+        PercentCPU MONEY,
+        AverageDuration DECIMAL(38,4),
+        TotalDuration DECIMAL(38,4),
+        PercentDuration MONEY,
+        PercentDurationByType MONEY,
+        AverageReads BIGINT,
+        TotalReads BIGINT,
+        PercentReads MONEY,
+        PercentReadsByType MONEY,
+        ExecutionCount BIGINT,
+        PercentExecutions MONEY,
+        PercentExecutionsByType MONEY,
+        ExecutionsPerMinute MONEY,
+        TotalWrites BIGINT,
+        AverageWrites MONEY,
+        PercentWrites MONEY,
+        PercentWritesByType MONEY,
+        WritesPerMinute MONEY,
+        PlanCreationTime DATETIME,
+        LastExecutionTime DATETIME,
+        PlanHandle VARBINARY(64),
 		[Remove Plan Handle From Cache] AS 
 			CASE WHEN [PlanHandle] IS NOT NULL 
 			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
 			ELSE 'N/A' END,
-		SqlHandle varbinary(64),
+		SqlHandle VARBINARY(64),
 			[Remove SQL Handle From Cache] AS 
 			CASE WHEN [SqlHandle] IS NOT NULL 
 			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
@@ -638,72 +638,72 @@ BEGIN
 			CASE WHEN [SqlHandle] IS NOT NULL 
 			THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
 			ELSE 'N/A' END,
-		QueryHash binary(8),
+		QueryHash BINARY(8),
 		[Query Hash More Info] AS 
 			CASE WHEN [QueryHash] IS NOT NULL 
 			THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
 			ELSE 'N/A' END,
-        QueryPlanHash binary(8),
-        StatementStartOffset int,
-        StatementEndOffset int,
-        MinReturnedRows bigint,
-        MaxReturnedRows bigint,
-        AverageReturnedRows money,
-        TotalReturnedRows bigint,
-        LastReturnedRows bigint,
-        QueryText nvarchar(max),
-        QueryPlan xml,
+        QueryPlanHash BINARY(8),
+        StatementStartOffset INT,
+        StatementEndOffset INT,
+        MinReturnedRows BIGINT,
+        MaxReturnedRows BIGINT,
+        AverageReturnedRows MONEY,
+        TotalReturnedRows BIGINT,
+        LastReturnedRows BIGINT,
+        QueryText NVARCHAR(MAX),
+        QueryPlan XML,
         /* these next four columns are the total for the type of query.
             don't actually use them for anything apart from math by type.
             */
-        TotalWorkerTimeForType bigint,
-        TotalElapsedTimeForType bigint,
-        TotalReadsForType bigint,
-        TotalExecutionCountForType bigint,
-        TotalWritesForType bigint,
-        NumberOfPlans int,
-        NumberOfDistinctPlans int,
-        SerialDesiredMemory float,
-        SerialRequiredMemory float,
-        CachedPlanSize float,
-        CompileTime float,
-        CompileCPU float ,
-        CompileMemory float ,
-        min_worker_time bigint,
-        max_worker_time bigint,
-        is_forced_plan bit,
-        is_forced_parameterized bit,
-        is_cursor bit,
-        is_parallel bit,
-		is_forced_serial bit,
-		is_key_lookup_expensive bit,
-		key_lookup_cost float,
-		is_remote_query_expensive bit,
-		remote_query_cost float,
-        frequent_execution bit,
-        parameter_sniffing bit,
-        unparameterized_query bit,
-        near_parallel bit,
-        plan_warnings bit,
-        plan_multiple_plans bit,
-        long_running bit,
-        downlevel_estimator bit,
-        implicit_conversions bit,
-        busy_loops bit,
-        tvf_join bit,
-        tvf_estimate bit,
-        compile_timeout bit,
-        compile_memory_limit_exceeded bit,
-        warning_no_join_predicate bit,
-        QueryPlanCost float,
-        missing_index_count int,
-        unmatched_index_count int,
-        min_elapsed_time bigint,
-        max_elapsed_time bigint,
-        age_minutes money,
-        age_minutes_lifetime money,
-        is_trivial bit,
-		trace_flags_session varchar(1000),
+        TotalWorkerTimeForType BIGINT,
+        TotalElapsedTimeForType BIGINT,
+        TotalReadsForType BIGINT,
+        TotalExecutionCountForType BIGINT,
+        TotalWritesForType BIGINT,
+        NumberOfPlans INT,
+        NumberOfDistinctPlans INT,
+        SerialDesiredMemory FLOAT,
+        SerialRequiredMemory FLOAT,
+        CachedPlanSize FLOAT,
+        CompileTime FLOAT,
+        CompileCPU FLOAT ,
+        CompileMemory FLOAT ,
+        min_worker_time BIGINT,
+        max_worker_time BIGINT,
+        is_forced_plan BIT,
+        is_forced_parameterized BIT,
+        is_cursor BIT,
+        is_parallel BIT,
+		is_forced_serial BIT,
+		is_key_lookup_expensive BIT,
+		key_lookup_cost FLOAT,
+		is_remote_query_expensive BIT,
+		remote_query_cost FLOAT,
+        frequent_execution BIT,
+        parameter_sniffing BIT,
+        unparameterized_query BIT,
+        near_parallel BIT,
+        plan_warnings BIT,
+        plan_multiple_plans BIT,
+        long_running BIT,
+        downlevel_estimator BIT,
+        implicit_conversions BIT,
+        busy_loops BIT,
+        tvf_join BIT,
+        tvf_estimate BIT,
+        compile_timeout BIT,
+        compile_memory_limit_exceeded BIT,
+        warning_no_join_predicate BIT,
+        QueryPlanCost FLOAT,
+        missing_index_count INT,
+        unmatched_index_count INT,
+        min_elapsed_time BIGINT,
+        max_elapsed_time BIGINT,
+        age_minutes MONEY,
+        age_minutes_lifetime MONEY,
+        is_trivial BIT,
+		trace_flags_session VARCHAR(1000),
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -751,7 +751,7 @@ ELSE IF @Reanalyze = 0
   DELETE ##bou_BlitzCacheResults
     WHERE SPID = @@SPID;
 
-if @SkipAnalysis = 1
+IF @SkipAnalysis = 1
     SET @HideSummary = 1;
 
 IF @Reanalyze = 1 
@@ -791,20 +791,20 @@ CREATE TABLE #only_sql_handles (
 );
 
 CREATE TABLE #p (
-    SqlHandle varbinary(64),
-    TotalCPU bigint,
-    TotalDuration bigint,
-    TotalReads bigint,
-    TotalWrites bigint,
-    ExecutionCount bigint
+    SqlHandle VARBINARY(64),
+    TotalCPU BIGINT,
+    TotalDuration BIGINT,
+    TotalReads BIGINT,
+    TotalWrites BIGINT,
+    ExecutionCount BIGINT
 );
 
 CREATE TABLE #checkversion (
-    version nvarchar(128),
+    version NVARCHAR(128),
     common_version AS SUBSTRING(version, 1, CHARINDEX('.', version) + 1 ),
     major AS PARSENAME(CONVERT(VARCHAR(32), version), 4),
     minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
-    build AS PARSENAME(CONVERT(varchar(32), version), 2),
+    build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
     revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
 );
 
@@ -833,8 +833,8 @@ BEGIN
                SET @individual = SUBSTRING(@OnlySqlHandles, 0, PATINDEX('%,%',@OnlySqlHandles)) ;
                
                INSERT INTO #only_sql_handles
-               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
@@ -881,8 +881,8 @@ BEGIN
                SET @individual = SUBSTRING(@OnlyQueryHashes, 0, PATINDEX('%,%',@OnlyQueryHashes)) ;
                
                INSERT INTO #only_query_hashes
-               select cast('' as xml).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               from (select case substring(@individual, 1, 2) when '0x' then 3 else 0 end) as t(pos)
+               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
@@ -948,24 +948,24 @@ BEGIN
    EXEC(@config_sql);
 END
 
-DECLARE @sql nvarchar(MAX) = N'',
-        @insert_list nvarchar(MAX) = N'',
-        @plans_triggers_select_list nvarchar(MAX) = N'',
-        @body nvarchar(MAX) = N'',
-        @body_where nvarchar(MAX) = N'WHERE 1 = 1 ' + @nl,
-        @body_order nvarchar(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
+DECLARE @sql NVARCHAR(MAX) = N'',
+        @insert_list NVARCHAR(MAX) = N'',
+        @plans_triggers_select_list NVARCHAR(MAX) = N'',
+        @body NVARCHAR(MAX) = N'',
+        @body_where NVARCHAR(MAX) = N'WHERE 1 = 1 ' + @nl,
+        @body_order NVARCHAR(MAX) = N'ORDER BY #sortable# DESC OPTION (RECOMPILE) ',
         
-        @q nvarchar(1) = N'''',
-        @pv varchar(20),
-        @pos tinyint,
-        @v decimal(6,2),
-        @build int;
+        @q NVARCHAR(1) = N'''',
+        @pv VARCHAR(20),
+        @pos TINYINT,
+        @v DECIMAL(6,2),
+        @build INT;
 
 
 RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
 
 INSERT INTO #checkversion (version)
-SELECT CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128))
+SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
 OPTION (RECOMPILE);
 
 
@@ -1441,7 +1441,7 @@ FROM (
                  ELSE CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) END AS PercentExecutions,
             CASE DATEDIFF(mi, PlanCreationTime, LastExecutionTime)
                 WHEN 0 THEN 0
-                ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS money)
+                ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS MONEY)
             END AS ExecutionsPerMinute
     FROM (
         SELECT  PlanHandle,
@@ -1497,7 +1497,7 @@ FROM (
                  ELSE CAST((100. * ExecutionCount) / @total_execution_count AS MONEY) END AS PercentExecutions,
             CASE  DATEDIFF(mi, PlanCreationTime, LastExecutionTime)
                 WHEN 0 THEN 0
-                ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS money)
+                ELSE CAST((1.00 * ExecutionCount / DATEDIFF(mi, PlanCreationTime, LastExecutionTime)) AS MONEY)
             END AS ExecutionsPerMinute
     FROM (
         SELECT  DatabaseName,
@@ -2063,7 +2063,7 @@ BEGIN
           + N' SerialRequiredMemory, SerialDesiredMemory) '
           + N'SELECT TOP (@Top) '
           + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
-          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
+          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
