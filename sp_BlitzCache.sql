@@ -722,6 +722,12 @@ IF @DurationFilter IS NOT NULL
   SET @DurationFilter_i = CAST((@DurationFilter * 1000.0) AS INT)
 
 SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
+IF (DB_ID(@DatabaseName)) IS NULL
+BEGIN
+   RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
+   RETURN;
+END
+
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
