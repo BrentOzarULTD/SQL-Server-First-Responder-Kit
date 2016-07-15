@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160626'
+SET @VersionDate = '20160715'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -53,6 +53,14 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
+Changes in v25 - 2016/07/15
+ - Add new memory grants columns to 2012-2016 live queries output:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/362
+ - Add SQL login to live queries output:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/354
+ - Filter Perfmon counter display to skip counters with zeroes. Still logged to table though:
+   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/356
+
 Changes in v24 - 2016/06/26
  - Renamed from sp_AskBrent.
  - BREAKING CHANGE: Standardized input & output parameters to be
@@ -71,18 +79,6 @@ Changes in v24 - 2016/06/26
  - Only show what queries are running now if @ExpertMode = 1. More info:
    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/266
 
-Changes in v23 - April 27, 2016
- - Christopher Whitcome fixed a bug in the new active-queries result set. Thanks!
-
- Changes in v22 - April 19, 2016
- - New @SinceStartup parameter. Defaults to 0. When turned on with 1, it sets
-   @Seconds = 0, @ExpertMode = 1, and skips results for what is running now and
-   the headline-news result set (the first two).
- - If @Seconds = 0, output waits in hours instead of seconds. This only changes
-   the onscreen results - not the table results, because I try not to break the
-   existing table storage by changing output data.
- - Added wait time per core per second (or per hour) in the ExpertMode wait
-   stats output.
 
 MIT License
 
