@@ -22,117 +22,127 @@ CREATE TABLE ##bou_BlitzCacheResults (
 );
 
 CREATE TABLE ##bou_BlitzCacheProcs (
-    SPID INT ,
-    QueryType NVARCHAR(256),
-    DatabaseName sysname,
-    AverageCPU DECIMAL(38,4),
-    AverageCPUPerMinute DECIMAL(38,4),
-    TotalCPU DECIMAL(38,4),
-    PercentCPUByType MONEY,
-    PercentCPU MONEY,
-    AverageDuration DECIMAL(38,4),
-    TotalDuration DECIMAL(38,4),
-    PercentDuration MONEY,
-    PercentDurationByType MONEY,
-    AverageReads BIGINT,
-    TotalReads BIGINT,
-    PercentReads MONEY,
-    PercentReadsByType MONEY,
-    ExecutionCount BIGINT,
-    PercentExecutions MONEY,
-    PercentExecutionsByType MONEY,
-    ExecutionsPerMinute MONEY,
-    TotalWrites BIGINT,
-    AverageWrites MONEY,
-    PercentWrites MONEY,
-    PercentWritesByType MONEY,
-    WritesPerMinute MONEY,
-    PlanCreationTime DATETIME,
-    LastExecutionTime DATETIME,
-    PlanHandle VARBINARY(64),
-	[Remove Plan Handle From Cache] AS 
-		CASE WHEN [PlanHandle] IS NOT NULL 
-		THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
-		ELSE 'N/A' END,
-    SqlHandle VARBINARY(64),
-	[Remove SQL Handle From Cache] AS 
-	CASE WHEN [SqlHandle] IS NOT NULL 
-	THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
-	ELSE 'N/A' END,
-	[SQL Handle More Info] AS 
-		CASE WHEN [SqlHandle] IS NOT NULL 
-		THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
-		ELSE 'N/A' END,
-    QueryHash BINARY(8),
-	[Query Hash More Info] AS 
-		CASE WHEN [QueryHash] IS NOT NULL 
-		THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
-		ELSE 'N/A' END,
-    QueryPlanHash BINARY(8),
-    StatementStartOffset INT,
-    StatementEndOffset INT,
-    MinReturnedRows BIGINT,
-    MaxReturnedRows BIGINT,
-    AverageReturnedRows MONEY,
-    TotalReturnedRows BIGINT,
-    LastReturnedRows BIGINT,trace_flags_global VARCHAR(1000),
-    QueryText NVARCHAR(MAX),
-    QueryPlan XML,
-    /* these next four columns are the total for the type of query.
-        don't actually use them for anything apart from math by type.
-        */
-    TotalWorkerTimeForType BIGINT,
-    TotalElapsedTimeForType BIGINT,
-    TotalReadsForType BIGINT,
-    TotalExecutionCountForType BIGINT,
-    TotalWritesForType BIGINT,
-    NumberOfPlans INT,
-    NumberOfDistinctPlans INT,
-    SerialDesiredMemory FLOAT,
-    SerialRequiredMemory FLOAT,
-    CachedPlanSize FLOAT,
-    CompileTime FLOAT,
-    CompileCPU FLOAT ,
-    CompileMemory FLOAT ,
-    min_worker_time BIGINT,
-    max_worker_time BIGINT,
-    is_forced_plan BIT,
-    is_forced_parameterized BIT,
-    is_cursor BIT,
-    is_parallel BIT,
-	is_key_lookup_expensive BIT,
-	key_lookup_cost FLOAT,
-	is_remote_query_expensive BIT,
-	remote_query_cost FLOAT,
-	is_forced_serial BIT,
-    frequent_execution BIT,
-    parameter_sniffing BIT,
-    unparameterized_query BIT,
-    near_parallel BIT,
-    plan_warnings BIT,
-    plan_multiple_plans BIT,
-    long_running BIT,
-    downlevel_estimator BIT,
-    implicit_conversions BIT,
-    busy_loops BIT,
-    tvf_join BIT,
-    tvf_estimate BIT,
-    compile_timeout BIT,
-    compile_memory_limit_exceeded BIT,
-    warning_no_join_predicate BIT,
-    QueryPlanCost FLOAT,
-    missing_index_count INT,
-    unmatched_index_count INT,
-    min_elapsed_time BIGINT,
-    max_elapsed_time BIGINT,
-    age_minutes MONEY,
-    age_minutes_lifetime MONEY,
-    is_trivial BIT,
-	trace_flags_session VARCHAR(1000),
-    SetOptions VARCHAR(MAX),
-    Warnings VARCHAR(MAX)
-);
-GO
+        SPID INT ,
+        QueryType NVARCHAR(256),
+        DatabaseName sysname,
+        AverageCPU DECIMAL(38,4),
+        AverageCPUPerMinute DECIMAL(38,4),
+        TotalCPU DECIMAL(38,4),
+        PercentCPUByType MONEY,
+        PercentCPU MONEY,
+        AverageDuration DECIMAL(38,4),
+        TotalDuration DECIMAL(38,4),
+        PercentDuration MONEY,
+        PercentDurationByType MONEY,
+        AverageReads BIGINT,
+        TotalReads BIGINT,
+        PercentReads MONEY,
+        PercentReadsByType MONEY,
+        ExecutionCount BIGINT,
+        PercentExecutions MONEY,
+        PercentExecutionsByType MONEY,
+        ExecutionsPerMinute MONEY,
+        TotalWrites BIGINT,
+        AverageWrites MONEY,
+        PercentWrites MONEY,
+        PercentWritesByType MONEY,
+        WritesPerMinute MONEY,
+        PlanCreationTime DATETIME,
+        LastExecutionTime DATETIME,
+        PlanHandle VARBINARY(64),
+		[Remove Plan Handle From Cache] AS 
+			CASE WHEN [PlanHandle] IS NOT NULL 
+			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [PlanHandle], 1) + ');'
+			ELSE 'N/A' END,
+		SqlHandle VARBINARY(64),
+			[Remove SQL Handle From Cache] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN 'DBCC FREEPROCCACHE (' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ');'
+			ELSE 'N/A' END,
+		[SQL Handle More Info] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN 'EXEC sp_BlitzCache @OnlySqlHandles = ''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''; '
+			ELSE 'N/A' END,
+		QueryHash BINARY(8),
+		[Query Hash More Info] AS 
+			CASE WHEN [QueryHash] IS NOT NULL 
+			THEN 'EXEC sp_BlitzCache @OnlyQueryHashes = ''' + CONVERT(VARCHAR(32), [QueryHash], 1) + '''; '
+			ELSE 'N/A' END,
+        QueryPlanHash BINARY(8),
+        StatementStartOffset INT,
+        StatementEndOffset INT,
+        MinReturnedRows BIGINT,
+        MaxReturnedRows BIGINT,
+        AverageReturnedRows MONEY,
+        TotalReturnedRows BIGINT,
+        LastReturnedRows BIGINT,
+		/*The Memory Grant columns are only supported 
+		  in certain versions, giggle giggle.
+		*/
+		MinGrantKB BIGINT,
+		MaxGrantKB BIGINT,
+		MinUsedGrantKB BIGINT, 
+		MaxUsedGrantKB BIGINT,
+		PercentMemoryGrantUsed MONEY,
+		AvgMaxMemoryGrant MONEY,
+        QueryText NVARCHAR(MAX),
+        QueryPlan XML,
+        /* these next four columns are the total for the type of query.
+            don't actually use them for anything apart from math by type.
+            */
+        TotalWorkerTimeForType BIGINT,
+        TotalElapsedTimeForType BIGINT,
+        TotalReadsForType BIGINT,
+        TotalExecutionCountForType BIGINT,
+        TotalWritesForType BIGINT,
+        NumberOfPlans INT,
+        NumberOfDistinctPlans INT,
+        SerialDesiredMemory FLOAT,
+        SerialRequiredMemory FLOAT,
+        CachedPlanSize FLOAT,
+        CompileTime FLOAT,
+        CompileCPU FLOAT ,
+        CompileMemory FLOAT ,
+        min_worker_time BIGINT,
+        max_worker_time BIGINT,
+        is_forced_plan BIT,
+        is_forced_parameterized BIT,
+        is_cursor BIT,
+        is_parallel BIT,
+		is_forced_serial BIT,
+		is_key_lookup_expensive BIT,
+		key_lookup_cost FLOAT,
+		is_remote_query_expensive BIT,
+		remote_query_cost FLOAT,
+        frequent_execution BIT,
+        parameter_sniffing BIT,
+        unparameterized_query BIT,
+        near_parallel BIT,
+        plan_warnings BIT,
+        plan_multiple_plans BIT,
+        long_running BIT,
+        downlevel_estimator BIT,
+        implicit_conversions BIT,
+        busy_loops BIT,
+        tvf_join BIT,
+        tvf_estimate BIT,
+        compile_timeout BIT,
+        compile_memory_limit_exceeded BIT,
+        warning_no_join_predicate BIT,
+        QueryPlanCost FLOAT,
+        missing_index_count INT,
+        unmatched_index_count INT,
+        min_elapsed_time BIGINT,
+        max_elapsed_time BIGINT,
+        age_minutes MONEY,
+        age_minutes_lifetime MONEY,
+        is_trivial BIT,
+		trace_flags_session VARCHAR(1000),
+		is_unused_grant BIT,
+        SetOptions VARCHAR(MAX),
+        Warnings VARCHAR(MAX)
+    );
+GO 
 
 ALTER PROCEDURE dbo.sp_BlitzCache
     @Help BIT = 0,
@@ -179,7 +189,7 @@ Known limitations of this version:
  - This query will not run on SQL Server 2005.
  - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
    excluded by default.
- - @IgnoreQueryHashes and @only_query_hashes require a CSV list of hashes
+ - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
    with no spaces between the hash values.
  - @OutputServerName is not functional yet.
 
@@ -268,7 +278,7 @@ BEGIN
     UNION ALL
     SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used.'
 
     UNION ALL
     SELECT N'@UseTriggersAnyway',
@@ -489,6 +499,36 @@ BEGIN
            N'The maximum number of rows returned by any execution of this query.'
 
     UNION ALL
+    SELECT N'MinGrantKB',
+           N'BIGINT',
+           N'The minim memory grant the query received in kb.'
+
+    UNION ALL
+    SELECT N'MaxGrantKB',
+           N'BIGINT',
+           N'The maximum memory grant the query received in kb.'
+
+    UNION ALL
+    SELECT N'MinUsedGrantKB',
+           N'BIGINT',
+           N'The minim used memory grant the query received in kb.'
+
+    UNION ALL
+    SELECT N'MaxUsedGrantKB',
+           N'BIGINT',
+           N'The maximum used memory grant the query received in kb.'
+
+    UNION ALL
+    SELECT N'PercentMemoryGrantUsed',
+           N'MONEY',
+           N'Result of dividing the maximum grant used by the minimum granted.'
+
+    UNION ALL
+    SELECT N'AvgMaxMemoryGrant',
+           N'MONEY',
+           N'The average maximum memory grant for a query.'
+
+    UNION ALL
     SELECT N'# Plans',
            N'INT',
            N'The total number of execution plans found that match a given query.'
@@ -567,6 +607,11 @@ BEGIN
            N'Seconds' ,
            N'Triggers a "Long Running Query Warning" when average duration, max CPU time, or max clock time is higher than this number.'
 
+    UNION ALL
+    SELECT N'Unused Memory Grant Warning' AS [Configuration Parameter] ,
+           N'10' ,
+           N'Percent' ,
+           N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.'
     RETURN
 END
 
@@ -651,6 +696,12 @@ BEGIN
         AverageReturnedRows MONEY,
         TotalReturnedRows BIGINT,
         LastReturnedRows BIGINT,
+		MinGrantKB BIGINT,
+		MaxGrantKB BIGINT,
+		MinUsedGrantKB BIGINT, 
+		MaxUsedGrantKB BIGINT,
+		PercentMemoryGrantUsed MONEY,
+		AvgMaxMemoryGrant MONEY,
         QueryText NVARCHAR(MAX),
         QueryPlan XML,
         /* these next four columns are the total for the type of query.
@@ -704,6 +755,7 @@ BEGIN
         age_minutes_lifetime MONEY,
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
+		is_unused_grant BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -722,7 +774,7 @@ IF @DurationFilter IS NOT NULL
   SET @DurationFilter_i = CAST((@DurationFilter * 1000.0) AS INT)
 
 SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
-IF (DB_ID(@DatabaseName)) IS NULL
+IF (DB_ID(@DatabaseName)) IS NULL AND @DatabaseName <> ''
 BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
@@ -739,7 +791,7 @@ SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles')
+                       'compiles', 'memory grant', 'avg memory grant')
   SET @SortOrder = 'cpu';
 
 SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
@@ -987,7 +1039,8 @@ INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, To
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
-                    LastReturnedRows, QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
+                    LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant,
+					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
                     min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
 
@@ -1044,19 +1097,21 @@ IF @DurationFilter IS NOT NULL
    This should make it faster to process since we'll be pulling back fewer
    plans for processing.
  */
-SELECT @body += '        ORDER BY ' +
-                CASE @SortOrder WHEN 'cpu' THEN 'total_worker_time'
-                                 WHEN 'reads' THEN 'total_logical_reads'
-                                 WHEN 'writes' THEN 'total_logical_writes'
-                                 WHEN 'duration' THEN 'total_elapsed_time'
-                                 WHEN 'executions' THEN 'execution_count'
-                                 WHEN 'compiles' THEN 'cached_time'
+SELECT @body += N'        ORDER BY ' +
+                CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
+                                 WHEN N'reads' THEN N'total_logical_reads'
+                                 WHEN N'writes' THEN N'total_logical_writes'
+                                 WHEN N'duration' THEN N'total_elapsed_time'
+                                 WHEN N'executions' THEN N'execution_count'
+                                 WHEN N'compiles' THEN N'cached_time'
+								 WHEN N'memory grant' THEN N'max_grant_kb'
                                  /* And now the averages */
-                                 WHEN 'avg cpu' THEN 'total_worker_time / execution_count'
-                                 WHEN 'avg reads' THEN 'total_logical_reads / execution_count'
-                                 WHEN 'avg writes' THEN 'total_logical_writes / execution_count'
-                                 WHEN 'avg duration' THEN 'total_elapsed_time / execution_count'
-                                 WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
+                                 WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
+                                 WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
+                                 WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
+                                 WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
+								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count'
+                                 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE())
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
@@ -1068,7 +1123,7 @@ SELECT @body += '        ORDER BY ' +
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY))) AS money)
             END '
-                END + ' DESC ' + @nl ;
+                END + N' DESC ' + @nl ;
 
 
                           
@@ -1137,6 +1192,12 @@ SELECT TOP (@Top)
        NULL AS AvgReturnedRows,
        NULL AS TotalReturnedRows,
        NULL AS LastReturnedRows,
+       NULL AS MinGrantKB,
+       NULL AS MaxGrantKB,
+       NULL AS MinUsedGrantKB, 
+	   NULL AS MaxUsedGrantKB,
+	   NULL AS PercentMemoryGrantUsed, 
+	   NULL AS AvgMaxMemoryGrant,
        st.text AS QueryText ,
        query_plan AS QueryPlan,
        t.t_TotalWorker,
@@ -1217,6 +1278,29 @@ BEGIN
            NULL AS TotalReturnedRows,
            NULL AS LastReturnedRows, ' ;
     END
+
+    IF (@v >= 11 AND @build >= 6020) OR (@v >= 12 AND @build >= 5000) OR (@v >= 13 AND @build >= 1708)
+
+    BEGIN
+        SET @sql += N'
+           min_grant_kb AS MinGrantKB,
+           max_grant_kb AS MaxGrantKB,
+           min_used_grant_kb AS MinUsedGrantKB,
+           max_used_grant_kb AS MaxUsedGrantKB,
+           CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
+		   CAST(ISNULL(NULLIF(( max_grant_kb * 1.00 ), 0) / NULLIF(execution_count, 0), 0) * 100. AS MONEY) AS AvgMaxMemoryGrant, ';
+    END
+    ELSE
+    BEGIN
+        SET @sql += N'
+           NULL AS MinGrantKB,
+           NULL AS MaxGrantKB,
+           NULL AS MinUsedGrantKB, 
+		   NULL AS MaxUsedGrantKB,
+		   NULL AS PercentMemoryGrantUsed, 
+		   NULL AS AvgMaxMemoryGrant, ' ;
+    END
+
     
     SET @sql += N'
            SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
@@ -1239,7 +1323,7 @@ BEGIN
            qs.min_elapsed_time / 1000.0,
            qs.max_worker_time  / 1000.0,
            age_minutes,
-           age_minutes_lifetime '
+           age_minutes_lifetime ';
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
     
@@ -1254,7 +1338,10 @@ BEGIN
 END
 
 
-IF (@QueryFilter = 'all' AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
+IF (@QueryFilter = 'all' 
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
+   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
@@ -1264,7 +1351,7 @@ BEGIN
     SET @sql += @body_where ;
 
     IF @IgnoreSystemDBs = 1
-       SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
     SET @sql += @body_order + @nl + @nl + @nl ;
 END
@@ -1286,6 +1373,7 @@ IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (@QueryFilter = 'all')
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -1299,25 +1387,27 @@ BEGIN
    SET @sql += @body_where ;
 
    IF @IgnoreSystemDBs = 1
-      SET @sql += ' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+      SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
    
    SET @sql += @body_order + @nl + @nl + @nl ;
 END
 
 DECLARE @sort NVARCHAR(MAX);
 
-SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'total_worker_time'
-                                WHEN 'reads' THEN 'total_logical_reads'
-                                WHEN 'writes' THEN 'total_logical_writes'
-                                WHEN 'duration' THEN 'total_elapsed_time'
-                                WHEN 'executions' THEN 'execution_count'
-                                WHEN 'compiles' THEN 'cached_time'
+SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
+                                WHEN N'reads' THEN N'total_logical_reads'
+                                WHEN N'writes' THEN N'total_logical_writes'
+                                WHEN N'duration' THEN N'total_elapsed_time'
+                                WHEN N'executions' THEN N'execution_count'
+                                WHEN N'compiles' THEN N'cached_time'
+								WHEN N'memory grant' THEN N'max_grant_kb'
                                 /* And now the averages */
-                                WHEN 'avg cpu' THEN 'total_worker_time / execution_count'
-                                WHEN 'avg reads' THEN 'total_logical_reads / execution_count'
-                                WHEN 'avg writes' THEN 'total_logical_writes / execution_count'
-                                WHEN 'avg duration' THEN 'total_elapsed_time / execution_count'
-                                WHEN 'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
+                                WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
+                                WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
+                                WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
+                                WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
+								WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count'
+                                WHEN N'avg executions' THEN N'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
             END'
@@ -1345,17 +1435,19 @@ WHERE x.rn = 1
 OPTION (RECOMPILE);
 ';
 
-SELECT @sort = CASE @SortOrder WHEN 'cpu' THEN 'TotalCPU'
-                                WHEN 'reads' THEN 'TotalReads'
-                                WHEN 'writes' THEN 'TotalWrites'
-                                WHEN 'duration' THEN 'TotalDuration'
-                                WHEN 'executions' THEN 'ExecutionCount'
-                                WHEN 'compiles' THEN 'PlanCreationTime'
-                                WHEN 'avg cpu' THEN 'TotalCPU / ExecutionCount'
-                                WHEN 'avg reads' THEN 'TotalReads / ExecutionCount'
-                                WHEN 'avg writes' THEN 'TotalWrites / ExecutionCount'
-                                WHEN 'avg duration' THEN 'TotalDuration / ExecutionCount'
-                                WHEN 'avg executions' THEN 'CASE WHEN ExecutionCount = 0 THEN 0
+SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
+                                WHEN N'reads' THEN N'TotalReads'
+                                WHEN N'writes' THEN N'TotalWrites'
+                                WHEN N'duration' THEN N'TotalDuration'
+                                WHEN N'executions' THEN N'ExecutionCount'
+                                WHEN N'compiles' THEN N'PlanCreationTime'
+								WHEN N'memory grant' THEN N'MaxGrantKB'
+                                WHEN N'avg cpu' THEN N'TotalCPU / ExecutionCount'
+                                WHEN N'avg reads' THEN N'TotalReads / ExecutionCount'
+                                WHEN N'avg writes' THEN N'TotalWrites / ExecutionCount'
+                                WHEN N'avg duration' THEN N'TotalDuration / ExecutionCount'
+								WHEN N'avg memory grant' THEN N'AvgMaxMemoryGrant'
+                                WHEN N'avg executions' THEN N'CASE WHEN ExecutionCount = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * ExecutionCount / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
             END'
@@ -1369,6 +1461,19 @@ BEGIN
 
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
+
+/*
+--Debugging section
+SELECT DATALENGTH(@sql)
+PRINT SUBSTRING(@sql, 0, 4000)
+PRINT SUBSTRING(@sql, 4000, 8000)
+PRINT SUBSTRING(@sql, 8000, 12000)
+PRINT SUBSTRING(@sql, 16000, 24000)
+PRINT SUBSTRING(@sql, 24000, 28000)
+PRINT SUBSTRING(@sql, 28000, 32000)
+PRINT SUBSTRING(@sql, 32000, 36000)
+PRINT SUBSTRING(@sql, 36000, 40000)
+*/
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
@@ -1798,7 +1903,8 @@ DECLARE @execution_threshold INT = 1000 ,
         /* This is in average reads */
         @parameter_sniffing_io_threshold BIGINT = 100000 ,
         @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds BIGINT = 300 * 1000 ;
+        @long_running_query_warning_seconds BIGINT = 300 * 1000 ,
+		@memory_grant_warning_percent INT = 10;
 
 IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'frequent execution threshold' = LOWER(parameter_name))
 BEGIN
@@ -1855,6 +1961,17 @@ BEGIN
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END
 
+IF EXISTS (SELECT 1/0 FROM #configuration WHERE 'unused memory grant' = LOWER(parameter_name))
+BEGIN
+    SELECT @memory_grant_warning_percent = CAST(value AS INT)
+    FROM   #configuration
+    WHERE 'unused memory grant' = LOWER(parameter_name) ;
+
+    SET @msg = ' Setting "unused memory grant" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
+
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END
+
 DECLARE @ctp INT ;
 
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -1883,7 +2000,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
-	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END
+	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
+	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent THEN 1 END
 OPTION (RECOMPILE) ;
 
 
@@ -1951,7 +2069,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
+				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2050,6 +2169,12 @@ BEGIN
           QueryPlan xml,
           NumberOfPlans int,
           NumberOfDistinctPlans int,
+		  MinGrantKB BIGINT,
+		  MaxGrantKB BIGINT,
+		  MinUsedGrantKB BIGINT, 
+		  MaxUsedGrantKB BIGINT,
+		  PercentMemoryGrantUsed MONEY,
+		  AvgMaxMemoryGrant MONEY,
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     EXEC sp_executesql @insert_sql ;
@@ -2066,27 +2191,29 @@ BEGIN
           + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory) '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant) '
           + N'SELECT TOP (@Top) '
           + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant '
           + N' FROM ##bou_BlitzCacheProcs '
           
-    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
-                                                    WHEN 'reads' THEN ' TotalReads '
-                                                    WHEN 'writes' THEN ' TotalWrites '
-                                                    WHEN 'duration' THEN ' TotalDuration '
-                                                    WHEN 'executions' THEN ' ExecutionCount '
-                                                    WHEN 'compiles' THEN ' PlanCreationTime '
-                                                    WHEN 'avg cpu' THEN 'AverageCPU'
-                                                    WHEN 'avg reads' THEN 'AverageReads'
-                                                    WHEN 'avg writes' THEN 'AverageWrites'
-                                                    WHEN 'avg duration' THEN 'AverageDuration'
-                                                    WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                    WHEN 'reads' THEN N' TotalReads '
+                                                    WHEN 'writes' THEN N' TotalWrites '
+                                                    WHEN 'duration' THEN N' TotalDuration '
+                                                    WHEN 'executions' THEN N' ExecutionCount '
+                                                    WHEN 'compiles' THEN N' PlanCreationTime '
+													WHEN 'memory grant' THEN N' MaxGrantKB'
+                                                    WHEN 'avg cpu' THEN N' AverageCPU'
+                                                    WHEN 'avg reads' THEN N' AverageReads'
+                                                    WHEN 'avg writes' THEN N' AverageWrites'
+                                                    WHEN 'avg duration' THEN N' AverageDuration'
+                                                    WHEN 'avg executions' THEN N' ExecutionsPerMinute'
+													WHEN 'avg memory grant' THEN N' AvgMaxMemoryGrant'
                                                     END + N' DESC '
 
     SET @insert_sql += N' OPTION (RECOMPILE) ; '    
@@ -2136,6 +2263,12 @@ BEGIN
             AverageReturnedRows,
             MinReturnedRows,
             MaxReturnedRows,
+		    MinGrantKB,
+		    MaxGrantKB,
+		    MinUsedGrantKB, 
+		    MaxUsedGrantKB,
+		    PercentMemoryGrantUsed,
+			AvgMaxMemoryGrant,
             NumberOfPlans,
             NumberOfDistinctPlans,
             PlanCreationTime AS [Created At],
@@ -2156,11 +2289,13 @@ BEGIN
                               WHEN 'duration' THEN ' TotalDuration '
                               WHEN 'executions' THEN ' ExecutionCount '
                               WHEN 'compiles' THEN ' PlanCreationTime '
+							  WHEN 'memory grant' THEN 'MaxGrantKB'
                               WHEN 'avg cpu' THEN 'AverageCPU'
                               WHEN 'avg reads' THEN 'AverageReads'
                               WHEN 'avg writes' THEN 'AverageWrites'
                               WHEN 'avg duration' THEN 'AverageDuration'
                               WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+							  WHEN 'avg memory grant' THEN 'AvgMaxMemoryGrant'
                               END + N' DESC '
 
     SET @sql += N' OPTION (RECOMPILE) ; '
@@ -2196,6 +2331,11 @@ BEGIN
     AverageWrites AS [Avg Writes],
     PercentWrites AS [Write Weight],
     AverageReturnedRows AS [Average Rows],
+	MinGrantKB AS [Minimum Memory Grant KB],
+	MaxGrantKB AS [Maximum Memory Grant KB],
+	MinUsedGrantKB AS [Minimum Used Grant KB], 
+	MaxUsedGrantKB AS [Maximum Used Grant KB],
+	AvgMaxMemoryGrant AS [Average Max Memory Grant],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
 	PlanHandle AS [Plan Handle], 
@@ -2212,7 +2352,7 @@ BEGIN
 
     IF @ExpertMode = 2 /* Opserver */
     BEGIN
-        SET @columns += '        SUBSTRING(
+        SET @columns += N'        SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
                   CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
@@ -2237,8 +2377,9 @@ BEGIN
                   CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END  + 
-				  CASE WHEN trace_flags_session IS NOT NULL THEN '' , 29'' ELSE '''' END
+				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
+				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2268,6 +2409,11 @@ BEGIN
         AverageReturnedRows AS [Avg Rows],
         MinReturnedRows AS [Min Rows],
         MaxReturnedRows AS [Max Rows],
+		MinGrantKB AS [Minimum Memory Grant KB],
+		MaxGrantKB AS [Maximum Memory Grant KB],
+		MinUsedGrantKB AS [Minimum Used Grant KB], 
+		MaxUsedGrantKB AS [Maximum Used Grant KB],
+		AvgMaxMemoryGrant AS [Average Max Memory Grant],
         NumberOfPlans AS [# Plans],
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
@@ -2298,17 +2444,19 @@ SELECT  TOP (@Top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
 WHERE   SPID = @spid ' + @nl
 
-SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
-                                                WHEN 'reads' THEN ' TotalReads '
-                                                WHEN 'writes' THEN ' TotalWrites '
-                                                WHEN 'duration' THEN ' TotalDuration '
-                                                WHEN 'executions' THEN ' ExecutionCount '
-                                                WHEN 'compiles' THEN ' PlanCreationTime '
-                                                WHEN 'avg cpu' THEN 'AverageCPU'
-                                                WHEN 'avg reads' THEN 'AverageReads'
-                                                WHEN 'avg writes' THEN 'AverageWrites'
-                                                WHEN 'avg duration' THEN 'AverageDuration'
-                                                WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                WHEN 'reads' THEN N' TotalReads '
+                                                WHEN 'writes' THEN N' TotalWrites '
+                                                WHEN 'duration' THEN N' TotalDuration '
+                                                WHEN 'executions' THEN N' ExecutionCount '
+                                                WHEN 'compiles' THEN N' PlanCreationTime '
+												WHEN 'memory grant' THEN N' MaxGrantKB'
+                                                WHEN 'avg cpu' THEN N' AverageCPU'
+                                                WHEN 'avg reads' THEN N' AverageReads'
+                                                WHEN 'avg writes' THEN N' AverageWrites'
+                                                WHEN 'avg duration' THEN N' AverageDuration'
+                                                WHEN 'avg executions' THEN N' ExecutionsPerMinute'
+												WHEN 'avg memory grant' THEN N' AvgMaxMemoryGrant'
                                END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
@@ -2653,6 +2801,19 @@ BEGIN
                     'Session Level Trace FLags Enabled',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'Someone is enabling session level Trace Flags in a query.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_unused_grant IS NOT NULL
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    30,
+                    100,
+                    'Unused memory grants',
+                    'Session Level Trace Flags Enabled',
+                    'No URL yet.',
+                    'Queries have large unused memory grants.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
