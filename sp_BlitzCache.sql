@@ -1032,6 +1032,16 @@ SELECT @v = common_version ,
 FROM   #checkversion
 OPTION (RECOMPILE);
 
+IF (@SortOrder IN ('memory grant', 'avg memory grant')) 
+AND ((@v < 11)
+OR (@v = 11 AND @build < 6020) 
+OR (@v = 12 AND @build < 5000) 
+OR (@v = 13 AND @build < 1708))
+BEGIN
+   RAISERROR('Your version of SQL does not support sorting by memory grant or average memory grant. Please use another sort order.', 16, 1);
+   RETURN;
+END
+
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
@@ -1279,7 +1289,7 @@ BEGIN
            NULL AS LastReturnedRows, ' ;
     END
 
-    IF (@v >= 11 AND @build >= 6020) OR (@v >= 12 AND @build >= 5000) OR (@v >= 13 AND @build >= 1708)
+    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1708)
 
     BEGIN
         SET @sql += N'
