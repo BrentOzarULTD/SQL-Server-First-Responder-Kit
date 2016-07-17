@@ -807,8 +807,8 @@ BEGIN
 				1 AS Pass,
 				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
 				owt.wait_type,
-		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type) END 
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms,
+		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)						   /*If @Seconds = 0, add entire wait time.*/
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms, /*Otherwise, only add wait seconds accumulated during window*/
 				0 AS sum_signal_wait_time_ms,
 				0 AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
@@ -1270,8 +1270,8 @@ BEGIN
 				2 AS Pass,
 				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
 				owt.wait_type,
-		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type) END 
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms,
+		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)						   /*If @Seconds = 0, add entire wait time.*/
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms, /*Otherwise, only add wait seconds accumulated during window*/
 				0 AS sum_signal_wait_time_ms,
 				0 AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
