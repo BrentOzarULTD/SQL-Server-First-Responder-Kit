@@ -795,7 +795,13 @@ BEGIN
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT x.Pass, x.SampleTime, x.wait_type, x.sum_wait_time_ms, x.sum_signal_wait_time_ms, x.sum_waiting_tasks
+		SELECT 
+		x.Pass, 
+		x.SampleTime, 
+		SUM(x.wait_type) AS wait_type, 
+		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 		FROM (
 		SELECT  
 				1 AS Pass,
@@ -863,6 +869,7 @@ BEGIN
 		       'REDO_THREAD_PENDING_WORK',
 		       'UCS_SESSION_REGISTRATION'
 		   )
+		GROUP BY x.Pass, x.SampleTime
 		ORDER BY x.sum_wait_time_ms DESC;
 
 
@@ -1251,7 +1258,13 @@ BEGIN
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT x.Pass, x.SampleTime, x.wait_type, x.sum_wait_time_ms, x.sum_signal_wait_time_ms, x.sum_waiting_tasks
+		SELECT 
+		x.Pass, 
+		x.SampleTime, 
+		SUM(x.wait_type) AS wait_type, 
+		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 		FROM (
 		SELECT  
 				2 AS Pass,
@@ -1319,6 +1332,7 @@ BEGIN
 		       'REDO_THREAD_PENDING_WORK',
 		       'UCS_SESSION_REGISTRATION'
 		   )
+		GROUP BY x.Pass, x.SampleTime
 		ORDER BY x.sum_wait_time_ms DESC;
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -2958,7 +2972,7 @@ In Ask a Question mode:
 EXEC dbo.sp_BlitzFirst 'Is this cursor bad?';
 
 Saving output to tables:
-EXEC sp_BlitzFirst @Seconds = 60
+EXEC sp_BlitzFirst @Seconds = 10, @ExpertMode = 1
 , @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirstResults'
