@@ -798,7 +798,7 @@ BEGIN
 		SELECT 
 		x.Pass, 
 		x.SampleTime, 
-		SUM(x.wait_type) AS wait_type, 
+		x.wait_type, 
 		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
 		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
@@ -869,8 +869,8 @@ BEGIN
 		       'REDO_THREAD_PENDING_WORK',
 		       'UCS_SESSION_REGISTRATION'
 		   )
-		GROUP BY x.Pass, x.SampleTime
-		ORDER BY x.sum_wait_time_ms DESC;
+		GROUP BY x.Pass, x.SampleTime, x.wait_type
+		ORDER BY sum_wait_time_ms DESC;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -1261,7 +1261,7 @@ BEGIN
 		SELECT 
 		x.Pass, 
 		x.SampleTime, 
-		SUM(x.wait_type) AS wait_type, 
+		x.wait_type, 
 		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
 		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
@@ -1332,8 +1332,8 @@ BEGIN
 		       'REDO_THREAD_PENDING_WORK',
 		       'UCS_SESSION_REGISTRATION'
 		   )
-		GROUP BY x.Pass, x.SampleTime
-		ORDER BY x.sum_wait_time_ms DESC;
+		GROUP BY x.Pass, x.SampleTime, x.wait_type
+		ORDER BY sum_wait_time_ms DESC;
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
@@ -2972,7 +2972,7 @@ In Ask a Question mode:
 EXEC dbo.sp_BlitzFirst 'Is this cursor bad?';
 
 Saving output to tables:
-EXEC sp_BlitzFirst @Seconds = 10, @ExpertMode = 1
+EXEC sp_BlitzFirst @Seconds = 10
 , @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirstResults'
