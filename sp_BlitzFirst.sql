@@ -2972,7 +2972,7 @@ In Ask a Question mode:
 EXEC dbo.sp_BlitzFirst 'Is this cursor bad?';
 
 Saving output to tables:
-EXEC sp_BlitzFirst @Seconds = 10
+EXEC sp_BlitzFirst @Seconds = 60
 , @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirstResults'
