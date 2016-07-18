@@ -336,7 +336,7 @@ BEGIN
 	    SELECT @EnhanceFlag = 
 			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
 				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
-				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
 				     ELSE 0 
 			    END
 
@@ -807,8 +807,8 @@ BEGIN
 				1 AS Pass,
 				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
 				owt.wait_type,
-		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)						   /*If @Seconds = 0, add entire wait time.*/
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms, /*Otherwise, only add wait seconds accumulated during window*/
+		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
 				0 AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
@@ -1270,8 +1270,8 @@ BEGIN
 				2 AS Pass,
 				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
 				owt.wait_type,
-		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)						   /*If @Seconds = 0, add entire wait time.*/
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE @Seconds * 1000 END AS sum_wait_time_ms, /*Otherwise, only add wait seconds accumulated during window*/
+		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
 				0 AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
