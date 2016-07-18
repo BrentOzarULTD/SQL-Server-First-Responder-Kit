@@ -1268,7 +1268,7 @@ BEGIN
 		FROM (
 		SELECT  
 				2 AS Pass,
-				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+				SYSDATETIMEOFFSET() AS SampleTime,
 				owt.wait_type,
 		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
@@ -1280,7 +1280,7 @@ BEGIN
 		UNION ALL
 		SELECT
 		       2 AS Pass,
-		       CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+		       SYSDATETIMEOFFSET() AS SampleTime,
 		       os.wait_type,
 			   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
 			   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
