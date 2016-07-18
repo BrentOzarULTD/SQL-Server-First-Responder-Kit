@@ -1273,7 +1273,7 @@ BEGIN
 		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
-				1 AS sum_waiting_tasks
+				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
 			WHERE owt.session_id > 50
 			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
@@ -2531,7 +2531,7 @@ BEGIN
                     CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
                     wd1.wait_type,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -2548,7 +2548,7 @@ BEGIN
                     wd2.SampleTime =b.SampleTime
                 JOIN #WaitStats wd1 ON
                     wd1.wait_type=wd2.wait_type AND
-                    wd2.SampleTime >= wd1.SampleTime
+                    wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
                     CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
