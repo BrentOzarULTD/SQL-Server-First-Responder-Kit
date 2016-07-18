@@ -810,7 +810,7 @@ BEGIN
 		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
-				0 AS sum_waiting_tasks
+				CASE @Seconds WHEN 0 THEN 0 ELSE 2 END AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
 			WHERE owt.session_id > 50
 			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
@@ -1273,7 +1273,7 @@ BEGIN
 		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
-				0 AS sum_waiting_tasks
+				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
 			FROM    sys.dm_os_waiting_tasks owt
 			WHERE owt.session_id > 50
 			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
