@@ -1036,7 +1036,7 @@ IF (@SortOrder IN ('memory grant', 'avg memory grant'))
 AND ((@v < 11)
 OR (@v = 11 AND @build < 6020) 
 OR (@v = 12 AND @build < 5000) 
-OR (@v = 13 AND @build < 1708))
+OR (@v = 13 AND @build < 1601))
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by memory grant or average memory grant. Please use another sort order.', 16, 1);
    RETURN;
