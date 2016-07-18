@@ -2596,7 +2596,7 @@ BEGIN
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
-				SELECT * FROM #WaitStats AS ws ;
+
             -------------------------
             --What happened: #FileStats
             -------------------------
