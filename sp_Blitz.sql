@@ -5837,14 +5837,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-						IF @ValidOutputServer = 1
-							BEGIN
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
-							END   
-						ELSE
-							BEGIN
-								EXEC(@StringToExecute);
-							END
+							
+							EXEC(@StringToExecute);
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
