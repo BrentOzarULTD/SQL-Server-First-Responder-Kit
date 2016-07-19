@@ -5692,15 +5692,16 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				DECLARE @ValidOutputServer BIT
 				DECLARE @ValidOutputLocation BIT
 				DECLARE @LinkedServerDBCheck NVARCHAR(2000)
-				DECLARE @Count INT
+				DECLARE @ValidLinkedServerDB INT
+				DECLARE @tmpdbchk table (cnt int)
 				IF @OutputServerName IS NOT NULL
 					BEGIN
 						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 							BEGIN
-								SET @LinkedServerDBCheck = 'SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''''
-								EXEC sys.sp_executesql @LinkedServerDBCheck
-								SELECT @Count = @@ROWCOUNT
-								IF (@Count > 0)
+								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')'
+								INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck
+								SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk)
+								IF (@ValidLinkedServerDB > 0)
 									BEGIN
 										SET @ValidOutputServer = 1
 										SET @ValidOutputLocation = 1
