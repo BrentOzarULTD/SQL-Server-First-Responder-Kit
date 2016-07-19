@@ -2435,7 +2435,7 @@ BEGIN
                     'Performance',
                     'Long Running Queries',
                     'http://brentozar.com/blitzcache/long-running-queries/',
-                    'Long running queries have beend found. These are queries with an average duration longer than '
+                    'Long running queries have been found. These are queries with an average duration longer than '
                     + CAST(@long_running_query_warning_seconds / 1000 / 1000 AS VARCHAR(5))
                     + ' second(s). These queries should be investigated for additional tuning options') ;
 
