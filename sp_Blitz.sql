@@ -48,7 +48,9 @@ AS
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
 	   but does work the second time. (Hoo, boy, this will be fun to debug.)
-      - @OutputServerName is not functional yet.
+      - @OutputServerName will output QueryPlans as NVARCHAR(MAX) since Microsoft
+	    has refused to support XML columns in Linked Server queries. The bug is now
+		16 years old! *~ \o/ ~*
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
@@ -441,6 +443,7 @@ AS
 
 		/* Sanitize our inputs */
 		SELECT
+			@OutputServerName = QUOTENAME(@OutputServerName),
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 			@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 			@OutputTableName = QUOTENAME(@OutputTableName)
@@ -5685,14 +5688,59 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
 				END
 
-
-				/* @OutputTableName lets us export the results to a permanent table */
-				IF @OutputDatabaseName IS NOT NULL
-					AND @OutputSchemaName IS NOT NULL
-					AND @OutputTableName IS NOT NULL
-					AND EXISTS ( SELECT *
+				/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
+				DECLARE @ValidOutputServer BIT
+				DECLARE @ValidOutputLocation BIT
+				DECLARE @LinkedServerDBCheck NVARCHAR(2000)
+				DECLARE @Count INT
+				IF @OutputServerName IS NOT NULL
+					BEGIN
+						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+							BEGIN
+								SET @LinkedServerDBCheck = 'SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''''
+								EXEC sys.sp_executesql @LinkedServerDBCheck
+								SELECT @Count = @@ROWCOUNT
+								IF (@Count > 0)
+									BEGIN
+										SET @ValidOutputServer = 1
+										SET @ValidOutputLocation = 1
+									END
+								ELSE
+									RAISERROR('The specified database was not found on the output server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								RAISERROR('The specified output server was not found', 16, 0)
+							END
+					END
+				ELSE
+					BEGIN
+						IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND EXISTS ( SELECT *
 								 FROM   sys.databases
 								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								SET @ValidOutputLocation = 1
+							END
+						ELSE IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND NOT EXISTS ( SELECT *
+								 FROM   sys.databases
+								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								RAISERROR('The specified output database was not found on this server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								SET @ValidOutputLocation = 0 
+							END
+					END
+
+				/* @OutputTableName lets us export the results to a permanent table */
+				IF @ValidOutputLocation = 1
 					BEGIN
 						SET @StringToExecute = 'USE '
 							+ @OutputDatabaseName
@@ -5720,18 +5768,49 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								QueryPlanFiltered [NVARCHAR](MAX) NULL,
 								CheckID INT ,
 								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
-						EXEC(@StringToExecute);
-						SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
-							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-							+ @OutputSchemaName + ''') INSERT '
-							+ @OutputDatabaseName + '.'
-							+ @OutputSchemaName + '.'
-							+ @OutputTableName
-							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
-							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-						EXEC(@StringToExecute);
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''')
+								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''')
+								SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)')
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputServerName + '.'
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputServerName + '.'
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+
+								EXEC(@StringToExecute);
+							END   
+						ELSE
+							BEGIN
+								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								
+								EXEC(@StringToExecute);
+							END
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
@@ -5758,7 +5837,14 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-						EXEC(@StringToExecute);
+						IF @ValidOutputServer = 1
+							BEGIN
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
