@@ -2821,9 +2821,9 @@ BEGIN
                     30,
                     100,
                     'Unused memory grants',
-                    'Session Level Trace Flags Enabled',
+                    'Queries are asking for more memory than they''re using',
                     'No URL yet.',
-                    'Queries have large unused memory grants.') ;
+                    'Queries have large unused memory grants. This can cause concurrency issues, if queries are waiting a long time to get memory to run.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
