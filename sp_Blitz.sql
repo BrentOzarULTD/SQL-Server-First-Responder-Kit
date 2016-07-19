@@ -5814,31 +5814,38 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-							+ @OutputTableName
-							+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
-							+ 'CREATE TABLE '
-							+ @OutputTableName
-							+ ' (ID INT IDENTITY(1,1) NOT NULL,
-								ServerName NVARCHAR(128),
-								CheckDate DATETIMEOFFSET,
-								Priority TINYINT ,
-								FindingsGroup VARCHAR(50) ,
-								Finding VARCHAR(200) ,
-								DatabaseName NVARCHAR(128),
-								URL VARCHAR(200) ,
-								Details NVARCHAR(4000) ,
-								QueryPlan [XML] NULL ,
-								QueryPlanFiltered [NVARCHAR](MAX) NULL,
-								CheckID INT ,
-								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
-							+ ' INSERT '
-							+ @OutputTableName
-							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
-							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+						IF @ValidOutputServer = 1
+							BEGIN
+								RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0)
+							END
+						ELSE
+							BEGIN
+								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+									+ @OutputTableName
+									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
+									+ 'CREATE TABLE '
+									+ @OutputTableName
+									+ ' (ID INT IDENTITY(1,1) NOT NULL,
+										ServerName NVARCHAR(128),
+										CheckDate DATETIMEOFFSET,
+										Priority TINYINT ,
+										FindingsGroup VARCHAR(50) ,
+										Finding VARCHAR(200) ,
+										DatabaseName NVARCHAR(128),
+										URL VARCHAR(200) ,
+										Details NVARCHAR(4000) ,
+										QueryPlan [XML] NULL ,
+										QueryPlanFiltered [NVARCHAR](MAX) NULL,
+										CheckID INT ,
+										CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+									+ ' INSERT '
+									+ @OutputTableName
+									+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+									+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+									+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
 							
-							EXEC(@StringToExecute);
+									EXEC(@StringToExecute);
+							END
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
