@@ -3390,8 +3390,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
 												WHERE [name] NOT IN
-												('system_health', 'sp_server_diagnostics session', 'hkenginexesession'
-												)
+												('system_health', 'sp_server_diagnostics session', 'hkenginexesession', 'telemetry_xevents')
 											  HAVING COUNT_BIG(*) >= 2; 
 								END	
 								END
