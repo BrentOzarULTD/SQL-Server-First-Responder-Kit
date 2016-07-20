@@ -1289,7 +1289,7 @@ BEGIN
            NULL AS LastReturnedRows, ' ;
     END
 
-    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1708)
+    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1601)
 
     BEGIN
         SET @sql += N'
@@ -2808,7 +2808,7 @@ BEGIN
                     29,
                     100,
                     'Trace Flags',
-                    'Session Level Trace FLags Enabled',
+                    'Session Level Trace Flags Enabled',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'Someone is enabling session level Trace Flags in a query.') ;
 
