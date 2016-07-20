@@ -807,7 +807,7 @@ BEGIN
 				1 AS Pass,
 				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
 				owt.wait_type,
-		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
+		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
 				0 AS sum_waiting_tasks
@@ -1270,7 +1270,7 @@ BEGIN
 				2 AS Pass,
 				SYSDATETIMEOFFSET() AS SampleTime,
 				owt.wait_type,
-		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type)
+		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
 					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
 				0 AS sum_signal_wait_time_ms,
 				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
