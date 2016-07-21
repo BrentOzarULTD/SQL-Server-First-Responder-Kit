@@ -1120,7 +1120,7 @@ SELECT @body += N'        ORDER BY ' +
                                  WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
                                  WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                  WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
-								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count'
+								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
                                  WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE())
@@ -1416,7 +1416,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
                                 WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                 WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
-								WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count'
+								WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
                                 WHEN N'avg executions' THEN N'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
