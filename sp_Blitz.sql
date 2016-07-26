@@ -423,7 +423,7 @@ AS
 
 		SET @MSSinceStartup = @MSSinceStartup * 60000;
 
-		SELECT @CPUMSsinceStartup = @MSSinceStartup * cpu_count
+		SELECT @CPUMSsinceStartup = @MSSinceStartup * scheduler_count
 			FROM sys.dm_os_sys_info;
 
 
