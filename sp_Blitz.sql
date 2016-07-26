@@ -562,7 +562,7 @@ AS
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
-										AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+										AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										AND d.is_in_standby = 0 /* Not a log shipping target database */
 										AND d.source_database_id IS NULL /* Excludes database snapshots */
 										AND d.name NOT IN ( SELECT DISTINCT
