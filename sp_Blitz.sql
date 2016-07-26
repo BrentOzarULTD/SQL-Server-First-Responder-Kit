@@ -3391,6 +3391,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											    FROM sys.dm_xe_sessions
 												WHERE [name] NOT IN
 												('system_health', 'sp_server_diagnostics session', 'hkenginexesession', 'telemetry_xevents')
+												AND name NOT LIKE '%$A%'
 											  HAVING COUNT_BIG(*) >= 2; 
 								END	
 								END
