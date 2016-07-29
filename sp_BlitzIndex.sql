@@ -130,7 +130,7 @@ SOFTWARE.
 '
 
 
-
+DECLARE @ScriptVersionName NVARCHAR(50);
 DECLARE @DaysUptime NUMERIC(23,2);
 DECLARE @DatabaseID INT;
 DECLARE @ObjectID INT;
@@ -151,8 +151,9 @@ SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @FilterMB=250;
+SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate)
 
-RAISERROR(N'Starting run. sp_BlitzIndex(R) v4.0 - June 26, 2016', 0,1) WITH NOWAIT;
+RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 
 IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
     DROP TABLE #IndexSanity;
@@ -1482,7 +1483,7 @@ BEGIN
         WHERE s.[object_id]=@ObjectID
         UNION ALL
         SELECT     N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) +             
-                N' (sp_BlitzIndex(R) v4.0 - June 26, 2016)' ,   
+                N' (' + @ScriptVersionName + ')' ,   
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
@@ -2827,7 +2828,7 @@ BEGIN;
                                             index_usage_summary, index_size_summary )
             VALUES  ( -1, 0 , 
 		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://FirstResponderKit.org/', 
-                   'Fine wine gets better with age, but this sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + ' is more like bad cheese. Time to get a new one.',
+                   'Fine wine gets better with age, but this ' + @ScriptVersionName + ' is more like bad cheese. Time to get a new one.',
                     N'',N'',N''
                     );
         END
@@ -2837,7 +2838,7 @@ BEGIN;
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( -1, 0 , 
-		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
+		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
                     N''
@@ -2849,7 +2850,7 @@ BEGIN;
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( -1, 0 , 
-		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
+		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
                     N''
@@ -2869,7 +2870,7 @@ BEGIN;
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( -1, 0 , 
-		           'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),
+		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
                     N''
@@ -2987,7 +2988,7 @@ BEGIN;
             ON i.index_sanity_id=sz.index_sanity_id 
         UNION ALL
         SELECT    N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121)    ,        
-                N'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),   
+                @ScriptVersionName,   
                 N'From Your Community Volunteers' ,   
                 N'http://FirstResponderKit.org' ,
                 N'',
@@ -3096,7 +3097,7 @@ BEGIN;
         WHERE (magic_benefit_number/@DaysUptime) >= 100000
         UNION ALL
         SELECT                 
-            N'sp_BlitzIndex (TM) v' + @Version + ' as of ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)),   
+            @ScriptVersionName,   
             N'From Your Community Volunteers' ,   
             N'http://FirstResponderKit.org' ,
             100000000000,
