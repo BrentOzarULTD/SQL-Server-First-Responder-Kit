@@ -497,7 +497,7 @@ IF OBJECT_ID('tempdb..#RoleTaskMask') IS NOT NULL
 
 CREATE TABLE #RoleTaskMask
     (
-      RoleName NVARCHAR(32) ,
+      RoleName NVARCHAR(260) ,
       RoleFlags TINYINT ,
       TaskMaskPos TINYINT ,
       TaskMaskValue TINYINT
