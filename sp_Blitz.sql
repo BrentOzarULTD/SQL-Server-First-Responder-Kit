@@ -423,7 +423,7 @@ AS
 
 		SET @MSSinceStartup = @MSSinceStartup * 60000;
 
-		SELECT @CPUMSsinceStartup = @MSSinceStartup * cpu_count
+		SELECT @CPUMSsinceStartup = @MSSinceStartup * scheduler_count
 			FROM sys.dm_os_sys_info;
 
 
@@ -5362,10 +5362,16 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												''Hardware - NUMA Config'' AS Finding ,
 												'''' AS URL ,
 												''Node: '' + CAST(n.node_id AS NVARCHAR(10)) + '' State: '' + node_state_desc
-												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10))
+												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Offline schedulers: '' + CAST(oac.offline_schedulers AS VARCHAR(100)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10))
 												+ '' Memory node: '' + CAST(n.memory_node_id AS NVARCHAR(10)) + '' Memory VAS Reserved GB: '' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
 										FROM sys.dm_os_nodes n
 										INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
+										OUTER APPLY (SELECT 
+										COUNT(*) AS [offline_schedulers]
+										FROM sys.dm_os_schedulers dos
+										WHERE n.node_id = dos.parent_node_id 
+										AND dos.status = ''VISIBLE OFFLINE''
+										) oac
 										WHERE n.node_state_desc NOT LIKE ''%DAC%''
 										ORDER BY n.node_id'
 								EXECUTE(@StringToExecute);
