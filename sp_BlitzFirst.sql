@@ -319,9 +319,9 @@ BEGIN
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
 					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
@@ -336,7 +336,7 @@ BEGIN
 	    SELECT @EnhanceFlag = 
 			    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
 				     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
-				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1708 THEN 1
+				     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
 				     ELSE 0 
 			    END
 
@@ -441,9 +441,9 @@ BEGIN
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
 					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
@@ -795,60 +795,82 @@ BEGIN
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-    SELECT
-        1 AS Pass,
-        CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
-        os.wait_type,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
-        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
-    FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type NOT IN (
-        'REQUEST_FOR_DEADLOCK_SEARCH',
-        'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-        'SQLTRACE_BUFFER_FLUSH',
-        'LAZYWRITER_SLEEP',
-        'XE_TIMER_EVENT',
-        'XE_DISPATCHER_WAIT',
-        'FT_IFTS_SCHEDULER_IDLE_WAIT',
-        'LOGMGR_QUEUE',
-        'CHECKPOINT_QUEUE',
-        'BROKER_TO_FLUSH',
-        'BROKER_TASK_STOP',
-        'BROKER_EVENTHANDLER',
-        'SLEEP_TASK',
-        'WAITFOR',
-        'DBMIRROR_DBM_MUTEX',
-        'DBMIRROR_EVENTS_QUEUE',
-        'DBMIRRORING_CMD',
-        'DISPATCHER_QUEUE_SEMAPHORE',
-        'BROKER_RECEIVE_WAITFOR',
-        'CLR_AUTO_EVENT',
-        'DIRTY_PAGE_POLL',
-        'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-        'ONDEMAND_TASK_QUEUE',
-        'FT_IFTSHC_MUTEX',
-        'CLR_MANUAL_EVENT',
-        'CLR_SEMAPHORE',
-        'DBMIRROR_WORKER_QUEUE',
-        'DBMIRROR_DBM_EVENT',
-        'SP_SERVER_DIAGNOSTICS_SLEEP',
-        'HADR_CLUSAPI_CALL',
-        'HADR_LOGCAPTURE_WAIT',
-        'HADR_NOTIFICATION_DEQUEUE',
-        'HADR_TIMER_TASK',
-        'HADR_WORK_QUEUE',
-        'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-        'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-        'RESOURCE_GOVERNOR_IDLE',
-        'QDS_ASYNC_QUEUE',
-        'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK',
-        'BROKER_TRANSMITTER',
-        'REDO_THREAD_PENDING_WORK',
-        'UCS_SESSION_REGISTRATION'
-    )
-    ORDER BY sum_wait_time_ms DESC;
+		SELECT 
+		x.Pass, 
+		x.SampleTime, 
+		x.wait_type, 
+		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+		FROM (
+		SELECT  
+				1 AS Pass,
+				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+				owt.wait_type,
+		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
+				0 AS sum_signal_wait_time_ms,
+				0 AS sum_waiting_tasks
+			FROM    sys.dm_os_waiting_tasks owt
+			WHERE owt.session_id > 50
+			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+		UNION ALL
+		SELECT
+		       1 AS Pass,
+		       CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+		       os.wait_type,
+		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
+		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
+		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
+		   FROM sys.dm_os_wait_stats os
+		) x
+		   WHERE x.wait_type NOT IN (
+		       'REQUEST_FOR_DEADLOCK_SEARCH',
+		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+		       'SQLTRACE_BUFFER_FLUSH',
+		       'LAZYWRITER_SLEEP',
+		       'XE_TIMER_EVENT',
+		       'XE_DISPATCHER_WAIT',
+		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
+		       'LOGMGR_QUEUE',
+		       'CHECKPOINT_QUEUE',
+		       'BROKER_TO_FLUSH',
+		       'BROKER_TASK_STOP',
+		       'BROKER_EVENTHANDLER',
+		       'SLEEP_TASK',
+		       'WAITFOR',
+		       'DBMIRROR_DBM_MUTEX',
+		       'DBMIRROR_EVENTS_QUEUE',
+		       'DBMIRRORING_CMD',
+		       'DISPATCHER_QUEUE_SEMAPHORE',
+		       'BROKER_RECEIVE_WAITFOR',
+		       'CLR_AUTO_EVENT',
+		       'DIRTY_PAGE_POLL',
+		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+		       'ONDEMAND_TASK_QUEUE',
+		       'FT_IFTSHC_MUTEX',
+		       'CLR_MANUAL_EVENT',
+		       'CLR_SEMAPHORE',
+		       'DBMIRROR_WORKER_QUEUE',
+		       'DBMIRROR_DBM_EVENT',
+		       'SP_SERVER_DIAGNOSTICS_SLEEP',
+		       'HADR_CLUSAPI_CALL',
+		       'HADR_LOGCAPTURE_WAIT',
+		       'HADR_NOTIFICATION_DEQUEUE',
+		       'HADR_TIMER_TASK',
+		       'HADR_WORK_QUEUE',
+		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
+		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
+		       'RESOURCE_GOVERNOR_IDLE',
+		       'QDS_ASYNC_QUEUE',
+		       'QDS_SHUTDOWN_QUEUE',
+		       'SLEEP_SYSTEMTASK',
+		       'BROKER_TRANSMITTER',
+		       'REDO_THREAD_PENDING_WORK',
+		       'UCS_SESSION_REGISTRATION'
+		   )
+		GROUP BY x.Pass, x.SampleTime, x.wait_type
+		ORDER BY sum_wait_time_ms DESC;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -1236,60 +1258,82 @@ BEGIN
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
     INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-    SELECT
-        2 AS Pass,
-        SYSDATETIMEOFFSET() AS SampleTime,
-        os.wait_type,
-        SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
-        SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
-        SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
-    FROM sys.dm_os_wait_stats os
-    WHERE os.wait_type NOT IN (
-        'REQUEST_FOR_DEADLOCK_SEARCH',
-        'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-        'SQLTRACE_BUFFER_FLUSH',
-        'LAZYWRITER_SLEEP',
-        'XE_TIMER_EVENT',
-        'XE_DISPATCHER_WAIT',
-        'FT_IFTS_SCHEDULER_IDLE_WAIT',
-        'LOGMGR_QUEUE',
-        'CHECKPOINT_QUEUE',
-        'BROKER_TO_FLUSH',
-        'BROKER_TASK_STOP',
-        'BROKER_EVENTHANDLER',
-        'SLEEP_TASK',
-        'WAITFOR',
-        'DBMIRROR_DBM_MUTEX',
-        'DBMIRROR_EVENTS_QUEUE',
-        'DBMIRRORING_CMD',
-        'DISPATCHER_QUEUE_SEMAPHORE',
-        'BROKER_RECEIVE_WAITFOR',
-        'CLR_AUTO_EVENT',
-        'DIRTY_PAGE_POLL',
-        'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-        'ONDEMAND_TASK_QUEUE',
-        'FT_IFTSHC_MUTEX',
-        'CLR_MANUAL_EVENT',
-        'CLR_SEMAPHORE',
-        'DBMIRROR_WORKER_QUEUE',
-        'DBMIRROR_DBM_EVENT',
-        'SP_SERVER_DIAGNOSTICS_SLEEP',
-        'HADR_CLUSAPI_CALL',
-        'HADR_LOGCAPTURE_WAIT',
-        'HADR_NOTIFICATION_DEQUEUE',
-        'HADR_TIMER_TASK',
-        'HADR_WORK_QUEUE',
-        'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-        'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-        'RESOURCE_GOVERNOR_IDLE',
-        'QDS_ASYNC_QUEUE',
-        'QDS_SHUTDOWN_QUEUE',
-        'SLEEP_SYSTEMTASK',
-        'BROKER_TRANSMITTER',
-        'REDO_THREAD_PENDING_WORK',
-        'UCS_SESSION_REGISTRATION'
-    )
-    ORDER BY sum_wait_time_ms DESC;
+		SELECT 
+		x.Pass, 
+		x.SampleTime, 
+		x.wait_type, 
+		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+		FROM (
+		SELECT  
+				2 AS Pass,
+				SYSDATETIMEOFFSET() AS SampleTime,
+				owt.wait_type,
+		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
+				0 AS sum_signal_wait_time_ms,
+				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
+			FROM    sys.dm_os_waiting_tasks owt
+			WHERE owt.session_id > 50
+			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+		UNION ALL
+		SELECT
+		       2 AS Pass,
+		       SYSDATETIMEOFFSET() AS SampleTime,
+		       os.wait_type,
+			   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
+			   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
+			   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
+		   FROM sys.dm_os_wait_stats os
+		) x
+		   WHERE x.wait_type NOT IN (
+		       'REQUEST_FOR_DEADLOCK_SEARCH',
+		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
+		       'SQLTRACE_BUFFER_FLUSH',
+		       'LAZYWRITER_SLEEP',
+		       'XE_TIMER_EVENT',
+		       'XE_DISPATCHER_WAIT',
+		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
+		       'LOGMGR_QUEUE',
+		       'CHECKPOINT_QUEUE',
+		       'BROKER_TO_FLUSH',
+		       'BROKER_TASK_STOP',
+		       'BROKER_EVENTHANDLER',
+		       'SLEEP_TASK',
+		       'WAITFOR',
+		       'DBMIRROR_DBM_MUTEX',
+		       'DBMIRROR_EVENTS_QUEUE',
+		       'DBMIRRORING_CMD',
+		       'DISPATCHER_QUEUE_SEMAPHORE',
+		       'BROKER_RECEIVE_WAITFOR',
+		       'CLR_AUTO_EVENT',
+		       'DIRTY_PAGE_POLL',
+		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+		       'ONDEMAND_TASK_QUEUE',
+		       'FT_IFTSHC_MUTEX',
+		       'CLR_MANUAL_EVENT',
+		       'CLR_SEMAPHORE',
+		       'DBMIRROR_WORKER_QUEUE',
+		       'DBMIRROR_DBM_EVENT',
+		       'SP_SERVER_DIAGNOSTICS_SLEEP',
+		       'HADR_CLUSAPI_CALL',
+		       'HADR_LOGCAPTURE_WAIT',
+		       'HADR_NOTIFICATION_DEQUEUE',
+		       'HADR_TIMER_TASK',
+		       'HADR_WORK_QUEUE',
+		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
+		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
+		       'RESOURCE_GOVERNOR_IDLE',
+		       'QDS_ASYNC_QUEUE',
+		       'QDS_SHUTDOWN_QUEUE',
+		       'SLEEP_SYSTEMTASK',
+		       'BROKER_TRANSMITTER',
+		       'REDO_THREAD_PENDING_WORK',
+		       'UCS_SESSION_REGISTRATION'
+		   )
+		GROUP BY x.Pass, x.SampleTime, x.wait_type
+		ORDER BY sum_wait_time_ms DESC;
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
@@ -2553,7 +2597,6 @@ BEGIN
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
 
-
             -------------------------
             --What happened: #FileStats
             -------------------------
@@ -2916,6 +2959,7 @@ END /* ELSE IF @OutputType = 'SCHEMA' */
 
 SET NOCOUNT OFF;
 GO
+
 
 
 /* How to run it:
