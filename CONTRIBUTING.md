@@ -14,7 +14,7 @@ Wanna do something else, or have a question not answered here? Hop into Slack an
 
 ## How to Report Bugs or Request Enhancements
 
-[Check out the Github issues list.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) Search for what you're interested in - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+Check out the [Github issues list]. Search for what you're interested in - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
 
 If you can't find a similar issue, go ahead and open your own. Include as much detail as you can - what you're seeing now, and what you'd like to see.
 
@@ -24,11 +24,11 @@ When requesting new checks, keep in mind that we want to focus on:
 * Performance issues or reliability risks - if it's just a setting we don't agree with, let's set that aside
 * Things that end users or managers will notice - if we're going to have someone change a setting on their system, we want it to be worth their time
 
-Now [head on over to the Github issues list](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) and get started.
+Now head on over to the [Github issues list] and get started.
 
 ## How to Write New T-SQL Checks
 
-Before you code, check the [Github issues list](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+Before you code, check the [Github issues list] for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
 
 If you've got a new idea that isn't covered in an existing issue, open a Github issue for it. Outline what you'd like to do, and how you'd like to code it. This just helps make sure other users agree that it's a good idea to add to these tools.
 
@@ -102,3 +102,4 @@ available at [http://contributor-covenant.org/version/1/4][version]
 
 [homepage]: http://contributor-covenant.org
 [version]: http://contributor-covenant.org/version/1/4/
+[Github issues list]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
