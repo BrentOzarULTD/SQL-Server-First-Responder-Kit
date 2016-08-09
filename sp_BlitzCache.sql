@@ -181,7 +181,8 @@ Known limitations of this version:
    excluded by default.
  - @IgnoreQueryHashes and @only_query_hashes require a CSV list of hashes
    with no spaces between the hash values.
- - @OutputServerName is not functional yet.
+ - @OutputServerName is functional, but query plans will return as NVARCHAR(MAX)
+   rather than XML, and the summary table will not be stored.
 
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
@@ -2102,6 +2103,11 @@ BEGIN
 		BEGIN
 			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''')
 			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + QUOTENAME(CONVERT(VARCHAR(128), [PlanHandle], 1), CHAR(39)) + '''');''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + QUOTENAME(CONVERT(VARCHAR(128), [SqlHandle], 1), CHAR(39)) + '''');''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''' + QUOTENAME(CONVERT(VARCHAR(128), [SqlHandle], 1), CHAR(39)) + ''''; ''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''' + QUOTENAME(CONVERT(VARCHAR(32), [QueryHash], 1), CHAR(39)) + ''''; ''''')
+			SET @insert_sql = REPLACE(@insert_sql,'N/A','''N/A''')
 			SET @insert_sql = REPLACE(@insert_sql,'XML','[NVARCHAR](MAX)')
 			EXEC('EXEC('''+@insert_sql+''') AT ' + @OutputServerName);
 		END   
@@ -2118,6 +2124,7 @@ BEGIN
 				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 				+ @OutputSchemaName + N''') '
 				+ 'INSERT '
+				+ @OutputServerName + '.'
 				+ @OutputDatabaseName + '.'
 				+ @OutputSchemaName + '.'
 				+ @OutputTableName
@@ -2130,7 +2137,7 @@ BEGIN
 				+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
 				+ N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
 				+ N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CONVERT(NVARCHAR(MAX),QueryPlan), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
 				+ N' SerialRequiredMemory, SerialDesiredMemory '
 				+ N' FROM ##bou_BlitzCacheProcs '
           
@@ -2147,12 +2154,8 @@ BEGIN
 															WHEN 'avg executions' THEN 'ExecutionsPerMinute'
 															END + N' DESC '
 
-			SET @insert_sql += N' OPTION (RECOMPILE) ; '    
-    
-			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''')
-			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''')
-			SET @insert_sql = REPLACE(@insert_sql,'XML','[NVARCHAR](MAX)')
-			EXEC('EXEC('''+@insert_sql+''') AT ' + @OutputServerName);
+
+			EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
 		END   
 	ELSE
 		BEGIN
