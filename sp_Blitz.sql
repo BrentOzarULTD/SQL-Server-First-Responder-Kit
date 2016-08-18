@@ -1908,6 +1908,29 @@ AS
 							END;
 					END
 
+						IF ( SELECT COUNT (distinct [size])
+							FROM   tempdb.sys.database_files
+							WHERE  type_desc = 'ROWS'
+							) <> 1
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  DatabaseName ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+								VALUES  ( 999 , -- check ID may be TBD
+										  'tempdb' ,
+										  170 ,
+										  'File Configuration' ,
+										  'TempDB data files have uneven sizes' ,
+										  'http://BrentOzar.com/go/tempdb' ,
+										  'TempDB data files are not configured with the same size.  Unevenly sized tempdb data files will result in unevenly sized workloads.'
+										);
+							END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
