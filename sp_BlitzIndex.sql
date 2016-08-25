@@ -2889,7 +2889,7 @@ BEGIN;
         RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             
         /*Return results.*/
-        IF @GetAllDatabases = 1
+        IF (@GetAllDatabases = 1 AND @Mode = 0)
         BEGIN
 
             SELECT Priority, ISNULL(br.findings_group,N'') + 
@@ -2910,14 +2910,12 @@ BEGIN;
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
             WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
-            ORDER BY Priority, br.findings_group, br.finding, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
         END
-        ELSE
+        ELSE IF (@GetAllDatabases = 1 AND @Mode = 4)
             SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
-
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -2931,9 +2929,6 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            ORDER BY Priority, br.findings_group, br.finding, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
-
-
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
