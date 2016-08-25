@@ -249,6 +249,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Server Name | http://BrentOzar.com/go/servername | 130 |
 | 250 | Server Info | Services |  | 83 |
 | 250 | Server Info | SQL Server Last Restart |  | 88 |
+| 250 | Server Info | Server Last Restart |  | 91 |
 | 250 | Server Info | SQL Server Service |  | 85 |
 | 250 | Server Info | Virtual Server | http://BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
