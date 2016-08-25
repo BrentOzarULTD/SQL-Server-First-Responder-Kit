@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
+	@SkipPartitions BIT	= 0,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -824,12 +825,13 @@ BEGIN TRY
                                         AND c.index_id = si.index_id 
                                         ) AS D4 ( count_included_columns, count_key_columns );
 
-        IF (SELECT LEFT(@SQLServerProductVersion,
-              CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <= 2147483647 --Make change here 
-        BEGIN
-
-            RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+		 IF (@SkipPartitions = 0)
+			BEGIN			
+			IF (SELECT LEFT(@SQLServerProductVersion,
+			      CHARINDEX('.',@SQLServerProductVersion,0)-1 )) <= 2147483647 --Make change here 			
+			BEGIN
+            
+			RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
@@ -876,7 +878,7 @@ BEGIN TRY
             OPTION    ( RECOMPILE );
             ';
         END
-        ELSE 
+        ELSE
         BEGIN
         RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
@@ -922,8 +924,7 @@ BEGIN TRY
                 ORDER BY ps.object_id,  ps.index_id, ps.partition_number
                 OPTION    ( RECOMPILE );
                 ';
- 
-        END       
+        END;       
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -965,6 +966,8 @@ BEGIN TRY
                 JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
                                         AND ps.index_id = i.index_id
                                         AND i.database_id = ps.database_id
+		END; --End Check For @SkipPartitions = 0
+
 
         RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
         INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], partition_count, total_rows, total_reserved_MB,
@@ -2910,6 +2913,7 @@ BEGIN;
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
             WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
+            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
         END
         ELSE IF (@GetAllDatabases = 1 AND @Mode = 4)
@@ -2929,6 +2933,7 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
+            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
