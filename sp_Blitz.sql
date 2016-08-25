@@ -5294,6 +5294,28 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 91 )
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  91 AS CheckID ,
+												250 AS Priority ,
+												'Server Info' AS FindingsGroup ,
+												'Server Last Restart' AS Finding ,
+												'' AS URL ,
+												CAST(DATEADD(SECOND, (ms_ticks/1000)*(-1), GETDATE()) AS nvarchar(25))
+										FROM sys.dm_os_sys_info
+							END
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 92 )
 							BEGIN
 								INSERT  INTO #driveInfo
