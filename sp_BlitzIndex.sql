@@ -1655,6 +1655,7 @@ BEGIN;
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
+								AND is_primary_key = 0
                            GROUP BY    [object_id], key_column_names, database_id
                            HAVING    COUNT(*) > 1)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
