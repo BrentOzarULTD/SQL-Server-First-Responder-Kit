@@ -1679,6 +1679,7 @@ BEGIN;
                                 JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id AND ip.database_id = ips.database_id
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
+						AND ip.is_primary_key = 0
                         ORDER BY ip.object_id, ip.key_column_names_with_sort_order    
                 OPTION    ( RECOMPILE );
 
