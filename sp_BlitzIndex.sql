@@ -1894,6 +1894,7 @@ BEGIN;
                                 AND 
                                     (count_key_columns > 3 /*More than three key columns.*/
                                     OR cc.sum_max_length > 16 /*More than 16 bytes in key */)
+									AND i.is_CX_columnstore = 0
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
