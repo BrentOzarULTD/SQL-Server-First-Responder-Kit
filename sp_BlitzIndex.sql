@@ -405,12 +405,45 @@ SET @NumDatabases = @@ROWCOUNT;
 BEGIN TRY
         IF @NumDatabases >= 50 AND @BringThePain != 1
         BEGIN
-            SET @msg= N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. '
-                        + CHAR(13) + N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server and/or user.'
-                        + CHAR(13) + N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
-            RAISERROR(@msg, 10,1) WITH NOWAIT;
-            RETURN;
-        END
+
+            INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
+                                            index_usage_summary, index_size_summary )
+            VALUES  ( -1, 0 , 
+		            @ScriptVersionName,
+                    CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
+                    N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+                    N''
+                    , N'',N''
+                    );
+            INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, database_name, URL, details, index_definition,
+                                            index_usage_summary, index_size_summary )
+            VALUES  ( 1, 0 , 
+		           N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. ',
+                   N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server and/or user.',
+				   N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
+                   'http://FirstResponderKit.org', '', '', '', ''
+                    );        
+		
+		SELECT bir.blitz_result_id,
+               bir.check_id,
+               bir.index_sanity_id,
+               bir.Priority,
+               bir.findings_group,
+               bir.finding,
+               bir.database_name,
+               bir.URL,
+               bir.details,
+               bir.index_definition,
+               bir.secret_columns,
+               bir.index_usage_summary,
+               bir.index_size_summary,
+               bir.create_tsql,
+               bir.more_info 
+			   FROM #BlitzIndexResults AS bir
+
+		RETURN;
+
+		END
 END TRY
 BEGIN CATCH
         RAISERROR (N'Failure to execute due to number of databases.', 0,1) WITH NOWAIT;
@@ -1633,7 +1666,7 @@ BEGIN;
                                 'Duplicate keys' AS finding,
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/duplicateindex' AS URL,
-                                N'Index Name: ' + ip.index_name AS details,
+                                N'Index Name: ' + ip.index_name + N' Table Name: ' + ip.db_schema_object_name AS details,
                                 ip.index_definition, 
                                 ip.secret_columns, 
                                 ip.index_usage_summary,
