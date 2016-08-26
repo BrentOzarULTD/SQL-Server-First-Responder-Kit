@@ -2868,7 +2868,7 @@ BEGIN;
                     , N'',N''
                     );
         END
-        ELSE IF @Mode = 0 OR @GetAllDatabases = 1
+        ELSE IF @Mode = 0 OR (@GetAllDatabases = 1 AND @Mode <> 4)
         BEGIN
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
