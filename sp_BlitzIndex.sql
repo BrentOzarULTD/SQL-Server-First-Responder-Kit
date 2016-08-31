@@ -2947,7 +2947,7 @@ BEGIN;
         RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             
         /*Return results.*/
-        IF (@GetAllDatabases = 1 AND @Mode = 0)
+        IF (@Mode = 0)
         BEGIN
 
             SELECT Priority, ISNULL(br.findings_group,N'') + 
@@ -2971,7 +2971,7 @@ BEGIN;
             ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
         END
-        ELSE IF (@GetAllDatabases = 1 AND @Mode = 4)
+        ELSE IF (@Mode = 4)
             SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
