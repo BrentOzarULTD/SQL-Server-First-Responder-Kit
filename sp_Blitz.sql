@@ -1922,11 +1922,11 @@ AS
 										  URL ,
 										  Details
 										)
-								VALUES  ( 999 , -- check ID may be TBD
+								VALUES  ( 183 ,
 										  'tempdb' ,
 										  170 ,
 										  'File Configuration' ,
-										  'TempDB data files have uneven sizes' ,
+										  'TempDB Unevenly Sized Data Files' ,
 										  'http://BrentOzar.com/go/tempdb' ,
 										  'TempDB data files are not configured with the same size.  Unevenly sized tempdb data files will result in unevenly sized workloads.'
 										);
