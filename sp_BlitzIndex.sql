@@ -2941,7 +2941,7 @@ BEGIN;
     --This mode is to give some overall stats on the database.
         RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
-        SELECT 
+        SELECT DB_NAME(i.database_id),
             CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
             CAST(CAST(SUM(sz.total_reserved_MB)/
                 1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
@@ -2985,16 +2985,17 @@ BEGIN;
         FROM #IndexSanity AS i
         --left join here so we don't lose disabled nc indexes
         LEFT JOIN #IndexSanitySize AS sz 
-            ON i.index_sanity_id=sz.index_sanity_id 
+            ON i.index_sanity_id=sz.index_sanity_id
+		GROUP BY DB_NAME(i.database_id)	 
         UNION ALL
-        SELECT    N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121)    ,        
+        SELECT  CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END,        
                 @ScriptVersionName,   
                 N'From Your Community Volunteers' ,   
                 N'http://FirstResponderKit.org' ,
                 N'',
                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-                NULL,0 AS display_order
+                NULL,NULL,0 AS display_order
         ORDER BY [Display Order] ASC
         OPTION (RECOMPILE);
            
