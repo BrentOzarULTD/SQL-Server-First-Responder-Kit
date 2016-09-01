@@ -413,6 +413,15 @@ AS
 											  NULL
 			)
 
+		IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL
+			DROP TABLE #ErrorLog;
+		CREATE TABLE #ErrorLog
+			(
+			  LogDate DATETIME ,
+			  ProcessInfo NVARCHAR(20) ,
+			  [Text] NVARCHAR(1000) 
+			);
+
         /* Used for the default trace checks. */
         DECLARE @TracePath NVARCHAR(256);
         SELECT @TracePath=CAST(value as NVARCHAR(256))
@@ -5179,6 +5188,35 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							[dopm].[locked_page_allocations_kb] > 0;
 					END; 
 
+			/*
+			Starting with SQL Server 2014 SP2, Instant File Initialization 
+			is logged in the SQL Server Error Log.
+			*/
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 130 )
+							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
+						BEGIN
+							INSERT INTO #ErrorLog
+							EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+
+							IF @@ROWCOUNT > 0
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  [Priority] ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT
+												184 AS [CheckID] ,
+												250 AS [Priority] ,
+												'Server Info' AS [FindingsGroup] ,
+												'Instant File Initialization Enabled' AS [Finding] ,
+												'' AS [URL] ,
+												'The service account has the Perform Volume Maintenance Tasks permission.'
+						END; 
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
