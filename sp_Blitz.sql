@@ -5194,7 +5194,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 			*/
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 130 )
+									WHERE   DatabaseName IS NULL AND CheckID = 184 )
 							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
 						BEGIN
 							INSERT INTO #ErrorLog
