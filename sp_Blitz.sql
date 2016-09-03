@@ -3160,6 +3160,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							[sys].[dm_server_services]
 						  WHERE [status_desc] <> 'Running'
 						  AND [servicename] LIKE 'SQL Server Agent%'
+						  AND SERVERPROPERTY('Edition') NOT LIKE '%xpress%'
 
 					END; 
 				END;
