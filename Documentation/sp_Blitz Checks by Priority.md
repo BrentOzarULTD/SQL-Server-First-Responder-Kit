@@ -99,6 +99,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | File Configuration | TempDB Has >16 Data Files | http://BrentOzar.com/go/tempdb | 175 |
 | 170 | File Configuration | TempDB on C Drive | http://BrentOzar.com/go/drivec | 25 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | http://BrentOzar.com/go/tempdb | 40 |
+| 170 | File Configuration | TempDB Unevenly Sized Data Files | http://BrentOzar.com/go/tempdb | 183 |
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | http://BrentOzar.com/go/grow | 42 |
 | 170 | Reliability | Database Files on Network File Shares | http://BrentOzar.com/go/nas | 148 |
 | 170 | Reliability | Database Files Stored in Azure | http://BrentOzar.com/go/azurefiles | 149 |
@@ -249,6 +250,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Server Name | http://BrentOzar.com/go/servername | 130 |
 | 250 | Server Info | Services |  | 83 |
 | 250 | Server Info | SQL Server Last Restart |  | 88 |
+| 250 | Server Info | Server Last Restart |  | 91 |
 | 250 | Server Info | SQL Server Service |  | 85 |
 | 250 | Server Info | Virtual Server | http://BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |

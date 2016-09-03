@@ -29,7 +29,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160715'
+	SET @VersionDate = '20160903'
 
 	IF @Help = 1 PRINT '
 	/*
@@ -48,32 +48,15 @@ AS
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
 	   but does work the second time. (Hoo, boy, this will be fun to debug.)
-      - @OutputServerName is not functional yet.
+      - @OutputServerName will output QueryPlans as NVARCHAR(MAX) since Microsoft
+	    has refused to support XML columns in Linked Server queries. The bug is now
+		16 years old! *~ \o/ ~*
 
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v53.1 - 2016/07/15
-      - Warn about 2016 Query Store cleanup bug in Standard, Evaluation, Express:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/352
-      - Updating list of supported SQL Server versions:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/344
-      - Fixing bug in wait stats percentages:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/324
-	  - For the full list of improvements and fixes in this version, see:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/3?closed=1
-
-
-     Changes in v53 - 2016/06/26
-	  - BREAKING CHANGE: Standardized input & output parameters to be
-         consistent across the entire First Responder Kit. This also means the old
-         old output parameter @Version is no more, because we are switching to
-         semantic versioning. 	 
-	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
-	 - BREAKING CHANGE: The CheckDate field datatype is now DATETIMEOFFSET. This
-	   makes it easier to combine results from multiple servers into one table even
-	   when servers are in different data centers, different time zones. More info:
-	   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
+     Changes - for the full list of improvements and fixes in this version, see:
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
 
 
 	Parameter explanations:
@@ -411,6 +394,15 @@ AS
 											  NULL
 			)
 
+		IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL
+			DROP TABLE #ErrorLog;
+		CREATE TABLE #ErrorLog
+			(
+			  LogDate DATETIME ,
+			  ProcessInfo NVARCHAR(20) ,
+			  [Text] NVARCHAR(1000) 
+			);
+
         /* Used for the default trace checks. */
         DECLARE @TracePath NVARCHAR(256);
         SELECT @TracePath=CAST(value as NVARCHAR(256))
@@ -423,7 +415,7 @@ AS
 
 		SET @MSSinceStartup = @MSSinceStartup * 60000;
 
-		SELECT @CPUMSsinceStartup = @MSSinceStartup * cpu_count
+		SELECT @CPUMSsinceStartup = @MSSinceStartup * scheduler_count
 			FROM sys.dm_os_sys_info;
 
 
@@ -441,6 +433,7 @@ AS
 
 		/* Sanitize our inputs */
 		SELECT
+			@OutputServerName = QUOTENAME(@OutputServerName),
 			@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 			@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 			@OutputTableName = QUOTENAME(@OutputTableName)
@@ -562,7 +555,7 @@ AS
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
-										AND d.state <> 1 /* Not currently restoring, like log shipping databases */
+										AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										AND d.is_in_standby = 0 /* Not a log shipping target database */
 										AND d.source_database_id IS NULL /* Excludes database snapshots */
 										AND d.name NOT IN ( SELECT DISTINCT
@@ -1905,6 +1898,29 @@ AS
 							END;
 					END
 
+						IF ( SELECT COUNT (distinct [size])
+							FROM   tempdb.sys.database_files
+							WHERE  type_desc = 'ROWS'
+							) <> 1
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  DatabaseName ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+								VALUES  ( 183 ,
+										  'tempdb' ,
+										  170 ,
+										  'File Configuration' ,
+										  'TempDB Unevenly Sized Data Files' ,
+										  'http://BrentOzar.com/go/tempdb' ,
+										  'TempDB data files are not configured with the same size.  Unevenly sized tempdb data files will result in unevenly sized workloads.'
+										);
+							END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -2388,7 +2404,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: THREADPOOL'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
-											CAST(SUM([wait_time_ms]) / 10000 / 1000 / 60 / 60 / 24 AS VARCHAR) + CAST(CONVERT(TIME, DATEADD(ms, SUM([wait_time_ms] / 10000 % 1000), DATEADD(ss, SUM([wait_time_ms] / 10000000), 0))) AS VARCHAR) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'THREADPOOL'
 									GROUP BY wait_type
@@ -2439,7 +2455,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
-											CAST(SUM([wait_time_ms]) / 10000 / 1000 / 60 / 60 / 24 AS VARCHAR) + CAST(CONVERT(TIME, DATEADD(ms, SUM([wait_time_ms] / 10000 % 1000), DATEADD(ss, SUM([wait_time_ms] / 10000000), 0))) AS VARCHAR) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE'
 									GROUP BY wait_type
@@ -2465,7 +2481,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: Serializable Locking'  AS Finding ,
 											'http://BrentOzar.com/go/serializable' AS URL ,
-											CAST(SUM([wait_time_ms]) / 10000 / 1000 / 60 / 60 / 24 AS VARCHAR) + CAST(CONVERT(TIME, DATEADD(ms, SUM([wait_time_ms] / 10000 % 1000), DATEADD(ss, SUM([wait_time_ms] / 10000000), 0))) AS VARCHAR) + ' of LCK_R% waits have been recorded. This wait often indicates killer performance problems.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of LCK_R% waits have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type LIKE '%LCK%R%'
 								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
@@ -2492,7 +2508,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: CMEMTHREAD & NUMA'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
-											CAST(SUM([wait_time_ms]) / 10000 / 1000 / 60 / 60 / 24 AS VARCHAR) + CAST(CONVERT(TIME, DATEADD(ms, SUM([wait_time_ms] / 10000 % 1000), DATEADD(ss, SUM([wait_time_ms] / 10000000), 0))) AS VARCHAR) + ' of this wait have been recorded. In servers with over 8 cores per NUMA node, when CMEMTHREAD waits are a bottleneck, trace flag 8048 may be needed.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. In servers with over 8 cores per NUMA node, when CMEMTHREAD waits are a bottleneck, trace flag 8048 may be needed.'
 									FROM sys.dm_os_nodes n 
 									INNER JOIN sys.[dm_os_wait_stats] w ON w.wait_type = 'CMEMTHREAD'
 									WHERE n.node_id = 0 AND n.online_scheduler_count >= 8
@@ -2973,6 +2989,7 @@ AS
 									AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
 								WHERE cFree.object_name LIKE N'%Memory Manager%'
 									AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
+									AND CAST(cTotal.cntr_value AS BIGINT) > 4000
 									AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
                                     AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
 
@@ -2997,7 +3014,7 @@ AS
 						                        0 AS Priority ,
 						                        'Outdated sp_Blitz' AS FindingsGroup ,
 						                        'sp_Blitz is Over 6 Months Old' AS Finding ,
-						                        'http://www.BrentOzar.com/blitz/' AS URL ,
+						                        'http://FirstResponderKit.org/' AS URL ,
 						                        'Some things get better with age, like fine wine and your T-SQL. However, sp_Blitz is not one of those things - time to go download the current one.' AS Details
 	                        END
 
@@ -3124,6 +3141,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							[sys].[dm_server_services]
 						  WHERE [status_desc] <> 'Running'
 						  AND [servicename] LIKE 'SQL Server Agent%'
+						  AND CAST(SERVERPROPERTY('Edition') AS VARCHAR(1000)) NOT LIKE '%xpress%'
 
 					END; 
 				END;
@@ -3390,8 +3408,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
 												WHERE [name] NOT IN
-												('system_health', 'sp_server_diagnostics session', 'hkenginexesession'
-												)
+												('system_health', 'sp_server_diagnostics session', 'hkenginexesession', 'telemetry_xevents')
+												AND name NOT LIKE '%$A%'
 											  HAVING COUNT_BIG(*) >= 2; 
 								END	
 								END
@@ -5152,6 +5170,35 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							[dopm].[locked_page_allocations_kb] > 0;
 					END; 
 
+			/*
+			Starting with SQL Server 2014 SP2, Instant File Initialization 
+			is logged in the SQL Server Error Log.
+			*/
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 184 )
+							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
+						BEGIN
+							INSERT INTO #ErrorLog
+							EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+
+							IF @@ROWCOUNT > 0
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  [Priority] ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT
+												184 AS [CheckID] ,
+												250 AS [Priority] ,
+												'Server Info' AS [FindingsGroup] ,
+												'Instant File Initialization Enabled' AS [Finding] ,
+												'' AS [URL] ,
+												'The service account has the Perform Volume Maintenance Tasks permission.'
+						END; 
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
@@ -5294,6 +5341,28 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 91 )
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  91 AS CheckID ,
+												250 AS Priority ,
+												'Server Info' AS FindingsGroup ,
+												'Server Last Restart' AS Finding ,
+												'' AS URL ,
+												CAST(DATEADD(SECOND, (ms_ticks/1000)*(-1), GETDATE()) AS nvarchar(25))
+										FROM sys.dm_os_sys_info
+							END
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 92 )
 							BEGIN
 								INSERT  INTO #driveInfo
@@ -5361,10 +5430,16 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												''Hardware - NUMA Config'' AS Finding ,
 												'''' AS URL ,
 												''Node: '' + CAST(n.node_id AS NVARCHAR(10)) + '' State: '' + node_state_desc
-												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10))
+												+ '' Online schedulers: '' + CAST(n.online_scheduler_count AS NVARCHAR(10)) + '' Offline schedulers: '' + CAST(oac.offline_schedulers AS VARCHAR(100)) + '' Processor Group: '' + CAST(n.processor_group AS NVARCHAR(10))
 												+ '' Memory node: '' + CAST(n.memory_node_id AS NVARCHAR(10)) + '' Memory VAS Reserved GB: '' + CAST(CAST((m.virtual_address_space_reserved_kb / 1024.0 / 1024) AS INT) AS NVARCHAR(100))
 										FROM sys.dm_os_nodes n
 										INNER JOIN sys.dm_os_memory_nodes m ON n.memory_node_id = m.memory_node_id
+										OUTER APPLY (SELECT 
+										COUNT(*) AS [offline_schedulers]
+										FROM sys.dm_os_schedulers dos
+										WHERE n.node_id = dos.parent_node_id 
+										AND dos.status = ''VISIBLE OFFLINE''
+										) oac
 										WHERE n.node_state_desc NOT LIKE ''%DAC%''
 										ORDER BY n.node_id'
 								EXECUTE(@StringToExecute);
@@ -5685,14 +5760,60 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
 				END
 
-
-				/* @OutputTableName lets us export the results to a permanent table */
-				IF @OutputDatabaseName IS NOT NULL
-					AND @OutputSchemaName IS NOT NULL
-					AND @OutputTableName IS NOT NULL
-					AND EXISTS ( SELECT *
+				/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
+				DECLARE @ValidOutputServer BIT
+				DECLARE @ValidOutputLocation BIT
+				DECLARE @LinkedServerDBCheck NVARCHAR(2000)
+				DECLARE @ValidLinkedServerDB INT
+				DECLARE @tmpdbchk table (cnt int)
+				IF @OutputServerName IS NOT NULL
+					BEGIN
+						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+							BEGIN
+								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')'
+								INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck
+								SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk)
+								IF (@ValidLinkedServerDB > 0)
+									BEGIN
+										SET @ValidOutputServer = 1
+										SET @ValidOutputLocation = 1
+									END
+								ELSE
+									RAISERROR('The specified database was not found on the output server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								RAISERROR('The specified output server was not found', 16, 0)
+							END
+					END
+				ELSE
+					BEGIN
+						IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND EXISTS ( SELECT *
 								 FROM   sys.databases
 								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								SET @ValidOutputLocation = 1
+							END
+						ELSE IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND NOT EXISTS ( SELECT *
+								 FROM   sys.databases
+								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								RAISERROR('The specified output database was not found on this server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								SET @ValidOutputLocation = 0 
+							END
+					END
+
+				/* @OutputTableName lets us export the results to a permanent table */
+				IF @ValidOutputLocation = 1
 					BEGIN
 						SET @StringToExecute = 'USE '
 							+ @OutputDatabaseName
@@ -5720,45 +5841,84 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								QueryPlanFiltered [NVARCHAR](MAX) NULL,
 								CheckID INT ,
 								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
-						EXEC(@StringToExecute);
-						SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
-							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-							+ @OutputSchemaName + ''') INSERT '
-							+ @OutputDatabaseName + '.'
-							+ @OutputSchemaName + '.'
-							+ @OutputTableName
-							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
-							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-						EXEC(@StringToExecute);
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''')
+								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''')
+								SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)')
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputServerName + '.'
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputServerName + '.'
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+
+								EXEC(@StringToExecute);
+							END   
+						ELSE
+							BEGIN
+								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								
+								EXEC(@StringToExecute);
+							END
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-							+ @OutputTableName
-							+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
-							+ 'CREATE TABLE '
-							+ @OutputTableName
-							+ ' (ID INT IDENTITY(1,1) NOT NULL,
-								ServerName NVARCHAR(128),
-								CheckDate DATETIMEOFFSET,
-								Priority TINYINT ,
-								FindingsGroup VARCHAR(50) ,
-								Finding VARCHAR(200) ,
-								DatabaseName NVARCHAR(128),
-								URL VARCHAR(200) ,
-								Details NVARCHAR(4000) ,
-								QueryPlan [XML] NULL ,
-								QueryPlanFiltered [NVARCHAR](MAX) NULL,
-								CheckID INT ,
-								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
-							+ ' INSERT '
-							+ @OutputTableName
-							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
-							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-						EXEC(@StringToExecute);
+						IF @ValidOutputServer = 1
+							BEGIN
+								RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0)
+							END
+						ELSE
+							BEGIN
+								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+									+ @OutputTableName
+									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
+									+ 'CREATE TABLE '
+									+ @OutputTableName
+									+ ' (ID INT IDENTITY(1,1) NOT NULL,
+										ServerName NVARCHAR(128),
+										CheckDate DATETIMEOFFSET,
+										Priority TINYINT ,
+										FindingsGroup VARCHAR(50) ,
+										Finding VARCHAR(200) ,
+										DatabaseName NVARCHAR(128),
+										URL VARCHAR(200) ,
+										Details NVARCHAR(4000) ,
+										QueryPlan [XML] NULL ,
+										QueryPlanFiltered [NVARCHAR](MAX) NULL,
+										CheckID INT ,
+										CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+									+ ' INSERT '
+									+ @OutputTableName
+									+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+									+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+									+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+							
+									EXEC(@StringToExecute);
+							END
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
