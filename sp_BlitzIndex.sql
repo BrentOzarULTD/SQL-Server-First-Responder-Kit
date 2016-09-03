@@ -34,8 +34,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.1';
-SET @VersionDate = '20160715';
+SET @Version = '4.2';
+SET @VersionDate = '20160903';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -66,46 +66,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - We knew them once, but we forgot.
 
-Changes in v4.1 - 2016/07/15:
- - Compression information in @Mode = 2:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/18
- - Use recently-modified check to improve indexes-not-in-use recommendations:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/220
- - Alphabetical sort for @GetAllDatabases = 1, @Mode = 2 output:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/351
- - Remove per-day cost filter for missing indexes in @Mode = 4:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/338
- - Missing index benefit is now labeled per-day to make it more obvious:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/330
+Changes - for the full list of improvements and fixes in this version, see:
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
 
-Changes in v4.0 - 2016/06/26:
- - BREAKING CHANGE: Standardized input & output parameters to be
-   consistent across the entire First Responder Kit. This also means the old
-   old output parameter @Version is no more, because we are switching to
-   semantic versioning. 	 
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
-- Bug fixes and improvements
-	- Erik Darling:
-		-Changed index_sanity_id to be NULLable in #IndexPartitionSanity
-		-Changed version check to only ever use LEFT JOIN query to get partition information.
-		 This was taking upwards of 6 minutes with 15k partitions.
-
-Changes in v3.0 - 2016/03/20:
- - Prioritized results
- - Moved URL to near the end of columns
- - Added 100k/day minimum benefit to high-value missing index recs
- - Expanded avg query cost on missing indexes to 4 decimal places
- - Formatted number of uses on missing indexes to use commas (money format)
- - Changed benefit formula to divide benefit number by uptime
- - When using either @Mode = 0 or @GetAllDatabases = 1, results are limited to:
-    *    Duplicate indexes where both are larger than @ThresholdMB
-    *    Blocking with a high threshold ( TBD)
-    *    Unread indexes larger than @ThresholdMB
-    *    Heaps larger than @ThresholdMB with updates or deletes
-    *    Identities about to run out of room
-    *    The top 20 missing indexes
-    *    Abnormal psychology stuff (as an FYI for query / index tuning)
- - Running @GetAllDatabases requires an override parameter (@BringThePain = 1) to run against 50+ databases
 
 MIT License
 
