@@ -2969,12 +2969,24 @@ BEGIN;
             
         /*Return results.*/
         IF (@Mode = 0)
-        BEGIN
+		BEGIN
 
-            SELECT Priority, ISNULL(br.findings_group,N'') + 
+		SELECT missing_indexes.Priority,
+                   missing_indexes.Finding,
+                   missing_indexes.[Details: schema.table.index(indexid)],
+                   missing_indexes.[Definition: [Property]] ColumnName {datatype maxbytes}],
+                   missing_indexes.[Secret Columns],
+                   missing_indexes.Usage,
+                   missing_indexes.Size,
+                   missing_indexes.[More Info],
+                   missing_indexes.URL,
+                   missing_indexes.[Create TSQL]
+			FROM (
+			SELECT TOP 922337203685477 
+					Priority, 
+					ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
-                br.[database_name] AS [Database Name],
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -2988,12 +3000,66 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+			WHERE br.check_id = 50
+            ORDER BY Priority, br.findings_group, br.finding, 
+			ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC,
+			br.database_name ASC, [check_id] ASC, blitz_result_id ASC
+			) AS missing_indexes
+			
+			UNION ALL
 
+			SELECT everything_else.Priority,
+                   everything_else.Finding,
+                   everything_else.[Details: schema.table.index(indexid)],
+                   everything_else.[Definition: [Property]] ColumnName {datatype maxbytes}],
+                   everything_else.[Secret Columns],
+                   everything_else.Usage,
+                   everything_else.Size,
+                   everything_else.[More Info],
+                   everything_else.URL,
+                   everything_else.[Create TSQL]
+			FROM (
+			SELECT TOP 922337203685477 
+					Priority, 
+					ISNULL(br.findings_group,N'') + 
+                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+                    + br.finding AS [Finding], 
+                br.details AS [Details: schema.table.index(indexid)], 
+                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+                ISNULL(br.secret_columns,'') AS [Secret Columns],          
+                br.index_usage_summary AS [Usage], 
+                br.index_size_summary AS [Size],
+                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+                br.URL, 
+                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+            FROM #BlitzIndexResults br
+            LEFT JOIN #IndexSanity sn ON 
+                br.index_sanity_id=sn.index_sanity_id
+            LEFT JOIN #IndexCreateTsql ts ON 
+                br.index_sanity_id=ts.index_sanity_id
+			WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 60, 61, 62, 63, 64, 65)
+            ORDER BY Priority, br.findings_group, br.finding, br.database_name ASC, [check_id] ASC, blitz_result_id ASC
+			) AS everything_else
+			ORDER BY Priority, Finding
+            
         END
+
         ELSE IF (@Mode = 4)
-            SELECT Priority, ISNULL(br.findings_group,N'') + 
+            
+			SELECT missing_indexes.Priority,
+                   missing_indexes.Finding,
+                   missing_indexes.[Details: schema.table.index(indexid)],
+                   missing_indexes.[Definition: [Property]] ColumnName {datatype maxbytes}],
+                   missing_indexes.[Secret Columns],
+                   missing_indexes.Usage,
+                   missing_indexes.Size,
+                   missing_indexes.[More Info],
+                   missing_indexes.URL,
+                   missing_indexes.[Create TSQL]
+			FROM (
+			SELECT TOP 922337203685477 
+					Priority, 
+					ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
                 br.details AS [Details: schema.table.index(indexid)], 
@@ -3009,7 +3075,47 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+			WHERE br.check_id = 50
+            ORDER BY Priority, br.findings_group, br.finding, 
+			ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC,
+			br.database_name ASC, [check_id] ASC, blitz_result_id ASC
+			) AS missing_indexes
+			
+			UNION ALL
+
+			SELECT everything_else.Priority,
+                   everything_else.Finding,
+                   everything_else.[Details: schema.table.index(indexid)],
+                   everything_else.[Definition: [Property]] ColumnName {datatype maxbytes}],
+                   everything_else.[Secret Columns],
+                   everything_else.Usage,
+                   everything_else.Size,
+                   everything_else.[More Info],
+                   everything_else.URL,
+                   everything_else.[Create TSQL]
+			FROM (
+			SELECT TOP 922337203685477 
+					Priority, 
+					ISNULL(br.findings_group,N'') + 
+                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+                    + br.finding AS [Finding], 
+                br.details AS [Details: schema.table.index(indexid)], 
+                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+                ISNULL(br.secret_columns,'') AS [Secret Columns],          
+                br.index_usage_summary AS [Usage], 
+                br.index_size_summary AS [Size],
+                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+                br.URL, 
+                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+            FROM #BlitzIndexResults br
+            LEFT JOIN #IndexSanity sn ON 
+                br.index_sanity_id=sn.index_sanity_id
+            LEFT JOIN #IndexCreateTsql ts ON 
+                br.index_sanity_id=ts.index_sanity_id
+			WHERE br.check_id <> 50
+            ORDER BY Priority, br.findings_group, br.finding, br.database_name ASC, [check_id] ASC, blitz_result_id ASC
+			) AS everything_else
+			ORDER BY Priority, Finding
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
