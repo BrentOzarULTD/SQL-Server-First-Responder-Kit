@@ -159,6 +159,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @ConfigurationSchemaName NVARCHAR(256) = NULL ,
     @ConfigurationTableName NVARCHAR(256) = NULL ,
     @DurationFilter DECIMAL(38,4) = NULL ,
+	@ExecutionCount BIGINT = NULL,
     @HideSummary BIT = 0 ,
     @IgnoreSystemDBs BIT = 1 ,
     @OnlyQueryHashes VARCHAR(MAX) = NULL ,
@@ -1101,6 +1102,8 @@ END
 IF @DurationFilter IS NOT NULL
     SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
 
+IF @ExecutionCount IS NOT NULL
+    SET @body += N'       AND execution_count > @execution_count' + @nl ;
 
 
 /* Apply the sort order here to only grab relevant plans.
@@ -1469,7 +1472,7 @@ IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
+	EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @execution_count BIGINT', @Top, @DurationFilter_i, @ExecutionCount;
 END
 
 /*
