@@ -2972,7 +2972,7 @@ BEGIN;
         IF (@Mode = 0)
 		BEGIN
 
-		SELECT missing_indexes.Priority,
+			SELECT missing_indexes.Priority,
                    missing_indexes.Finding,
 				   missing_indexes.DatabaseName,
                    missing_indexes.[Details: schema.table.index(indexid)],
@@ -3051,7 +3051,7 @@ BEGIN;
 
         ELSE IF (@Mode = 4)
             
-		SELECT missing_indexes.Priority,
+			SELECT missing_indexes.Priority,
                    missing_indexes.Finding,
 				   missing_indexes.DatabaseName,
                    missing_indexes.[Details: schema.table.index(indexid)],
@@ -3116,7 +3116,7 @@ BEGIN;
                 COALESCE(br.more_info,sn.more_info,'') AS [More Info],
                 br.URL, 
                 COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding) AS [Ordering]
+				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority) AS [Ordering]
             FROM #BlitzIndexResults br
             LEFT JOIN #IndexSanity sn ON 
                 br.index_sanity_id=sn.index_sanity_id
@@ -3124,7 +3124,7 @@ BEGIN;
                 br.index_sanity_id=ts.index_sanity_id
 			WHERE br.check_id <> 50
 			) AS everything_else
-			ORDER BY DatabaseName, Priority, Finding, Ordering
+			ORDER BY DatabaseName, Priority, Ordering
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
