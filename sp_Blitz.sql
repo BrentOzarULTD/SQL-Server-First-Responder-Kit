@@ -5520,8 +5520,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'REDO_THREAD_PENDING_WORK',
 												'UCS_SESSION_REGISTRATION',
 												'BROKER_TRANSMITTER',
-												'QDS_ASYNC_QUEUE',
-												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'))
+												'QDS_ASYNC_QUEUE'))
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
@@ -5571,8 +5570,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                 'PREEMPTIVE_HADR_LEASE_MECHANISM',
 												'SLEEP_SYSTEMTASK',
 												'QDS_SHUTDOWN_QUEUE',
-												'XE_LIVE_TARGET_TVF',
-												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG')
+												'XE_LIVE_TARGET_TVF')
 												AND wait_time_ms > .1 * @CPUMSsinceStartup
 												AND waiting_tasks_count > 0)
 									INSERT  INTO #BlitzResults
