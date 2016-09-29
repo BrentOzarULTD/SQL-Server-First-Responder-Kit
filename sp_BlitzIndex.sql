@@ -1735,8 +1735,8 @@ BEGIN;
                             WHERE di.[object_id] = ip.[object_id] AND
                                 di.first_key_column_name = ip.first_key_column_name AND
                                 di.key_column_names <> ip.key_column_names AND
-                                di.number_dupes > 1    
-                        )
+                                di.number_dupes > 1  
+                        ) AND ip.is_primary_key = 0
                         /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                                 
@@ -3037,7 +3037,7 @@ BEGIN;
                 COALESCE(br.more_info,sn.more_info,'') AS [More Info],
                 br.URL, 
                 COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding) AS [Ordering]
+				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding, br.details) AS [Ordering]
             FROM #BlitzIndexResults br
             LEFT JOIN #IndexSanity sn ON 
                 br.index_sanity_id=sn.index_sanity_id
@@ -3116,7 +3116,7 @@ BEGIN;
                 COALESCE(br.more_info,sn.more_info,'') AS [More Info],
                 br.URL, 
                 COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority) AS [Ordering]
+				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding, br.details) AS [Ordering]
             FROM #BlitzIndexResults br
             LEFT JOIN #IndexSanity sn ON 
                 br.index_sanity_id=sn.index_sanity_id
@@ -3124,7 +3124,7 @@ BEGIN;
                 br.index_sanity_id=ts.index_sanity_id
 			WHERE br.check_id <> 50
 			) AS everything_else
-			ORDER BY DatabaseName, Priority, Ordering
+			ORDER BY DatabaseName, Priority, Finding, Ordering
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
