@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20160715'
+SET @VersionDate = '20160903'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -53,31 +53,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
 
-Changes in v25 - 2016/07/15
- - Add new memory grants columns to 2012-2016 live queries output:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/362
- - Add SQL login to live queries output:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/354
- - Filter Perfmon counter display to skip counters with zeroes. Still logged to table though:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/356
+Changes - for the full list of improvements and fixes in this version, see:
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
 
-Changes in v24 - 2016/06/26
- - Renamed from sp_AskBrent.
- - BREAKING CHANGE: Standardized input & output parameters to be
-   consistent across the entire First Responder Kit. This also means the old
-   old output parameter @Version is no more, because we are switching to
-   semantic versioning. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
- - BREAKING CHANGE: The CheckDate field datatype is now DATETIMEOFFSET. This
-   makes it easier to combine results from multiple servers into one table even
-   when servers are in different data centers, different time zones. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
- - Added BROKER_TRANSMITTER to list of ignorable wait types. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/268
- - Also ignore REDO_THREAD_PENDING_WORK, UCS_SESSION_REGISTRATION. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/174
- - Only show what queries are running now if @ExpertMode = 1. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/266
 
 
 MIT License

@@ -196,46 +196,9 @@ Known limitations of this version:
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
-Changes in v3.1 - 2016/07/15:
- - Show cost for stored procedures:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/339
- - Warn about trace flags added at the query level, and global trace flags:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/361
- - Add warnings about Remote Queries:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/315
- - Do not show Forced Plans warning if the real cause is forced parameterization:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/343
- - Fix divide-by-zero error if Cost Threshold for Parallelism is 0:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/358
- - Fix warning for unparameterized query:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/334
+Changes - for the full list of improvements and fixes in this version, see:
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
 
-Changes in v3.0 - 2016/06/26:
- - BREAKING CHANGE: Standardized input & output parameters to be
-   consistent across the entire First Responder Kit. This also means the old
-   old output parameter @Version is no more, because we are switching to
-   semantic versioning.
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
- - BREAKING CHANGE: The output table now adds a CheckDate field with a data
-   type of DATETIMEOFFSET, and removes SampleTime. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
- - Summary output now moved to the bottom instead of the top.
- - Erik Darling added columns to @ExpertMode = 1 results ~ONLY~
-     Will show up when you use an Output Table
-     Will not show up in Excel exports
-     -Query Hash More Info, and SQL Handle More Info  give you
-      sp_BlitzIndex style queries to get more information about specific queries
-     -Remove Plan Handle From Cache, and Remove SQL Handle From Cache give you
-      DBCC FREEPROCCACHE statements to remove items from Plan Cache
-	  -FIX: @IgnoreQueryHashes was not working. Should be working now.
- - Fixed ##bou_BlitzCacheResults not cleaned out after each pass. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/303
- - Fixed ##bou_BlitzCacheResults not filtered by session id. More info:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/305
- - Erik Darling removed tempdb spills and expensive sorts from warnings.
-   Neither one works properly with cached plans.
-   Cleaned up documentation
-   Fixed bug related to CTFP being set to 0
 
 
 MIT License

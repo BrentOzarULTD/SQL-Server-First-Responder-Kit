@@ -29,7 +29,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160715'
+	SET @VersionDate = '20160903'
 
 	IF @Help = 1 PRINT '
 	/*
@@ -55,27 +55,8 @@ AS
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes in v53.1 - 2016/07/15
-      - Warn about 2016 Query Store cleanup bug in Standard, Evaluation, Express:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/352
-      - Updating list of supported SQL Server versions:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/344
-      - Fixing bug in wait stats percentages:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/324
-	  - For the full list of improvements and fixes in this version, see:
-         https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/3?closed=1
-
-
-     Changes in v53 - 2016/06/26
-	  - BREAKING CHANGE: Standardized input & output parameters to be
-         consistent across the entire First Responder Kit. This also means the old
-         old output parameter @Version is no more, because we are switching to
-         semantic versioning. 	 
-	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/284
-	 - BREAKING CHANGE: The CheckDate field datatype is now DATETIMEOFFSET. This
-	   makes it easier to combine results from multiple servers into one table even
-	   when servers are in different data centers, different time zones. More info:
-	   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/288
+     Changes - for the full list of improvements and fixes in this version, see:
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
 
 
 	Parameter explanations:
@@ -412,6 +393,15 @@ AS
 			  [text_filtered] [nvarchar](MAX) COLLATE SQL_Latin1_General_CP1_CI_AS
 											  NULL
 			)
+
+		IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL
+			DROP TABLE #ErrorLog;
+		CREATE TABLE #ErrorLog
+			(
+			  LogDate DATETIME ,
+			  ProcessInfo NVARCHAR(20) ,
+			  [Text] NVARCHAR(1000) 
+			);
 
         /* Used for the default trace checks. */
         DECLARE @TracePath NVARCHAR(256);
@@ -3024,7 +3014,7 @@ AS
 						                        0 AS Priority ,
 						                        'Outdated sp_Blitz' AS FindingsGroup ,
 						                        'sp_Blitz is Over 6 Months Old' AS Finding ,
-						                        'http://www.BrentOzar.com/blitz/' AS URL ,
+						                        'http://FirstResponderKit.org/' AS URL ,
 						                        'Some things get better with age, like fine wine and your T-SQL. However, sp_Blitz is not one of those things - time to go download the current one.' AS Details
 	                        END
 
@@ -3151,6 +3141,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							[sys].[dm_server_services]
 						  WHERE [status_desc] <> 'Running'
 						  AND [servicename] LIKE 'SQL Server Agent%'
+						  AND CAST(SERVERPROPERTY('Edition') AS VARCHAR(1000)) NOT LIKE '%xpress%'
 
 					END; 
 				END;
@@ -5179,6 +5170,35 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							[dopm].[locked_page_allocations_kb] > 0;
 					END; 
 
+			/*
+			Starting with SQL Server 2014 SP2, Instant File Initialization 
+			is logged in the SQL Server Error Log.
+			*/
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 184 )
+							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
+						BEGIN
+							INSERT INTO #ErrorLog
+							EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+
+							IF @@ROWCOUNT > 0
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  [Priority] ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT
+												184 AS [CheckID] ,
+												250 AS [Priority] ,
+												'Server Info' AS [FindingsGroup] ,
+												'Instant File Initialization Enabled' AS [Finding] ,
+												'' AS [URL] ,
+												'The service account has the Perform Volume Maintenance Tasks permission.'
+						END; 
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
@@ -5500,7 +5520,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'REDO_THREAD_PENDING_WORK',
 												'UCS_SESSION_REGISTRATION',
 												'BROKER_TRANSMITTER',
-												'QDS_ASYNC_QUEUE'))
+												'QDS_ASYNC_QUEUE',
+												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'))
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
@@ -5550,7 +5571,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                 'PREEMPTIVE_HADR_LEASE_MECHANISM',
 												'SLEEP_SYSTEMTASK',
 												'QDS_SHUTDOWN_QUEUE',
-												'XE_LIVE_TARGET_TVF')
+												'XE_LIVE_TARGET_TVF',
+												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG')
 												AND wait_time_ms > .1 * @CPUMSsinceStartup
 												AND waiting_tasks_count > 0)
 									INSERT  INTO #BlitzResults
