@@ -704,7 +704,7 @@ AS
 					AND EXISTS (SELECT *
 									FROM msdb.dbo.backupset bs
 									WHERE bs.type = 'D'
-									AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+									AND bs.backup_size >= 50000000000 /* At least 50GB */
 									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
 									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
 					BEGIN
@@ -724,7 +724,7 @@ AS
 										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
 								FROM msdb.dbo.backupset bs
 								WHERE bs.type = 'D'
-								AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+								AND bs.backup_size >= 50000000000 /* At least 50GB */
 								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
 								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 					END
@@ -3483,6 +3483,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 			IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 180 )
+							AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 					BEGIN
 						;
 						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
@@ -3517,6 +3518,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 181 )
+						AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 				BEGIN
 						;
 						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
