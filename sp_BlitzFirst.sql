@@ -216,14 +216,10 @@ BEGIN
 					            [derp].[query_plan] ,
 					            [qmg].[query_cost] ,
 							    [r].[blocking_session_id] ,
-					            [r].[cpu_time] AS [request_cpu_time],
-					            [r].[logical_reads] AS [request_logical_reads],
-					            [r].[writes] AS [request_writes],
-					            [r].[reads] AS [request_physical_reads] ,
-					            [s].[cpu_time] AS [session_cpu],
-					            [s].[logical_reads] AS [session_logical_reads],
-					            [s].[reads] AS [session_physical_reads] ,
-					            [s].[writes] AS [session_writes],
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
 					            [s].[memory_usage] ,
 					            [r].[estimated_completion_time] ,
 					            [r].[deadlock_priority] ,
@@ -260,7 +256,7 @@ BEGIN
 					              WHEN 0 THEN ''No''
 					              WHEN 1 THEN ''Yes''
 					              ELSE ''N/A''
-					            END AS [next_candidate_for_memory_grant] ,
+					            END AS ''Next Candidate For Memory Grant'' ,
 					            [qrs].[target_memory_kb] ,
 					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
 					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
@@ -282,7 +278,7 @@ BEGIN
 					            [s].[login_time] ,
 					            [r].[start_time] 
 					    FROM    [sys].[dm_exec_sessions] AS [s]
-					    INNER JOIN    [sys].[dm_exec_requests] AS [r]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
 					    ON      [r].[session_id] = [s].[session_id]
 					    LEFT JOIN ( SELECT DISTINCT
 					                        [wait].[session_id] ,
@@ -299,12 +295,10 @@ BEGIN
 					    ON      [s].[session_id] = [wt].[session_id]
 					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
-								AND [r].[plan_handle] = [query_stats].[plan_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
 					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-								AND [r].[request_id] = [qmg].[request_id]
 					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
@@ -340,14 +334,10 @@ BEGIN
 					            [derp].[query_plan] ,
 					            [qmg].[query_cost] ,
 							    [r].[blocking_session_id] ,
-					            [r].[cpu_time] AS [request_cpu_time],
-					            [r].[logical_reads] AS [request_logical_reads],
-					            [r].[writes] AS [request_writes],
-					            [r].[reads] AS [request_physical_reads] ,
-					            [s].[cpu_time] AS [session_cpu],
-					            [s].[logical_reads] AS [session_logical_reads],
-					            [s].[reads] AS [session_physical_reads] ,
-					            [s].[writes] AS [session_writes],
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
 					            [s].[memory_usage] ,
 					            [r].[estimated_completion_time] ,
 					            [r].[deadlock_priority] ,'
@@ -388,7 +378,7 @@ BEGIN
 					              WHEN 0 THEN ''No''
 					              WHEN 1 THEN ''Yes''
 					              ELSE ''N/A''
-					            END AS [next_candidate_for_memory_grant] ,
+					            END AS ''Next Candidate For Memory Grant'' ,
 					            [qrs].[target_memory_kb] ,
 					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
 					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
@@ -410,7 +400,7 @@ BEGIN
 					            [s].[login_time] ,
 					            [r].[start_time] 
 					    FROM    [sys].[dm_exec_sessions] AS [s]
-					    INNER JOIN    [sys].[dm_exec_requests] AS [r]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
 					    ON      [r].[session_id] = [s].[session_id]
 					    LEFT JOIN ( SELECT DISTINCT
 					                        [wait].[session_id] ,
@@ -427,12 +417,10 @@ BEGIN
 					    ON      [s].[session_id] = [wt].[session_id]
 					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
-								AND [r].[plan_handle] = [query_stats].[plan_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
 					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-								AND [r].[request_id] = [qmg].[request_id]
 					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
@@ -2691,14 +2679,10 @@ BEGIN
 					            [derp].[query_plan] ,
 					            [qmg].[query_cost] ,
 							    [r].[blocking_session_id] ,
-					            [r].[cpu_time] AS [request_cpu_time],
-					            [r].[logical_reads] AS [request_logical_reads],
-					            [r].[writes] AS [request_writes],
-					            [r].[reads] AS [request_physical_reads] ,
-					            [s].[cpu_time] AS [session_cpu],
-					            [s].[logical_reads] AS [session_logical_reads],
-					            [s].[reads] AS [session_physical_reads] ,
-					            [s].[writes] AS [session_writes],
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
 					            [s].[memory_usage] ,
 					            [r].[estimated_completion_time] ,
 					            [r].[deadlock_priority] ,
@@ -2735,7 +2719,7 @@ BEGIN
 					              WHEN 0 THEN ''No''
 					              WHEN 1 THEN ''Yes''
 					              ELSE ''N/A''
-					            END AS [next_candidate_for_memory_grant] ,
+					            END AS ''Next Candidate For Memory Grant'' ,
 					            [qrs].[target_memory_kb] ,
 					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
 					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
@@ -2757,7 +2741,7 @@ BEGIN
 					            [s].[login_time] ,
 					            [r].[start_time] 
 					    FROM    [sys].[dm_exec_sessions] AS [s]
-					    INNER JOIN    [sys].[dm_exec_requests] AS [r]
+					    JOIN    [sys].[dm_exec_requests] AS [r]
 					    ON      [r].[session_id] = [s].[session_id]
 					    LEFT JOIN ( SELECT DISTINCT
 					                        [wait].[session_id] ,
@@ -2774,13 +2758,11 @@ BEGIN
 					    ON      [s].[session_id] = [wt].[session_id]
 					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
-								AND [r].[plan_handle] = [query_stats].[plan_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-								AND [r].[request_id] = [qmg].[request_id]
-					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
 					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
@@ -2815,14 +2797,10 @@ BEGIN
 					            [derp].[query_plan] ,
 					            [qmg].[query_cost] ,
 							    [r].[blocking_session_id] ,
-					            [r].[cpu_time] AS [request_cpu_time],
-					            [r].[logical_reads] AS [request_logical_reads],
-					            [r].[writes] AS [request_writes],
-					            [r].[reads] AS [request_physical_reads] ,
-					            [s].[cpu_time] AS [session_cpu],
-					            [s].[logical_reads] AS [session_logical_reads],
-					            [s].[reads] AS [session_physical_reads] ,
-					            [s].[writes] AS [session_writes],
+					            [s].[cpu_time] ,
+					            [s].[logical_reads] ,
+					            [s].[writes] ,
+					            [s].[reads] AS [physical_reads] ,
 					            [s].[memory_usage] ,
 					            [r].[estimated_completion_time] ,
 					            [r].[deadlock_priority] ,'
@@ -2863,7 +2841,7 @@ BEGIN
 					              WHEN 0 THEN ''No''
 					              WHEN 1 THEN ''Yes''
 					              ELSE ''N/A''
-					            END AS [next_candidate_for_memory_grant] ,
+					            END AS ''Next Candidate For Memory Grant'' ,
 					            [qrs].[target_memory_kb] ,
 					            COALESCE(CAST([qrs].[max_target_memory_kb] AS VARCHAR),
 					                     ''Small Query Resource Semaphore'') AS [max_target_memory_kb] ,
@@ -2902,13 +2880,11 @@ BEGIN
 					    ON      [s].[session_id] = [wt].[session_id]
 					    LEFT JOIN [sys].[dm_exec_query_stats] AS [query_stats]
 					    ON      [r].[sql_handle] = [query_stats].[sql_handle]
-								AND [r].[plan_handle] = [query_stats].[plan_handle]
 					            AND [r].[statement_start_offset] = [query_stats].[statement_start_offset]
 					            AND [r].[statement_end_offset] = [query_stats].[statement_end_offset]
-					    LEFT JOIN [sys].[dm_exec_query_memory_grants] [qmg]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_memory_grants] [qmg]
 					    ON      [r].[session_id] = [qmg].[session_id]
-								AND [r].[request_id] = [qmg].[request_id]
-					    LEFT JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
+					    LEFT OUTER JOIN [sys].[dm_exec_query_resource_semaphores] [qrs]
 					    ON      [qmg].[resource_semaphore_id] = [qrs].[resource_semaphore_id]
 							    AND [qmg].[pool_id] = [qrs].[pool_id]
 					    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
