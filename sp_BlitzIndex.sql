@@ -146,10 +146,6 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
-IF OBJECT_ID('tempdb..#partition_compression_info') IS NOT NULL 
-    DROP TABLE #partition_compression_info;
-
-
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -345,14 +341,6 @@ IF OBJECT_ID('tempdb..#partition_compression_info') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256)
         )
-        
-		CREATE TABLE #partition_compression_info (
-			[index_sanity_id] INT NULL,
-			[partition_compression_detail] VARCHAR(8000) NULL
-        )
-		
-
-
 
 IF @GetAllDatabases = 1
     BEGIN
@@ -1382,51 +1370,6 @@ BEGIN TRY
                 AS create_tsql
         FROM #IndexSanity
         WHERE database_id = @DatabaseID;
-
- ;WITH    [maps]
-          AS ( SELECT   
-                        index_sanity_id,
-						partition_number,
-                        data_compression_desc,
-                        partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
-               FROM     #IndexPartitionSanity ips
-				),
-        [grps]
-          AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
-                        MAX([maps].[partition_number]) AS [MaxKey] ,
-						index_sanity_id,
-						maps.data_compression_desc
-               FROM     [maps]
-               GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
-    INSERT #partition_compression_info
-            (index_sanity_id, partition_compression_detail)
-	SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
-                                                + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
-                                                       THEN +'s '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
-                                                            + ' - '
-                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
-                                                            + ' use ' + grps2.data_compression_desc
-                                                       ELSE ' '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
-                                                            + ' uses '  + grps2.data_compression_desc
-                                                  END AS [Partitions]
-                                         FROM   [grps] AS grps2
-										 WHERE grps2.index_sanity_id = grps.index_sanity_id
-										 ORDER BY grps2.MinKey, grps2.MaxKey
-                                FOR     XML PATH('') ,
-                                            TYPE 
-						).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
-	FROM grps;
-
-	UPDATE sz
-	SET sz.data_compression_desc = pci.partition_compression_detail
-	FROM #IndexSanitySize sz
-	JOIN #partition_compression_info AS pci
-	ON pci.index_sanity_id = sz.index_sanity_id		
-
-
-
                     
     END
 END TRY
@@ -1467,6 +1410,42 @@ BEGIN
 
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
+ 
+ ;WITH    [maps]
+          AS ( SELECT   
+                        index_sanity_id,
+						partition_number,
+                        data_compression_desc,
+                        partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
+               FROM     #IndexPartitionSanity ips
+               WHERE    ips.object_id = @ObjectID
+				),
+        [grps]
+          AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
+                        MAX([maps].[partition_number]) AS [MaxKey] ,
+						index_sanity_id,
+						maps.data_compression_desc
+               FROM     [maps]
+               GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
+    SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
+                                                + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
+                                                       THEN +'s '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' - '
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + ' use ' + grps2.data_compression_desc
+                                                       ELSE ' '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' uses '  + grps2.data_compression_desc
+                                                  END AS [Partitions]
+                                         FROM   [grps] AS grps2
+										 WHERE grps2.index_sanity_id = grps.index_sanity_id
+										 ORDER BY grps2.MinKey, grps2.MaxKey
+                                FOR     XML PATH('') ,
+                                            TYPE 
+						).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
+	INTO #partition_compression_info
+	FROM grps;
 
     	
 	   WITH table_mode_cte AS (
@@ -1674,8 +1653,7 @@ BEGIN;
                            FROM        #IndexSanity
                            WHERE index_type IN (1,2) /* Clustered, NC only*/
                             AND is_hypothetical=0
-                            AND is_disabled=0
-							AND is_primary_key = 0)
+                            AND is_disabled=0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    2 AS check_id, 
@@ -1698,8 +1676,8 @@ BEGIN;
                             WHERE di.[object_id] = ip.[object_id] AND
                                 di.first_key_column_name = ip.first_key_column_name AND
                                 di.key_column_names <> ip.key_column_names AND
-                                di.number_dupes > 1  
-                        ) AND ip.is_primary_key = 0
+                                di.number_dupes > 1    
+                        )
                         /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                                 
@@ -2495,7 +2473,7 @@ BEGIN;
                             N'Compressed indexes' AS finding,
                             [database_name] AS [Database Name], 
                             N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
-                            i.db_schema_object_indexid  + N'. COMPRESSION:' + sz.data_compression_desc AS details, 
+                            i.db_schema_object_indexid  + N'. COMPRESSION: ' + sz.data_compression_desc AS details, 
                             i.index_definition,
                             i.secret_columns,
                             i.index_usage_summary,
@@ -2933,27 +2911,12 @@ BEGIN;
             
         /*Return results.*/
         IF (@Mode = 0)
-		BEGIN
+        BEGIN
 
-			SELECT missing_indexes.Priority,
-                   missing_indexes.Finding,
-				   missing_indexes.DatabaseName,
-                   missing_indexes.[Details: schema.table.index(indexid)],
-                   missing_indexes.[Definition: [Property]] ColumnName {datatype maxbytes}],
-                   missing_indexes.[Secret Columns],
-                   missing_indexes.Usage,
-                   missing_indexes.Size,
-                   missing_indexes.[More Info],
-                   missing_indexes.URL,
-                   missing_indexes.[Create TSQL],
-				   missing_indexes.Ordering
-			FROM (
-			SELECT  
-					Priority, 
-					ISNULL(br.findings_group,N'') + 
+            SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
-				br.database_name AS [DatabaseName],
+                br.[database_name] AS [Database Name],
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -2961,78 +2924,20 @@ BEGIN;
                 br.index_size_summary AS [Size],
                 COALESCE(br.more_info,sn.more_info,'') AS [More Info],
                 br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC) AS [Ordering]
+                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
             FROM #BlitzIndexResults br
             LEFT JOIN #IndexSanity sn ON 
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-			WHERE br.check_id = 50
-			) AS missing_indexes
-			
-			UNION ALL
+            WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
+            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
-			SELECT everything_else.Priority,
-                   everything_else.Finding,
-				   everything_else.DatabaseName,
-                   everything_else.[Details: schema.table.index(indexid)],
-                   everything_else.[Definition: [Property]] ColumnName {datatype maxbytes}],
-                   everything_else.[Secret Columns],
-                   everything_else.Usage,
-                   everything_else.Size,
-                   everything_else.[More Info],
-                   everything_else.URL,
-                   everything_else.[Create TSQL],
-				   everything_else.Ordering
-			FROM (
-			SELECT  
-					Priority, 
-					ISNULL(br.findings_group,N'') + 
-                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-                    + br.finding AS [Finding],
-				br.database_name AS [DatabaseName],	 
-                br.details AS [Details: schema.table.index(indexid)], 
-                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-                ISNULL(br.secret_columns,'') AS [Secret Columns],          
-                br.index_usage_summary AS [Usage], 
-                br.index_size_summary AS [Size],
-                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-                br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding, br.details) AS [Ordering]
-            FROM #BlitzIndexResults br
-            LEFT JOIN #IndexSanity sn ON 
-                br.index_sanity_id=sn.index_sanity_id
-            LEFT JOIN #IndexCreateTsql ts ON 
-                br.index_sanity_id=ts.index_sanity_id
-			WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 60, 61, 62, 63, 64, 65)
-			) AS everything_else
-			ORDER BY DatabaseName, Priority, Finding, Ordering
-            
         END
-
         ELSE IF (@Mode = 4)
-            
-			SELECT missing_indexes.Priority,
-                   missing_indexes.Finding,
-				   missing_indexes.DatabaseName,
-                   missing_indexes.[Details: schema.table.index(indexid)],
-                   missing_indexes.[Definition: [Property]] ColumnName {datatype maxbytes}],
-                   missing_indexes.[Secret Columns],
-                   missing_indexes.Usage,
-                   missing_indexes.Size,
-                   missing_indexes.[More Info],
-                   missing_indexes.URL,
-                   missing_indexes.[Create TSQL],
-				   missing_indexes.Ordering
-			FROM (
-			SELECT  
-					Priority, 
-					ISNULL(br.findings_group,N'') + 
+            SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
-				br.database_name AS [DatabaseName],
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -3040,54 +2945,13 @@ BEGIN;
                 br.index_size_summary AS [Size],
                 COALESCE(br.more_info,sn.more_info,'') AS [More Info],
                 br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC) AS [Ordering]
+                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
             FROM #BlitzIndexResults br
             LEFT JOIN #IndexSanity sn ON 
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-			WHERE br.check_id = 50
-			) AS missing_indexes
-			
-			UNION ALL
-
-			SELECT everything_else.Priority,
-                   everything_else.Finding,
-				   everything_else.DatabaseName,
-                   everything_else.[Details: schema.table.index(indexid)],
-                   everything_else.[Definition: [Property]] ColumnName {datatype maxbytes}],
-                   everything_else.[Secret Columns],
-                   everything_else.Usage,
-                   everything_else.Size,
-                   everything_else.[More Info],
-                   everything_else.URL,
-                   everything_else.[Create TSQL],
-				   everything_else.Ordering
-			FROM (
-			SELECT  
-					Priority, 
-					ISNULL(br.findings_group,N'') + 
-                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-                    + br.finding AS [Finding], 
-				br.database_name AS [DatabaseName],
-                br.details AS [Details: schema.table.index(indexid)], 
-                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-                ISNULL(br.secret_columns,'') AS [Secret Columns],          
-                br.index_usage_summary AS [Usage], 
-                br.index_size_summary AS [Size],
-                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-                br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-				ROW_NUMBER() OVER (PARTITION BY br.database_name ORDER BY br.Priority, br.finding, br.details) AS [Ordering]
-            FROM #BlitzIndexResults br
-            LEFT JOIN #IndexSanity sn ON 
-                br.index_sanity_id=sn.index_sanity_id
-            LEFT JOIN #IndexCreateTsql ts ON 
-                br.index_sanity_id=ts.index_sanity_id
-			WHERE br.check_id <> 50
-			) AS everything_else
-			ORDER BY DatabaseName, Priority, Finding, Ordering
+            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
@@ -3160,7 +3024,7 @@ BEGIN;
         --This supports slicing AND dicing in Excel
         RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
-        SELECT  database_name AS [Database Name], 
+        SELECT    database_name AS [Database Name], 
                 [schema_name] AS [Schema Name], 
                 [object_name] AS [Object Name], 
                 ISNULL(index_name, '') AS [Index Name], 
