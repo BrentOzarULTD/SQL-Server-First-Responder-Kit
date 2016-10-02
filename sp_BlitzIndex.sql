@@ -2921,6 +2921,7 @@ BEGIN;
             SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
+				br.[database_name] AS [Database Name],
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -2942,7 +2943,7 @@ BEGIN;
     --This mode is to give some overall stats on the database.
         RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
-        SELECT DB_NAME(i.database_id),
+        SELECT DB_NAME(i.database_id) AS [Database Name],
             CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
             CAST(CAST(SUM(sz.total_reserved_MB)/
                 1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
@@ -3007,7 +3008,7 @@ BEGIN;
         --This supports slicing AND dicing in Excel
         RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
-        SELECT    database_name AS [Database Name], 
+        SELECT  [database_name] AS [Database Name], 
                 [schema_name] AS [Schema Name], 
                 [object_name] AS [Object Name], 
                 ISNULL(index_name, '') AS [Index Name], 
@@ -3076,7 +3077,7 @@ BEGIN;
     ELSE IF @Mode=3 /*Missing index Detail*/
     BEGIN
         SELECT 
-            database_name AS [Database], 
+            database_name AS [Database Name], 
             [schema_name] AS [Schema], 
             table_name AS [Table], 
             CAST((magic_benefit_number/@DaysUptime) AS BIGINT)
