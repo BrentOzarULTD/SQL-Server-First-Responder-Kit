@@ -1463,12 +1463,12 @@ BEGIN
     SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
                                                 + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
                                                        THEN +'s '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' - '
-                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR(100))
                                                             + ' use ' + grps2.data_compression_desc
                                                        ELSE ' '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' uses '  + grps2.data_compression_desc
                                                   END AS [Partitions]
                                          FROM   [grps] AS grps2
