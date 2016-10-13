@@ -1686,7 +1686,8 @@ BEGIN;
                            FROM        #IndexSanity
                            WHERE index_type IN (1,2) /* Clustered, NC only*/
                             AND is_hypothetical=0
-                            AND is_disabled=0)
+                            AND is_disabled=0
+							AND is_primary_key = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    2 AS check_id, 
@@ -1711,6 +1712,7 @@ BEGIN;
                                 di.key_column_names <> ip.key_column_names AND
                                 di.number_dupes > 1    
                         )
+						AND ip.is_primary_key = 0
                         /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                                 
