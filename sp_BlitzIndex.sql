@@ -2966,7 +2966,8 @@ BEGIN;
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
             WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
         END
         ELSE IF (@Mode = 4)
@@ -2987,7 +2988,8 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+			ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
@@ -3160,6 +3162,7 @@ BEGIN;
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
             NULL, 0 AS display_order
         ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+		OPTION (RECOMPILE);
 
     END /* End @Mode=3 (index detail)*/
 END
