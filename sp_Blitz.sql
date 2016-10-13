@@ -575,7 +575,7 @@ AS
 										'Backup' AS FindingsGroup ,
 										'Backups Not Performed Recently' AS Finding ,
 										'http://BrentOzar.com/go/nobak' AS URL ,
-										'Database ' + d.name + ' last backed up: '
+										'Last backed up: '
 										+ COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
 								FROM    master.sys.databases d
 										LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -3676,28 +3676,23 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 184 )
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '10%'
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '9%'
 					BEGIN
-						  INSERT    INTO [#BlitzResults]
-									( [CheckID] ,
-									  [Priority] ,
-									  [FindingsGroup] ,
-									  [Finding] ,
-									  [URL] ,
-									  [Details] )
-
-							SELECT TOP 1
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        							SELECT TOP 1
 							  184 AS CheckID ,
 							  20 AS Priority ,
-							  'Reliability' AS FindingsGroup ,
-							  'No Failover Cluster Nodes Available' AS Finding ,
-							  'http://BrentOzar.com/go/node' AS URL ,
-							  'There are no failover cluster nodes available if the active node fails' AS Details
+							  ''Reliability'' AS FindingsGroup ,
+							  ''No Failover Cluster Nodes Available'' AS Finding ,
+							  ''http://BrentOzar.com/go/node'' AS URL ,
+							  ''There are no failover cluster nodes available if the active node fails'' AS Details
 							FROM (
 							  SELECT SUM(CASE WHEN [status] = 0 AND [is_current_owner] = 0 THEN 1 ELSE 0 END) AS [available_nodes]
 							  FROM sys.dm_os_cluster_nodes
 							) a
-							WHERE [available_nodes] < 1
-
+							WHERE [available_nodes] < 1';
+		                        EXECUTE(@StringToExecute);
 					END
 
 
@@ -4900,16 +4895,12 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											'Reliability' AS FindingsGroup ,
 											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
 											'http://BrentOzar.com/go/checkdb' AS URL ,
-											'Database [' + DB2.DbName + ']'
+											'Last successful CHECKDB: '
 											+ CASE DB2.Value
 												WHEN '1900-01-01 00:00:00.000'
-												THEN ' never had a successful DBCC CHECKDB.'
-												ELSE ' last had a successful DBCC CHECKDB run on '
-													 + DB2.Value + '.'
-											  END
-											+ ' This check should be run regularly to catch any database corruption as soon as possible.'
-											+ ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
-											+ ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
+												THEN ' never.'
+												ELSE DB2.Value
+											  END AS Details
 									FROM    DB2
 									WHERE   DB2.DbName <> 'tempdb'
 											AND DB2.DbName NOT IN ( SELECT DISTINCT
@@ -5263,7 +5254,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							250 AS [Priority] ,
 							'Server Info' AS [FindingsGroup] ,
 							'Windows Version' AS [Finding] ,
-							'http://BrentOzar.com/go/' AS [URL] ,
+							'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
 							( CASE 
 								WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 								WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
@@ -6040,24 +6031,23 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					ELSE IF @OutputType = 'MARKDOWN'
 						BEGIN
 							SET @ResultText = 'sp_Blitz Code as of ' + CONVERT(NVARCHAR(50), @VersionDate, 112) + @crlf + @crlf;
-							WITH Results AS (SELECT row_number() OVER (ORDER BY Priority, FindingsGroup, Finding) AS rownum, * 
-												FROM #BlitzResults)
-							SELECT 
-								@ResultText = @ResultText +
+							WITH Results AS (SELECT row_number() OVER (ORDER BY Priority, FindingsGroup, Finding, DatabaseName, Details) AS rownum, * 
+												FROM #BlitzResults
+												WHERE Priority > 0 AND Priority < 255 AND FindingsGroup IS NOT NULL AND Finding IS NOT NULL
+												AND FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */)
+							SELECT @ResultText = @ResultText + 
 								CASE 
-									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(r.Priority AS NVARCHAR(5)) + N': ' + r.FindingsGroup + N'**:' + @crlf + @crlf 
+									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(r.Priority AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,'') + N'**:' + @crlf + @crlf 
 									ELSE N'' 
 								END
-								+ CASE WHEN r.Finding <> rPrior.Finding AND r.Finding <> rNext.Finding THEN N'- ' + r.Finding + N' ' + COALESCE(r.DatabaseName, '') + N' - ' + COALESCE(r.Details, '') + @crlf
-									   WHEN r.Finding <> rPrior.Finding AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + r.Finding + N' - ' + r.Details + @crlf + N'    * ' + COALESCE(r.DatabaseName, '') + @crlf
-									   WHEN r.Finding <> rPrior.Finding AND r.Finding = rNext.Finding THEN N'- ' + r.Finding + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + r.DatabaseName END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' END
-									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + r.DatabaseName END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' + @crlf END 
+								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,'') AND r.Finding <> rNext.Finding THEN N'- ' + COALESCE(r.Finding,'') + N' ' + COALESCE(r.DatabaseName, '') + N' - ' + COALESCE(r.Details,'') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,'') + N' - ' + COALESCE(r.Details,'') + @crlf + N'    * ' + COALESCE(r.DatabaseName, '') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' + @crlf END 
 								END + @crlf
 							  FROM Results r
 							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
 							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
-							  WHERE r.Priority > 0 AND r.Priority < 255 AND r.FindingsGroup IS NOT NULL AND r.Finding IS NOT NULL
-								AND r.FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */
 							ORDER BY r.rownum;
 							SELECT CAST(N'<?ClickToSeeDetails -- Copy rows BELOW this line, down to the second-to-last line:' + @crlf + @crlf + @ResultText + @crlf + @crlf + '?>' AS XML);
 						END
@@ -6146,4 +6136,5 @@ EXEC [dbo].[sp_Blitz]
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
+sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputType = 'markdown';
 */
