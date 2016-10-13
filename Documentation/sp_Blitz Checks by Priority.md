@@ -34,6 +34,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | http://BrentOzar.com/go/repair | 102 |
 | 20 | Reliability | Memory Dumps Have Occurred | http://BrentOzar.com/go/dump | 171 |
+| 20 | Reliability | No Failover Cluster Nodes Available | http://BrentOzar.com/go/node | 184 |
 | 20 | Reliability | Plan Guides Failing | http://BrentOzar.com/go/guides | 164 |
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
@@ -61,9 +62,11 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 100 | Performance | Max Memory Set Too High | http://BrentOzar.com/go/max | 50 |
 | 100 | Performance | Memory Pressure Affecting Queries | http://BrentOzar.com/go/grants | 117 |
 | 100 | Performance | Partitioned database with non-aligned indexes | http://BrentOzar.com/go/aligned | 72 |
+| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
 | 100 | Performance | Resource Governor Enabled | http://BrentOzar.com/go/rg | 10 |
 | 100 | Performance | Server Triggers Enabled | http://BrentOzar.com/go/logontriggers/ | 11 |
 | 100 | Performance | Shrink Database Job | http://BrentOzar.com/go/autoshrink | 79 |
+| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
 | 100 | Performance | Single-Use Plans in Procedure Cache | http://BrentOzar.com/go/single | 35 |
 | 100 | Performance | Stored Procedure WITH RECOMPILE | http://BrentOzar.com/go/recompile | 78 |
 | 100 | Performance | Unusual SQL Server Edition | http://BrentOzar.com/go/workgroup | 97 |
@@ -255,5 +258,3 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Virtual Server | http://BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
 | 254 | Rundate | (Current Date) |  | 156 |
-| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
-| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
