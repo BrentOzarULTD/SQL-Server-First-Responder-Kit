@@ -3561,6 +3561,35 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 						END
 			
 
+			/* Reliability - No Failover Cluster Nodes Available - 184 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 184 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+							SELECT TOP 1
+							  184 AS CheckID ,
+							  20 AS Priority ,
+							  'Reliability' AS FindingsGroup ,
+							  'No Failover Cluster Nodes Available' AS Finding ,
+							  'http://BrentOzar.com/go/node' AS URL ,
+							  'There are no failover cluster nodes available if the active node fails' AS Details
+							FROM (
+							  SELECT SUM(CASE WHEN [status] = 0 AND [is_current_owner] = 0 THEN 1 ELSE 0 END) AS [available_nodes]
+							  FROM sys.dm_os_cluster_nodes
+							) a
+							WHERE [available_nodes] < 1
+
+					END
+
+
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
 
