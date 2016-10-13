@@ -713,10 +713,13 @@ AS
 										INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id
 																  AND bs.backup_start_date >= ( DATEADD(dd,
 																  -14, GETDATE()) )
+										/* Filter out databases that were recently restored: */
+										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
 								WHERE   UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
+										AND rh.destination_database_name IS NULL
 								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3))
 					END
 
