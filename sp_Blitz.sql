@@ -236,6 +236,8 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (100); /* Remote DAC disabled */
 						INSERT INTO #SkipChecks (CheckID) VALUES (123);
 						INSERT INTO #SkipChecks (CheckID) VALUES (177);
+						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
+						INSERT INTO #SkipChecks (CheckID) VALUES (181);
 			END /* Amazon RDS skipped checks */
 
 
