@@ -241,6 +241,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 230 | Security | Sysadmins | http://BrentOzar.com/go/sa | 4 |
 | 240 | Wait Stats | No Significant Waits Detected | http://BrentOzar.com/go/waits | 153 |
 | 240 | Wait Stats | Top Wait Stats | http://BrentOzar.com/go/waits | 152 |
+| 240 | Wait Stats | Wait Stats Have Been Cleared | http://BrentOzar.com/go/waits | 185 |
 | 250 | Informational | SQL Server Agent is running under an NT Service account | http://BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | http://BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |

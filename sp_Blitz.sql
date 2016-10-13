@@ -132,8 +132,8 @@ AS
 			,@CurrentFinding VARCHAR(200)
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
-			,@MSSinceStartup DECIMAL(38,0)
-			,@CPUMSsinceStartup DECIMAL(38,0);
+			,@MsSinceWaitsCleared DECIMAL(38,0)
+			,@CpuMsSinceWaitsCleared DECIMAL(38,0);
 
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
@@ -411,13 +411,32 @@ AS
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
         
-        SELECT @MSSinceStartup = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP)
+        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000
             FROM    sys.databases
             WHERE   name='tempdb';
 
-		SET @MSSinceStartup = @MSSinceStartup * 60000;
+		/* Have they cleared wait stats? Using a 10% fudge factor */
+		IF @MsSinceWaitsCleared * .9 > (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+			BEGIN
+				SET @MsSinceWaitsCleared = (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+				INSERT  INTO #BlitzResults
+						( CheckID ,
+							Priority ,
+							FindingsGroup ,
+							Finding ,
+							URL ,
+							Details
+						)
+					VALUES( 185,
+								240,
+								'Wait Stats',
+								'Wait Stats Have Been Cleared',
+								'http://BrentOzar.com/go/waits',
+								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' + CONVERT(NVARCHAR(100), DATEADD(ms, (-1 * @MsSinceWaitsCleared), GETDATE()), 120))
+			END
 
-		SELECT @CPUMSsinceStartup = @MSSinceStartup * scheduler_count
+		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
+		SELECT @CpuMsSinceWaitsCleared = @MsSinceWaitsCleared * scheduler_count
 			FROM sys.dm_os_sys_info;
 
 
@@ -5513,7 +5532,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CPUMSsinceStartup AND waiting_tasks_count > 0 
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CpuMsSinceWaitsCleared AND waiting_tasks_count > 0 
 											AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
 												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
 												'SQLTRACE_BUFFER_FLUSH',
@@ -5606,7 +5625,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'QDS_SHUTDOWN_QUEUE',
 												'XE_LIVE_TARGET_TVF',
 												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG')
-												AND wait_time_ms > .1 * @CPUMSsinceStartup
+												AND wait_time_ms > .1 * @CpuMsSinceWaitsCleared
 												AND waiting_tasks_count > 0)
 									INSERT  INTO #BlitzResults
 											( CheckID ,
@@ -5623,7 +5642,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MsSinceWaitsCleared  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
 													/* CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
