@@ -29,7 +29,8 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160903'
+	SET @VersionDate = '20160903';
+	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
 	/*
@@ -56,7 +57,7 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
      Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
 	Parameter explanations:
@@ -66,7 +67,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
@@ -133,8 +134,14 @@ AS
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
 			,@MsSinceWaitsCleared DECIMAL(38,0)
-			,@CpuMsSinceWaitsCleared DECIMAL(38,0);
+			,@CpuMsSinceWaitsCleared DECIMAL(38,0)
+			,@ResultText NVARCHAR(MAX)
+			,@crlf NVARCHAR(2);
 
+
+		SET @crlf = NCHAR(13) + NCHAR(10);
+		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
+		
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
 		CREATE TABLE #BlitzResults
@@ -491,9 +498,14 @@ AS
 			FROM sys.dm_os_sys_info;
 
 
-		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
-		IF @OutputType = 'CSV'
+		/* If we're outputting CSV or Markdown, don't bother checking the plan cache because we cannot export plans. */
+		IF @OutputType = 'CSV' OR @OutputType = 'MARKDOWN'
 			SET @CheckProcedureCache = 0;
+
+		/* If we're posting a question on Stack, include background info on the server */
+		IF @OutputType = 'MARKDOWN'
+			SET @CheckServerInfo = 1;
+
 
 		/* Only run CheckUserDatabaseObjects if there are less than 50 databases. */
 		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
@@ -6025,6 +6037,30 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									Finding ,
 									Details;
 						END
+					ELSE IF @OutputType = 'MARKDOWN'
+						BEGIN
+							SET @ResultText = 'sp_Blitz Code as of ' + CONVERT(NVARCHAR(50), @VersionDate, 112) + @crlf + @crlf;
+							WITH Results AS (SELECT row_number() OVER (ORDER BY Priority, FindingsGroup, Finding) AS rownum, * 
+												FROM #BlitzResults)
+							SELECT 
+								@ResultText = @ResultText +
+								CASE 
+									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(r.Priority AS NVARCHAR(5)) + N': ' + r.FindingsGroup + N'**:' + @crlf + @crlf 
+									ELSE N'' 
+								END
+								+ CASE WHEN r.Finding <> rPrior.Finding AND r.Finding <> rNext.Finding THEN N'- ' + r.Finding + N' ' + COALESCE(r.DatabaseName, '') + N' - ' + COALESCE(r.Details, '') + @crlf
+									   WHEN r.Finding <> rPrior.Finding AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + r.Finding + N' - ' + r.Details + @crlf + N'    * ' + COALESCE(r.DatabaseName, '') + @crlf
+									   WHEN r.Finding <> rPrior.Finding AND r.Finding = rNext.Finding THEN N'- ' + r.Finding + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + r.DatabaseName END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + r.DatabaseName END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,'') + @crlf ELSE '' + @crlf END 
+								END + @crlf
+							  FROM Results r
+							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
+							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
+							  WHERE r.Priority > 0 AND r.Priority < 255 AND r.FindingsGroup IS NOT NULL AND r.Finding IS NOT NULL
+								AND r.FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */
+							ORDER BY r.rownum;
+							SELECT CAST(N'<?ClickToSeeDetails -- Copy rows BELOW this line, down to the second-to-last line:' + @crlf + @crlf + @ResultText + @crlf + @crlf + '?>' AS XML);
+						END
 					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
@@ -6046,7 +6082,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				DROP TABLE #BlitzResults;
 
 				IF @OutputProcedureCache = 1
-					AND @CheckProcedureCache = 1
+				AND @CheckProcedureCache = 1
 					SELECT TOP 20
 							total_worker_time / execution_count AS AvgCPU ,
 							total_worker_time AS TotalCPU ,
