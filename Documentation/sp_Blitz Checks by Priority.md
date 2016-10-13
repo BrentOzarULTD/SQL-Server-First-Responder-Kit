@@ -109,6 +109,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | Reliability | Max File Size Set | http://BrentOzar.com/go/maxsize | 80 |
 | 200 | Backup | Backing Up Unneeded Database | http://BrentOzar.com/go/reportservertempdb | 127 |
 | 200 | Backup | MSDB Backup History Not Purged | http://BrentOzar.com/go/history | 3 |
+| 200 | Backup | MSDB Backup History Purged Too Frequently | http://BrentOzar.com/go/history | 186 |
 | 200 | Informational | @@Servername not set | http://BrentOzar.com/go/servername | 70 |
 | 200 | Informational | Agent Jobs Starting Simultaneously | http://BrentOzar.com/go/busyagent | 123 |
 | 200 | Informational | Backup Compression Default Off | http://BrentOzar.com/go/backup | 116 |

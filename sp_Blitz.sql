@@ -695,6 +695,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
+						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -714,9 +715,34 @@ AS
 										( 'Database backup history retained back to '
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
-								WHERE   bs.backup_start_date <= DATEADD(dd, -60,
-																  GETDATE())
 								ORDER BY backup_set_id ASC;
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 186 )
+					BEGIN
+						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  DatabaseName ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT TOP 1
+											186 AS CheckID ,
+											'msdb' ,
+											200 AS Priority ,
+											'Backup' AS FindingsGroup ,
+											'MSDB Backup History Purged Too Frequently' AS Finding ,
+											'http://BrentOzar.com/go/history' AS URL ,
+											( 'Database backup history only retained back to '
+											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
+									FROM    msdb.dbo.backupset bs
+									ORDER BY backup_set_id ASC;
 					END
 
 				IF NOT EXISTS ( SELECT  1
