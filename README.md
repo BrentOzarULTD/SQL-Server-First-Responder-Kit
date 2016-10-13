@@ -1,8 +1,24 @@
 # SQL Server First Responder Kit
+<a name="header1"></a>
 [![licence badge]][licence]
 [![stars badge]][stars]
 [![forks badge]][forks]
 [![issues badge]][issues]
+
+Navigation
+ - [How to Get Support](#how-to-get-support)
+ - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
+   - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
+     - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
+     - [Skipping Checks or Databases](#skipping-checks-or-databases)
+ - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
+   - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
+ - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
+   - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
+ - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
+   - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
+ - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
+ - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
 
@@ -15,8 +31,8 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 Only Microsoft-supported versions of SQL Server are supported here - sorry, 2005 and 2000. Some of these may work some of the time on 2005, but no promises, and don't file a support issue when they fail. (For example, we know the output tables won't work on SQL 2005 because one of the output fields is a DATETIMEOFFSET datatype, which isn't available in 2005.)
 
-## How to Get Support
 
+## How to Get Support
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](CONTRIBUTING.md#the-contributor-covenant-code-of-conduct).
 
 Want to talk to the developers? [Get an invite to SQLCommunity.slack.com](https://sqlps.io/slack/), and we're in the [#FirstResponderKit channel](https://sqlcommunity.slack.com/messages/firstresponderkit/).
@@ -25,8 +41,10 @@ Got a question? Ask it on [DBA.StackExchange.com](http://dba.stackexchange.com).
 
 Want to contribute by writing, testing, or documenting code, or suggesting a new check? [Read the contributing.md file](CONTRIBUTING.md).
 
-## sp_Blitz: Overall Health Check
+[*Back to top*](#header1)
 
+
+## sp_Blitz: Overall Health Check
 Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now:
 
 ![sp_Blitz](http://u.brentozar.com/github-images/sp_Blitz.png)
@@ -46,9 +64,13 @@ Commonly used parameters:
 * @CheckServerInfo = 1 - includes additional rows at priority 250 with server configuration details like service accounts. 
 * @IgnorePrioritiesAbove = 50 - if you want a daily bulletin of the most important warnings, set @IgnorePrioritiesAbove = 50 to only get the urgent stuff.
 
+[*Back to top*](#header1)
+
 ### Advanced sp_Blitz Parameters
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_Blitz:
+
+[*Back to top*](#header1)
 
 #### Writing sp_Blitz Output to a Table
 
@@ -57,6 +79,8 @@ sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTab
 ```
 
 Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if necessary, then adds the output of sp_Blitz into this table. This table is designed to support multiple outputs from multiple servers, so you can track your server's configuration history over time.
+
+[*Back to top*](#header1)
 
 #### Skipping Checks or Databases
 
@@ -78,10 +102,14 @@ Checks for the existence of a table named Fred - just kidding, named DBAtools.db
 * If both DatabaseName and CheckID are populated, then that check will be skipped for that database
 * If CheckID is populated but DatabaseName is null, then that check will be skipped for all databases
 
+[*Back to top*](#header1)
+
 
 ## sp_BlitzCache: Find the Most Resource-Intensive Queries
 
 (stub - describe the big picture here)
+
+[*Back to top*](#header1)
 
 ### Advanced sp_BlitzCache Parameters
 
@@ -89,9 +117,14 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 (stub - describe the lesser-used stuff)
 
+[*Back to top*](#header1)
+
+
 ## sp_BlitzIndex: Tune Your Indexes
 
 (stub - describe the big picture here)
+
+[*Back to top*](#header1)
 
 ### Advanced sp_BlitzIndex Parameters
 
@@ -99,15 +132,23 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 (stub - describe the lesser-used stuff)
 
+[*Back to top*](#header1)
+
+
 ## sp_BlitzFirst: Real-Time Performance Advice
 
 (stub - describe the big picture here)
+
+[*Back to top*](#header1)
 
 ### Advanced sp_BlitzFirst Parameters
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzFirst:
 
 (stub - describe the lesser-used stuff)
+
+[*Back to top*](#header1)
+
 
 ## Parameters Common to Many of the Stored Procedures
 
@@ -116,10 +157,14 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist.
 * @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
 
+[*Back to top*](#header1)
+
+
 ## License
 
 [The SQL Server First Responder Kit uses the MIT License.](LICENSE.md)
 
+[*Back to top*](#header1)
 
 [licence badge]:https://img.shields.io/badge/license-MIT-blue.svg
 [stars badge]:https://img.shields.io/github/stars/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
