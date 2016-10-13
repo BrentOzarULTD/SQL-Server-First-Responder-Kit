@@ -405,6 +405,57 @@ AS
 			  [Text] NVARCHAR(1000) 
 			);
 
+		IF OBJECT_ID('tempdb..#IgnorableWaits') IS NOT NULL
+			DROP TABLE #IgnorableWaits;
+		CREATE TABLE #IgnorableWaits (wait_type NVARCHAR(60));
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_EVENTHANDLER');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_RECEIVE_WAITFOR');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TASK_STOP');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TO_FLUSH');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TRANSMITTER');
+		INSERT INTO #IgnorableWaits VALUES ('CHECKPOINT_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_AUTO_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_MANUAL_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_SEMAPHORE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_DBM_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_DBM_MUTEX');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_EVENTS_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_WORKER_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRRORING_CMD');
+		INSERT INTO #IgnorableWaits VALUES ('DIRTY_PAGE_POLL');
+		INSERT INTO #IgnorableWaits VALUES ('DISPATCHER_QUEUE_SEMAPHORE');
+		INSERT INTO #IgnorableWaits VALUES ('FT_IFTS_SCHEDULER_IDLE_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('FT_IFTSHC_MUTEX');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_CLUSAPI_CALL');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_FILESTREAM_IOMGR_IOCOMPLETION');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_LOGCAPTURE_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_NOTIFICATION_DEQUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_TIMER_TASK');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_WORK_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('LAZYWRITER_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('LOGMGR_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('ONDEMAND_TASK_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
+		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_PERSIST_TASK_MAIN_LOOP_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_SHUTDOWN_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('REDO_THREAD_PENDING_WORK');
+		INSERT INTO #IgnorableWaits VALUES ('REQUEST_FOR_DEADLOCK_SEARCH');
+		INSERT INTO #IgnorableWaits VALUES ('SLEEP_SYSTEMTASK');
+		INSERT INTO #IgnorableWaits VALUES ('SLEEP_TASK');
+		INSERT INTO #IgnorableWaits VALUES ('SP_SERVER_DIAGNOSTICS_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_BUFFER_FLUSH');
+		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_INCREMENTAL_FLUSH_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('UCS_SESSION_REGISTRATION');
+		INSERT INTO #IgnorableWaits VALUES ('WAIT_XTP_OFFLINE_CKPT_NEW_LOG');
+		INSERT INTO #IgnorableWaits VALUES ('WAITFOR');
+		INSERT INTO #IgnorableWaits VALUES ('XE_DISPATCHER_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('XE_LIVE_TARGET_TVF');
+		INSERT INTO #IgnorableWaits VALUES ('XE_TIMER_EVENT');
+
+
         /* Used for the default trace checks. */
         DECLARE @TracePath NVARCHAR(256);
         SELECT @TracePath=CAST(value as NVARCHAR(256))
@@ -5558,99 +5609,18 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CpuMsSinceWaitsCleared AND waiting_tasks_count > 0 
-											AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
-												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-												'SQLTRACE_BUFFER_FLUSH',
-												'LAZYWRITER_SLEEP',
-												'XE_TIMER_EVENT',
-												'XE_DISPATCHER_WAIT',
-												'FT_IFTS_SCHEDULER_IDLE_WAIT',
-												'LOGMGR_QUEUE',
-												'CHECKPOINT_QUEUE',
-												'BROKER_TO_FLUSH',
-												'BROKER_TASK_STOP',
-												'BROKER_EVENTHANDLER',
-												'SLEEP_TASK',
-												'WAITFOR',
-												'DBMIRROR_DBM_MUTEX',
-												'DBMIRROR_EVENTS_QUEUE',
-												'DBMIRRORING_CMD',
-												'DISPATCHER_QUEUE_SEMAPHORE',
-												'BROKER_RECEIVE_WAITFOR',
-												'CLR_AUTO_EVENT',
-												'DIRTY_PAGE_POLL',
-												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-												'ONDEMAND_TASK_QUEUE',
-												'FT_IFTSHC_MUTEX',
-												'CLR_MANUAL_EVENT',
-												'CLR_SEMAPHORE',
-												'DBMIRROR_WORKER_QUEUE',
-												'DBMIRROR_DBM_EVENT',
-												'SP_SERVER_DIAGNOSTICS_SLEEP',
-												'HADR_CLUSAPI_CALL',
-												'HADR_LOGCAPTURE_WAIT',
-												'HADR_NOTIFICATION_DEQUEUE',
-												'HADR_TIMER_TASK',
-												'HADR_WORK_QUEUE',
-												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-												'REDO_THREAD_PENDING_WORK',
-												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER',
-												'QDS_ASYNC_QUEUE',
-												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'))
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats ws
+											LEFT OUTER JOIN #IgnorableWaits i ON ws.wait_type = i.wait_type
+											WHERE wait_time_ms > .1 * @CpuMsSinceWaitsCleared AND waiting_tasks_count > 0 
+											AND i.wait_type IS NULL)
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
 									AS
-									(SELECT wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
-										FROM sys.dm_os_wait_stats
-											WHERE   wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
-												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-												'SQLTRACE_BUFFER_FLUSH',
-												'LAZYWRITER_SLEEP',
-												'XE_TIMER_EVENT',
-												'XE_DISPATCHER_WAIT',
-												'FT_IFTS_SCHEDULER_IDLE_WAIT',
-												'LOGMGR_QUEUE',
-												'CHECKPOINT_QUEUE',
-												'BROKER_TO_FLUSH',
-												'BROKER_TASK_STOP',
-												'BROKER_EVENTHANDLER',
-												'SLEEP_TASK',
-												'WAITFOR',
-												'DBMIRROR_DBM_MUTEX',
-												'DBMIRROR_EVENTS_QUEUE',
-												'DBMIRRORING_CMD',
-												'DISPATCHER_QUEUE_SEMAPHORE',
-												'BROKER_RECEIVE_WAITFOR',
-												'CLR_AUTO_EVENT',
-												'DIRTY_PAGE_POLL',
-												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-												'ONDEMAND_TASK_QUEUE',
-												'FT_IFTSHC_MUTEX',
-												'CLR_MANUAL_EVENT',
-												'CLR_SEMAPHORE',
-												'DBMIRROR_WORKER_QUEUE',
-												'DBMIRROR_DBM_EVENT',
-												'SP_SERVER_DIAGNOSTICS_SLEEP',
-												'HADR_CLUSAPI_CALL',
-												'HADR_LOGCAPTURE_WAIT',
-												'HADR_NOTIFICATION_DEQUEUE',
-												'HADR_TIMER_TASK',
-												'HADR_WORK_QUEUE',
-												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-												'REDO_THREAD_PENDING_WORK',
-												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER',
-                                                'PREEMPTIVE_SP_SERVER_DIAGNOSTICS',
-                                                'PREEMPTIVE_HADR_LEASE_MECHANISM',
-												'SLEEP_SYSTEMTASK',
-												'QDS_SHUTDOWN_QUEUE',
-												'XE_LIVE_TARGET_TVF',
-												'WAIT_XTP_OFFLINE_CKPT_NEW_LOG')
+									(SELECT ws.wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
+										FROM sys.dm_os_wait_stats ws
+										LEFT OUTER JOIN #IgnorableWaits i ON ws.wait_type = i.wait_type
+											WHERE i.wait_type IS NULL 
 												AND wait_time_ms > .1 * @CpuMsSinceWaitsCleared
 												AND waiting_tasks_count > 0)
 									INSERT  INTO #BlitzResults
