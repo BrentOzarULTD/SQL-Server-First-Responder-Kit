@@ -1385,7 +1385,8 @@ BEGIN TRY
                 AS create_tsql
         FROM #IndexSanity
         WHERE database_id = @DatabaseID;
-
+	  
+	  RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 	 ;WITH    [maps]
 			  AS ( SELECT   
 							index_sanity_id,
@@ -1421,7 +1422,8 @@ BEGIN TRY
 												TYPE 
 							).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
 		FROM grps;
-
+		
+		RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 		UPDATE sz
 		SET sz.data_compression_desc = pci.partition_compression_detail
 		FROM #IndexSanitySize sz
@@ -1573,43 +1575,7 @@ BEGIN
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
  
- ;WITH    [maps]
-          AS ( SELECT   
-                        index_sanity_id,
-						partition_number,
-                        data_compression_desc,
-                        partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
-               FROM     #IndexPartitionSanity ips
-               WHERE    ips.object_id = @ObjectID
-				),
-        [grps]
-          AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
-                        MAX([maps].[partition_number]) AS [MaxKey] ,
-						index_sanity_id,
-						maps.data_compression_desc
-               FROM     [maps]
-               GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
-    SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
-                                                + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
-                                                       THEN +'s '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
-                                                            + ' - '
-                                                            + CAST([grps2].[MaxKey] AS VARCHAR(100))
-                                                            + ' use ' + grps2.data_compression_desc
-                                                       ELSE ' '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
-                                                            + ' uses '  + grps2.data_compression_desc
-                                                  END AS [Partitions]
-                                         FROM   [grps] AS grps2
-										 WHERE grps2.index_sanity_id = grps.index_sanity_id
-										 ORDER BY grps2.MinKey, grps2.MaxKey
-                                FOR     XML PATH('') ,
-                                            TYPE 
-						).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
-	INTO #partition_compression_info
-	FROM grps;
-
-    	
+   	
 	   WITH table_mode_cte AS (
         SELECT 
             s.db_schema_object_indexid, 
@@ -1639,7 +1605,7 @@ BEGIN
             s.index_sanity_id=sz.index_sanity_id
         LEFT JOIN #IndexCreateTsql ct ON 
             s.index_sanity_id=ct.index_sanity_id
-		LEFT JOIN #partition_compression_info pci ON 
+		LEFT JOIN #PartitionCompressionInfo pci ON 
 			pci.index_sanity_id = s.index_sanity_id
         WHERE s.[object_id]=@ObjectID
         UNION ALL
