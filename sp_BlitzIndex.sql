@@ -34,8 +34,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.2';
-SET @VersionDate = '20160903';
+SET @Version = '4.3';
+SET @VersionDate = '20161014';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
