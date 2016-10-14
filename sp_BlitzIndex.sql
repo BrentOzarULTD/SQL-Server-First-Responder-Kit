@@ -146,6 +146,9 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL 
+    DROP TABLE #PartitionCompressionInfo;
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -507,6 +510,11 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
 
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256)
+        )
+
+		CREATE TABLE #PartitionCompressionInfo (
+			[index_sanity_id] INT NULL,
+			[partition_compression_detail] VARCHAR(8000) NULL
         )
 
 IF @GetAllDatabases = 1
@@ -1353,7 +1361,49 @@ BEGIN TRY
                 AS create_tsql
         FROM #IndexSanity
         WHERE database_id = @DatabaseID;
-                    
+ 
+ ;WITH    [maps]
+          AS ( SELECT   
+                        index_sanity_id,
+						partition_number,
+                        data_compression_desc,
+                        partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
+               FROM     #IndexPartitionSanity ips
+				),
+        [grps]
+          AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
+                        MAX([maps].[partition_number]) AS [MaxKey] ,
+						index_sanity_id,
+						maps.data_compression_desc
+               FROM     [maps]
+               GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
+    INSERT #PartitionCompressionInfo
+            (index_sanity_id, partition_compression_detail)
+	SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
+                                                + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
+                                                       THEN +'s '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' - '
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + ' use ' + grps2.data_compression_desc
+                                                       ELSE ' '
+                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + ' uses '  + grps2.data_compression_desc
+                                                  END AS [Partitions]
+                                         FROM   [grps] AS grps2
+										 WHERE grps2.index_sanity_id = grps.index_sanity_id
+										 ORDER BY grps2.MinKey, grps2.MaxKey
+                                FOR     XML PATH('') ,
+                                            TYPE 
+						).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
+	FROM grps;
+
+	UPDATE sz
+	SET sz.data_compression_desc = pci.partition_compression_detail
+	FROM #IndexSanitySize sz
+	JOIN #PartitionCompressionInfo AS pci
+	ON pci.index_sanity_id = sz.index_sanity_id		
+                  
     END
 END TRY
 BEGIN CATCH
@@ -1413,12 +1463,12 @@ BEGIN
     SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
                                                 + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
                                                        THEN +'s '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' - '
-                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR(100))
                                                             + ' use ' + grps2.data_compression_desc
                                                        ELSE ' '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' uses '  + grps2.data_compression_desc
                                                   END AS [Partitions]
                                          FROM   [grps] AS grps2
@@ -1636,7 +1686,8 @@ BEGIN;
                            FROM        #IndexSanity
                            WHERE index_type IN (1,2) /* Clustered, NC only*/
                             AND is_hypothetical=0
-                            AND is_disabled=0)
+                            AND is_disabled=0
+							AND is_primary_key = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    2 AS check_id, 
@@ -1661,6 +1712,7 @@ BEGIN;
                                 di.key_column_names <> ip.key_column_names AND
                                 di.number_dupes > 1    
                         )
+						AND ip.is_primary_key = 0
                         /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                                 
@@ -2914,7 +2966,8 @@ BEGIN;
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
             WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
         END
         ELSE IF (@Mode = 4)
@@ -2935,7 +2988,8 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+			ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
@@ -3108,6 +3162,7 @@ BEGIN;
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
             NULL, 0 AS display_order
         ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+		OPTION (RECOMPILE);
 
     END /* End @Mode=3 (index detail)*/
 END
