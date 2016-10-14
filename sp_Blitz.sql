@@ -29,7 +29,8 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160903'
+	SET @VersionDate = '20160903';
+	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
 	/*
@@ -56,7 +57,7 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
      Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
 	Parameter explanations:
@@ -66,7 +67,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
@@ -133,8 +134,14 @@ AS
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
 			,@MsSinceWaitsCleared DECIMAL(38,0)
-			,@CpuMsSinceWaitsCleared DECIMAL(38,0);
+			,@CpuMsSinceWaitsCleared DECIMAL(38,0)
+			,@ResultText NVARCHAR(MAX)
+			,@crlf NVARCHAR(2);
 
+
+		SET @crlf = NCHAR(13) + NCHAR(10);
+		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
+		
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
 		CREATE TABLE #BlitzResults
@@ -491,9 +498,14 @@ AS
 			FROM sys.dm_os_sys_info;
 
 
-		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
-		IF @OutputType = 'CSV'
+		/* If we're outputting CSV or Markdown, don't bother checking the plan cache because we cannot export plans. */
+		IF @OutputType = 'CSV' OR @OutputType = 'MARKDOWN'
 			SET @CheckProcedureCache = 0;
+
+		/* If we're posting a question on Stack, include background info on the server */
+		IF @OutputType = 'MARKDOWN'
+			SET @CheckServerInfo = 1;
+
 
 		/* Only run CheckUserDatabaseObjects if there are less than 50 databases. */
 		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
@@ -563,7 +575,7 @@ AS
 										'Backup' AS FindingsGroup ,
 										'Backups Not Performed Recently' AS Finding ,
 										'http://BrentOzar.com/go/nobak' AS URL ,
-										'Database ' + d.name + ' last backed up: '
+										'Last backed up: '
 										+ COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
 								FROM    master.sys.databases d
 										LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -3664,28 +3676,23 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 184 )
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '10%'
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '9%'
 					BEGIN
-						  INSERT    INTO [#BlitzResults]
-									( [CheckID] ,
-									  [Priority] ,
-									  [FindingsGroup] ,
-									  [Finding] ,
-									  [URL] ,
-									  [Details] )
-
-							SELECT TOP 1
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        							SELECT TOP 1
 							  184 AS CheckID ,
 							  20 AS Priority ,
-							  'Reliability' AS FindingsGroup ,
-							  'No Failover Cluster Nodes Available' AS Finding ,
-							  'http://BrentOzar.com/go/node' AS URL ,
-							  'There are no failover cluster nodes available if the active node fails' AS Details
+							  ''Reliability'' AS FindingsGroup ,
+							  ''No Failover Cluster Nodes Available'' AS Finding ,
+							  ''http://BrentOzar.com/go/node'' AS URL ,
+							  ''There are no failover cluster nodes available if the active node fails'' AS Details
 							FROM (
 							  SELECT SUM(CASE WHEN [status] = 0 AND [is_current_owner] = 0 THEN 1 ELSE 0 END) AS [available_nodes]
 							  FROM sys.dm_os_cluster_nodes
 							) a
-							WHERE [available_nodes] < 1
-
+							WHERE [available_nodes] < 1';
+		                        EXECUTE(@StringToExecute);
 					END
 
 
@@ -4888,16 +4895,12 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											'Reliability' AS FindingsGroup ,
 											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
 											'http://BrentOzar.com/go/checkdb' AS URL ,
-											'Database [' + DB2.DbName + ']'
+											'Last successful CHECKDB: '
 											+ CASE DB2.Value
 												WHEN '1900-01-01 00:00:00.000'
-												THEN ' never had a successful DBCC CHECKDB.'
-												ELSE ' last had a successful DBCC CHECKDB run on '
-													 + DB2.Value + '.'
-											  END
-											+ ' This check should be run regularly to catch any database corruption as soon as possible.'
-											+ ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
-											+ ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
+												THEN ' never.'
+												ELSE DB2.Value
+											  END AS Details
 									FROM    DB2
 									WHERE   DB2.DbName <> 'tempdb'
 											AND DB2.DbName NOT IN ( SELECT DISTINCT
@@ -5251,7 +5254,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							250 AS [Priority] ,
 							'Server Info' AS [FindingsGroup] ,
 							'Windows Version' AS [Finding] ,
-							'http://BrentOzar.com/go/' AS [URL] ,
+							'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
 							( CASE 
 								WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 								WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
@@ -6025,6 +6028,27 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									Finding ,
 									Details;
 						END
+					ELSE IF @OutputType = 'MARKDOWN'
+						BEGIN
+							WITH Results AS (SELECT row_number() OVER (ORDER BY Priority, FindingsGroup, Finding, DatabaseName, Details) AS rownum, * 
+												FROM #BlitzResults
+												WHERE Priority > 0 AND Priority < 255 AND FindingsGroup IS NOT NULL AND Finding IS NOT NULL
+												AND FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */)
+							SELECT 
+								CASE 
+									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf 
+									ELSE N'' 
+								END
+								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END 
+								END + @crlf 
+							  FROM Results r
+							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
+							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
+							ORDER BY r.rownum FOR XML PATH(N'');
+						END
 					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
@@ -6046,7 +6070,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				DROP TABLE #BlitzResults;
 
 				IF @OutputProcedureCache = 1
-					AND @CheckProcedureCache = 1
+				AND @CheckProcedureCache = 1
 					SELECT TOP 20
 							total_worker_time / execution_count AS AvgCPU ,
 							total_worker_time AS TotalCPU ,
@@ -6110,4 +6134,5 @@ EXEC [dbo].[sp_Blitz]
     @OutputProcedureCache = 0 ,
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
+sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputType = 'markdown';
 */
