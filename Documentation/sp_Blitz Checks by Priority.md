@@ -234,6 +234,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 230 | Security | Control Server Permissions | http://BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | http://BrentOzar.com/go/owndb | 55 |
 | 230 | Security | Elevated Permissions on a Database | http://BrentOzar.com/go/elevated | 86 |
+| 230 | Security | Endpoints Owned by Users | http://BrentOzar.com/go/owners | 187 |
 | 230 | Security | Jobs Owned By Users | http://BrentOzar.com/go/owners | 6 |
 | 230 | Security | Security Admins | http://BrentOzar.com/go/sa | 5 |
 | 230 | Security | Server Audits Running | http://BrentOzar.com/go/audits | 8 |
