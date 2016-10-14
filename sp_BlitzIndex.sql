@@ -146,6 +146,10 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
+    DROP TABLE #Statistics;
+
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -508,6 +512,27 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256)
         )
+
+		CREATE TABLE #Statistics (
+		  database_name NVARCHAR(256) NOT NULL,
+		  table_name NVARCHAR(128) NULL,
+		  index_name sysname NOT NULL,
+		  column_name sysname NOT NULL,
+		  statistics_name NVARCHAR(128) NOT NULL,
+		  last_statistics_update DATETIME NULL,
+		  days_since_last_stats_update INT NULL,
+		  rows BIGINT NULL,
+		  rows_sampled BIGINT NULL,
+		  percent_sampled DECIMAL(18, 1) NULL,
+		  histogram_steps INT NULL,
+		  modification_counter BIGINT NULL,
+		  percent_modifications DECIMAL(18, 1) NULL,
+		  modifications_before_auto_update INT NULL,
+		  index_type_desc NVARCHAR(128) NOT NULL,
+		  table_create_date DATETIME NULL,
+		  table_modify_date DATETIME NULL
+		); 
+
 
 IF @GetAllDatabases = 1
     BEGIN
@@ -1353,8 +1378,110 @@ BEGIN TRY
                 AS create_tsql
         FROM #IndexSanity
         WHERE database_id = @DatabaseID;
-                    
-    END
+
+		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
+		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
+		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
+		BEGIN
+		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
+		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+					SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
+					OBJECT_NAME(s.object_id) AS table_name,
+			        ISNULL(i.name, ''System Statistic'') AS index_name,
+			        c.name AS column_name,
+			        s.name AS statistics_name,
+			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
+			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
+			        ddsp.rows,
+			        ddsp.rows_sampled,
+			        CAST(ddsp.rows_sampled / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
+			        ddsp.steps AS histogram_steps,
+			        ddsp.modification_counter,
+			        CASE WHEN ddsp.modification_counter > 0
+			             THEN CAST(ddsp.modification_counter / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1))
+			             ELSE ddsp.modification_counter
+			        END AS percent_modifications,
+			        CASE WHEN ddsp.rows < 500 THEN 500
+			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS INT)
+			        END AS modifications_before_auto_update,
+			        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+			ON      sc.object_id = s.object_id
+			        AND sc.stats_id = s.stats_id
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+			ON      c.object_id = sc.object_id
+			        AND c.column_id = sc.column_id
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+			ON      s.object_id = obj.object_id
+			LEFT JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+			ON      i.object_id = s.object_id
+			        AND i.index_id = s.stats_id
+			CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
+			WHERE obj.is_ms_shipped = 0;'
+			
+			IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			INSERT #Statistics ( database_name, table_name, index_name, column_name, statistics_name, last_statistics_update, 
+								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+			
+			EXEC sp_executesql @dsql;
+			
+			END
+			ELSE 
+			BEGIN
+			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
+			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+								OBJECT_NAME(s.object_id) AS table_name,
+						        ISNULL(i.name, ''System Statistic'') AS index_name,
+						        c.name AS column_name,
+						        s.name AS statistics_name,
+						        CONVERT(DATETIME, STATS_DATE(obj.object_id, i.index_id)) AS last_statistics_update,
+						        DATEDIFF(DAY, STATS_DATE(obj.object_id, i.index_id), GETDATE()) AS days_since_last_stats_update,
+						        si.rowcnt,
+						        si.rowmodctr,
+						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * si.rowcnt ) * 100 AS DECIMAL(18, 1))
+						             ELSE si.rowmodctr
+						        END AS percent_modifications,
+						        CASE WHEN si.rowcnt < 500 THEN 500
+						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS INT)
+						        END AS modifications_before_auto_update,
+						        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
+						ON      si.name = s.name
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+						ON      sc.object_id = s.object_id
+						        AND sc.stats_id = s.stats_id
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+						ON      c.object_id = sc.object_id
+						        AND c.column_id = sc.column_id
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+						ON      s.object_id = obj.object_id
+						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+						ON      i.object_id = s.object_id
+						        AND i.index_id = s.stats_id
+						WHERE obj.is_ms_shipped = 0;'
+
+			IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			INSERT #Statistics(database_name, table_name, index_name, column_name, statistics_name, 
+								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+			
+			EXEC sp_executesql @dsql;
+			END
+END                    
 END TRY
 BEGIN CATCH
         RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
@@ -2824,6 +2951,58 @@ BEGIN;
 
 
     END
+
+         ----------------------------------------
+        --Statistics Info: Check_id 90-99
+        ----------------------------------------
+    BEGIN
+
+        RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  90 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Statistic Abandonment Issues',
+				s.database_name,
+				'' AS URL,
+				'Statistics on this table were last updated ' + 
+					CASE s.last_statistics_update WHEN NULL THEN N' NEVER '
+					ELSE CONVERT(NVARCHAR(20), s.last_statistics_update) + 
+						' have had ' + CONVERT(NVARCHAR(100), s.modification_counter) +
+						' modifications in that time, which is ' +
+						CONVERT(NVARCHAR(100), s.percent_modifications) + 
+						'% of the table.'
+					END,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 7) 
+		AND s.percent_modifications >= 10. 
+		AND s.rows >= 10000
+
+        RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  91 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Antisocial Samples',
+				s.database_name,
+				'' AS URL,
+				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were samplped during the last statistics update. This may lead to poor cardinality estimates.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.rows_sampled < 1.
+		AND s.rows >= 10000
+
+
+	END 
  
         RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
         IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
