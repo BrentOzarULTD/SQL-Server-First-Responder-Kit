@@ -29,7 +29,8 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20160903'
+	SET @VersionDate = '20161014';
+	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
 	/*
@@ -56,7 +57,7 @@ AS
 	 - None.  (If we knew them, they would be known. Duh.)
 
      Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
 	Parameter explanations:
@@ -66,7 +67,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''SCHEMA''=version and field list | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
@@ -132,9 +133,15 @@ AS
 			,@CurrentFinding VARCHAR(200)
 			,@CurrentURL VARCHAR(200)
 			,@CurrentDetails NVARCHAR(4000)
-			,@MSSinceStartup DECIMAL(38,0)
-			,@CPUMSsinceStartup DECIMAL(38,0);
+			,@MsSinceWaitsCleared DECIMAL(38,0)
+			,@CpuMsSinceWaitsCleared DECIMAL(38,0)
+			,@ResultText NVARCHAR(MAX)
+			,@crlf NVARCHAR(2);
 
+
+		SET @crlf = NCHAR(13) + NCHAR(10);
+		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
+		
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
 		CREATE TABLE #BlitzResults
@@ -236,6 +243,8 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (100); /* Remote DAC disabled */
 						INSERT INTO #SkipChecks (CheckID) VALUES (123);
 						INSERT INTO #SkipChecks (CheckID) VALUES (177);
+						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
+						INSERT INTO #SkipChecks (CheckID) VALUES (181);
 			END /* Amazon RDS skipped checks */
 
 
@@ -403,25 +412,100 @@ AS
 			  [Text] NVARCHAR(1000) 
 			);
 
+		IF OBJECT_ID('tempdb..#IgnorableWaits') IS NOT NULL
+			DROP TABLE #IgnorableWaits;
+		CREATE TABLE #IgnorableWaits (wait_type NVARCHAR(60));
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_EVENTHANDLER');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_RECEIVE_WAITFOR');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TASK_STOP');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TO_FLUSH');
+		INSERT INTO #IgnorableWaits VALUES ('BROKER_TRANSMITTER');
+		INSERT INTO #IgnorableWaits VALUES ('CHECKPOINT_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_AUTO_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_MANUAL_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('CLR_SEMAPHORE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_DBM_EVENT');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_DBM_MUTEX');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_EVENTS_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRROR_WORKER_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('DBMIRRORING_CMD');
+		INSERT INTO #IgnorableWaits VALUES ('DIRTY_PAGE_POLL');
+		INSERT INTO #IgnorableWaits VALUES ('DISPATCHER_QUEUE_SEMAPHORE');
+		INSERT INTO #IgnorableWaits VALUES ('FT_IFTS_SCHEDULER_IDLE_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('FT_IFTSHC_MUTEX');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_CLUSAPI_CALL');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_FILESTREAM_IOMGR_IOCOMPLETION');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_LOGCAPTURE_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_NOTIFICATION_DEQUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_TIMER_TASK');
+		INSERT INTO #IgnorableWaits VALUES ('HADR_WORK_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('LAZYWRITER_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('LOGMGR_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('ONDEMAND_TASK_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
+		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_PERSIST_TASK_MAIN_LOOP_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('QDS_SHUTDOWN_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('REDO_THREAD_PENDING_WORK');
+		INSERT INTO #IgnorableWaits VALUES ('REQUEST_FOR_DEADLOCK_SEARCH');
+		INSERT INTO #IgnorableWaits VALUES ('SLEEP_SYSTEMTASK');
+		INSERT INTO #IgnorableWaits VALUES ('SLEEP_TASK');
+		INSERT INTO #IgnorableWaits VALUES ('SP_SERVER_DIAGNOSTICS_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_BUFFER_FLUSH');
+		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_INCREMENTAL_FLUSH_SLEEP');
+		INSERT INTO #IgnorableWaits VALUES ('UCS_SESSION_REGISTRATION');
+		INSERT INTO #IgnorableWaits VALUES ('WAIT_XTP_OFFLINE_CKPT_NEW_LOG');
+		INSERT INTO #IgnorableWaits VALUES ('WAITFOR');
+		INSERT INTO #IgnorableWaits VALUES ('XE_DISPATCHER_WAIT');
+		INSERT INTO #IgnorableWaits VALUES ('XE_LIVE_TARGET_TVF');
+		INSERT INTO #IgnorableWaits VALUES ('XE_TIMER_EVENT');
+
+
         /* Used for the default trace checks. */
         DECLARE @TracePath NVARCHAR(256);
         SELECT @TracePath=CAST(value as NVARCHAR(256))
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
         
-        SELECT @MSSinceStartup = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP)
+        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000
             FROM    sys.databases
             WHERE   name='tempdb';
 
-		SET @MSSinceStartup = @MSSinceStartup * 60000;
+		/* Have they cleared wait stats? Using a 10% fudge factor */
+		IF @MsSinceWaitsCleared * .9 > (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+			BEGIN
+				SET @MsSinceWaitsCleared = (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+				INSERT  INTO #BlitzResults
+						( CheckID ,
+							Priority ,
+							FindingsGroup ,
+							Finding ,
+							URL ,
+							Details
+						)
+					VALUES( 185,
+								240,
+								'Wait Stats',
+								'Wait Stats Have Been Cleared',
+								'http://BrentOzar.com/go/waits',
+								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' + CONVERT(NVARCHAR(100), DATEADD(ms, (-1 * @MsSinceWaitsCleared), GETDATE()), 120))
+			END
 
-		SELECT @CPUMSsinceStartup = @MSSinceStartup * scheduler_count
+		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
+		SELECT @CpuMsSinceWaitsCleared = @MsSinceWaitsCleared * scheduler_count
 			FROM sys.dm_os_sys_info;
 
 
-		/* If we're outputting CSV, don't bother checking the plan cache because we cannot export plans. */
-		IF @OutputType = 'CSV'
+		/* If we're outputting CSV or Markdown, don't bother checking the plan cache because we cannot export plans. */
+		IF @OutputType = 'CSV' OR @OutputType = 'MARKDOWN'
 			SET @CheckProcedureCache = 0;
+
+		/* If we're posting a question on Stack, include background info on the server */
+		IF @OutputType = 'MARKDOWN'
+			SET @CheckServerInfo = 1;
+
 
 		/* Only run CheckUserDatabaseObjects if there are less than 50 databases. */
 		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
@@ -491,7 +575,7 @@ AS
 										'Backup' AS FindingsGroup ,
 										'Backups Not Performed Recently' AS Finding ,
 										'http://BrentOzar.com/go/nobak' AS URL ,
-										'Database ' + d.name + ' last backed up: '
+										'Last backed up: '
 										+ COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
 								FROM    master.sys.databases d
 										LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -641,10 +725,13 @@ AS
 										INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id
 																  AND bs.backup_start_date >= ( DATEADD(dd,
 																  -14, GETDATE()) )
+										/* Filter out databases that were recently restored: */
+										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
 								WHERE   UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
+										AND rh.destination_database_name IS NULL
 								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3))
 					END
 
@@ -674,6 +761,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
+						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -693,9 +781,34 @@ AS
 										( 'Database backup history retained back to '
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
-								WHERE   bs.backup_start_date <= DATEADD(dd, -60,
-																  GETDATE())
 								ORDER BY backup_set_id ASC;
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 186 )
+					BEGIN
+						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  DatabaseName ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT TOP 1
+											186 AS CheckID ,
+											'msdb' ,
+											200 AS Priority ,
+											'Backup' AS FindingsGroup ,
+											'MSDB Backup History Purged Too Frequently' AS Finding ,
+											'http://BrentOzar.com/go/history' AS URL ,
+											( 'Database backup history only retained back to '
+											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
+									FROM    msdb.dbo.backupset bs
+									ORDER BY backup_set_id ASC;
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -704,7 +817,7 @@ AS
 					AND EXISTS (SELECT *
 									FROM msdb.dbo.backupset bs
 									WHERE bs.type = 'D'
-									AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+									AND bs.backup_size >= 50000000000 /* At least 50GB */
 									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
 									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
 					BEGIN
@@ -724,7 +837,7 @@ AS
 										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
 								FROM msdb.dbo.backupset bs
 								WHERE bs.type = 'D'
-								AND bs.compressed_backup_size >= 50000000000 /* At least 50GB */
+								AND bs.backup_size >= 50000000000 /* At least 50GB */
 								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
 								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 					END
@@ -3483,6 +3596,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 			IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 180 )
+							AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 					BEGIN
 						;
 						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
@@ -3517,6 +3631,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 181 )
+						AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 				BEGIN
 						;
 						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
@@ -3556,6 +3671,30 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 
 						END
 			
+
+			/* Reliability - No Failover Cluster Nodes Available - 184 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 184 )
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '10%'
+				AND CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)) NOT LIKE '9%'
+					BEGIN
+		                        SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        							SELECT TOP 1
+							  184 AS CheckID ,
+							  20 AS Priority ,
+							  ''Reliability'' AS FindingsGroup ,
+							  ''No Failover Cluster Nodes Available'' AS Finding ,
+							  ''http://BrentOzar.com/go/node'' AS URL ,
+							  ''There are no failover cluster nodes available if the active node fails'' AS Details
+							FROM (
+							  SELECT SUM(CASE WHEN [status] = 0 AND [is_current_owner] = 0 THEN 1 ELSE 0 END) AS [available_nodes]
+							  FROM sys.dm_os_cluster_nodes
+							) a
+							WHERE [available_nodes] < 1';
+		                        EXECUTE(@StringToExecute);
+					END
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
@@ -4119,7 +4258,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 86 )
 							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessAdmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''http://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'')';
 							END
 
 
@@ -4718,6 +4857,34 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							END
 
 					END /* IF @CheckProcedureCache = 1 */
+									  
+		/*Check to see if the HA endpoint account is set at the same as the SQL Server Service Account*/
+		IF @ProductVersionMajor >= 10
+								AND NOT EXISTS ( SELECT 1
+								FROM #SkipChecks
+								WHERE DatabaseName IS NULL AND CheckID = 187 )
+
+		IF SERVERPROPERTY('IsHadrEnabled') = 1
+    		BEGIN
+                INSERT    INTO [#BlitzResults]
+                               	( [CheckID] ,
+                                [Priority] ,
+                                [FindingsGroup] ,
+                                [Finding] ,
+                                [URL] ,
+                                [Details] )
+               	SELECT
+                        187 AS [CheckID] ,
+                        230 AS [Priority] ,
+                        'Security' AS [FindingsGroup] ,
+                        'Endpoints Owned by Users' AS [Finding] ,
+                       	'http://BrentOzar.com/go/owners' AS [URL] ,
+                        ( 'Endpoint ' + ep.[name] + ' is owned by ' + SUSER_NAME(ep.principal_id) + '. If the endpoint owner login is disabled or not available due to Active Directory problems, the high availability will stop working.'
+                        ) AS [Details]
+					FROM sys.database_mirroring_endpoints ep
+					LEFT OUTER JOIN sys.dm_server_services s ON SUSER_NAME(ep.principal_id) = s.service_account
+					WHERE s.service_account IS NULL;
+    		END
 
 		/*Check for the last good DBCC CHECKDB date */
 				IF NOT EXISTS ( SELECT  1
@@ -4756,16 +4923,12 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											'Reliability' AS FindingsGroup ,
 											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
 											'http://BrentOzar.com/go/checkdb' AS URL ,
-											'Database [' + DB2.DbName + ']'
+											'Last successful CHECKDB: '
 											+ CASE DB2.Value
 												WHEN '1900-01-01 00:00:00.000'
-												THEN ' never had a successful DBCC CHECKDB.'
-												ELSE ' last had a successful DBCC CHECKDB run on '
-													 + DB2.Value + '.'
-											  END
-											+ ' This check should be run regularly to catch any database corruption as soon as possible.'
-											+ ' Note: you can restore a backup of a busy production database to a test server and run DBCC CHECKDB '
-											+ ' against that to minimize impact. If you do that, you can ignore this warning.' AS Details
+												THEN ' never.'
+												ELSE DB2.Value
+											  END AS Details
 									FROM    DB2
 									WHERE   DB2.DbName <> 'tempdb'
 											AND DB2.DbName NOT IN ( SELECT DISTINCT
@@ -5119,7 +5282,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							250 AS [Priority] ,
 							'Server Info' AS [FindingsGroup] ,
 							'Windows Version' AS [Finding] ,
-							'http://BrentOzar.com/go/' AS [URL] ,
+							'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
 							( CASE 
 								WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 								WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
@@ -5480,98 +5643,19 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CPUMSsinceStartup AND waiting_tasks_count > 0 
-											AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
-												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-												'SQLTRACE_BUFFER_FLUSH',
-												'LAZYWRITER_SLEEP',
-												'XE_TIMER_EVENT',
-												'XE_DISPATCHER_WAIT',
-												'FT_IFTS_SCHEDULER_IDLE_WAIT',
-												'LOGMGR_QUEUE',
-												'CHECKPOINT_QUEUE',
-												'BROKER_TO_FLUSH',
-												'BROKER_TASK_STOP',
-												'BROKER_EVENTHANDLER',
-												'SLEEP_TASK',
-												'WAITFOR',
-												'DBMIRROR_DBM_MUTEX',
-												'DBMIRROR_EVENTS_QUEUE',
-												'DBMIRRORING_CMD',
-												'DISPATCHER_QUEUE_SEMAPHORE',
-												'BROKER_RECEIVE_WAITFOR',
-												'CLR_AUTO_EVENT',
-												'DIRTY_PAGE_POLL',
-												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-												'ONDEMAND_TASK_QUEUE',
-												'FT_IFTSHC_MUTEX',
-												'CLR_MANUAL_EVENT',
-												'CLR_SEMAPHORE',
-												'DBMIRROR_WORKER_QUEUE',
-												'DBMIRROR_DBM_EVENT',
-												'SP_SERVER_DIAGNOSTICS_SLEEP',
-												'HADR_CLUSAPI_CALL',
-												'HADR_LOGCAPTURE_WAIT',
-												'HADR_NOTIFICATION_DEQUEUE',
-												'HADR_TIMER_TASK',
-												'HADR_WORK_QUEUE',
-												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-												'REDO_THREAD_PENDING_WORK',
-												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER',
-												'QDS_ASYNC_QUEUE'))
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats ws
+											LEFT OUTER JOIN #IgnorableWaits i ON ws.wait_type = i.wait_type
+											WHERE wait_time_ms > .1 * @CpuMsSinceWaitsCleared AND waiting_tasks_count > 0 
+											AND i.wait_type IS NULL)
 									BEGIN
 									/* Check for waits that have had more than 10% of the server's wait time */
 									WITH os(wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms)
 									AS
-									(SELECT wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
-										FROM sys.dm_os_wait_stats
-											WHERE   wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
-												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-												'SQLTRACE_BUFFER_FLUSH',
-												'LAZYWRITER_SLEEP',
-												'XE_TIMER_EVENT',
-												'XE_DISPATCHER_WAIT',
-												'FT_IFTS_SCHEDULER_IDLE_WAIT',
-												'LOGMGR_QUEUE',
-												'CHECKPOINT_QUEUE',
-												'BROKER_TO_FLUSH',
-												'BROKER_TASK_STOP',
-												'BROKER_EVENTHANDLER',
-												'SLEEP_TASK',
-												'WAITFOR',
-												'DBMIRROR_DBM_MUTEX',
-												'DBMIRROR_EVENTS_QUEUE',
-												'DBMIRRORING_CMD',
-												'DISPATCHER_QUEUE_SEMAPHORE',
-												'BROKER_RECEIVE_WAITFOR',
-												'CLR_AUTO_EVENT',
-												'DIRTY_PAGE_POLL',
-												'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-												'ONDEMAND_TASK_QUEUE',
-												'FT_IFTSHC_MUTEX',
-												'CLR_MANUAL_EVENT',
-												'CLR_SEMAPHORE',
-												'DBMIRROR_WORKER_QUEUE',
-												'DBMIRROR_DBM_EVENT',
-												'SP_SERVER_DIAGNOSTICS_SLEEP',
-												'HADR_CLUSAPI_CALL',
-												'HADR_LOGCAPTURE_WAIT',
-												'HADR_NOTIFICATION_DEQUEUE',
-												'HADR_TIMER_TASK',
-												'HADR_WORK_QUEUE',
-												'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-												'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-												'REDO_THREAD_PENDING_WORK',
-												'UCS_SESSION_REGISTRATION',
-												'BROKER_TRANSMITTER',
-                                                'PREEMPTIVE_SP_SERVER_DIAGNOSTICS',
-                                                'PREEMPTIVE_HADR_LEASE_MECHANISM',
-												'SLEEP_SYSTEMTASK',
-												'QDS_SHUTDOWN_QUEUE',
-												'XE_LIVE_TARGET_TVF')
-												AND wait_time_ms > .1 * @CPUMSsinceStartup
+									(SELECT ws.wait_type, waiting_tasks_count, wait_time_ms, max_wait_time_ms, signal_wait_time_ms
+										FROM sys.dm_os_wait_stats ws
+										LEFT OUTER JOIN #IgnorableWaits i ON ws.wait_type = i.wait_type
+											WHERE i.wait_type IS NULL 
+												AND wait_time_ms > .1 * @CpuMsSinceWaitsCleared
 												AND waiting_tasks_count > 0)
 									INSERT  INTO #BlitzResults
 											( CheckID ,
@@ -5588,7 +5672,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MsSinceWaitsCleared  AS NUMERIC(18,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
 													/* CAST(CAST(
 														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
 														/ (1. * SUM(os.wait_time_ms) OVER () )
@@ -5972,6 +6056,27 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									Finding ,
 									Details;
 						END
+					ELSE IF @OutputType = 'MARKDOWN'
+						BEGIN
+							WITH Results AS (SELECT row_number() OVER (ORDER BY Priority, FindingsGroup, Finding, DatabaseName, Details) AS rownum, * 
+												FROM #BlitzResults
+												WHERE Priority > 0 AND Priority < 255 AND FindingsGroup IS NOT NULL AND Finding IS NOT NULL
+												AND FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */)
+							SELECT 
+								CASE 
+									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf 
+									ELSE N'' 
+								END
+								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END 
+								END + @crlf 
+							  FROM Results r
+							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
+							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
+							ORDER BY r.rownum FOR XML PATH(N'');
+						END
 					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							SELECT  [Priority] ,
@@ -5993,7 +6098,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				DROP TABLE #BlitzResults;
 
 				IF @OutputProcedureCache = 1
-					AND @CheckProcedureCache = 1
+				AND @CheckProcedureCache = 1
 					SELECT TOP 20
 							total_worker_time / execution_count AS AvgCPU ,
 							total_worker_time AS TotalCPU ,

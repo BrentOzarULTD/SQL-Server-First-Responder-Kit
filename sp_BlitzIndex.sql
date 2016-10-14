@@ -34,8 +34,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.2';
-SET @VersionDate = '20160903';
+SET @Version = '4.3';
+SET @VersionDate = '20161014';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -146,6 +146,12 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
+    DROP TABLE #Statistics;
+
+IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL 
+    DROP TABLE #PartitionCompressionInfo;
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -209,8 +215,63 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
               secret_columns NVARCHAR(MAX) NULL,
               count_secret_columns INT NULL,
               create_date DATETIME NOT NULL,
-              modify_date DATETIME NOT NULL
-            );    
+              modify_date DATETIME NOT NULL,
+            [db_schema_object_name] AS [schema_name] + '.' + [object_name]  ,
+            [db_schema_object_indexid] AS [schema_name] + '.' + [object_name]
+                + CASE WHEN [index_name] IS NOT NULL THEN '.' + index_name
+                ELSE ''
+                END + ' (' + CAST(index_id AS NVARCHAR(20)) + ')' ,
+            first_key_column_name AS CASE    WHEN count_key_columns > 1
+                THEN LEFT(key_column_names, CHARINDEX(',', key_column_names, 0) - 1)
+                ELSE key_column_names
+                END ,
+            index_definition AS 
+            CASE WHEN partition_key_column_name IS NOT NULL 
+                THEN N'[PARTITIONED BY:' + partition_key_column_name +  N']' 
+                ELSE '' 
+                END +
+                CASE index_id
+                    WHEN 0 THEN N'[HEAP] '
+                    WHEN 1 THEN N'[CX] '
+                    ELSE N'' END + CASE WHEN is_indexed_view = 1 THEN '[VIEW] '
+                    ELSE N'' END + CASE WHEN is_primary_key = 1 THEN N'[PK] '
+                    ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
+                    ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
+                    ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
+                    ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
+                    ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
+                    ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
+                    ELSE N'' END + CASE WHEN count_key_columns > 0 THEN 
+                        N'[' + CAST(count_key_columns AS VARCHAR(10)) + N' KEY' 
+                            + CASE WHEN count_key_columns > 1 THEN  N'S' ELSE N'' END
+                            + N'] ' + LTRIM(key_column_names_with_sort_order)
+                    ELSE N'' END + CASE WHEN count_included_columns > 0 THEN 
+                        N' [' + CAST(count_included_columns AS VARCHAR(10))  + N' INCLUDE' + 
+                            + CASE WHEN count_included_columns > 1 THEN  N'S' ELSE N'' END                    
+                            + N'] ' + include_column_names
+                    ELSE N'' END + CASE WHEN filter_definition <> N'' THEN N' [FILTER] ' + filter_definition
+                    ELSE N'' END ,
+            [total_reads] AS user_seeks + user_scans + user_lookups,
+            [reads_per_write] AS CAST(CASE WHEN user_updates > 0
+                THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
+                ELSE 0 END AS MONEY) ,
+            [index_usage_summary] AS N'Reads: ' + 
+                REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), '.00', '')
+                + CASE WHEN user_seeks + user_scans + user_lookups > 0 THEN
+                    N' (' 
+                        + RTRIM(
+                        CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), '.00', '') + N' seek ' ELSE N'' END
+                        + CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), '.00', '') + N' scan '  ELSE N'' END
+                        + CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), '.00', '') + N' lookup' ELSE N'' END
+                        )
+                        + N') '
+                    ELSE N' ' END 
+                + N'Writes:' + 
+                REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), '.00', ''),
+            [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
+                N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([object_name],'''') + N';'
+		);
+
 
         CREATE TABLE #IndexPartitionSanity
             (
@@ -270,7 +331,85 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
               avg_page_lock_wait_in_ms BIGINT NULL ,
                total_index_lock_promotion_attempt_count BIGINT NULL ,
               total_index_lock_promotion_count BIGINT NULL ,
-              data_compression_desc VARCHAR(8000) NULL
+              data_compression_desc VARCHAR(8000) NULL,
+              index_size_summary AS ISNULL(
+                CASE WHEN partition_count > 1
+                        THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
+                        ELSE N''
+                END + REPLACE(CONVERT(NVARCHAR(30),CAST([total_rows] AS MONEY), 1), N'.00', N'') + N' rows; '
+                + CASE WHEN total_reserved_MB > 1024 THEN 
+                    CAST(CAST(total_reserved_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB'
+                ELSE 
+                    CAST(CAST(total_reserved_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB'
+                END
+                + CASE WHEN total_reserved_LOB_MB > 1024 THEN 
+                    N'; ' + CAST(CAST(total_reserved_LOB_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB LOB'
+                WHEN total_reserved_LOB_MB > 0 THEN
+                    N'; ' + CAST(CAST(total_reserved_LOB_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB LOB'
+                ELSE ''
+                END
+                 + CASE WHEN total_reserved_row_overflow_MB > 1024 THEN
+                    N'; ' + CAST(CAST(total_reserved_row_overflow_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB Row Overflow'
+                WHEN total_reserved_row_overflow_MB > 0 THEN
+                    N'; ' + CAST(CAST(total_reserved_row_overflow_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB Row Overflow'
+                ELSE ''
+                END ,
+                    N'Error- NULL in computed column'),
+            index_op_stats AS ISNULL(
+                (
+                    REPLACE(CONVERT(NVARCHAR(30),CAST(total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups; '
+                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_range_scan_count AS MONEY), 1),N'.00',N'') + N' scans/seeks; '
+                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_delete_count AS MONEY), 1),N'.00',N'') + N' deletes; '
+                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_update_count AS MONEY), 1),N'.00',N'') + N' updates; '
+                    + CASE WHEN ISNULL(total_forwarded_fetch_count,0) >0 THEN
+                        REPLACE(CONVERT(NVARCHAR(30),CAST(total_forwarded_fetch_count AS MONEY), 1),N'.00',N'') + N' forward records fetched; '
+                    ELSE N'' END
+
+                    /* rows will only be in this dmv when data is in memory for the table */
+                ), N'Table metadata not in memory'),
+            index_lock_wait_summary AS ISNULL(
+                CASE WHEN total_row_lock_wait_count = 0 AND  total_page_lock_wait_count = 0 AND
+                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits.'
+                ELSE
+                    CASE WHEN total_row_lock_wait_count > 0 THEN
+                        N'Row lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_row_lock_wait_count AS MONEY), 1), N'.00', N'')
+                        + N'; total duration: ' + 
+                            CASE WHEN total_row_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
+                                REPLACE(CONVERT(NVARCHAR(30),CAST((total_row_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
+                            ELSE                         
+                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_row_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
+                            END
+                        + N'avg duration: ' + 
+                            CASE WHEN avg_row_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
+                                REPLACE(CONVERT(NVARCHAR(30),CAST((avg_row_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
+                            ELSE                         
+                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(avg_row_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
+                            END
+                    ELSE N''
+                    END +
+                    CASE WHEN total_page_lock_wait_count > 0 THEN
+                        N'Page lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_page_lock_wait_count AS MONEY), 1), N'.00', N'')
+                        + N'; total duration: ' + 
+                            CASE WHEN total_page_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
+                                REPLACE(CONVERT(NVARCHAR(30),CAST((total_page_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
+                            ELSE                         
+                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_page_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
+                            END
+                        + N'avg duration: ' + 
+                            CASE WHEN avg_page_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
+                                REPLACE(CONVERT(NVARCHAR(30),CAST((avg_page_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
+                            ELSE                         
+                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(avg_page_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
+                            END
+                    ELSE N''
+                    END +
+                    CASE WHEN total_index_lock_promotion_attempt_count > 0 THEN
+                        N'Lock escalation attempts: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_index_lock_promotion_attempt_count AS MONEY), 1), N'.00', N'')
+                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') + N'.'
+                    ELSE N''
+                    END
+                END                  
+                    ,'Error- NULL in computed column')
             );
 
         CREATE TABLE #IndexColumns
@@ -314,7 +453,41 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
             unique_compiles BIGINT NULL,
             equality_columns NVARCHAR(4000), 
             inequality_columns NVARCHAR(4000),
-            included_columns NVARCHAR(4000)
+            included_columns NVARCHAR(4000),
+                [index_estimated_impact] AS 
+                    REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
+                                    (user_seeks + user_scans)
+                                     AS BIGINT) AS MONEY), 1), '.00', '') + N' use' 
+                        + CASE WHEN (user_seeks + user_scans) > 1 THEN N's' ELSE N'' END
+                         +N'; Impact: ' + CAST(avg_user_impact AS NVARCHAR(30))
+                        + N'%; Avg query cost: '
+                        + CAST(avg_total_user_cost AS NVARCHAR(30)),
+                [missing_index_details] AS
+                    CASE WHEN equality_columns IS NOT NULL THEN N'EQUALITY: ' + equality_columns + N' '
+                         ELSE N''
+                    END + CASE WHEN inequality_columns IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns + N' '
+                       ELSE N''
+                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
+                        ELSE N''
+                    END,
+                [create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
+                    + REPLACE(REPLACE(REPLACE(REPLACE(
+                        ISNULL(equality_columns,N'')+ 
+                        CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
+                        + ISNULL(inequality_columns,''),',','')
+                        ,'[',''),']',''),' ','_') 
+                    + CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' 
+                    + [statement] + N' (' + ISNULL(equality_columns,N'')
+                    + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
+                    + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
+                    ') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END
+                    + N' WITH (' 
+                        + N'FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?' 
+                    + N')'
+                    + N';'
+                    ,
+                [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
+                    N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([table_name],'''') + N';'
             );
 
         CREATE TABLE #ForeignKeys (
@@ -341,6 +514,32 @@ IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256)
         )
+
+		CREATE TABLE #PartitionCompressionInfo (
+			[index_sanity_id] INT NULL,
+			[partition_compression_detail] VARCHAR(8000) NULL
+        )
+
+		CREATE TABLE #Statistics (
+		  database_name NVARCHAR(256) NOT NULL,
+		  table_name NVARCHAR(128) NULL,
+		  index_name sysname NOT NULL,
+		  column_name sysname NOT NULL,
+		  statistics_name NVARCHAR(128) NOT NULL,
+		  last_statistics_update DATETIME NULL,
+		  days_since_last_stats_update INT NULL,
+		  rows BIGINT NULL,
+		  rows_sampled BIGINT NULL,
+		  percent_sampled DECIMAL(18, 1) NULL,
+		  histogram_steps INT NULL,
+		  modification_counter BIGINT NULL,
+		  percent_modifications DECIMAL(18, 1) NULL,
+		  modifications_before_auto_update INT NULL,
+		  index_type_desc NVARCHAR(128) NOT NULL,
+		  table_create_date DATETIME NULL,
+		  table_modify_date DATETIME NULL
+		); 
+
 
 IF @GetAllDatabases = 1
     BEGIN
@@ -1099,64 +1298,6 @@ BEGIN TRY
             s.object_id=fk.referenced_object_id
             AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns
 
-        RAISERROR (N'Add computed columns to #IndexSanity to simplify queries.',0,1) WITH NOWAIT;
-        IF NOT EXISTS(SELECT 1 FROM tempdb.sys.columns WHERE name='db_schema_object_name') 
-            ALTER TABLE #IndexSanity ADD 
-            [db_schema_object_name] AS [schema_name] + '.' + [object_name]  ,
-            [db_schema_object_indexid] AS [schema_name] + '.' + [object_name]
-                + CASE WHEN [index_name] IS NOT NULL THEN '.' + index_name
-                ELSE ''
-                END + ' (' + CAST(index_id AS NVARCHAR(20)) + ')' ,
-            first_key_column_name AS CASE    WHEN count_key_columns > 1
-                THEN LEFT(key_column_names, CHARINDEX(',', key_column_names, 0) - 1)
-                ELSE key_column_names
-                END ,
-            index_definition AS 
-            CASE WHEN partition_key_column_name IS NOT NULL 
-                THEN N'[PARTITIONED BY:' + partition_key_column_name +  N']' 
-                ELSE '' 
-                END +
-                CASE index_id
-                    WHEN 0 THEN N'[HEAP] '
-                    WHEN 1 THEN N'[CX] '
-                    ELSE N'' END + CASE WHEN is_indexed_view = 1 THEN '[VIEW] '
-                    ELSE N'' END + CASE WHEN is_primary_key = 1 THEN N'[PK] '
-                    ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
-                    ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
-                    ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
-                    ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
-                    ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
-                    ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
-                    ELSE N'' END + CASE WHEN count_key_columns > 0 THEN 
-                        N'[' + CAST(count_key_columns AS VARCHAR(10)) + N' KEY' 
-                            + CASE WHEN count_key_columns > 1 THEN  N'S' ELSE N'' END
-                            + N'] ' + LTRIM(key_column_names_with_sort_order)
-                    ELSE N'' END + CASE WHEN count_included_columns > 0 THEN 
-                        N' [' + CAST(count_included_columns AS VARCHAR(10))  + N' INCLUDE' + 
-                            + CASE WHEN count_included_columns > 1 THEN  N'S' ELSE N'' END                    
-                            + N'] ' + include_column_names
-                    ELSE N'' END + CASE WHEN filter_definition <> N'' THEN N' [FILTER] ' + filter_definition
-                    ELSE N'' END ,
-            [total_reads] AS user_seeks + user_scans + user_lookups,
-            [reads_per_write] AS CAST(CASE WHEN user_updates > 0
-                THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
-                ELSE 0 END AS MONEY) ,
-            [index_usage_summary] AS N'Reads: ' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), '.00', '')
-                + CASE WHEN user_seeks + user_scans + user_lookups > 0 THEN
-                    N' (' 
-                        + RTRIM(
-                        CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), '.00', '') + N' seek ' ELSE N'' END
-                        + CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), '.00', '') + N' scan '  ELSE N'' END
-                        + CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), '.00', '') + N' lookup' ELSE N'' END
-                        )
-                        + N') '
-                    ELSE N' ' END 
-                + N'Writes:' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), '.00', ''),
-            [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
-                N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([object_name],'''') + N';'
-
         RAISERROR (N'Update index_secret on #IndexSanity for NC indexes.',0,1) WITH NOWAIT;
         UPDATE nc 
         SET secret_columns=
@@ -1186,132 +1327,6 @@ BEGIN TRY
         WHERE tb.index_id = 0 /*Heaps-- these have the RID */
             OR (tb.index_id=1 AND tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
-        RAISERROR (N'Add computed columns to #IndexSanitySize to simplify queries.',0,1) WITH NOWAIT;
-
-        IF NOT EXISTS(SELECT 1 FROM tempdb.sys.columns AS sc
-                        JOIN tempdb..sysobjects AS so ON so.id = sc.object_id
-                        WHERE sc.name='index_size_summary' AND so.name LIKE '#IndexSanitySize_%') 
-        ALTER TABLE #IndexSanitySize ADD 
-              index_size_summary AS ISNULL(
-                CASE WHEN partition_count > 1
-                        THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
-                        ELSE N''
-                END + REPLACE(CONVERT(NVARCHAR(30),CAST([total_rows] AS MONEY), 1), N'.00', N'') + N' rows; '
-                + CASE WHEN total_reserved_MB > 1024 THEN 
-                    CAST(CAST(total_reserved_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB'
-                ELSE 
-                    CAST(CAST(total_reserved_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB'
-                END
-                + CASE WHEN total_reserved_LOB_MB > 1024 THEN 
-                    N'; ' + CAST(CAST(total_reserved_LOB_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB LOB'
-                WHEN total_reserved_LOB_MB > 0 THEN
-                    N'; ' + CAST(CAST(total_reserved_LOB_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB LOB'
-                ELSE ''
-                END
-                 + CASE WHEN total_reserved_row_overflow_MB > 1024 THEN
-                    N'; ' + CAST(CAST(total_reserved_row_overflow_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB Row Overflow'
-                WHEN total_reserved_row_overflow_MB > 0 THEN
-                    N'; ' + CAST(CAST(total_reserved_row_overflow_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB Row Overflow'
-                ELSE ''
-                END ,
-                    N'Error- NULL in computed column'),
-            index_op_stats AS ISNULL(
-                (
-                    REPLACE(CONVERT(NVARCHAR(30),CAST(total_singleton_lookup_count AS MONEY), 1),N'.00',N'') + N' singleton lookups; '
-                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_range_scan_count AS MONEY), 1),N'.00',N'') + N' scans/seeks; '
-                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_delete_count AS MONEY), 1),N'.00',N'') + N' deletes; '
-                    + REPLACE(CONVERT(NVARCHAR(30),CAST(total_leaf_update_count AS MONEY), 1),N'.00',N'') + N' updates; '
-                    + CASE WHEN ISNULL(total_forwarded_fetch_count,0) >0 THEN
-                        REPLACE(CONVERT(NVARCHAR(30),CAST(total_forwarded_fetch_count AS MONEY), 1),N'.00',N'') + N' forward records fetched; '
-                    ELSE N'' END
-
-                    /* rows will only be in this dmv when data is in memory for the table */
-                ), N'Table metadata not in memory'),
-            index_lock_wait_summary AS ISNULL(
-                CASE WHEN total_row_lock_wait_count = 0 AND  total_page_lock_wait_count = 0 AND
-                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits.'
-                ELSE
-                    CASE WHEN total_row_lock_wait_count > 0 THEN
-                        N'Row lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_row_lock_wait_count AS MONEY), 1), N'.00', N'')
-                        + N'; total duration: ' + 
-                            CASE WHEN total_row_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
-                                REPLACE(CONVERT(NVARCHAR(30),CAST((total_row_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
-                            ELSE                         
-                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_row_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
-                            END
-                        + N'avg duration: ' + 
-                            CASE WHEN avg_row_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
-                                REPLACE(CONVERT(NVARCHAR(30),CAST((avg_row_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
-                            ELSE                         
-                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(avg_row_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
-                            END
-                    ELSE N''
-                    END +
-                    CASE WHEN total_page_lock_wait_count > 0 THEN
-                        N'Page lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_page_lock_wait_count AS MONEY), 1), N'.00', N'')
-                        + N'; total duration: ' + 
-                            CASE WHEN total_page_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
-                                REPLACE(CONVERT(NVARCHAR(30),CAST((total_page_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
-                            ELSE                         
-                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_page_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
-                            END
-                        + N'avg duration: ' + 
-                            CASE WHEN avg_page_lock_wait_in_ms >= 60000 THEN /*More than 1 min*/
-                                REPLACE(CONVERT(NVARCHAR(30),CAST((avg_page_lock_wait_in_ms/60000) AS MONEY), 1), N'.00', N'') + N' minutes; '
-                            ELSE                         
-                                REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(avg_page_lock_wait_in_ms/1000,0) AS MONEY), 1), N'.00', N'') + N' seconds; '
-                            END
-                    ELSE N''
-                    END +
-                    CASE WHEN total_index_lock_promotion_attempt_count > 0 THEN
-                        N'Lock escalation attempts: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_index_lock_promotion_attempt_count AS MONEY), 1), N'.00', N'')
-                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') + N'.'
-                    ELSE N''
-                    END
-                END                  
-                    ,'Error- NULL in computed column')
-
-        RAISERROR (N'Add computed columns to #missing_index to simplify queries.',0,1) WITH NOWAIT;
-                IF NOT EXISTS(SELECT 1 FROM tempdb.sys.columns AS sc
-                        JOIN tempdb..sysobjects AS so ON so.id = sc.object_id
-                        WHERE sc.name='index_estimated_impact' AND so.name LIKE '#MissingIndexes_%') 
-
-        ALTER TABLE #MissingIndexes ADD 
-                [index_estimated_impact] AS 
-                    REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
-                                    (user_seeks + user_scans)
-                                     AS BIGINT) AS MONEY), 1), '.00', '') + N' use' 
-                        + CASE WHEN (user_seeks + user_scans) > 1 THEN N's' ELSE N'' END
-                         +N'; Impact: ' + CAST(avg_user_impact AS NVARCHAR(30))
-                        + N'%; Avg query cost: '
-                        + CAST(avg_total_user_cost AS NVARCHAR(30)),
-                [missing_index_details] AS
-                    CASE WHEN equality_columns IS NOT NULL THEN N'EQUALITY: ' + equality_columns + N' '
-                         ELSE N''
-                    END + CASE WHEN inequality_columns IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns + N' '
-                       ELSE N''
-                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
-                        ELSE N''
-                    END,
-                [create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
-                    + REPLACE(REPLACE(REPLACE(REPLACE(
-                        ISNULL(equality_columns,N'')+ 
-                        CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
-                        + ISNULL(inequality_columns,''),',','')
-                        ,'[',''),']',''),' ','_') 
-                    + CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' 
-                    + [statement] + N' (' + ISNULL(equality_columns,N'')
-                    + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
-                    + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
-                    ') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END
-                    + N' WITH (' 
-                        + N'FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?' 
-                    + N')'
-                    + N';'
-                    ,
-                [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
-                    N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([table_name],'''') + N';'
-                ;
 
         RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
         INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
@@ -1370,8 +1385,155 @@ BEGIN TRY
                 AS create_tsql
         FROM #IndexSanity
         WHERE database_id = @DatabaseID;
-                    
-    END
+
+	 ;WITH    [maps]
+			  AS ( SELECT   
+							index_sanity_id,
+							partition_number,
+							data_compression_desc,
+							partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
+				   FROM     #IndexPartitionSanity ips
+					),
+			[grps]
+			  AS ( SELECT   MIN([maps].[partition_number]) AS [MinKey] ,
+							MAX([maps].[partition_number]) AS [MaxKey] ,
+							index_sanity_id,
+							maps.data_compression_desc
+				   FROM     [maps]
+				   GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
+		INSERT #PartitionCompressionInfo
+				(index_sanity_id, partition_compression_detail)
+		SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
+													+ CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
+														   THEN +'s '
+																+ CAST([grps2].[MinKey] AS VARCHAR)
+																+ ' - '
+																+ CAST([grps2].[MaxKey] AS VARCHAR)
+																+ ' use ' + grps2.data_compression_desc
+														   ELSE ' '
+																+ CAST([grps2].[MinKey] AS VARCHAR)
+																+ ' uses '  + grps2.data_compression_desc
+													  END AS [Partitions]
+											 FROM   [grps] AS grps2
+											 WHERE grps2.index_sanity_id = grps.index_sanity_id
+											 ORDER BY grps2.MinKey, grps2.MaxKey
+									FOR     XML PATH('') ,
+												TYPE 
+							).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
+		FROM grps;
+
+		UPDATE sz
+		SET sz.data_compression_desc = pci.partition_compression_detail
+		FROM #IndexSanitySize sz
+		JOIN #PartitionCompressionInfo AS pci
+		ON pci.index_sanity_id = sz.index_sanity_id;
+                  
+
+
+
+		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
+		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
+		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
+		BEGIN
+		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
+		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+					SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
+					OBJECT_NAME(s.object_id) AS table_name,
+			        ISNULL(i.name, ''System Statistic'') AS index_name,
+			        c.name AS column_name,
+			        s.name AS statistics_name,
+			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
+			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
+			        ddsp.rows,
+			        ddsp.rows_sampled,
+			        CAST(ddsp.rows_sampled / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
+			        ddsp.steps AS histogram_steps,
+			        ddsp.modification_counter,
+			        CASE WHEN ddsp.modification_counter > 0
+			             THEN CAST(ddsp.modification_counter / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1))
+			             ELSE ddsp.modification_counter
+			        END AS percent_modifications,
+			        CASE WHEN ddsp.rows < 500 THEN 500
+			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS INT)
+			        END AS modifications_before_auto_update,
+			        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+			ON      sc.object_id = s.object_id
+			        AND sc.stats_id = s.stats_id
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+			ON      c.object_id = sc.object_id
+			        AND c.column_id = sc.column_id
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+			ON      s.object_id = obj.object_id
+			LEFT JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+			ON      i.object_id = s.object_id
+			        AND i.index_id = s.stats_id
+			CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
+			WHERE obj.is_ms_shipped = 0;'
+			
+			IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			INSERT #Statistics ( database_name, table_name, index_name, column_name, statistics_name, last_statistics_update, 
+								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+			
+			EXEC sp_executesql @dsql;
+			
+			END
+			ELSE 
+			BEGIN
+			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
+			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+								OBJECT_NAME(s.object_id) AS table_name,
+						        ISNULL(i.name, ''System Statistic'') AS index_name,
+						        c.name AS column_name,
+						        s.name AS statistics_name,
+						        CONVERT(DATETIME, STATS_DATE(obj.object_id, i.index_id)) AS last_statistics_update,
+						        DATEDIFF(DAY, STATS_DATE(obj.object_id, i.index_id), GETDATE()) AS days_since_last_stats_update,
+						        si.rowcnt,
+						        si.rowmodctr,
+						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * si.rowcnt ) * 100 AS DECIMAL(18, 1))
+						             ELSE si.rowmodctr
+						        END AS percent_modifications,
+						        CASE WHEN si.rowcnt < 500 THEN 500
+						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS INT)
+						        END AS modifications_before_auto_update,
+						        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
+						ON      si.name = s.name
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+						ON      sc.object_id = s.object_id
+						        AND sc.stats_id = s.stats_id
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+						ON      c.object_id = sc.object_id
+						        AND c.column_id = sc.column_id
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+						ON      s.object_id = obj.object_id
+						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+						ON      i.object_id = s.object_id
+						        AND i.index_id = s.stats_id
+						WHERE obj.is_ms_shipped = 0;'
+
+			IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			INSERT #Statistics(database_name, table_name, index_name, column_name, statistics_name, 
+								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+			
+			EXEC sp_executesql @dsql;
+			END
+END                    
 END TRY
 BEGIN CATCH
         RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
@@ -1430,12 +1592,12 @@ BEGIN
     SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
                                                 + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
                                                        THEN +'s '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' - '
-                                                            + CAST([grps2].[MaxKey] AS VARCHAR)
+                                                            + CAST([grps2].[MaxKey] AS VARCHAR(100))
                                                             + ' use ' + grps2.data_compression_desc
                                                        ELSE ' '
-                                                            + CAST([grps2].[MinKey] AS VARCHAR)
+                                                            + CAST([grps2].[MinKey] AS VARCHAR(100))
                                                             + ' uses '  + grps2.data_compression_desc
                                                   END AS [Partitions]
                                          FROM   [grps] AS grps2
@@ -1653,7 +1815,8 @@ BEGIN;
                            FROM        #IndexSanity
                            WHERE index_type IN (1,2) /* Clustered, NC only*/
                             AND is_hypothetical=0
-                            AND is_disabled=0)
+                            AND is_disabled=0
+							AND is_primary_key = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    2 AS check_id, 
@@ -1678,6 +1841,7 @@ BEGIN;
                                 di.key_column_names <> ip.key_column_names AND
                                 di.number_dupes > 1    
                         )
+						AND ip.is_primary_key = 0
                         /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                                                 
@@ -2841,6 +3005,58 @@ BEGIN;
 
 
     END
+
+         ----------------------------------------
+        --Statistics Info: Check_id 90-99
+        ----------------------------------------
+    BEGIN
+
+        RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  90 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Statistic Abandonment Issues',
+				s.database_name,
+				'' AS URL,
+				'Statistics on this table were last updated ' + 
+					CASE s.last_statistics_update WHEN NULL THEN N' NEVER '
+					ELSE CONVERT(NVARCHAR(20), s.last_statistics_update) + 
+						' have had ' + CONVERT(NVARCHAR(100), s.modification_counter) +
+						' modifications in that time, which is ' +
+						CONVERT(NVARCHAR(100), s.percent_modifications) + 
+						'% of the table.'
+					END,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 7) 
+		AND s.percent_modifications >= 10. 
+		AND s.rows >= 10000
+
+        RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  91 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Antisocial Samples',
+				s.database_name,
+				'' AS URL,
+				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were samplped during the last statistics update. This may lead to poor cardinality estimates.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.rows_sampled < 1.
+		AND s.rows >= 10000
+
+
+	END 
  
         RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
         IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
@@ -2931,13 +3147,15 @@ BEGIN;
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
             WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
         END
         ELSE IF (@Mode = 4)
             SELECT Priority, ISNULL(br.findings_group,N'') + 
                     CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
                     + br.finding AS [Finding], 
+				br.[database_name] AS [Database Name],
                 br.details AS [Details: schema.table.index(indexid)], 
                 br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
                 ISNULL(br.secret_columns,'') AS [Secret Columns],          
@@ -2951,7 +3169,8 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            ORDER BY Priority, br.findings_group, br.finding, ISNULL(SUBSTRING(br.details, CHARINDEX(': ', br.details) + 2, LEN(br.details) - CHARINDEX(': ', br.details)), 0) DESC, br.database_name ASC, [check_id] ASC, blitz_result_id ASC;
+            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+			OPTION (RECOMPILE);
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF @Mode=1 /*Summarize*/
@@ -2959,7 +3178,7 @@ BEGIN;
     --This mode is to give some overall stats on the database.
         RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
-        SELECT DB_NAME(i.database_id),
+        SELECT DB_NAME(i.database_id) AS [Database Name],
             CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
             CAST(CAST(SUM(sz.total_reserved_MB)/
                 1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
@@ -3024,7 +3243,7 @@ BEGIN;
         --This supports slicing AND dicing in Excel
         RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
-        SELECT    database_name AS [Database Name], 
+        SELECT  [database_name] AS [Database Name], 
                 [schema_name] AS [Schema Name], 
                 [object_name] AS [Object Name], 
                 ISNULL(index_name, '') AS [Index Name], 
@@ -3093,7 +3312,7 @@ BEGIN;
     ELSE IF @Mode=3 /*Missing index Detail*/
     BEGIN
         SELECT 
-            database_name AS [Database], 
+            database_name AS [Database Name], 
             [schema_name] AS [Schema], 
             table_name AS [Table], 
             CAST((magic_benefit_number/@DaysUptime) AS BIGINT)
@@ -3124,6 +3343,7 @@ BEGIN;
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
             NULL, 0 AS display_order
         ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+		OPTION (RECOMPILE);
 
     END /* End @Mode=3 (index detail)*/
 END
@@ -3144,6 +3364,4 @@ BEGIN CATCH
 
         RETURN;
     END CATCH;
-
 GO
-

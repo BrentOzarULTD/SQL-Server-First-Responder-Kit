@@ -34,6 +34,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | http://BrentOzar.com/go/repair | 102 |
 | 20 | Reliability | Memory Dumps Have Occurred | http://BrentOzar.com/go/dump | 171 |
+| 20 | Reliability | No Failover Cluster Nodes Available | http://BrentOzar.com/go/node | 184 |
 | 20 | Reliability | Plan Guides Failing | http://BrentOzar.com/go/guides | 164 |
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
@@ -61,9 +62,11 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 100 | Performance | Max Memory Set Too High | http://BrentOzar.com/go/max | 50 |
 | 100 | Performance | Memory Pressure Affecting Queries | http://BrentOzar.com/go/grants | 117 |
 | 100 | Performance | Partitioned database with non-aligned indexes | http://BrentOzar.com/go/aligned | 72 |
+| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
 | 100 | Performance | Resource Governor Enabled | http://BrentOzar.com/go/rg | 10 |
 | 100 | Performance | Server Triggers Enabled | http://BrentOzar.com/go/logontriggers/ | 11 |
 | 100 | Performance | Shrink Database Job | http://BrentOzar.com/go/autoshrink | 79 |
+| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
 | 100 | Performance | Single-Use Plans in Procedure Cache | http://BrentOzar.com/go/single | 35 |
 | 100 | Performance | Stored Procedure WITH RECOMPILE | http://BrentOzar.com/go/recompile | 78 |
 | 100 | Performance | Unusual SQL Server Edition | http://BrentOzar.com/go/workgroup | 97 |
@@ -106,6 +109,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | Reliability | Max File Size Set | http://BrentOzar.com/go/maxsize | 80 |
 | 200 | Backup | Backing Up Unneeded Database | http://BrentOzar.com/go/reportservertempdb | 127 |
 | 200 | Backup | MSDB Backup History Not Purged | http://BrentOzar.com/go/history | 3 |
+| 200 | Backup | MSDB Backup History Purged Too Frequently | http://BrentOzar.com/go/history | 186 |
 | 200 | Informational | @@Servername not set | http://BrentOzar.com/go/servername | 70 |
 | 200 | Informational | Agent Jobs Starting Simultaneously | http://BrentOzar.com/go/busyagent | 123 |
 | 200 | Informational | Backup Compression Default Off | http://BrentOzar.com/go/backup | 116 |
@@ -230,6 +234,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 230 | Security | Control Server Permissions | http://BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | http://BrentOzar.com/go/owndb | 55 |
 | 230 | Security | Elevated Permissions on a Database | http://BrentOzar.com/go/elevated | 86 |
+| 230 | Security | Endpoints Owned by Users | http://BrentOzar.com/go/owners | 187 |
 | 230 | Security | Jobs Owned By Users | http://BrentOzar.com/go/owners | 6 |
 | 230 | Security | Security Admins | http://BrentOzar.com/go/sa | 5 |
 | 230 | Security | Server Audits Running | http://BrentOzar.com/go/audits | 8 |
@@ -238,6 +243,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 230 | Security | Sysadmins | http://BrentOzar.com/go/sa | 4 |
 | 240 | Wait Stats | No Significant Waits Detected | http://BrentOzar.com/go/waits | 153 |
 | 240 | Wait Stats | Top Wait Stats | http://BrentOzar.com/go/waits | 152 |
+| 240 | Wait Stats | Wait Stats Have Been Cleared | http://BrentOzar.com/go/waits | 185 |
 | 250 | Informational | SQL Server Agent is running under an NT Service account | http://BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | http://BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |
@@ -255,5 +261,3 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Virtual Server | http://BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
 | 254 | Rundate | (Current Date) |  | 156 |
-| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
-| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
