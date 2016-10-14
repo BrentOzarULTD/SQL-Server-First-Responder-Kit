@@ -30,6 +30,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@Help TINYINT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
+WITH RECOMPILE
 AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -796,7 +797,7 @@ BEGIN TRY
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                     ELSE N'' END 
-                + N';';
+                + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -844,7 +845,7 @@ BEGIN TRY
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                     ELSE N'' END 
-                + N';';
+                + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1234,7 +1235,7 @@ BEGIN TRY
                 ' + CASE WHEN @ObjectID IS NULL THEN N'' 
                     ELSE N'and id.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                 END +
-        N';'
+        N'OPTION (RECOMPILE);'
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1282,8 +1283,8 @@ BEGIN TRY
             ' + CASE WHEN @ObjectID IS NOT NULL THEN 
                     'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
                     ELSE N' ' END + '
-            ORDER BY parent_object_name, foreign_key_name;
-        ';
+            ORDER BY parent_object_name, foreign_key_name
+			OPTION (RECOMPILE);';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
@@ -1478,7 +1479,8 @@ BEGIN TRY
 			ON      i.object_id = s.object_id
 			        AND i.index_id = s.stats_id
 			CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
-			WHERE obj.is_ms_shipped = 0;'
+			WHERE obj.is_ms_shipped = 0
+			OPTION (RECOMPILE);'
 			
 			IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1531,7 +1533,8 @@ BEGIN TRY
 						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
-						WHERE obj.is_ms_shipped = 0;'
+						WHERE obj.is_ms_shipped = 0
+						OPTION (RECOMPILE);'
 
 			IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
