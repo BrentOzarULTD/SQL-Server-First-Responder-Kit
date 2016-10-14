@@ -537,7 +537,10 @@ IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL
 		  modifications_before_auto_update INT NULL,
 		  index_type_desc NVARCHAR(128) NOT NULL,
 		  table_create_date DATETIME NULL,
-		  table_modify_date DATETIME NULL
+		  table_modify_date DATETIME NULL,
+		  no_recompute BIT NULL,
+		  has_filter BIT NULL,
+		  filter_definition NVARCHAR(MAX) NULL
 		); 
 
 
@@ -1458,7 +1461,10 @@ BEGIN TRY
 			        END AS modifications_before_auto_update,
 			        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
 			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
-			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
+					s.no_recompute,
+					s.has_filter,
+					s.filter_definition
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
 			ON      sc.object_id = s.object_id
@@ -1480,7 +1486,8 @@ BEGIN TRY
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
 			INSERT #Statistics ( database_name, table_name, index_name, column_name, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
-								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
+								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
 			
@@ -1506,7 +1513,10 @@ BEGIN TRY
 						        END AS modifications_before_auto_update,
 						        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
 						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
-						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
+								s.no_recompute,
+								s.has_filter,
+								s.filter_definition
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
@@ -1529,7 +1539,8 @@ BEGIN TRY
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
 			INSERT #Statistics(database_name, table_name, index_name, column_name, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
-								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
+								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
 			END
@@ -3054,6 +3065,40 @@ BEGIN;
 		FROM #Statistics AS s
 		WHERE s.rows_sampled < 1.
 		AND s.rows >= 10000
+
+        RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  92 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Cyberphobic Samples',
+				s.database_name,
+				'' AS URL,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is set to not recompute. This can be helpful if data is really skewed, but harmful if you expect automatic statistics updates.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.no_recompute = 1
+
+        RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  93 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Filter Fixation',
+				s.database_name,
+				'' AS URL,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on ' + QUOTENAME(s.filter_definition) + '. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.has_filter = 1
 
 
 	END 
