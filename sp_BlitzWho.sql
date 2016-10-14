@@ -20,9 +20,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000. It
-   may work just fine on 2005, and if it does, hug your parents. Just don''t
-   file support issues if it breaks.
+ - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
    
 MIT License
 
