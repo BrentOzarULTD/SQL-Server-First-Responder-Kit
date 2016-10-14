@@ -519,7 +519,7 @@ IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL
 		  index_name sysname NOT NULL,
 		  column_name sysname NOT NULL,
 		  statistics_name NVARCHAR(128) NOT NULL,
-		  last_statistics_update DATE NULL,
+		  last_statistics_update DATETIME NULL,
 		  days_since_last_stats_update INT NULL,
 		  rows BIGINT NULL,
 		  rows_sampled BIGINT NULL,
@@ -529,8 +529,8 @@ IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL
 		  percent_modifications DECIMAL(18, 1) NULL,
 		  modifications_before_auto_update INT NULL,
 		  index_type_desc NVARCHAR(128) NOT NULL,
-		  table_create_date DATE NULL,
-		  table_modify_date DATE NULL
+		  table_create_date DATETIME NULL,
+		  table_modify_date DATETIME NULL
 		); 
 
 
@@ -1390,8 +1390,8 @@ BEGIN TRY
 			        ISNULL(i.name, ''System Statistic'') AS index_name,
 			        c.name AS column_name,
 			        s.name AS statistics_name,
-			        CONVERT(DATE, ddsp.last_updated) AS last_statistics_update,
-			        DATEDIFF(DAY, ddsp.last_updated, SYSDATETIME()) AS days_since_last_stats_update,
+			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
+			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
 			        ddsp.rows,
 			        ddsp.rows_sampled,
 			        CAST(ddsp.rows_sampled / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
@@ -1405,8 +1405,8 @@ BEGIN TRY
 			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS INT)
 			        END AS modifications_before_auto_update,
 			        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
-			        CONVERT(DATE, obj.create_date) AS table_create_date,
-			        CONVERT(DATE, obj.modify_date) AS table_modify_date
+			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
 			ON      sc.object_id = s.object_id
@@ -1442,8 +1442,8 @@ BEGIN TRY
 						        ISNULL(i.name, ''System Statistic'') AS index_name,
 						        c.name AS column_name,
 						        s.name AS statistics_name,
-						        CONVERT(DATE, STATS_DATE(obj.object_id, i.index_id)) AS last_statistics_update,
-						        DATEDIFF(DAY, STATS_DATE(obj.object_id, i.index_id), SYSDATETIME()) AS days_since_last_stats_update,
+						        CONVERT(DATETIME, STATS_DATE(obj.object_id, i.index_id)) AS last_statistics_update,
+						        DATEDIFF(DAY, STATS_DATE(obj.object_id, i.index_id), GETDATE()) AS days_since_last_stats_update,
 						        si.rowcnt,
 						        si.rowmodctr,
 						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * si.rowcnt ) * 100 AS DECIMAL(18, 1))
@@ -1453,8 +1453,8 @@ BEGIN TRY
 						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS INT)
 						        END AS modifications_before_auto_update,
 						        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
-						        CONVERT(DATE, obj.create_date) AS table_create_date,
-						        CONVERT(DATE, obj.modify_date) AS table_modify_date
+						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
+						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
@@ -2972,14 +2972,14 @@ BEGIN;
 						' have had ' + CONVERT(NVARCHAR(100), s.modification_counter) +
 						' modifications in that time, which is ' +
 						CONVERT(NVARCHAR(100), s.percent_modifications) + 
-						' of the table.'
+						'% of the table.'
 					END,
 				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
-		WHERE s.last_statistics_update <= CONVERT(DATE, GETDATE() - 7) 
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 7) 
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
 
