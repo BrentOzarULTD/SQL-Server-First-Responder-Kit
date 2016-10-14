@@ -4850,6 +4850,35 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							END
 
 					END /* IF @CheckProcedureCache = 1 */
+									  
+		/*Check to see if the HA endpoint account is set at the same as the SQL Server Service Account*/
+		IF @ProductVersionMajor >= 11
+								AND NOT EXISTS ( SELECT 1
+								FROM #SkipChecks
+								WHERE DatabaseName IS NULL AND CheckID = 789 )
+
+		IF SERVERPROPERTY('IsHadrEnabled') = 1
+    		BEGIN
+        		IF (SELECT SUSER_NAME(principal_id) FROM sys.database_mirroring_endpoints) <> (SELECT service_account FROM sys.dm_server_services WHERE servicename like 'SQL Server (%')
+           			BEGIN
+                		INSERT    INTO [#BlitzResults]
+                               		 ( [CheckID] ,
+                                 		[Priority] ,
+                                 		[FindingsGroup] ,
+                                  		[Finding] ,
+                                  		[URL] ,
+                                  		[Details] )
+               		    SELECT
+                        		789 AS [CheckID] ,
+                        		200 AS [Priority] ,
+                        		'High Availability' AS [FindingsGroup] ,
+                        		'HA endpoint owned by user' AS [Finding] ,
+                       			'http://BrentOzar.com/go/ha' AS [URL] ,
+                        		( 'meaning if their login is disabled or not available due to Active Directory problems, the HA will stop working.'
+                           		) AS [Details]
+
+            		END
+    		END
 
 		/*Check for the last good DBCC CHECKDB date */
 				IF NOT EXISTS ( SELECT  1
