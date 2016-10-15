@@ -1520,8 +1520,13 @@ BEGIN TRY
 						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
 						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
 								s.no_recompute,
-								s.has_filter,
-								s.filter_definition
+								'
+								+ CASE WHEN @SQLServerProductVersion NOT LIKE '9%' 
+								THEN N's.has_filter,
+									   s.filter_definition' 
+								ELSE N'NULL AS has_filter,
+								       NULL AS filter_definition' END 
+						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
