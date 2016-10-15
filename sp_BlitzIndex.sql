@@ -30,6 +30,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@Help TINYINT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
+WITH RECOMPILE
 AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -523,9 +524,10 @@ IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL
 		CREATE TABLE #Statistics (
 		  database_name NVARCHAR(256) NOT NULL,
 		  table_name NVARCHAR(128) NULL,
-		  index_name sysname NOT NULL,
-		  column_name sysname NOT NULL,
-		  statistics_name NVARCHAR(128) NOT NULL,
+		  schema_name NVARCHAR(128) NULL,
+		  index_name  NVARCHAR(128) NULL,
+		  column_name  NVARCHAR(128) NULL,
+		  statistics_name NVARCHAR(128) NULL,
 		  last_statistics_update DATETIME NULL,
 		  days_since_last_stats_update INT NULL,
 		  rows BIGINT NULL,
@@ -535,9 +537,12 @@ IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL
 		  modification_counter BIGINT NULL,
 		  percent_modifications DECIMAL(18, 1) NULL,
 		  modifications_before_auto_update INT NULL,
-		  index_type_desc NVARCHAR(128) NOT NULL,
+		  index_type_desc NVARCHAR(128) NULL,
 		  table_create_date DATETIME NULL,
-		  table_modify_date DATETIME NULL
+		  table_modify_date DATETIME NULL,
+		  no_recompute BIT NULL,
+		  has_filter BIT NULL,
+		  filter_definition NVARCHAR(MAX) NULL
 		); 
 
 
@@ -793,7 +798,7 @@ BEGIN TRY
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                     ELSE N'' END 
-                + N';';
+                + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -841,7 +846,7 @@ BEGIN TRY
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                     ELSE N'' END 
-                + N';';
+                + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1231,7 +1236,7 @@ BEGIN TRY
                 ' + CASE WHEN @ObjectID IS NULL THEN N'' 
                     ELSE N'and id.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
                 END +
-        N';'
+        N'OPTION (RECOMPILE);'
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1279,8 +1284,8 @@ BEGIN TRY
             ' + CASE WHEN @ObjectID IS NOT NULL THEN 
                     'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
                     ELSE N' ' END + '
-            ORDER BY parent_object_name, foreign_key_name;
-        ';
+            ORDER BY parent_object_name, foreign_key_name
+			OPTION (RECOMPILE);';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
@@ -1441,26 +1446,30 @@ BEGIN TRY
 		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
 					OBJECT_NAME(s.object_id) AS table_name,
-			        ISNULL(i.name, ''System Statistic'') AS index_name,
+					SCHEMA_NAME(obj.schema_id) AS schema_name,
+			        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
 			        c.name AS column_name,
 			        s.name AS statistics_name,
 			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
 			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
 			        ddsp.rows,
 			        ddsp.rows_sampled,
-			        CAST(ddsp.rows_sampled / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
+			        CAST(ddsp.rows_sampled / ( 1. * NULLIF(ddsp.rows, 0) ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
 			        ddsp.steps AS histogram_steps,
 			        ddsp.modification_counter,
 			        CASE WHEN ddsp.modification_counter > 0
-			             THEN CAST(ddsp.modification_counter / ( 1. * ddsp.rows ) * 100 AS DECIMAL(18, 1))
+			             THEN CAST(ddsp.modification_counter / ( 1. * NULLIF(ddsp.rows, 0) ) * 100 AS DECIMAL(18, 1))
 			             ELSE ddsp.modification_counter
 			        END AS percent_modifications,
 			        CASE WHEN ddsp.rows < 500 THEN 500
 			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS INT)
 			        END AS modifications_before_auto_update,
-			        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+			        ISNULL(i.type_desc, ''System Or User Statistic - N/A'') AS index_type_desc,
 			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
-			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
+					s.no_recompute,
+					s.has_filter,
+					s.filter_definition
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
 			ON      sc.object_id = s.object_id
@@ -1474,15 +1483,17 @@ BEGIN TRY
 			ON      i.object_id = s.object_id
 			        AND i.index_id = s.stats_id
 			CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
-			WHERE obj.is_ms_shipped = 0;'
+			WHERE obj.is_ms_shipped = 0
+			OPTION (RECOMPILE);'
 			
 			IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
-			INSERT #Statistics ( database_name, table_name, index_name, column_name, statistics_name, last_statistics_update, 
+			INSERT #Statistics ( database_name, table_name, schema_name, index_name, column_name, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
-								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
+								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
 			
@@ -1493,22 +1504,31 @@ BEGIN TRY
 			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
 								OBJECT_NAME(s.object_id) AS table_name,
-						        ISNULL(i.name, ''System Statistic'') AS index_name,
+								SCHEMA_NAME(obj.schema_id) AS schema_name,
+						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
 						        c.name AS column_name,
 						        s.name AS statistics_name,
-						        CONVERT(DATETIME, STATS_DATE(obj.object_id, i.index_id)) AS last_statistics_update,
-						        DATEDIFF(DAY, STATS_DATE(obj.object_id, i.index_id), GETDATE()) AS days_since_last_stats_update,
+						        CONVERT(DATETIME, STATS_DATE(s.object_id, s.stats_id)) AS last_statistics_update,
+						        DATEDIFF(DAY, STATS_DATE(s.object_id, s.stats_id), GETDATE()) AS days_since_last_stats_update,
 						        si.rowcnt,
 						        si.rowmodctr,
-						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * si.rowcnt ) * 100 AS DECIMAL(18, 1))
+						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * NULLIF(si.rowcnt, 0) ) * 100 AS DECIMAL(18, 1))
 						             ELSE si.rowmodctr
 						        END AS percent_modifications,
 						        CASE WHEN si.rowcnt < 500 THEN 500
 						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS INT)
 						        END AS modifications_before_auto_update,
-						        ISNULL(i.type_desc, ''System Statistic - N/A'') AS index_type_desc,
+						        ISNULL(i.type_desc, ''System Or User Statistic - N/A'') AS index_type_desc,
 						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
-						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date
+						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
+								s.no_recompute,
+								'
+								+ CASE WHEN @SQLServerProductVersion NOT LIKE '9%' 
+								THEN N's.has_filter,
+									   s.filter_definition' 
+								ELSE N'NULL AS has_filter,
+								       NULL AS filter_definition' END 
+						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
@@ -1523,15 +1543,18 @@ BEGIN TRY
 						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
-						WHERE obj.is_ms_shipped = 0;'
+						WHERE obj.is_ms_shipped = 0
+						AND si.rowcnt > 0
+						OPTION (RECOMPILE);'
 
 			IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
-			INSERT #Statistics(database_name, table_name, index_name, column_name, statistics_name, 
+			INSERT #Statistics(database_name, table_name, schema_name, index_name, column_name, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
-								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date)
+								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
+								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
 			END
@@ -2994,7 +3017,7 @@ BEGIN;
 						CONVERT(NVARCHAR(100), s.percent_modifications) + 
 						'% of the table.'
 					END,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
@@ -3013,13 +3036,47 @@ BEGIN;
 				s.database_name,
 				'' AS URL,
 				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were samplped during the last statistics update. This may lead to poor cardinality estimates.' ,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
 		WHERE s.rows_sampled < 1.
 		AND s.rows >= 10000
+
+        RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  92 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Cyberphobic Samples',
+				s.database_name,
+				'' AS URL,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is set to not recompute. This can be helpful if data is really skewed, but harmful if you expect automatic statistics updates.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.no_recompute = 1
+
+        RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  93 AS check_id, 
+				200 AS Priority,
+				'Functioning Statistaholics' AS findings_group,
+				'Filter Fixation',
+				s.database_name,
+				'' AS URL,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on ' + QUOTENAME(s.filter_definition) + '. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.has_filter = 1
 
 
 	END 
