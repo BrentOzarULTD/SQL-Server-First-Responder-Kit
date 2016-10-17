@@ -469,7 +469,7 @@ AS
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
         
-        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000
+        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0
             FROM    sys.databases
             WHERE   name='tempdb';
 
