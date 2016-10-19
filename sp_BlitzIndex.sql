@@ -2435,7 +2435,7 @@ BEGIN;
                         AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 44: Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 44: Large Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
                                     SUM(leaf_delete_count) AS leaf_delete_count
@@ -2449,7 +2449,7 @@ BEGIN;
                                 i.index_sanity_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
-                                N'Active heap' AS finding, 
+                                N'Large Active heap' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/SelfLoathing' AS URL,
                                 N'Should this table be a heap? ' + db_schema_object_indexid AS details, 
@@ -2463,14 +2463,81 @@ BEGIN;
                         WHERE    i.index_id = 0 
                                 AND 
                                     (i.total_reads > 0 OR i.user_updates > 0)
+								AND sz.total_rows >= 100000
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
                                 AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                 OPTION    ( RECOMPILE );
 
-				            RAISERROR(N'check_id 45: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 45: Medium Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            WITH    heaps_cte
+                      AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+                                    SUM(leaf_delete_count) AS leaf_delete_count
+                           FROM        #IndexPartitionSanity
+                           GROUP BY    [object_id]
+                           HAVING    SUM(forwarded_fetch_count) > 0
+                                    OR SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT  45 AS check_id, 
+                        SELECT    45 AS check_id, 
+                                i.index_sanity_id,
+                                100 AS Priority,
+                                N'Self Loathing Indexes' AS findings_group,
+                                N'Medium Active heap' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/SelfLoathing' AS URL,
+                                N'Should this table be a heap? ' + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                'N/A' AS secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                                AND 
+                                    (i.total_reads > 0 OR i.user_updates > 0)
+								AND sz.total_rows >= 10000 AND sz.total_rows < 100000
+                                AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
+                                AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+                OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 46: Small Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            WITH    heaps_cte
+                      AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+                                    SUM(leaf_delete_count) AS leaf_delete_count
+                           FROM        #IndexPartitionSanity
+                           GROUP BY    [object_id]
+                           HAVING    SUM(forwarded_fetch_count) > 0
+                                    OR SUM(leaf_delete_count) > 0)
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT    46 AS check_id, 
+                                i.index_sanity_id,
+                                100 AS Priority,
+                                N'Self Loathing Indexes' AS findings_group,
+                                N'Small Active heap' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/SelfLoathing' AS URL,
+                                N'Should this table be a heap? ' + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                'N/A' AS secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                                AND 
+                                    (i.total_reads > 0 OR i.user_updates > 0)
+								AND sz.total_rows < 10000
+                                AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
+                                AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+                OPTION    ( RECOMPILE );
+
+				            RAISERROR(N'check_id 47: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  47 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
