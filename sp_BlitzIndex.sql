@@ -1445,8 +1445,8 @@ BEGIN TRY
 		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
 		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
-					OBJECT_NAME(s.object_id) AS table_name,
-					SCHEMA_NAME(obj.schema_id) AS schema_name,
+					obj.name AS table_name,
+					sch.name AS schema_name,
 			        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
 			        c.name AS column_name,
 			        s.name AS statistics_name,
@@ -1479,10 +1479,12 @@ BEGIN TRY
 			        AND c.column_id = sc.column_id
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 			ON      s.object_id = obj.object_id
+			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
+			ON		sch.schema_id = obj.schema_id
 			LEFT JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 			ON      i.object_id = s.object_id
 			        AND i.index_id = s.stats_id
-			CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
+			OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
 			WHERE obj.is_ms_shipped = 0
 			OPTION (RECOMPILE);'
 			
@@ -1496,15 +1498,14 @@ BEGIN TRY
 								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
-			
 			END
 			ELSE 
 			BEGIN
 			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
 			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
-								OBJECT_NAME(s.object_id) AS table_name,
-								SCHEMA_NAME(obj.schema_id) AS schema_name,
+								obj.name AS table_name,
+								sch.name AS schema_name,
 						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
 						        c.name AS column_name,
 						        s.name AS statistics_name,
@@ -1540,6 +1541,8 @@ BEGIN TRY
 						        AND c.column_id = sc.column_id
 						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
+						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
+						ON		sch.schema_id = obj.schema_id
 						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
@@ -3035,7 +3038,7 @@ BEGIN;
 				'Antisocial Samples',
 				s.database_name,
 				'' AS URL,
-				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were samplped during the last statistics update. This may lead to poor cardinality estimates.' ,
+				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were sampled during the last statistics update. This may lead to poor cardinality estimates.' ,
 				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
