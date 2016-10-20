@@ -166,6 +166,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
+	@ObjectName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
@@ -874,6 +875,20 @@ BEGIN
         END
     END
 END    
+
+IF @ObjectName IS NOT NULL AND @ObjectName <> N''
+
+BEGIN
+
+	INSERT #only_sql_handles
+	        ( sql_handle )
+	SELECT  deps.sql_handle
+	FROM sys.dm_exec_procedure_stats AS deps
+	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @ObjectName
+
+END
+
+
 
 IF ((@OnlyQueryHashes IS NOT NULL AND LEN(@OnlyQueryHashes) > 0)
     OR (@IgnoreQueryHashes IS NOT NULL AND LEN(@IgnoreQueryHashes) > 0))
