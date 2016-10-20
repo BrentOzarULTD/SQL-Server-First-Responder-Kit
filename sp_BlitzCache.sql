@@ -191,7 +191,8 @@ Known limitations of this version:
    excluded by default.
  - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
    with no spaces between the hash values.
- - @OutputServerName is not functional yet.
+ - @OutputServerName is functional, but query plans will return as NVARCHAR(MAX)
+   rather than XML, and the summary table will not be stored.
 
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
@@ -757,7 +758,8 @@ IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg wri
                        'compiles', 'memory grant', 'avg memory grant')
   SET @SortOrder = 'cpu';
 
-SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+SELECT @OutputServerName   = QUOTENAME(@OutputServerName),
+	   @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
        @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
        @OutputTableName    = QUOTENAME(@OutputTableName);
 
@@ -2059,9 +2061,59 @@ SET    Warnings = SUBSTRING(
 
 
 Results:
-IF @OutputDatabaseName IS NOT NULL
-   AND @OutputSchemaName IS NOT NULL
-   AND @OutputTableName IS NOT NULL
+/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
+				DECLARE @ValidOutputServer BIT
+				DECLARE @ValidOutputLocation BIT
+				DECLARE @LinkedServerDBCheck NVARCHAR(2000)
+				DECLARE @ValidLinkedServerDB INT
+				DECLARE @tmpdbchk table (cnt int)
+				IF @OutputServerName IS NOT NULL
+					BEGIN
+						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+							BEGIN
+								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')'
+								INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck
+								SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk)
+								IF (@ValidLinkedServerDB > 0)
+									BEGIN
+										SET @ValidOutputServer = 1
+										SET @ValidOutputLocation = 1
+									END
+								ELSE
+									RAISERROR('The specified database was not found on the output server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								RAISERROR('The specified output server was not found', 16, 0)
+							END
+					END
+				ELSE
+					BEGIN
+						IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND EXISTS ( SELECT *
+								 FROM   sys.databases
+								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								SET @ValidOutputLocation = 1
+							END
+						ELSE IF @OutputDatabaseName IS NOT NULL
+							AND @OutputSchemaName IS NOT NULL
+							AND @OutputTableName IS NOT NULL
+							AND NOT EXISTS ( SELECT *
+								 FROM   sys.databases
+								 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+							BEGIN
+								RAISERROR('The specified output database was not found on this server', 16, 0)
+							END
+						ELSE
+							BEGIN
+								SET @ValidOutputLocation = 0 
+							END
+					END
+
+IF @ValidOutputLocation = 1
 BEGIN
     RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
 
@@ -2082,42 +2134,42 @@ BEGIN
         + @OutputSchemaName + '.'
         + @OutputTableName
         + N'(ID bigint NOT NULL IDENTITY(1,1),
-          ServerName nvarchar(256),
+          ServerName NVARCHAR(256),
 		  CheckDate DATETIMEOFFSET,
-          Version nvarchar(256),
-          QueryType nvarchar(256),
-          Warnings varchar(max),
+          Version NVARCHAR(256),
+          QueryType NVARCHAR(256),
+          Warnings varchar(MAX),
           DatabaseName sysname,
-          SerialDesiredMemory float,
-          SerialRequiredMemory float,
-          AverageCPU bigint,
-          TotalCPU bigint,
-          PercentCPUByType money,
-          CPUWeight money,
-          AverageDuration bigint,
-          TotalDuration bigint,
-          DurationWeight money,
-          PercentDurationByType money,
-          AverageReads bigint,
-          TotalReads bigint,
-          ReadWeight money,
-          PercentReadsByType money,
-          AverageWrites bigint,
-          TotalWrites bigint,
-          WriteWeight money,
-          PercentWritesByType money,
-          ExecutionCount bigint,
-          ExecutionWeight money,
-          PercentExecutionsByType money,' + N'
-          ExecutionsPerMinute money,
-          PlanCreationTime datetime,
-          LastExecutionTime datetime,
-		  PlanHandle varbinary(64),
+          SerialDesiredMemory FLOAT,
+          SerialRequiredMemory FLOAT,
+          AverageCPU BIGINT,
+          TotalCPU BIGINT,
+          PercentCPUByType MONEY,
+          CPUWeight MONEY,
+          AverageDuration BIGINT,
+          TotalDuration BIGINT,
+          DurationWeight MONEY,
+          PercentDurationByType MONEY,
+          AverageReads BIGINT,
+          TotalReads BIGINT,
+          ReadWeight MONEY,
+          PercentReadsByType MONEY,
+          AverageWrites BIGINT,
+          TotalWrites BIGINT,
+          WriteWeight MONEY,
+          PercentWritesByType MONEY,
+          ExecutionCount BIGINT,
+          ExecutionWeight MONEY,
+          PercentExecutionsByType MONEY,' + N'
+          ExecutionsPerMinute MONEY,
+          PlanCreationTime DATETIME,
+          LastExecutionTime DATETIME,
+		  PlanHandle VARBINARY(64),
 		  [Remove Plan Handle From Cache] AS 
 			CASE WHEN [PlanHandle] IS NOT NULL 
 			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
 			ELSE ''N/A'' END,
-		  SqlHandle varbinary(64),
+		  SqlHandle VARBINARY(64),
 			[Remove SQL Handle From Cache] AS 
 			CASE WHEN [SqlHandle] IS NOT NULL 
 			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
@@ -2126,72 +2178,122 @@ BEGIN
 			CASE WHEN [SqlHandle] IS NOT NULL 
 			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
 			ELSE ''N/A'' END,
-		  QueryHash binary(8),
+		  QueryHash BINARY(8),
 		  [Query Hash More Info] AS 
 			CASE WHEN [QueryHash] IS NOT NULL 
 			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
 			ELSE ''N/A'' END,
-          QueryPlanHash binary(8),
-          StatementStartOffset int,
-          StatementEndOffset int,
-          MinReturnedRows bigint,
-          MaxReturnedRows bigint,
-          AverageReturnedRows money,
-          TotalReturnedRows bigint,
-          QueryText nvarchar(max),
-          QueryPlan xml,
-          NumberOfPlans int,
-          NumberOfDistinctPlans int,
-		  MinGrantKB BIGINT,
-		  MaxGrantKB BIGINT,
-		  MinUsedGrantKB BIGINT, 
-		  MaxUsedGrantKB BIGINT,
-		  PercentMemoryGrantUsed MONEY,
-		  AvgMaxMemoryGrant MONEY,
+          QueryPlanHash BINARY(8),
+          StatementStartOffset INT,
+          StatementEndOffset INT,
+          MinReturnedRows BIGINT,
+          MAXReturnedRows BIGINT,
+          AverageReturnedRows MONEY,
+          TotalReturnedRows BIGINT,
+          QueryText NVARCHAR(MAX),
+          QueryPlan XML,
+          NumberOfPlans INT,
+          NumberOfDistinctPlans INT,
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
-    EXEC sp_executesql @insert_sql ;
+	IF @ValidOutputServer = 1
+		BEGIN
+			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''')
+			SET @insert_sql = REPLACE(@insert_sql,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + QUOTENAME(CONVERT(VARCHAR(128), [PlanHandle], 1), CHAR(39)) + '''');''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + QUOTENAME(CONVERT(VARCHAR(128), [SqlHandle], 1), CHAR(39)) + '''');''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''' + QUOTENAME(CONVERT(VARCHAR(128), [SqlHandle], 1), CHAR(39)) + ''''; ''''')
+			SET @insert_sql = REPLACE(@insert_sql,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''' + QUOTENAME(CONVERT(VARCHAR(32), [QueryHash], 1), CHAR(39)) + ''''; ''''')
+			SET @insert_sql = REPLACE(@insert_sql,'N/A','''N/A''')
+			SET @insert_sql = REPLACE(@insert_sql,'XML','[NVARCHAR](MAX)')
+			EXEC('EXEC('''+@insert_sql+''') AT ' + @OutputServerName);
+		END   
+	ELSE
+		BEGIN
+			EXEC sp_executesql @insert_sql;
+		END
 
-
-    SET @insert_sql =N' IF EXISTS(SELECT * FROM '
-          + @OutputDatabaseName
-          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-          + @OutputSchemaName + N''') '
-          + 'INSERT '
-          + @OutputDatabaseName + '.'
-          + @OutputSchemaName + '.'
-          + @OutputTableName
-          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant) '
-          + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
-          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
-          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant '
-          + N' FROM ##bou_BlitzCacheProcs '
+		IF @ValidOutputServer = 1
+		BEGIN
+		SET @insert_sql =N' IF EXISTS(SELECT * FROM '
+				+ @OutputServerName + '.'
+				+ @OutputDatabaseName
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+				+ @OutputSchemaName + N''') '
+				+ 'INSERT '
+				+ @OutputServerName + '.'
+				+ @OutputDatabaseName + '.'
+				+ @OutputSchemaName + '.'
+				+ @OutputTableName
+				+ N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+				+ N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+				+ N' SerialRequiredMemory, SerialDesiredMemory) '
+				+ N'SELECT TOP '+CONVERT(VARCHAR,@Top)+' '
+				+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
+				+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
+				+ N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+				+ N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CONVERT(NVARCHAR(MAX),QueryPlan), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+				+ N' SerialRequiredMemory, SerialDesiredMemory '
+				+ N' FROM ##bou_BlitzCacheProcs '
           
-    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                    WHEN 'reads' THEN N' TotalReads '
-                                                    WHEN 'writes' THEN N' TotalWrites '
-                                                    WHEN 'duration' THEN N' TotalDuration '
-                                                    WHEN 'executions' THEN N' ExecutionCount '
-                                                    WHEN 'compiles' THEN N' PlanCreationTime '
-													WHEN 'memory grant' THEN N' MaxGrantKB'
-                                                    WHEN 'avg cpu' THEN N' AverageCPU'
-                                                    WHEN 'avg reads' THEN N' AverageReads'
-                                                    WHEN 'avg writes' THEN N' AverageWrites'
-                                                    WHEN 'avg duration' THEN N' AverageDuration'
-                                                    WHEN 'avg executions' THEN N' ExecutionsPerMinute'
-													WHEN 'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                    END + N' DESC '
+			SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
+															WHEN 'reads' THEN ' TotalReads '
+															WHEN 'writes' THEN ' TotalWrites '
+															WHEN 'duration' THEN ' TotalDuration '
+															WHEN 'executions' THEN ' ExecutionCount '
+															WHEN 'compiles' THEN ' PlanCreationTime '
+															WHEN 'avg cpu' THEN 'AverageCPU'
+															WHEN 'avg reads' THEN 'AverageReads'
+															WHEN 'avg writes' THEN 'AverageWrites'
+															WHEN 'avg duration' THEN 'AverageDuration'
+															WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+															END + N' DESC '
 
-    SET @insert_sql += N' OPTION (RECOMPILE) ; '    
+
+			EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
+		END   
+	ELSE
+		BEGIN
+			SET @insert_sql =N' IF EXISTS(SELECT * FROM '
+				+ @OutputDatabaseName
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+				+ @OutputSchemaName + N''') '
+				+ 'INSERT '
+				+ @OutputDatabaseName + '.'
+				+ @OutputSchemaName + '.'
+				+ @OutputTableName
+				+ N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+				+ N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+				+ N' SerialRequiredMemory, SerialDesiredMemory) '
+				+ N'SELECT TOP (@Top) '
+				+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
+				+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') as nvarchar(128)), N'''') + ', '
+				+ N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+				+ N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+				+ N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+				+ N' SerialRequiredMemory, SerialDesiredMemory '
+				+ N' FROM ##bou_BlitzCacheProcs '
+          
+			SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
+															WHEN 'reads' THEN ' TotalReads '
+															WHEN 'writes' THEN ' TotalWrites '
+															WHEN 'duration' THEN ' TotalDuration '
+															WHEN 'executions' THEN ' ExecutionCount '
+															WHEN 'compiles' THEN ' PlanCreationTime '
+															WHEN 'avg cpu' THEN 'AverageCPU'
+															WHEN 'avg reads' THEN 'AverageReads'
+															WHEN 'avg writes' THEN 'AverageWrites'
+															WHEN 'avg duration' THEN 'AverageDuration'
+															WHEN 'avg executions' THEN 'ExecutionsPerMinute'
+															END + N' DESC '
+
+			SET @insert_sql += N' OPTION (RECOMPILE) ; '    
     
-    EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
+			EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
+		END
 
     RETURN
 END
