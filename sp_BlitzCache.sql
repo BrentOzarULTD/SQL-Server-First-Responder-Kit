@@ -48,6 +48,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
         LastExecutionTime DATETIME,
         PlanHandle VARBINARY(64),
 		[Remove Plan Handle From Cache] AS 
@@ -634,6 +635,7 @@ BEGIN
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
         LastExecutionTime DATETIME,
         PlanHandle VARBINARY(64),
 		[Remove Plan Handle From Cache] AS 
@@ -839,6 +841,17 @@ CREATE TABLE #configuration (
     value DECIMAL(38,0)
 );
 
+WITH x AS (
+SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 24 THEN 1 ELSE 0 END) AS [plans_24],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 4 THEN 1 ELSE 0 END) AS [plans_4],
+	   COUNT(deqs.creation_time) AS [total_plans]
+FROM sys.dm_exec_query_stats AS deqs
+)
+SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(3,2), x.plans_4 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   @@SPID AS SPID
+INTO #plan_creation
+FROM x
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -2078,8 +2091,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN is_clr IS NULL AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the function ' + compute_scalar_reference ELSE '' END + 
-				  CASE WHEN is_clr = 1 AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the CLR function ' + compute_scalar_reference ELSE '' END
+				  CASE WHEN is_clr IS NULL AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the function' + compute_scalar_reference ELSE '' END + 
+				  CASE WHEN is_clr = 1 AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the CLR function' + compute_scalar_reference ELSE '' END +
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created in the last 4 hours' ELSE '' END 
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2147,6 +2161,7 @@ BEGIN
           PercentExecutionsByType money,' + N'
           ExecutionsPerMinute money,
           PlanCreationTime datetime,
+		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
           LastExecutionTime datetime,
 		  PlanHandle varbinary(64),
 		  [Remove Plan Handle From Cache] AS 
@@ -2390,7 +2405,8 @@ BEGIN
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
 				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
 				  CASE WHEN is_clr IS NULL and compute_scalar_reference IS NOT NULL THEN '', 31'' ELSE '''' END +
-				  CASE WHEN is_clr = 1 and compute_scalar_reference IS NOT NULL THEN '', 32'' ELSE '''' END 
+				  CASE WHEN is_clr = 1 and compute_scalar_reference IS NOT NULL THEN '', 32'' ELSE '''' END +
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2866,6 +2882,22 @@ BEGIN
                     'This could be trouble if your CLR functions perform data access',
                     'No URL yet.',
                     'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_creation p
+                   WHERE p.percent_24 > 0
+				   OR p.percent_4 > 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    254,
+                    'Plan Cache Information',
+                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
+                    'No URL yet.',
+                    'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
+			FROM   #plan_creation p		;
+
 
 	
 	END            
