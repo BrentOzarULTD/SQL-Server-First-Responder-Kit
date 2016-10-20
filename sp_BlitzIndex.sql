@@ -153,6 +153,9 @@ IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL
 IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL 
     DROP TABLE #PartitionCompressionInfo;
 
+IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL 
+    DROP TABLE #ComputedColumns;
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -544,6 +547,23 @@ IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL
 		  has_filter BIT NULL,
 		  filter_definition NVARCHAR(MAX) NULL
 		); 
+
+		CREATE TABLE #ComputedColumns
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  column_name NVARCHAR(128) NULL,
+		  is_nullable BIT NULL,
+		  definition NVARCHAR(MAX) NULL,
+		  uses_database_collation BIT NOT NULL,
+		  is_persisted BIT NOT NULL,
+		  is_computed BIT NOT NULL,
+		  is_function INT NOT NULL,
+		  column_definition NVARCHAR(MAX) NULL
+		);
+
 
 
 IF @GetAllDatabases = 1
@@ -1503,7 +1523,7 @@ BEGIN TRY
 			BEGIN
 			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
 			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+						SELECT  ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
 								obj.name AS table_name,
 								sch.name AS schema_name,
 						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
@@ -1561,6 +1581,41 @@ BEGIN TRY
 			
 			EXEC sp_executesql @dsql;
 			END
+
+			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
+			BEGIN
+			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
+			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+   					   		   t.name AS table_name,
+   					           s.name AS schema_name,
+   					           c.name AS column_name,
+   					           cc.is_nullable,
+   					           cc.definition,
+   					           cc.uses_database_collation,
+   					           cc.is_persisted,
+   					           cc.is_computed,
+   					   		   CASE WHEN cc.definition LIKE ''%dbo%'' THEN 1 ELSE 0 END AS is_function,
+   					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
+   					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition + '';'' AS [column_definition]
+   					   FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.computed_columns AS cc
+   					   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+   					   ON      cc.object_id = c.object_id
+   					   		   AND cc.column_id = c.column_id
+   					   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+   					   ON      t.object_id = cc.object_id
+   					   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+   					   ON      s.schema_id = t.schema_id
+					   OPTION (RECOMPILE);'
+
+			IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+			INSERT #ComputedColumns
+			        ( database_name, table_name, schema_name, column_name, is_nullable, definition, 
+					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
+			EXEC sp_executesql @dsql;
+
+			END 
 END                    
 END TRY
 BEGIN CATCH
@@ -3172,6 +3227,49 @@ BEGIN;
 		FROM #Statistics AS s
 		WHERE s.has_filter = 1
 
+		END 
+
+         ----------------------------------------
+        --Computed Column Info: Check_id 90-99
+        ----------------------------------------
+    BEGIN
+
+	     RAISERROR(N'check_id 99: Computed Columns That Reference Functions', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  99 AS check_id, 
+				50 AS Priority,
+				'Cold Calculators' AS findings_group,
+				'Serial Forcer' AS finding,
+				cc.database_name,
+				'' AS URL,
+				'The computed column ' + QUOTENAME(cc.column_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is based on ' + cc.definition 
+				+ '. That indicates it may reference a scalar function, or a CLR function with data access, which can cause all queries and maintenance to run serially.' AS details,
+				cc.column_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #ComputedColumns AS cc
+		WHERE cc.is_function = 1
+
+		RAISERROR(N'check_id 100: Computed Columns that are not Persisted.', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  100 AS check_id, 
+				200 AS Priority,
+				'Cold Calculators' AS findings_group,
+				'Definition Defeatists' AS finding,
+				cc.database_name,
+				'' AS URL,
+				'The computed column ' + QUOTENAME(cc.column_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is not persisted, which means it will be calculated when a query runs.' + 
+				'You can change this with the following command, if the definition is deterministic: ALTER TABLE ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' ALTER COLUMN ' + cc.column_name +
+				' ADD PERSISTED'  AS details,
+				cc.column_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #ComputedColumns AS cc
+		WHERE cc.is_persisted = 0
 
 	END 
  
