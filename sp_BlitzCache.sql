@@ -142,6 +142,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_unused_grant BIT,
 		compute_scalar_reference NVARCHAR(128),
 		is_clr BIT,
+		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -726,6 +727,7 @@ BEGIN
 		is_unused_grant BIT,
 		compute_scalar_reference NVARCHAR(128),
 		is_clr BIT,
+		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1767,14 +1769,16 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
        tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
-       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END
+       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END,
+	   p.is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
             SELECT qs.SqlHandle,
                    relop.value('sum(/p:RelOp/@EstimateRows)', 'float') AS estimated_rows ,
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
                    relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
-                   relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning
+                   relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning,
+				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
@@ -2093,7 +2097,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
 				  CASE WHEN is_clr IS NULL AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the function' + compute_scalar_reference ELSE '' END + 
 				  CASE WHEN is_clr = 1 AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the CLR function' + compute_scalar_reference ELSE '' END +
-				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created in the last 4 hours' ELSE '' END 
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
+				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2406,7 +2411,8 @@ BEGIN
 				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
 				  CASE WHEN is_clr IS NULL and compute_scalar_reference IS NOT NULL THEN '', 31'' ELSE '''' END +
 				  CASE WHEN is_clr = 1 and compute_scalar_reference IS NOT NULL THEN '', 32'' ELSE '''' END +
-				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
+				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2843,19 +2849,6 @@ BEGIN
                     'Queries have large unused memory grants. This can cause concurrency issues, if queries are waiting a long time to get memory to run.') ;
 
         IF EXISTS (SELECT 1/0
-                   FROM   #trace_flags AS tf 
-                   WHERE  tf.global_trace_flags IS NOT NULL
-				   )
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    999,
-                    255,
-                    'Global Trace Flags Enabled',
-                    'You have Global Trace Flags enabled on your server',
-                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
-                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
-
-        IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
                    WHERE  p.compute_scalar_reference IS NOT NULL
 				   AND p.is_clr IS NULL
@@ -2884,6 +2877,33 @@ BEGIN
                     'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
         IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.compute_scalar_reference IS NOT NULL
+				   AND p.is_clr = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    33,
+                    100,
+                    'Compute Scalar That References A CLR Function',
+                    'This could be trouble if your CLR functions perform data access',
+                    'No URL yet.',
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_table_variable = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    33,
+                    100,
+                    'Table Variables detected',
+                    'Beware nasty side effects',
+                    'No URL yet.',
+                    'All modifications are single threaded, and selects have really low row estimates.') ;
+
+        IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
                    WHERE p.percent_24 > 0
 				   OR p.percent_4 > 0
@@ -2899,6 +2919,18 @@ BEGIN
 			FROM   #plan_creation p		;
 
 
+        IF EXISTS (SELECT 1/0
+                   FROM   #trace_flags AS tf 
+                   WHERE  tf.global_trace_flags IS NOT NULL
+				   )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    999,
+                    255,
+                    'Global Trace Flags Enabled',
+                    'You have Global Trace Flags enabled on your server',
+                    'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
+                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 	
 	END            
     
