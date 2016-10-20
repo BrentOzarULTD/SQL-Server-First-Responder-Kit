@@ -139,6 +139,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
+		compute_scalar_reference NVARCHAR(128),
+		is_clr BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -720,6 +722,8 @@ BEGIN
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
+		compute_scalar_reference NVARCHAR(128),
+		is_clr BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1762,6 +1766,21 @@ FROM   ##bou_BlitzCacheProcs p
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
 
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, x AS (
+SELECT qs.SqlHandle,
+	   MAX(relop.value('(/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator/p:UserDefinedFunction/@FunctionName)[1]', 'VARCHAR(100)')) AS udf_name, 
+	   MAX(relop.value('(/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator/p:UserDefinedFunction/@IsClrFunction)[1]', 'INT')) AS is_clr
+FROM   #relop qs
+GROUP BY qs.SqlHandle
+)
+UPDATE p
+SET	   p.compute_scalar_reference = x.udf_name,
+	   p.is_clr = x.is_clr
+FROM ##bou_BlitzCacheProcs AS p
+JOIN x ON x.SqlHandle = p.SqlHandle
+OPTION (RECOMPILE);
+
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -2058,7 +2077,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
-				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END
+				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
+				  CASE WHEN is_clr IS NULL AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the function ' + compute_scalar_reference ELSE '' END + 
+				  CASE WHEN is_clr = 1 AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the CLR function ' + compute_scalar_reference ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2367,7 +2388,9 @@ BEGIN
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
-				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END
+				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
+				  CASE WHEN is_clr IS NULL and compute_scalar_reference IS NOT NULL THEN '', 31'' ELSE '''' END +
+				  CASE WHEN is_clr = 1 and compute_scalar_reference IS NOT NULL THEN '', 32'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2815,6 +2838,34 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.compute_scalar_reference IS NOT NULL
+				   AND p.is_clr IS NULL
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    31,
+                    100,
+                    'Compute Scalar That References A Function',
+                    'This could be trouble if you''re using Scalar Functions or MSTVFs',
+                    'No URL yet.',
+                    'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.compute_scalar_reference IS NOT NULL
+				   AND p.is_clr = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    32,
+                    100,
+                    'Compute Scalar That References A CLR Function',
+                    'This could be trouble if your CLR functions perform data access',
+                    'No URL yet.',
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
 	
 	END            
