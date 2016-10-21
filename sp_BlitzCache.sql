@@ -140,8 +140,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
-		compute_scalar_reference NVARCHAR(128),
-		is_clr BIT,
+		function_count INT,
+		clr_function_count INT,
 		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
@@ -725,8 +725,8 @@ BEGIN
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
-		compute_scalar_reference NVARCHAR(128),
-		is_clr BIT,
+		function_count INT,
+		clr_function_count INT,
 		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
@@ -1785,17 +1785,17 @@ OPTION (RECOMPILE);
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , x AS (
-SELECT qs.SqlHandle,
-	   MAX(relop.value('(/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator/p:UserDefinedFunction/@FunctionName)[1]', 'VARCHAR(100)')) AS udf_name, 
-	   MAX(relop.value('(/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator/p:UserDefinedFunction/@IsClrFunction)[1]', 'INT')) AS is_clr
+SELECT qs.QueryHash,
+	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS function_count,
+	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[@IsClrFunction = "1"]))', 'INT') AS clr_function_count
 FROM   #relop qs
-GROUP BY qs.SqlHandle
+CROSS APPLY relop.nodes('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator') n(fn)
 )
 UPDATE p
-SET	   p.compute_scalar_reference = x.udf_name,
-	   p.is_clr = x.is_clr
+SET	   p.function_count = x.function_count,
+	   p.clr_function_count = x.clr_function_count
 FROM ##bou_BlitzCacheProcs AS p
-JOIN x ON x.SqlHandle = p.SqlHandle
+JOIN x ON x.QueryHash = p.QueryHash
 OPTION (RECOMPILE);
 
 
@@ -2095,8 +2095,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN is_clr IS NULL AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the function' + compute_scalar_reference ELSE '' END + 
-				  CASE WHEN is_clr = 1 AND compute_scalar_reference IS NOT NULL THEN ', Compute Scalar that references the CLR function' + compute_scalar_reference ELSE '' END +
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END
                   , 2, 200000) 
@@ -2409,8 +2409,8 @@ BEGIN
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
 				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
-				  CASE WHEN is_clr IS NULL and compute_scalar_reference IS NOT NULL THEN '', 31'' ELSE '''' END +
-				  CASE WHEN is_clr = 1 and compute_scalar_reference IS NOT NULL THEN '', 32'' ELSE '''' END +
+				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
+				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
 				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
@@ -2850,8 +2850,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.compute_scalar_reference IS NOT NULL
-				   AND p.is_clr IS NULL
+                   WHERE  p.function_count > 0
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
@@ -2864,8 +2863,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.compute_scalar_reference IS NOT NULL
-				   AND p.is_clr = 1
+                   WHERE  p.clr_function_count > 0
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
@@ -2876,19 +2874,6 @@ BEGIN
                     'No URL yet.',
                     'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.compute_scalar_reference IS NOT NULL
-				   AND p.is_clr = 1
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    33,
-                    100,
-                    'Compute Scalar That References A CLR Function',
-                    'This could be trouble if your CLR functions perform data access',
-                    'No URL yet.',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
