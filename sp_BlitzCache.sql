@@ -172,7 +172,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
-	@StoredProcName NVARCHAR(128) = NULL,
+    @StoredProcName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
@@ -204,7 +204,7 @@ Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
 Changes - for the full list of improvements and fixes in this version, see:
-https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
 
@@ -905,7 +905,7 @@ BEGIN
 
 	INSERT #only_sql_handles
 	        ( sql_handle )
-	SELECT  deps.sql_handle
+	SELECT  ISNULL(deps.sql_handle, '')
 	FROM sys.dm_exec_procedure_stats AS deps
 	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
 
@@ -2917,7 +2917,7 @@ BEGIN
                     'Compute Scalar That References A Function',
                     'This could be trouble if you''re using Scalar Functions or MSTVFs',
                     'No URL yet.',
-                    'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
+                    'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinality estimates') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
