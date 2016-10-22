@@ -109,6 +109,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_forced_plan BIT,
         is_forced_parameterized BIT,
         is_cursor BIT,
+		is_optimistic_cursor BIT,
+		is_forward_only_cursor BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -694,6 +696,8 @@ BEGIN
         is_forced_plan BIT,
         is_forced_parameterized BIT,
         is_cursor BIT,
+		is_optimistic_cursor BIT,
+		is_forward_only_cursor BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -1321,7 +1325,7 @@ BEGIN
            t.t_TotalExecs,
            t.t_TotalWrites,
            qs.sql_handle AS SqlHandle,
-           NULL AS PlanHandle,
+           qs.plan_handle AS PlanHandle,
            qs.query_hash AS QueryHash,
            qs.query_plan_hash AS QueryPlanHash,
            qs.min_worker_time / 1000.0,
@@ -1661,6 +1665,16 @@ FROM    ##bou_BlitzCacheProcs p
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+INSERT #statements
+SELECT  QueryHash ,
+        SqlHandle ,
+		PlanHandle,
+        q.n.query('.') AS statement
+FROM    ##bou_BlitzCacheProcs p
+        CROSS APPLY p.QueryPlan.nodes('//p:StmtCursor') AS q(n) 
+OPTION (RECOMPILE) ;
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
         q.n.query('.') AS query_plan
@@ -1825,6 +1839,18 @@ WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
+
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
+	b.is_forward_only_cursor = CASE WHEN n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.QueryHash = qs.QueryHash
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+OPTION (RECOMPILE) ;
+
 
 IF @v >= 12
 BEGIN
@@ -2077,7 +2103,10 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
-                  CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
+                  CASE WHEN is_cursor = 1 THEN ', Cursor' 
+							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN ' with forward only' ELSE '' END							
+				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
                   CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
@@ -2558,6 +2587,35 @@ BEGIN
                     'Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_optimistic_cursor = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Optimistic Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'There are optimistic cursors in the plan cache, which can harm performance.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_forward_only_cursor = 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Non-forward Only Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'There are non-forward only cursors in the plan cache, which can harm performance.');
+
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
