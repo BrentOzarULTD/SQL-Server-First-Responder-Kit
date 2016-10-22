@@ -172,7 +172,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
-    @StoredProcName NVARCHAR(128) = NULL,
+   @StoredProcName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
@@ -2122,7 +2122,6 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
 				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
 				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
