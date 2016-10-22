@@ -48,6 +48,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
         LastExecutionTime DATETIME,
         PlanHandle VARBINARY(64),
 		[Remove Plan Handle From Cache] AS 
@@ -108,6 +109,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_forced_plan BIT,
         is_forced_parameterized BIT,
         is_cursor BIT,
+		is_optimistic_cursor BIT,
+		is_forward_only_cursor BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -139,6 +142,9 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
+		function_count INT,
+		clr_function_count INT,
+		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -166,6 +172,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
+    @StoredProcName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
@@ -197,7 +204,7 @@ Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
 
 Changes - for the full list of improvements and fixes in this version, see:
-https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
 
@@ -631,6 +638,7 @@ BEGIN
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
         LastExecutionTime DATETIME,
         PlanHandle VARBINARY(64),
 		[Remove Plan Handle From Cache] AS 
@@ -688,6 +696,8 @@ BEGIN
         is_forced_plan BIT,
         is_forced_parameterized BIT,
         is_cursor BIT,
+		is_optimistic_cursor BIT,
+		is_forward_only_cursor BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -719,6 +729,9 @@ BEGIN
         is_trivial BIT,
 		trace_flags_session VARCHAR(1000),
 		is_unused_grant BIT,
+		function_count INT,
+		clr_function_count INT,
+		is_table_variable BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -834,6 +847,17 @@ CREATE TABLE #configuration (
     value DECIMAL(38,0)
 );
 
+WITH x AS (
+SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 24 THEN 1 ELSE 0 END) AS [plans_24],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 4 THEN 1 ELSE 0 END) AS [plans_4],
+	   COUNT(deqs.creation_time) AS [total_plans]
+FROM sys.dm_exec_query_stats AS deqs
+)
+SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(3,2), x.plans_4 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   @@SPID AS SPID
+INTO #plan_creation
+FROM x
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -874,6 +898,20 @@ BEGIN
         END
     END
 END    
+
+IF @StoredProcName IS NOT NULL AND @StoredProcName <> N''
+
+BEGIN
+
+	INSERT #only_sql_handles
+	        ( sql_handle )
+	SELECT  ISNULL(deps.sql_handle, '')
+	FROM sys.dm_exec_procedure_stats AS deps
+	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
+
+END
+
+
 
 IF ((@OnlyQueryHashes IS NOT NULL AND LEN(@OnlyQueryHashes) > 0)
     OR (@IgnoreQueryHashes IS NOT NULL AND LEN(@IgnoreQueryHashes) > 0))
@@ -1287,7 +1325,7 @@ BEGIN
            t.t_TotalExecs,
            t.t_TotalWrites,
            qs.sql_handle AS SqlHandle,
-           NULL AS PlanHandle,
+           qs.plan_handle AS PlanHandle,
            qs.query_hash AS QueryHash,
            qs.query_plan_hash AS QueryPlanHash,
            qs.min_worker_time / 1000.0,
@@ -1627,6 +1665,16 @@ FROM    ##bou_BlitzCacheProcs p
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+INSERT #statements
+SELECT  QueryHash ,
+        SqlHandle ,
+		PlanHandle,
+        q.n.query('.') AS statement
+FROM    ##bou_BlitzCacheProcs p
+        CROSS APPLY p.QueryPlan.nodes('//p:StmtCursor') AS q(n) 
+OPTION (RECOMPILE) ;
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
         q.n.query('.') AS query_plan
@@ -1735,16 +1783,33 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
        tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
-       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END
+       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END,
+	   p.is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
             SELECT qs.SqlHandle,
                    relop.value('sum(/p:RelOp/@EstimateRows)', 'float') AS estimated_rows ,
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
                    relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
-                   relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning
+                   relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning,
+				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE);
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, x AS (
+SELECT qs.QueryHash,
+	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS function_count,
+	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[@IsClrFunction = "1"]))', 'INT') AS clr_function_count
+FROM   #relop qs
+CROSS APPLY relop.nodes('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator') n(fn)
+)
+UPDATE p
+SET	   p.function_count = x.function_count,
+	   p.clr_function_count = x.clr_function_count
+FROM ##bou_BlitzCacheProcs AS p
+JOIN x ON x.QueryHash = p.QueryHash
 OPTION (RECOMPILE);
 
 
@@ -1774,6 +1839,18 @@ WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
+
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
+	b.is_forward_only_cursor = CASE WHEN n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.QueryHash = qs.QueryHash
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+OPTION (RECOMPILE) ;
+
 
 IF @v >= 12
 BEGIN
@@ -2026,7 +2103,10 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
-                  CASE WHEN is_cursor = 1 THEN ', Cursor' ELSE '' END +
+                  CASE WHEN is_cursor = 1 THEN ', Cursor' 
+							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN ' with forward only' ELSE '' END							
+				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
                   CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
@@ -2043,7 +2123,11 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END +
-				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END
+				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
+				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2111,6 +2195,7 @@ BEGIN
           PercentExecutionsByType money,' + N'
           ExecutionsPerMinute money,
           PlanCreationTime datetime,
+		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
           LastExecutionTime datetime,
 		  PlanHandle varbinary(64),
 		  [Remove Plan Handle From Cache] AS 
@@ -2352,7 +2437,11 @@ BEGIN
                   CASE WHEN is_key_lookup_expensive = 1 THEN '', 26'' ELSE '''' END +
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
-				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END
+				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
+				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
+				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
+				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2498,6 +2587,35 @@ BEGIN
                     'Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are cursors in the plan cache. This is neither good nor bad, but it is a thing. Cursors are weird in SQL Server.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_optimistic_cursor = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Optimistic Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'There are optimistic cursors in the plan cache, which can harm performance.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_forward_only_cursor = 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Non-forward Only Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'There are non-forward only cursors in the plan cache, which can harm performance.');
+
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -2789,6 +2907,62 @@ BEGIN
                     'Queries have large unused memory grants. This can cause concurrency issues, if queries are waiting a long time to get memory to run.') ;
 
         IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.function_count > 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    31,
+                    100,
+                    'Compute Scalar That References A Function',
+                    'This could be trouble if you''re using Scalar Functions or MSTVFs',
+                    'No URL yet.',
+                    'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinality estimates') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.clr_function_count > 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    32,
+                    100,
+                    'Compute Scalar That References A CLR Function',
+                    'This could be trouble if your CLR functions perform data access',
+                    'No URL yet.',
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
+
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_table_variable = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    33,
+                    100,
+                    'Table Variables detected',
+                    'Beware nasty side effects',
+                    'No URL yet.',
+                    'All modifications are single threaded, and selects have really low row estimates.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_creation p
+                   WHERE p.percent_24 > 0
+				   OR p.percent_4 > 0
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    254,
+                    'Plan Cache Information',
+                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
+                    'No URL yet.',
+                    'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
+			FROM   #plan_creation p		;
+
+
+        IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
                    WHERE  tf.global_trace_flags IS NOT NULL
 				   )
@@ -2800,7 +2974,6 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
-
 	
 	END            
     
