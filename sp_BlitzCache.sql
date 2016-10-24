@@ -905,7 +905,7 @@ BEGIN
 
 	INSERT #only_sql_handles
 	        ( sql_handle )
-	SELECT  ISNULL(deps.sql_handle, '')
+	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),''))
 	FROM sys.dm_exec_procedure_stats AS deps
 	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
 
