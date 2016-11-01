@@ -1554,19 +1554,19 @@ BEGIN TRY
 								       NULL AS filter_definition' END 
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
 						ON      sc.object_id = s.object_id
 						        AND sc.stats_id = s.stats_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
 						ON      c.object_id = sc.object_id
 						        AND c.column_id = sc.column_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
 						ON		sch.schema_id = obj.schema_id
-						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+						LEFT HASH JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
 						WHERE obj.is_ms_shipped = 0
