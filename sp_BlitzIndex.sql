@@ -21,6 +21,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
 	@SkipPartitions BIT	= 0,
+	@SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -1458,6 +1459,8 @@ BEGIN TRY
 
 
 
+		IF @SkipStatistics = 0 
+			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
@@ -1580,6 +1583,8 @@ BEGIN TRY
 								no_recompute, has_filter, filter_definition)
 			
 			EXEC sp_executesql @dsql;
+			END
+
 			END
 
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
