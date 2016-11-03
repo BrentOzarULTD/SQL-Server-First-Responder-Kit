@@ -3225,7 +3225,7 @@ BEGIN;
 				'Filter Fixation',
 				s.database_name,
 				'' AS URL,
-				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on ' + QUOTENAME(s.filter_definition) + '. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on [' + s.filter_definition + ']. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
 				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
