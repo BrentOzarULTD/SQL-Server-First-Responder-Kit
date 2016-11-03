@@ -136,7 +136,9 @@ AS
 			,@MsSinceWaitsCleared DECIMAL(38,0)
 			,@CpuMsSinceWaitsCleared DECIMAL(38,0)
 			,@ResultText NVARCHAR(MAX)
-			,@crlf NVARCHAR(2);
+			,@crlf NVARCHAR(2)
+			,@Processors int
+			,@NUMANodes int;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -1497,6 +1499,33 @@ AS
 										LEFT OUTER JOIN #ConfigurationDefaults cdUsed ON cdUsed.name = cr.name
 																  AND cdUsed.DefaultValue = cr.value_in_use
 								WHERE   cdUsed.name IS NULL;
+						/* Let's set variables so that our query is still SARGable */
+						SET @Processors = (SELECT cpu_count FROM sys.dm_os_sys_info)
+						SET @NUMANodes = (SELECT COUNT(1)
+											FROM sys.dm_os_performance_counters pc
+											WHERE pc.object_name LIKE '%Buffer Node%'
+												AND counter_name = 'Page life expectancy')
+						/* If Cost Threshold for Parallelism is default then flag as a potential issue */
+						/* If MAXDOP is default and processors > 8 or NUMA nodes > 1 then flag as potential issue */
+						INSERT INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  cd.CheckID ,
+										200 AS Priority ,
+										'Default Server Config' AS FindingsGroup ,
+										cr.name AS Finding ,
+										'http://BrentOzar.com/go/cxpacket' AS URL ,
+										( 'This sp_configure option has not been changed. Changing these may reduce CPU contention. See the link for further details.')
+								FROM    sys.configurations cr
+										INNER JOIN #ConfigurationDefaults cd ON cd.name = cr.name
+											AND cr.value_in_use = cd.DefaultValue
+								WHERE   cr.name = 'cost threshold for parallelism'
+									OR (cr.name = 'max degree of parallelism' AND (@NUMANodes > 1 OR @Processors > 8));
 					END
 
 
