@@ -211,6 +211,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 200 | Non-Default Server Config | Web Assistant Procedures | http://BrentOzar.com/go/conf | 1064 |
 | 200 | Non-Default Server Config | xp_cmdshell | http://BrentOzar.com/go/conf | 1065 |
 | 200 | Performance | Buffer Pool Extensions Enabled | http://BrentOzar.com/go/bpe | 174 |
+| 200 | Performance | Default Parallelism Settings | http://BrentOzar.com/go/cxpacket | 188 |
 | 200 | Performance | In-Memory OLTP (Hekaton) In Use | http://BrentOzar.com/go/hekaton | 146 |
 | 200 | Performance | Old Compatibility Level | http://BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Snapshot Backups Occurring | http://BrentOzar.com/go/snaps | 178 |
