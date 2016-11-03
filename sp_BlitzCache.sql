@@ -738,6 +738,7 @@ BEGIN
 END
 
 DECLARE @DurationFilter_i INT,
+		@MinMemoryPerQuery INT,
         @msg NVARCHAR(4000) ;
 
 RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
@@ -756,6 +757,7 @@ BEGIN
    RETURN;
 END
 
+SELECT @MinMemoryPerQuery = c.value FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
@@ -2051,7 +2053,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
-	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > 0 THEN 1 END
+	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
 OPTION (RECOMPILE) ;
 
 
