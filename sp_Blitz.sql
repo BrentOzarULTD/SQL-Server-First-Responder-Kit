@@ -1499,6 +1499,13 @@ AS
 										LEFT OUTER JOIN #ConfigurationDefaults cdUsed ON cdUsed.name = cr.name
 																  AND cdUsed.DefaultValue = cr.value_in_use
 								WHERE   cdUsed.name IS NULL;
+					END
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 188 )
+					BEGIN
+
 						/* Let's set variables so that our query is still SARGable */
 						SET @Processors = (SELECT cpu_count FROM sys.dm_os_sys_info)
 						SET @NUMANodes = (SELECT COUNT(1)
@@ -1515,12 +1522,12 @@ AS
 								  URL ,
 								  Details
 								)
-								SELECT  cd.CheckID ,
+								SELECT  188 AS CheckID ,
 										200 AS Priority ,
-										'Default Server Config' AS FindingsGroup ,
+										'Performance' AS FindingsGroup ,
 										cr.name AS Finding ,
 										'http://BrentOzar.com/go/cxpacket' AS URL ,
-										( 'This sp_configure option has not been changed. Changing these may reduce CPU contention. See the link for further details.')
+										( 'Set to ' + CAST(cr.value_in_use AS NVARCHAR(50)) + ', its default value. Changing this sp_configure setting may reduce CXPACKET waits.')
 								FROM    sys.configurations cr
 										INNER JOIN #ConfigurationDefaults cd ON cd.name = cr.name
 											AND cr.value_in_use = cd.DefaultValue
