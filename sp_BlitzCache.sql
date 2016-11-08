@@ -757,7 +757,7 @@ BEGIN
    RETURN;
 END
 
-SELECT @MinMemoryPerQuery = c.value FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
+SELECT @MinMemoryPerQuery = CAST(c.value AS INT) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
