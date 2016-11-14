@@ -145,6 +145,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		function_count INT,
 		clr_function_count INT,
 		is_table_variable BIT,
+		no_stats_warning BIT,
+		relop_warnings BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -732,6 +734,8 @@ BEGIN
 		function_count INT,
 		clr_function_count INT,
 		is_table_variable BIT,
+		no_stats_warning BIT,
+		relop_warnings BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1786,7 +1790,9 @@ UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
        tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
        warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END,
-	   p.is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END
+	   is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END,
+	   no_stats_warning = CASE WHEN x.no_stats_warning = 1 THEN 1 END,
+	   relop_warnings = CASE WHEN x.relop_warnings = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
             SELECT qs.SqlHandle,
@@ -1794,7 +1800,9 @@ FROM   ##bou_BlitzCacheProcs p
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
                    relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
                    relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning,
-				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable
+				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable,
+				   relop.exist('/p:RelOp/p:Warnings/p:ColumnsWithNoStatistics') AS no_stats_warning ,
+				   relop.exist('/p:RelOp/p:Warnings') AS relop_warnings
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
