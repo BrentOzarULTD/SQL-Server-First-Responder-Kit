@@ -795,14 +795,15 @@ SET @QueryFilter = LOWER(@QueryFilter);
 IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
   SET @QueryFilter = 'all';
 
+IF @SkipAnalysis = 1
+  SET @HideSummary = 1;
+
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
   SET @Reanalyze = 0;
-ELSE IF @Reanalyze = 0
+
+IF @Reanalyze = 0
   DELETE ##bou_BlitzCacheResults
     WHERE SPID = @@SPID;
-
-IF @SkipAnalysis = 1
-    SET @HideSummary = 1;
 
 IF @Reanalyze = 1 
     GOTO Results
