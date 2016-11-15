@@ -2136,7 +2136,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
 				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
-				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END
+				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
+				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
+				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
 
@@ -2450,7 +2452,9 @@ BEGIN
 				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
 				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
-				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END 
+				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END  + 
+				  CASE WHEN no_stats_warning = 1 then '', 35'' ELSE '''' END  +
+				  CASE WHEN relop_warnings = 1 then '', 36'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2954,6 +2958,32 @@ BEGIN
                     'Beware nasty side effects',
                     'No URL yet.',
                     'All modifications are single threaded, and selects have really low row estimates.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.no_stats_warning = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    35,
+                    100,
+                    'Columns with no statistics',
+                    'Poor cardinality estimates may ensue',
+                    'No URL yet.',
+                    'Sometimes this happens with indexed views, other times because auto create stats is turned off.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_table_variable = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    36,
+                    100,
+                    'Operator Warnings',
+                    'SQL is throwing operator level plan warnings',
+                    'No URL yet.',
+                    'Check the plan for more details.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
