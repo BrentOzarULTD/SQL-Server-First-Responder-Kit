@@ -2974,7 +2974,7 @@ BEGIN
                     100,
                     'Compute Scalar That References A Function',
                     'This could be trouble if you''re using Scalar Functions or MSTVFs',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                     'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinality estimates') ;
 
         IF EXISTS (SELECT 1/0
@@ -2987,7 +2987,7 @@ BEGIN
                     100,
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                     'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
 
@@ -3001,7 +3001,7 @@ BEGIN
                     100,
                     'Table Variables detected',
                     'Beware nasty side effects',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/table-variables/',
                     'All modifications are single threaded, and selects have really low row estimates.') ;
 
         IF EXISTS (SELECT 1/0
