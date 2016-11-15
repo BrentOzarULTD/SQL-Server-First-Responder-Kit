@@ -147,6 +147,11 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_table_variable BIT,
 		no_stats_warning BIT,
 		relop_warnings BIT,
+		is_table_scan BIT,
+	    backwards_scan BIT,
+	    forced_index BIT,
+	    forced_seek BIT,
+	    forced_scan BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -736,6 +741,11 @@ BEGIN
 		is_table_variable BIT,
 		no_stats_warning BIT,
 		relop_warnings BIT,
+		is_table_scan BIT,
+	    backwards_scan BIT,
+	    forced_index BIT,
+	    forced_seek BIT,
+	    forced_scan BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1861,6 +1871,38 @@ ON b.QueryHash = qs.QueryHash
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 OPTION (RECOMPILE) ;
 
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET 
+b.is_table_scan = x.is_table_scan,
+b.backwards_scan = x.backwards_scan,
+b.forced_index = x.forced_index,
+b.forced_seek = x.forced_seek,
+b.forced_scan = x.forced_scan
+FROM ##bou_BlitzCacheProcs b
+JOIN (
+SELECT 
+       qs.SqlHandle,
+	   0 AS is_table_scan,
+	   q.n.exist('@ScanDirection[.="BACKWARD"]') AS backwards_scan,
+	   q.n.value('@ForcedIndex', 'bit') AS forced_index,
+	   q.n.value('@ForceSeek', 'bit') AS forced_seek,
+	   q.n.value('@ForceScan', 'bit') AS forced_scan
+FROM   #relop qs
+CROSS APPLY qs.relop.nodes('//p:IndexScan') AS q(n)
+UNION ALL
+SELECT 
+       qs.SqlHandle,
+	   1 AS is_table_scan,
+	   q.n.exist('@ScanDirection[.="BACKWARD"]') AS backwards_scan,
+	   q.n.value('@ForcedIndex', 'bit') AS forced_index,
+	   q.n.value('@ForceSeek', 'bit') AS forced_seek,
+	   q.n.value('@ForceScan', 'bit') AS forced_scan
+FROM   #relop qs
+CROSS APPLY qs.relop.nodes('//p:TableScan') AS q(n)
+) AS x ON b.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
+
 
 IF @v >= 12
 BEGIN
@@ -2138,15 +2180,14 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
-				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  
+				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
+				  CASE WHEN is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
+				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
+				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
+				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
+				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
-
-
-
-
-
-
 
 
 
@@ -2452,9 +2493,13 @@ BEGIN
 				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
 				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
-				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END  + 
-				  CASE WHEN no_stats_warning = 1 then '', 35'' ELSE '''' END  +
-				  CASE WHEN relop_warnings = 1 then '', 36'' ELSE '''' END 
+				  CASE WHEN is_table_variable = 1 THEN '', 34'' ELSE '''' END  + 
+				  CASE WHEN no_stats_warning = 1 THEN '', 35'' ELSE '''' END  +
+				  CASE WHEN relop_warnings = 1 THEN '', 36'' ELSE '''' END +
+				  CASE WHEN is_table_scan = 1 THEN '', 37'' ELSE '''' END +
+				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
+				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
+				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2974,7 +3019,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.is_table_variable = 1
+                   WHERE  p.relop_warnings = 1
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
@@ -2984,6 +3029,60 @@ BEGIN
                     'SQL is throwing operator level plan warnings',
                     'No URL yet.',
                     'Check the plan for more details.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_table_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    37,
+                    100,
+                    'Table Scans',
+                    'Your database has HEAPs',
+                    'No URL yet.',
+                    'This may not be a problem. Run sp_BlitzIndex for more information.') ;
+        
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.backwards_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    38,
+                    100,
+                    'Backwards Scans',
+                    'Indexes are being read backwards',
+                    'No URL yet.',
+                    'This isn''t always a problem. They can cause serial zones in plans, and may need an index to match sort order.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.forced_index = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    39,
+                    100,
+                    'Index forcing',
+                    'Someone is using hints to force index usage',
+                    'No URL yet.',
+                    'This can cause inefficient plans, and will prevent missing index requests.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.forced_seek = 1
+				   OR p.forced_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    40,
+                    100,
+                    'Seek/Scan forcing',
+                    'Someone is using hints to force index seeks/scans',
+                    'No URL yet.',
+                    'This can cause inefficient plans by taking seek vs scan choice away from the optimizer.') ;
+
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
@@ -2999,7 +3098,6 @@ BEGIN
                     'No URL yet.',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p		;
-
 
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
