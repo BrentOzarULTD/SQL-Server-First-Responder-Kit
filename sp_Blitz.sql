@@ -29,7 +29,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20161022';
+	SET @VersionDate = '20161115';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
