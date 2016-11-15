@@ -2961,7 +2961,7 @@ BEGIN
                     100,
                     'Unused memory grants',
                     'Queries are asking for more memory than they''re using',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/unused-memory-grants/',
                     'Queries have large unused memory grants. This can cause concurrency issues, if queries are waiting a long time to get memory to run.') ;
 
         IF EXISTS (SELECT 1/0
