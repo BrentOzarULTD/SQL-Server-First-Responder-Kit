@@ -21,6 +21,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
 	@SkipPartitions BIT	= 0,
+	@SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -35,8 +36,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.4';
-SET @VersionDate = '20161022';
+SET @Version = '4.5';
+SET @VersionDate = '20161115';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -688,9 +689,9 @@ BEGIN TRY
 
         IF (SELECT LEFT(@SQLServerProductVersion,
               CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <= 8
+              )) <= 9
         BEGIN
-            SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2005 and higher. The version of this instance is: ' + @SQLServerProductVersion;
+            SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2008 and higher. The version of this instance is: ' + @SQLServerProductVersion;
             RAISERROR(@msg,16,1);
         END
 
@@ -1458,6 +1459,8 @@ BEGIN TRY
 
 
 
+		IF @SkipStatistics = 0 
+			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
@@ -1551,19 +1554,19 @@ BEGIN TRY
 								       NULL AS filter_definition' END 
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
 						ON      sc.object_id = s.object_id
 						        AND sc.stats_id = s.stats_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
 						ON      c.object_id = sc.object_id
 						        AND c.column_id = sc.column_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
-						JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
+						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
 						ON		sch.schema_id = obj.schema_id
-						LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+						LEFT HASH JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
 						WHERE obj.is_ms_shipped = 0
@@ -1582,6 +1585,8 @@ BEGIN TRY
 			EXEC sp_executesql @dsql;
 			END
 
+			END
+
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
 			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
@@ -1594,9 +1599,10 @@ BEGIN TRY
    					           cc.uses_database_collation,
    					           cc.is_persisted,
    					           cc.is_computed,
-   					   		   CASE WHEN cc.definition LIKE ''%dbo%'' THEN 1 ELSE 0 END AS is_function,
+   					   		   CASE WHEN cc.definition LIKE ''%.%'' THEN 1 ELSE 0 END AS is_function,
    					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
-   					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition + '';'' AS [column_definition]
+   					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition  + 
+							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' AS [column_definition]
    					   FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.computed_columns AS cc
    					   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
    					   ON      cc.object_id = c.object_id
@@ -3219,7 +3225,7 @@ BEGIN;
 				'Filter Fixation',
 				s.database_name,
 				'' AS URL,
-				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on ' + QUOTENAME(s.filter_definition) + '. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on [' + s.filter_definition + ']. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
 				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,

@@ -145,6 +145,13 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		function_count INT,
 		clr_function_count INT,
 		is_table_variable BIT,
+		no_stats_warning BIT,
+		relop_warnings BIT,
+		is_table_scan BIT,
+	    backwards_scan BIT,
+	    forced_index BIT,
+	    forced_seek BIT,
+	    forced_scan BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -732,12 +739,20 @@ BEGIN
 		function_count INT,
 		clr_function_count INT,
 		is_table_variable BIT,
+		no_stats_warning BIT,
+		relop_warnings BIT,
+		is_table_scan BIT,
+	    backwards_scan BIT,
+	    forced_index BIT,
+	    forced_seek BIT,
+	    forced_scan BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
 END
 
 DECLARE @DurationFilter_i INT,
+		@MinMemoryPerQuery INT,
         @msg NVARCHAR(4000) ;
 
 RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
@@ -756,6 +771,7 @@ BEGIN
    RETURN;
 END
 
+SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
@@ -1784,7 +1800,9 @@ UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
        tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
        warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END,
-	   p.is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END
+	   is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END,
+	   no_stats_warning = CASE WHEN x.no_stats_warning = 1 THEN 1 END,
+	   relop_warnings = CASE WHEN x.relop_warnings = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
             SELECT qs.SqlHandle,
@@ -1792,7 +1810,9 @@ FROM   ##bou_BlitzCacheProcs p
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
                    relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
                    relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning,
-				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable
+				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable,
+				   relop.exist('/p:RelOp/p:Warnings/p:ColumnsWithNoStatistics') AS no_stats_warning ,
+				   relop.exist('/p:RelOp/p:Warnings') AS relop_warnings
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
@@ -1819,7 +1839,7 @@ SET key_lookup_cost = x.key_lookup_cost
 FROM (
 SELECT 
        qs.SqlHandle,
-	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS key_lookup_cost
+	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS key_lookup_cost
 FROM   #relop qs
 WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 ) AS x
@@ -1833,7 +1853,7 @@ SET remote_query_cost = x.remote_query_cost
 FROM (
 SELECT 
        qs.SqlHandle,
-	   relop.value('/p:RelOp[1]/@EstimatedTotalSubtreeCost', 'float') AS remote_query_cost
+	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop qs
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
 ) AS x
@@ -1849,6 +1869,38 @@ FROM ##bou_BlitzCacheProcs b
 JOIN #statements AS qs
 ON b.QueryHash = qs.QueryHash
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+OPTION (RECOMPILE) ;
+
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET 
+b.is_table_scan = x.is_table_scan,
+b.backwards_scan = x.backwards_scan,
+b.forced_index = x.forced_index,
+b.forced_seek = x.forced_seek,
+b.forced_scan = x.forced_scan
+FROM ##bou_BlitzCacheProcs b
+JOIN (
+SELECT 
+       qs.SqlHandle,
+	   0 AS is_table_scan,
+	   q.n.exist('@ScanDirection[.="BACKWARD"]') AS backwards_scan,
+	   q.n.value('@ForcedIndex', 'bit') AS forced_index,
+	   q.n.value('@ForceSeek', 'bit') AS forced_seek,
+	   q.n.value('@ForceScan', 'bit') AS forced_scan
+FROM   #relop qs
+CROSS APPLY qs.relop.nodes('//p:IndexScan') AS q(n)
+UNION ALL
+SELECT 
+       qs.SqlHandle,
+	   1 AS is_table_scan,
+	   q.n.exist('@ScanDirection[.="BACKWARD"]') AS backwards_scan,
+	   q.n.value('@ForcedIndex', 'bit') AS forced_index,
+	   q.n.value('@ForceSeek', 'bit') AS forced_seek,
+	   q.n.value('@ForceScan', 'bit') AS forced_scan
+FROM   #relop qs
+CROSS APPLY qs.relop.nodes('//p:TableScan') AS q(n)
+) AS x ON b.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
 
@@ -2051,7 +2103,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
-	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > 0 THEN 1 END
+	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
 OPTION (RECOMPILE) ;
 
 
@@ -2126,15 +2178,16 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
 				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
-				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END
+				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
+				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
+				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
+				  CASE WHEN is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
+				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
+				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
+				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
+				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  
                   , 2, 200000) 
 				  OPTION (RECOMPILE) ;
-
-
-
-
-
-
 
 
 
@@ -2440,7 +2493,13 @@ BEGIN
 				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
 				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
-				  CASE WHEN is_table_variable = 1 then '', 34'' ELSE '''' END 
+				  CASE WHEN is_table_variable = 1 THEN '', 34'' ELSE '''' END  + 
+				  CASE WHEN no_stats_warning = 1 THEN '', 35'' ELSE '''' END  +
+				  CASE WHEN relop_warnings = 1 THEN '', 36'' ELSE '''' END +
+				  CASE WHEN is_table_scan = 1 THEN '', 37'' ELSE '''' END +
+				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
+				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
+				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END 
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -2902,7 +2961,7 @@ BEGIN
                     100,
                     'Unused memory grants',
                     'Queries are asking for more memory than they''re using',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/unused-memory-grants/',
                     'Queries have large unused memory grants. This can cause concurrency issues, if queries are waiting a long time to get memory to run.') ;
 
         IF EXISTS (SELECT 1/0
@@ -2915,7 +2974,7 @@ BEGIN
                     100,
                     'Compute Scalar That References A Function',
                     'This could be trouble if you''re using Scalar Functions or MSTVFs',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                     'Both of these will force queries to run serially, run at least once per row, and may result in poor cardinality estimates') ;
 
         IF EXISTS (SELECT 1/0
@@ -2928,7 +2987,7 @@ BEGIN
                     100,
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                     'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates') ;
 
 
@@ -2942,8 +3001,88 @@ BEGIN
                     100,
                     'Table Variables detected',
                     'Beware nasty side effects',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/table-variables/',
                     'All modifications are single threaded, and selects have really low row estimates.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.no_stats_warning = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    35,
+                    100,
+                    'Columns with no statistics',
+                    'Poor cardinality estimates may ensue',
+                    'https://www.brentozar.com/blitzcache/columns-no-statistics/',
+                    'Sometimes this happens with indexed views, other times because auto create stats is turned off.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.relop_warnings = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    36,
+                    100,
+                    'Operator Warnings',
+                    'SQL is throwing operator level plan warnings',
+                    'http://brentozar.com/blitzcache/query-plan-warnings/',
+                    'Check the plan for more details.') ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_table_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    37,
+                    100,
+                    'Table Scans',
+                    'Your database has HEAPs',
+                    'https://www.brentozar.com/archive/2012/05/video-heaps/',
+                    'This may not be a problem. Run sp_BlitzIndex for more information.') ;
+        
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.backwards_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    38,
+                    100,
+                    'Backwards Scans',
+                    'Indexes are being read backwards',
+                    'https://www.brentozar.com/blitzcache/backwards-scans/',
+                    'This isn''t always a problem. They can cause serial zones in plans, and may need an index to match sort order.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.forced_index = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    39,
+                    100,
+                    'Index forcing',
+                    'Someone is using hints to force index usage',
+                    'https://www.brentozar.com/blitzcache/optimizer-forcing/',
+                    'This can cause inefficient plans, and will prevent missing index requests.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.forced_seek = 1
+				   OR p.forced_scan = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    40,
+                    100,
+                    'Seek/Scan forcing',
+                    'Someone is using hints to force index seeks/scans',
+                    'https://www.brentozar.com/blitzcache/optimizer-forcing/',
+                    'This can cause inefficient plans by taking seek vs scan choice away from the optimizer.') ;
+
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
@@ -2956,10 +3095,9 @@ BEGIN
                     254,
                     'Plan Cache Information',
                     'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
-                    'No URL yet.',
+                    '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p		;
-
 
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
