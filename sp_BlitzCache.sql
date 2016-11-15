@@ -3014,7 +3014,7 @@ BEGIN
                     100,
                     'Columns with no statistics',
                     'Poor cardinality estimates may ensue',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/columns-no-statistics/',
                     'Sometimes this happens with indexed views, other times because auto create stats is turned off.') ;
 
         IF EXISTS (SELECT 1/0
@@ -3027,7 +3027,7 @@ BEGIN
                     100,
                     'Operator Warnings',
                     'SQL is throwing operator level plan warnings',
-                    'No URL yet.',
+                    'http://brentozar.com/blitzcache/query-plan-warnings/',
                     'Check the plan for more details.') ;
 
         IF EXISTS (SELECT 1/0
@@ -3040,7 +3040,7 @@ BEGIN
                     100,
                     'Table Scans',
                     'Your database has HEAPs',
-                    'No URL yet.',
+                    'https://www.brentozar.com/archive/2012/05/video-heaps/',
                     'This may not be a problem. Run sp_BlitzIndex for more information.') ;
         
 		IF EXISTS (SELECT 1/0
@@ -3053,7 +3053,7 @@ BEGIN
                     100,
                     'Backwards Scans',
                     'Indexes are being read backwards',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/backwards-scans/',
                     'This isn''t always a problem. They can cause serial zones in plans, and may need an index to match sort order.') ;
 
 		IF EXISTS (SELECT 1/0
@@ -3066,7 +3066,7 @@ BEGIN
                     100,
                     'Index forcing',
                     'Someone is using hints to force index usage',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/optimizer-forcing/',
                     'This can cause inefficient plans, and will prevent missing index requests.') ;
 
 		IF EXISTS (SELECT 1/0
@@ -3080,7 +3080,7 @@ BEGIN
                     100,
                     'Seek/Scan forcing',
                     'Someone is using hints to force index seeks/scans',
-                    'No URL yet.',
+                    'https://www.brentozar.com/blitzcache/optimizer-forcing/',
                     'This can cause inefficient plans by taking seek vs scan choice away from the optimizer.') ;
 
 
@@ -3095,7 +3095,7 @@ BEGIN
                     254,
                     'Plan Cache Information',
                     'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
-                    'No URL yet.',
+                    '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p		;
 
