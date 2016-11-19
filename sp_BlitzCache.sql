@@ -175,6 +175,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	    forced_index BIT,
 	    forced_seek BIT,
 	    forced_scan BIT,
+		columnstore_row_mode BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -777,6 +778,7 @@ BEGIN
 	    forced_index BIT,
 	    forced_seek BIT,
 	    forced_scan BIT,
+		columnstore_row_mode BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1998,6 +2000,21 @@ CROSS APPLY qs.relop.nodes('//p:TableScan') AS q(n)
 OPTION (RECOMPILE) ;
 
 
+RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET columnstore_row_mode = x.is_row_mode
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
+
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -3187,6 +3204,19 @@ BEGIN
                     'Someone is using hints to force index seeks/scans',
                     'https://www.brentozar.com/blitzcache/optimizer-forcing/',
                     'This can cause inefficient plans by taking seek vs scan choice away from the optimizer.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.columnstore_row_mode = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    41,
+                    100,
+                    'ColumnStore indexes operating in Row Mode',
+                    'You really want these to be using Batch Mode',
+                    'https://www.brentozar.com/blitzcache/columnstore-indexes-operating-row-mode/',
+                    'ColumnStore indexes operating in Row Mode indicate really poor query choices.') ;
 
 
         IF EXISTS (SELECT 1/0
