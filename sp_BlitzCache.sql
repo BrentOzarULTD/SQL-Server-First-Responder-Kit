@@ -2302,7 +2302,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
 				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
 				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
-				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  
+				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
+				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END
                   , 2, 200000) 
 				  END
 				  OPTION (RECOMPILE) ;
@@ -2621,7 +2622,8 @@ BEGIN
 				  CASE WHEN is_table_scan = 1 THEN '', 37'' ELSE '''' END +
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
-				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END 
+				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
+				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
