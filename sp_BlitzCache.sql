@@ -211,6 +211,12 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+DECLARE @Version VARCHAR(30);
+DECLARE @VersionDate VARCHAR(30);
+ SET @Version = '4.0';
+ SET @VersionDate = '20161119';
+
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
 	
@@ -3210,6 +3216,19 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   ##bou_BlitzCacheResults AS bcr
+                       WHERE  bcr.Priority = 2147483647
+				      )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    2147483647,
+                    255,
+                    'Thanks for using sp_BlitzCache!' ,
+                    'From Your Community Volunteers',
+                    'http://FirstResponderKit.org',
+                    'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + @VersionDate);
 	
 	END            
     
@@ -3227,7 +3246,7 @@ BEGIN
             URL,
             Details,
             CheckID
-    ORDER BY Priority ASC
+    ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 END
 
