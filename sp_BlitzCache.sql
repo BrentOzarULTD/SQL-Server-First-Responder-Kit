@@ -17,8 +17,9 @@ SELECT
   END 
 ) = 0
 BEGIN
-RAISERROR('Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.', 0, 1) WITH NOWAIT
-RETURN;
+	DECLARE @msg VARCHAR(8000) 
+	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933)
+	PRINT @msg
 END
 
 IF OBJECT_ID('dbo.sp_BlitzCache') IS NULL
