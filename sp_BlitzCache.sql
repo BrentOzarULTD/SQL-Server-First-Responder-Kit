@@ -2238,7 +2238,8 @@ RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 
 /* Populate warnings */
 UPDATE ##bou_BlitzCacheProcs
-SET    Warnings = SUBSTRING(
+SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
+				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
                   CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
@@ -2280,6 +2281,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
 				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  
                   , 2, 200000) 
+				  END
 				  OPTION (RECOMPILE) ;
 
 
@@ -2557,7 +2559,9 @@ BEGIN
     IF @ExpertMode = 2 /* Opserver */
     BEGIN
         RAISERROR(N'Returning Expert Mode = 2', 0, 1) WITH NOWAIT;
-		SET @columns += N'        SUBSTRING(
+		SET @columns += N'        
+				  CASE WHEN QueryPlan IS NULL THEN ''We couldn''''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.'' ELSE
+				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
                   CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
@@ -2595,7 +2599,7 @@ BEGIN
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END 
-				  , 2, 200000) AS opserver_warning , ' + @nl ;
+				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
     SET @columns += N'        ExecutionCount AS [# Executions],
