@@ -858,7 +858,7 @@ IF @Reanalyze = 0
   RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
   DELETE ##bou_BlitzCacheResults
     WHERE SPID = @@SPID;
-  RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
+  RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
   DELETE ##bou_BlitzCacheProcs
     WHERE SPID = @@SPID;
   END  
