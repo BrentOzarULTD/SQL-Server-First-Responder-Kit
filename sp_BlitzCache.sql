@@ -2070,7 +2070,7 @@ FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
 
-/* Trace Flag Checks 2014 SP2 only (Until 2016 updates?)*/
+/* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
@@ -2186,7 +2186,7 @@ BEGIN
     FROM   #configuration
     WHERE 'unused memory grant' = LOWER(parameter_name) ;
 
-    SET @msg = ' Setting "unused memory grant" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
+    SET @msg = ' Setting "unused memory grant" to ' + CAST(@memory_grant_warning_percent AS VARCHAR(10));
 
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END
