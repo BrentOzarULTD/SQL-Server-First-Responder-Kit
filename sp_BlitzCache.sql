@@ -3243,7 +3243,7 @@ BEGIN
                     41,
                     100,
                     'ColumnStore indexes operating in Row Mode',
-                    'You really want these to be using Batch Mode',
+                    'Batch Mode is optimal for ColumnStore indexes',
                     'https://www.brentozar.com/blitzcache/columnstore-indexes-operating-row-mode/',
                     'ColumnStore indexes operating in Row Mode indicate really poor query choices.') ;
 
