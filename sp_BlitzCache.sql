@@ -20,6 +20,7 @@ BEGIN
 	DECLARE @msg VARCHAR(8000) 
 	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933)
 	PRINT @msg
+	RETURN
 END
 
 IF OBJECT_ID('dbo.sp_BlitzCache') IS NULL
@@ -268,7 +269,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 '
-
 
 DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
@@ -621,6 +621,22 @@ BEGIN
            N'Percent' ,
            N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.'
     RETURN
+END
+
+/*Validate version*/
+IF (
+SELECT
+  CASE 
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '8%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '9%' THEN 0
+	 ELSE 1
+  END 
+) = 0
+BEGIN
+	DECLARE @msg VARCHAR(8000) 
+	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
 END
 
 /* validate user inputs */
