@@ -936,6 +936,35 @@ SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100
 INTO #plan_creation
 FROM x
 
+
+RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
+SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
+        COUNT(*) AS total_plan_stubs,
+		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
+		@@SPID AS SPID
+INTO #plan_stubs_warning
+FROM    sys.dm_exec_cached_plans cp
+LEFT JOIN sys.dm_exec_query_stats qs
+ON      cp.plan_handle = qs.plan_handle
+WHERE   cp.cacheobjtype = 'Compiled Plan Stub';
+
+
+RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
+SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
+        COUNT(*) AS total_single_use_plans,
+		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
+		@@SPID AS SPID
+INTO #single_use_plans_warning
+FROM    sys.dm_exec_cached_plans cp
+LEFT JOIN sys.dm_exec_query_stats qs
+ON      cp.plan_handle = qs.plan_handle
+WHERE   cp.usecounts = 1
+        AND cp.cacheobjtype = 'Compiled Plan';
+
+
+
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
 SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
@@ -2717,7 +2746,7 @@ BEGIN
         /* Build summary data */
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
-                   WHERE frequent_execution =1
+                   WHERE frequent_execution = 1
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
@@ -2757,7 +2786,6 @@ BEGIN
                     'http://brentozar.com/blitzcache/forced-plans/',
                     'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
-        /* Cursors */
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_cursor = 1
@@ -2798,7 +2826,6 @@ BEGIN
                     'Non-forward Only Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are non-forward only cursors in the plan cache, which can harm performance.');
-
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -2905,7 +2932,6 @@ BEGIN
                     'Implicit Conversions',
                     'http://brentozar.com/go/implicit',
                     'One or more queries are comparing two fields that are not of the same data type.') ;
-
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -3221,11 +3247,9 @@ BEGIN
                     'https://www.brentozar.com/blitzcache/columnstore-indexes-operating-row-mode/',
                     'ColumnStore indexes operating in Row Mode indicate really poor query choices.') ;
 
-
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
-                   WHERE p.percent_24 > 0
-				   OR p.percent_4 > 0
+                   WHERE (p.percent_24 > 0 OR p.percent_4 > 0)
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT SPID,
@@ -3235,15 +3259,47 @@ BEGIN
                     'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
-			FROM   #plan_creation p		;
+			FROM   #plan_creation p	;
 
+        IF EXISTS (SELECT 1/0
+                   FROM   #single_use_plans_warning p
+                   WHERE p.total_plans >= 1000
+				   AND p.single_use_plans_percent >= 10.
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    255,
+                    'Plan Cache Information',
+                    'Your plan cache is ' + CONVERT(NVARCHAR(10), p.single_use_plans_percent) + '% single use plans with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
+                    '',
+                    'Having a lot of single use plans indicates plan cache bloat. This can be cause by non-parameterized dynamic SQL and EF code, or lots of ad hoc queries.'
+			FROM   #single_use_plans_warning p	;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_stubs_warning p
+                   WHERE p.total_plans >= 1000
+				   AND p.plan_stubs_percent >= 30.
+				   AND p.total_plan_stubs >= (40009 * 4) 
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    255,
+                    'Plan Cache Information',
+                    'Your plan cache has ' + CONVERT(NVARCHAR(10), p.total_plan_stubs) + ' plan stubs, with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
+                    'https://www.brentozar.com/blitz/poison-wait-detected/',
+                    'A high number of plan stubs may result in CMEMTHREAD waits, which you have ' 
+						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (dows.wait_time_ms / 60000.)) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
+			FROM   #plan_stubs_warning p	;			
+			
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
                    WHERE  tf.global_trace_flags IS NOT NULL
 				   )
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
-                    999,
+                    1000,
                     255,
                     'Global Trace Flags Enabled',
                     'You have Global Trace Flags enabled on your server',
@@ -3287,5 +3343,6 @@ END
 END
 
 GO
+
 
 
