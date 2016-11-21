@@ -633,9 +633,9 @@ SELECT
   END 
 ) = 0
 BEGIN
-	DECLARE @msg VARCHAR(8000) 
-	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
-	PRINT @msg;
+	DECLARE @version_msg VARCHAR(8000) 
+	SELECT @version_msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
+	PRINT @version_msg;
 	RETURN;
 END
 
