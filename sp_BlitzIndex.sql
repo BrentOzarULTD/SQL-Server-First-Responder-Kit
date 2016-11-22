@@ -1602,7 +1602,7 @@ BEGIN TRY
    					   		   CASE WHEN cc.definition LIKE ''%.%'' THEN 1 ELSE 0 END AS is_function,
    					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
    					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition  + 
-							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' AS [column_definition]
+							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' COLLATE DATABASE_DEFAULT AS [column_definition]
    					   FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.computed_columns AS cc
    					   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
    					   ON      cc.object_id = c.object_id
