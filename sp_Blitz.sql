@@ -2881,7 +2881,20 @@ AS
 								END;
 
 							END;
+						
+						/* Check if SQL 2016 Standard Edition but not SP1 */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 157 )
+							BEGIN
+							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor <4001 AND @@VERSION LIKE '%Standard Edition%') 
+								BEGIN
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+									VALUES(189, 100, 'Features', 'Missing Features', 'https://blogs.msdn.microsoft.com/sqlreleaseservices/sql-server-2016-service-pack-1-sp1-released/',
+										'SQL 2016 Standard Edition is being used but not the latest Service Pack (SP1). Check the URL for a list of Enterprise Features that are now included in standard.');
+								END;
 
+							END;						
 
                         /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
                         IF NOT EXISTS ( SELECT  1
