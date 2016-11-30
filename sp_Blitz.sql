@@ -2885,7 +2885,7 @@ AS
 						/* Check if SQL 2016 Standard Edition but not SP1 */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 157 )
+										WHERE   DatabaseName IS NULL AND CheckID = 189 )
 							BEGIN
 							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor <4001 AND @@VERSION LIKE '%Standard Edition%') 
 								BEGIN
