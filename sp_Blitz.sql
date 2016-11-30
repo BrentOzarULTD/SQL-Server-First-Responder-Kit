@@ -2887,7 +2887,7 @@ AS
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 189 )
 							BEGIN
-							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor <4001 AND @@VERSION LIKE '%Standard Edition%') 
+							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001 AND @@VERSION LIKE '%Standard Edition%') 
 								BEGIN
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									VALUES(189, 100, 'Features', 'Missing Features', 'https://blogs.msdn.microsoft.com/sqlreleaseservices/sql-server-2016-service-pack-1-sp1-released/',
