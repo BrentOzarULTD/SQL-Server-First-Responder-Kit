@@ -216,6 +216,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 200 | Performance | Old Compatibility Level | http://BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Snapshot Backups Occurring | http://BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | http://BrentOzar.com/go/userstats | 122 |
+| 200 | Performance | Non-Dynamic Memory | http://BrentOzar.com/go/memory | 190 |
 | 200 | Reliability | Extended Stored Procedures in Master | http://BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | http://BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | http://BrentOzar.com/go/dbdefaults | 135 |
