@@ -138,7 +138,9 @@ AS
 			,@ResultText NVARCHAR(MAX)
 			,@crlf NVARCHAR(2)
 			,@Processors int
-			,@NUMANodes int;
+			,@NUMANodes int
+			,@MinServerMemory bigint
+			,@MaxServerMemory bigint;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -1502,6 +1504,34 @@ AS
 					END
 
 				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 190 )
+					BEGIN
+						SELECT @MinServerMemory = CAST(value_in_use as BIGINT) FROM sys.configurations WHERE name = 'min server memory (MB)'
+						SELECT @MaxServerMemory = CAST(value_in_use as BIGINT) FROM sys.configurations WHERE name = 'max server memory (MB)'
+						
+						IF (@MinServerMemory = @MaxServerMemory)
+						BEGIN
+						INSERT INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								VALUES  
+									(	190,
+										200,
+										'Performance',
+										'Non-Dynamic Memory',
+										'http://BrentOzar.com/go/memory',
+										'Minimum Server Memory setting is the same as the Maximum (both set to ' + CAST(@minservermemory AS NVARCHAR(50)) + '). This will not allow dynamic memory. Please revise memory settings'
+									)
+						END
+					END
+					
+					IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 188 )
 					BEGIN
