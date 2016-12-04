@@ -54,6 +54,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Remote Admin Connections Disabled | http://BrentOzar.com/go/dac | 100 |
 | 50 | Reliability | Transaction Log Larger than Data File | http://BrentOzar.com/go/biglog | 75 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | http://BrentOzar.com/go/hekaton | 147 |
+| 100 | Features | Missing Features | http://BrentOzar.com/ | 189 |
 | 100 | Performance | Change Tracking Enabled | http://BrentOzar.com/go/tracking | 112 |
 | 100 | Performance | Fill Factor Changed | http://brentozar.com/go/fillfactor | 60 |
 | 100 | Performance | High Number of Cached Plans | http://BrentOzar.com/go/planlimits | 161 |
