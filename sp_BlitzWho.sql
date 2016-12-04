@@ -106,13 +106,14 @@ SET @StringToExecute = N'
 			            [s].[memory_usage] ,
 			            [r].[estimated_completion_time] ,
 			            [r].[deadlock_priority] ,
-			            CASE [s].[transaction_isolation_level]
-			              WHEN 0 THEN ''Unspecified''
-			              WHEN 1 THEN ''Read Uncommitted''
-			              WHEN 2 THEN ''Read Committed''
-			              WHEN 3 THEN ''Repeatable Read''
-			              WHEN 4 THEN ''Serializable''
-			              WHEN 5 THEN ''Snapshot''
+			            CASE 
+			              WHEN [s].[transaction_isolation_level] = 0 THEN ''Unspecified''
+			              WHEN [s].[transaction_isolation_level] = 1 THEN ''Read Uncommitted''
+			              WHEN [s].[transaction_isolation_level] = 2 AND EXISTS (SELECT 1 FROM [sys].[dm_tran_active_snapshot_database_transactions] AS [trn] WHERE [s].[session_id] = [trn].[session_id] AND [is_snapshot] = 0 ) THEN ''Read Committed Snapshot Isolation''
+						  WHEN [s].[transaction_isolation_level] = 2 AND NOT EXISTS (SELECT 1 FROM [sys].[dm_tran_active_snapshot_database_transactions] AS [trn] WHERE [s].[session_id] = [trn].[session_id] AND [is_snapshot] = 0 ) THEN ''Read Committed''
+			              WHEN [s].[transaction_isolation_level] = 3 THEN ''Repeatable Read''
+			              WHEN [s].[transaction_isolation_level] = 4 THEN ''Serializable''
+			              WHEN [s].[transaction_isolation_level] = 5 THEN ''Snapshot''
 			              ELSE ''WHAT HAVE YOU DONE?''
 			            END AS [transaction_isolation_level] ,
 			            [r].[open_transaction_count] ,
@@ -234,13 +235,14 @@ SELECT @StringToExecute = N'
 					    CASE @EnhanceFlag
 					    WHEN 1 THEN @EnhanceSQL
 					    ELSE N'' END +
-					    N'CASE [s].[transaction_isolation_level]
-			              WHEN 0 THEN ''Unspecified''
-			              WHEN 1 THEN ''Read Uncommitted''
-			              WHEN 2 THEN ''Read Committed''
-			              WHEN 3 THEN ''Repeatable Read''
-			              WHEN 4 THEN ''Serializable''
-			              WHEN 5 THEN ''Snapshot''
+					    N'CASE 
+			              WHEN [s].[transaction_isolation_level] = 0 THEN ''Unspecified''
+			              WHEN [s].[transaction_isolation_level] = 1 THEN ''Read Uncommitted''
+			              WHEN [s].[transaction_isolation_level] = 2 AND EXISTS (SELECT 1 FROM [sys].[dm_tran_active_snapshot_database_transactions] AS [trn] WHERE [s].[session_id] = [trn].[session_id] AND [is_snapshot] = 0 ) THEN ''Read Committed Snapshot Isolation''
+						  WHEN [s].[transaction_isolation_level] = 2 AND NOT EXISTS (SELECT 1 FROM [sys].[dm_tran_active_snapshot_database_transactions] AS [trn] WHERE [s].[session_id] = [trn].[session_id] AND [is_snapshot] = 0 ) THEN ''Read Committed''
+			              WHEN [s].[transaction_isolation_level] = 3 THEN ''Repeatable Read''
+			              WHEN [s].[transaction_isolation_level] = 4 THEN ''Serializable''
+			              WHEN [s].[transaction_isolation_level] = 5 THEN ''Snapshot''
 			              ELSE ''WHAT HAVE YOU DONE?''
 			            END AS [transaction_isolation_level] ,
 			            [r].[open_transaction_count] ,
