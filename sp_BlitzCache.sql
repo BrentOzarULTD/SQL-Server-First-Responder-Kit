@@ -178,7 +178,6 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	    forced_seek BIT,
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
-		is_computed_scalar BIT ,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -797,7 +796,6 @@ BEGIN
 	    forced_seek BIT,
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
-		is_computed_scalar BIT ,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2063,21 +2061,6 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
 
-RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET is_computed_scalar = x.computed_column_function
-FROM (
-SELECT qs.SqlHandle,
-	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS computed_column_function
-FROM   #relop qs
-CROSS APPLY relop.nodes('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator') n(fn)
-WHERE n.fn.exist('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ColumnReference[(@ComputedColumn[.="1"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-OPTION (RECOMPILE)
-
-
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2366,8 +2349,7 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
 				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
 				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
-				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
-				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  
+				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END
                   , 2, 200000) 
 				  END
 				  OPTION (RECOMPILE) ;
@@ -2687,8 +2669,7 @@ BEGIN
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
-				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
-				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END
+				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3281,19 +3262,6 @@ BEGIN
                     'Batch Mode is optimal for ColumnStore indexes',
                     'https://www.brentozar.com/blitzcache/columnstore-indexes-operating-row-mode/',
                     'ColumnStore indexes operating in Row Mode indicate really poor query choices.') ;
-
-		IF EXISTS (SELECT 1/0
-                   FROM   ##bou_BlitzCacheProcs p
-                   WHERE  p.is_computed_scalar = 1
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    42,
-                    50,
-                    'Computed Columns Referencing Scalar UDFs',
-                    'This makes a whole lot of stuff run serially',
-                    'https://www.brentozar.com/blitzcache/computed-columns-referencing-functions/',
-                    'This can cause a whole mess of bad serializartion problems.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
