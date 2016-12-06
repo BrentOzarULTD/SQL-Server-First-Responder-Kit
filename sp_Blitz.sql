@@ -1526,7 +1526,7 @@ AS
 										'Performance',
 										'Non-Dynamic Memory',
 										'http://BrentOzar.com/go/memory',
-										'Minimum Server Memory setting is the same as the Maximum (both set to ' + CAST(@minservermemory AS NVARCHAR(50)) + '). This will not allow dynamic memory. Please revise memory settings'
+										'Minimum Server Memory setting is the same as the Maximum (both set to ' + CAST(@MinServerMemory AS NVARCHAR(50)) + '). This will not allow dynamic memory. Please revise memory settings'
 									)
 						END
 					END
