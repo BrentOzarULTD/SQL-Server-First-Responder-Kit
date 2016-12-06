@@ -1996,7 +1996,7 @@ SELECT
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
