@@ -2468,7 +2468,7 @@ END
 
 
             -------------------------
-            --What happened: #FileStats
+            --What happened: #QueryStats
             -------------------------
             SELECT qsNow.*, qsFirst.*
             FROM #QueryStats qsNow
