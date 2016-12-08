@@ -9,6 +9,8 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @AsOf DATETIMEOFFSET = NULL ,
     @ExpertMode TINYINT = 0 ,
     @Seconds INT = 5 ,
+	@UserStoredProc NVARCHAR(MAX) = NULL,
+	@UserAdHoc NVARCHAR(MAX) = NULL,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
@@ -136,6 +138,18 @@ ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL
 ELSE
     SELECT @StartSampleTime = SYSDATETIMEOFFSET(), @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET());
 
+IF (@UserStoredProc IS NOT NULL AND @UserAdHoc IS NOT NULL)   
+   BEGIN
+   RAISERROR('You can''t test a stored procedure and ad hoc code at the same time.',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)   
+   BEGIN
+   SELECT @SinceStartup = 0, @ExpertMode = 1, @Seconds = 1, @StartSampleTime = SYSDATETIMEOFFSET()
+   END  
+
+
 IF @OutputType = 'SCHEMA'
 BEGIN
     SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [HowToStopIt] NVARCHAR(MAX), [QueryPlan] XML, [QueryText] NVARCHAR(MAX)'
@@ -175,7 +189,6 @@ BEGIN
 			EXEC [dbo].[sp_BlitzWho]
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
-     
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
@@ -966,11 +979,79 @@ BEGIN
 
 
     /* End of checks. If we haven't waited @Seconds seconds, wait. */
+IF (@UserStoredProc IS NULL AND @UserAdHoc IS NULL)
+BEGIN
     IF SYSDATETIMEOFFSET() < @FinishSampleTime
 		BEGIN
 		RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
         WAITFOR TIME @FinishSampleTimeWaitFor;
 		END
+END
+ELSE IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)
+BEGIN
+
+RAISERROR('Testing user supplied code',10,1) WITH NOWAIT;
+
+DECLARE @RandomProcName UNIQUEIDENTIFIER = NEWID()
+DECLARE @UserSQL NVARCHAR(MAX) = N''
+
+		SET @UserSQL += 
+		'CREATE PROC #' + REPLACE(CONVERT(VARCHAR(36), @RandomProcName), '-', '') + '
+		  AS
+			BEGIN ' + @LineFeed + 
+		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
+			 THEN ' EXEC sp_configure ''show advanced options'', 1 
+					RECONFIGURE ' + @LineFeed
+			 ELSE ' ' 
+		END + 
+		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
+			 THEN ' EXEC sp_configure ''Ad Hoc Distributed Queries'', 1
+					RECONFIGURE ' + @LineFeed
+			 ELSE ' ' 
+		END +
+		CASE WHEN @UserStoredProc IS NOT NULL THEN 
+				    '			SELECT *
+					INTO #sp_BlitzFirst_Temp 
+					FROM OPENROWSET(''SQLNCLI'', 
+									''Server='+@@SERVERNAME+';Trusted_Connection=yes;'',
+									''EXEC ' + @UserStoredProc 
+									+ ''') ' + @LineFeed
+			 WHEN @UserAdHoc IS NOT NULL THEN 
+				    '			SELECT *
+					INTO #sp_BlitzFirst_Temp 
+					FROM OPENROWSET(''SQLNCLI'', 
+									''Server='+@@SERVERNAME+';Trusted_Connection=yes;'',
+									''' + @UserAdHoc 
+									+ ''') ' + @LineFeed
+			 ELSE ' ' 
+		END + 
+		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
+			 THEN ' EXEC sp_configure ''show advanced options'', 0
+					RECONFIGURE ' + @LineFeed
+			 ELSE ' ' 
+		END + 
+		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
+			 THEN ' EXEC sp_configure ''Ad Hoc Distributed Queries'', 0
+					RECONFIGURE ' + @LineFeed
+			 ELSE ' ' 
+		END +
+		'	END;'
+		
+		EXEC sp_executesql @UserSQL
+		
+		SET @UserSQL = 'EXEC #' + REPLACE(CONVERT(VARCHAR(36), @RandomProcName), '-', '')
+
+		EXEC sp_executesql @UserSQL
+
+		SELECT @FinishSampleTime = SYSDATETIMEOFFSET()
+
+		SELECT COALESCE(@UserStoredProc, @UserAdHoc) AS [Executed Code]
+
+		RAISERROR('Finished testing user supplied code',10,1) WITH NOWAIT;
+
+END
+
+
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
@@ -1314,9 +1395,9 @@ BEGIN
         'Wait Stats' AS FindingGroup,
         wNow.wait_type AS Finding,
         N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST((( ISNULL(NULLIF(wNow.wait_time_ms, 0), 1) - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
-        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
+        (( ISNULL(NULLIF(wNow.wait_time_ms, 0), 1) - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
     LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
     WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * (DATEDIFF(ss,@StartSampleTime,@FinishSampleTime)) * 1000)) /* Only look for things we've actually waited on for half of the time or more */
