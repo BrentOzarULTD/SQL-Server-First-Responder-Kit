@@ -144,6 +144,18 @@ IF (@UserStoredProc IS NOT NULL AND @UserAdHoc IS NOT NULL)
    RETURN;
    END  
 
+IF (@UserStoredProc IS NOT NULL AND LEN(@UserStoredProc) <= 6)
+   BEGIN
+   RAISERROR('Are you sure you supplied a stored procedure?',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+IF (@UserAdHoc IS NOT NULL AND LEN(@UserAdHoc) <= 7)
+   BEGIN
+   RAISERROR('Are you sure you supplied working code?',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
 IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)   
    BEGIN
    SELECT @SinceStartup = 0, @ExpertMode = 1, @Seconds = 1, @StartSampleTime = SYSDATETIMEOFFSET()
