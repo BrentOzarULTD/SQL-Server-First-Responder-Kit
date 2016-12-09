@@ -3095,7 +3095,7 @@ BEGIN;
             AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 
 			RAISERROR(N'check_id 72: Columnstore indexes with Trace Flag 834', 0,1) WITH NOWAIT;
-                IF EXISTS (SELECT * FROM #IndexSanity WHERE Index_Type IN (5,6))
+                IF EXISTS (SELECT * FROM #IndexSanity WHERE index_type IN (5,6))
 				AND EXISTS (SELECT * FROM #TraceStatus WHERE TraceFlag = 834 AND status = 1)
 				BEGIN
 				INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
