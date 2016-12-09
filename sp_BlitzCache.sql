@@ -179,6 +179,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
 		is_computed_scalar BIT ,
+		is_sort_expensive bit,
+		sort_cost float,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -798,6 +800,8 @@ BEGIN
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
 		is_computed_scalar BIT ,
+		is_sort_expensive bit,
+		sort_cost float,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1996,11 +2000,25 @@ SELECT
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
+RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET sort_cost = (x.sort_io + x.sort_cpu) 
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
+	   relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
 
 RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2280,6 +2298,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
+	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
@@ -2367,7 +2386,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
 				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
 				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
-				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  
+				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END 
                   , 2, 200000) 
 				  END
 				  OPTION (RECOMPILE) ;
@@ -2689,7 +2709,8 @@ BEGIN
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
 				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
-				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END
+				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
+				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3295,6 +3316,19 @@ BEGIN
                     'This makes a whole lot of stuff run serially',
                     'https://www.brentozar.com/blitzcache/computed-columns-referencing-functions/',
                     'This can cause a whole mess of bad serializartion problems.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_sort_expensive= 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     43,
+                     100,
+                     'Execution Plans',
+                     'Expensive Sort',
+                     'http://www.brentozar.com/blitzcache/expensive-sorts/',
+                     'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
