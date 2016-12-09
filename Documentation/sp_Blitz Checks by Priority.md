@@ -39,6 +39,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | http://BrentOzar.com/go/cdrive | 26 |
+| 50 | Performance | Instant File Initialization Not Enabled | http://BrentOzar.com/go/instant | 192 |
 | 50 | Performance | Log File Growths Slow | http://BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | http://BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE | http://BrentOzar.com/go/poison | 108 |
@@ -256,6 +257,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
 | 250 | Server Info | Hardware |  | 84 |
 | 250 | Server Info | Hardware - NUMA Config |  | 114 |
+| 250 | Server Info | Instant File Initialization Enabled | http://BrentOzar.com/go/instant | 193 |
 | 250 | Server Info | Locked Pages in Memory Enabled | http://BrentOzar.com/go/lpim | 166 |
 | 250 | Server Info | Server Name | http://BrentOzar.com/go/servername | 130 |
 | 250 | Server Info | Services |  | 83 |
