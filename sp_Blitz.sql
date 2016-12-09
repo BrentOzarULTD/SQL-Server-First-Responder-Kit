@@ -140,7 +140,8 @@ AS
 			,@Processors int
 			,@NUMANodes int
 			,@MinServerMemory bigint
-			,@MaxServerMemory bigint;
+			,@MaxServerMemory bigint
+			,@ColumnStoreIndexUse bit;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -531,7 +532,12 @@ AS
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
 			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
 
-
+		/* Check if columnstore indexes are in use */
+		IF EXISTS (SELECT * FROM sys.indexes WHERE type IN (5,6))
+		BEGIN
+		SET @ColumnStoreIndexUse = 1
+		END
+		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
 		First, let's make sure we're actually supposed to do checks on this server.
@@ -5133,7 +5139,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'TraceFlag On' AS Finding ,
-										'http://www.BrentOzar.com/go/traceflags/' AS URL ,
+										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
+											 ELSE'http://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' + 
 										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests'
 											 WHEN [T].[TraceFlag] = '1211' THEN ' 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
@@ -5143,7 +5150,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
 											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
-										     ELSE [T].[TraceFlag] + ' is enabled globally.' END 
+										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+											 ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
 					END
