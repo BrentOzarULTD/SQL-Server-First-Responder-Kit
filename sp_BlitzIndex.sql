@@ -2670,6 +2670,7 @@ BEGIN;
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
                                     CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) > 1024
                                         THEN CAST(CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END )/1024. 
+
                                             AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB); ' 
                                         ELSE CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) 
                                             AS NVARCHAR(30)) + N'MB); '
@@ -2681,6 +2682,8 @@ BEGIN;
                                 ,N'') AS index_size_summary
                             FROM    #IndexSanity AS i
                             LEFT    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id  AND i.database_id = sz.database_id
+							WHERE i.is_hypothetical = 0
+                                  AND i.is_disabled = 0
                            GROUP BY    i.database_id, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info )
