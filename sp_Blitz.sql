@@ -5473,7 +5473,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													AND c.name = 'sql_memory_model' )
 							BEGIN
 										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-			SELECT  84 AS CheckID ,
+			SELECT  166 AS CheckID ,
 			250 AS Priority ,
 			''Server Info'' AS FindingsGroup ,
 			''Memory Model Unconventional'' AS Finding ,
@@ -5507,13 +5507,38 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										  Details
 										)
 										SELECT
-												184 AS [CheckID] ,
+												193 AS [CheckID] ,
 												250 AS [Priority] ,
 												'Server Info' AS [FindingsGroup] ,
 												'Instant File Initialization Enabled' AS [Finding] ,
-												'' AS [URL] ,
+												'http://BrentOzar.com/go/instant' AS [URL] ,
 												'The service account has the Perform Volume Maintenance Tasks permission.'
 						END; 
+
+			/* Server Info - Instant File Initialization Not Enabled - Check 192 - SQL Server 2016 SP1 and newer */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 192 )
+							AND EXISTS ( SELECT  *
+											FROM    sys.all_objects o
+													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+											WHERE   o.name = 'dm_server_services'
+													AND c.name = 'instant_file_initialization_enabled' )
+							BEGIN
+										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT  192 AS CheckID ,
+			50 AS Priority ,
+			''Server Info'' AS FindingsGroup ,
+			''Instant File Initialization Not Enabled'' AS Finding ,
+			''http://BrentOzar.com/go/instant'' AS URL ,
+			''Consider enabling IFI for faster restores and data file growths.''
+			FROM sys.dm_server_services WHERE instant_file_initialization_enabled <> ''Y'' AND filename LIKE ''%sqlservr.exe%''';
+										EXECUTE(@StringToExecute);
+									END
+
+
+
+
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
