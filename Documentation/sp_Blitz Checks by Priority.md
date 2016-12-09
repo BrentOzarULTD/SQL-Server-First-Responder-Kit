@@ -52,6 +52,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Page Verification Not Optimal | http://BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | http://BrentOzar.com/go/shipping | 111 |
 | 50 | Reliability | Remote Admin Connections Disabled | http://BrentOzar.com/go/dac | 100 |
+| 50 | Reliability | TempDB File Error | http://BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | http://BrentOzar.com/go/biglog | 75 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | http://BrentOzar.com/go/hekaton | 147 |
 | 100 | Features | Missing Features | http://BrentOzar.com/ | 189 |

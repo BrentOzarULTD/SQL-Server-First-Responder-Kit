@@ -3782,6 +3782,29 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                        EXECUTE(@StringToExecute);
 					END
 
+		/* Reliability - TempDB File Error */
+		IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 191 )
+			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+				BEGIN
+					INSERT    INTO [#BlitzResults]
+							( [CheckID] ,
+								[Priority] ,
+								[FindingsGroup] ,
+								[Finding] ,
+								[URL] ,
+								[Details] )						
+						
+						SELECT
+						191 AS [CheckID] ,
+						50 AS [Priority] ,
+						'Reliability' AS [FindingsGroup] ,
+						'TempDB File Error' AS [Finding] ,
+						'http://BrentOzar.com/go/tempdboops' AS [URL] , 
+						'Mismatch between the number of TempDB files in sys.master_files versus tempdb.sys.database_files' AS [Details]
+				END
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
