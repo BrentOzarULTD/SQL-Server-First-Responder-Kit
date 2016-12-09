@@ -141,7 +141,7 @@ AS
 			,@NUMANodes int
 			,@MinServerMemory bigint
 			,@MaxServerMemory bigint
-			,@ColumnStoreIndexUse bit;
+			,@ColumnStoreIndexesInUse bit;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -161,6 +161,14 @@ AS
 			  Details NVARCHAR(4000) ,
 			  QueryPlan [XML] NULL ,
 			  QueryPlanFiltered [NVARCHAR](MAX) NULL
+			);
+
+		IF OBJECT_ID('tempdb..#TemporaryDatabaseResults') IS NOT NULL
+			DROP TABLE #TemporaryDatabaseResults;
+		CREATE TABLE #TemporaryDatabaseResults
+			(
+			  DatabaseName NVARCHAR(128) ,
+			  Finding NVARCHAR(128)
 			);
 
 		/*
@@ -531,12 +539,6 @@ AS
 		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
 			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
-
-		/* Check if columnstore indexes are in use */
-		IF EXISTS (SELECT * FROM sys.indexes WHERE type IN (5,6))
-		BEGIN
-		SET @ColumnStoreIndexUse = 1
-		END
 		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
@@ -4571,6 +4573,23 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics'' ';
 					        END
 
+	
+						/* Check if columnstore indexes are in use - for Github issue #615 */
+				        IF NOT EXISTS ( SELECT  1
+								        FROM    #SkipChecks
+								        WHERE   DatabaseName IS NULL AND CheckID = 74 ) /* Trace flags */
+					        BEGIN
+								TRUNCATE TABLE #TemporaryDatabaseResults;
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'')';
+								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
+					        END
+
+						IF EXISTS (SELECT * FROM sys.indexes WHERE type IN (5,6))
+						BEGIN
+						SET @ColumnStoreIndexesInUse = 1
+						END
+
+	
 					END /* IF @CheckUserDatabaseObjects = 1 */
 
 				IF @CheckProcedureCache = 1
@@ -5139,7 +5158,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'TraceFlag On' AS Finding ,
-										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
+										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
 											 ELSE'http://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' + 
 										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests'
@@ -5150,7 +5169,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
 											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
-										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
