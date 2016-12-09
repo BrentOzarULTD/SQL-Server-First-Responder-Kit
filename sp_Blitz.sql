@@ -3291,12 +3291,12 @@ AS
 						WHILE @@FETCH_STATUS = 0
 						BEGIN 
 
-							/* DW* databases ship with Target Recovery Time (142) set to a non-default number */
+							/* Target Recovery Time (142) can be either 0 or 60 due to a number of bugs */
 						    IF @CurrentCheckID = 142
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.[name] NOT IN (''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'') AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+									WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
