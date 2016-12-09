@@ -832,6 +832,11 @@ BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
 END
+IF (SELECT DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+BEGIN
+   RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 16, 1);
+   RETURN;
+END
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
