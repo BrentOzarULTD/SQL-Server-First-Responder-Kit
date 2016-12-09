@@ -5462,6 +5462,29 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							[dopm].[locked_page_allocations_kb] > 0;
 					END; 
 
+			/* Server Info - Locked Pages In Memory Enabled - Check 166 - SQL Server 2016 SP1 and newer */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 166 )
+							AND EXISTS ( SELECT  *
+											FROM    sys.all_objects o
+													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+											WHERE   o.name = 'dm_os_sys_info'
+													AND c.name = 'sql_memory_model' )
+							BEGIN
+										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT  84 AS CheckID ,
+			250 AS Priority ,
+			''Server Info'' AS FindingsGroup ,
+			''Memory Model Unconventional'' AS Finding ,
+			''http://BrentOzar.com/go/lpim'' AS URL ,
+			''Memory Model: '' + CAST(sql_memory_model_desc AS NVARCHAR(100))
+			FROM sys.dm_os_sys_info WHERE sql_memory_model <> 1';
+										EXECUTE(@StringToExecute);
+									END
+
+
+
 			/*
 			Starting with SQL Server 2014 SP2, Instant File Initialization 
 			is logged in the SQL Server Error Log.
