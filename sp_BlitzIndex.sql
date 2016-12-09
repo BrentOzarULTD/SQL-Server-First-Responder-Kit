@@ -156,6 +156,9 @@ IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL 
     DROP TABLE #ComputedColumns;
+	
+IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
+	DROP TABLE #TraceStatus;
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -564,7 +567,14 @@ IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL
 		  is_function INT NOT NULL,
 		  column_definition NVARCHAR(MAX) NULL
 		);
-
+		
+		CREATE TABLE #TraceStatus
+		(
+		 TraceFlag VARCHAR(10) ,
+		 status BIT ,
+		 Global BIT ,
+		 Session BIT
+		);
 
 
 IF @GetAllDatabases = 1
@@ -1622,6 +1632,11 @@ BEGIN TRY
 			EXEC sp_executesql @dsql;
 
 			END 
+			
+			RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
+			INSERT #TraceStatus
+			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS')			
+			
 END                    
 END TRY
 BEGIN CATCH
@@ -2655,6 +2670,7 @@ BEGIN;
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
                                     CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) > 1024
                                         THEN CAST(CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END )/1024. 
+
                                             AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB); ' 
                                         ELSE CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) 
                                             AS NVARCHAR(30)) + N'MB); '
@@ -2666,6 +2682,8 @@ BEGIN;
                                 ,N'') AS index_size_summary
                             FROM    #IndexSanity AS i
                             LEFT    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id  AND i.database_id = sz.database_id
+							WHERE i.is_hypothetical = 0
+                                  AND i.is_disabled = 0
                            GROUP BY    i.database_id, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info )
@@ -3079,6 +3097,30 @@ BEGIN;
             OR [update_referential_action_desc] <> N'NO_ACTION')
             AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 
+			RAISERROR(N'check_id 72: Columnstore indexes with Trace Flag 834', 0,1) WITH NOWAIT;
+                IF EXISTS (SELECT * FROM #IndexSanity WHERE index_type IN (5,6))
+				AND EXISTS (SELECT * FROM #TraceStatus WHERE TraceFlag = 834 AND status = 1)
+				BEGIN
+				INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                    SELECT    72 AS check_id, 
+                            i.index_sanity_id,
+                            150 AS Priority,
+                            N'Abnormal Psychology' AS findings_group,
+                            'Columnstore Indexes are being used in conjunction with trace flag 834. Visit the link to see why this can be a bad idea' AS finding, 
+                            [database_name] AS [Database Name],
+                            N'https://support.microsoft.com/en-us/kb/3210239' AS URL,
+                            i.db_schema_object_indexid AS details, 
+                            i.index_definition,
+                            i.secret_columns,
+                            i.index_usage_summary,
+                            ISNULL(sz.index_size_summary,'') AS index_size_summary
+                    FROM    #IndexSanity AS i
+                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    WHERE i.index_type IN (5,6)
+                    OPTION    ( RECOMPILE )
+				END
+
     END
 
          ----------------------------------------
@@ -3367,7 +3409,7 @@ BEGIN;
                 br.index_sanity_id=sn.index_sanity_id
             LEFT JOIN #IndexCreateTsql ts ON 
                 br.index_sanity_id=ts.index_sanity_id
-            WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65)
+            WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65, 72)
             ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 			OPTION (RECOMPILE);
 

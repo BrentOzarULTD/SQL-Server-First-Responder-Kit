@@ -140,7 +140,8 @@ AS
 			,@Processors int
 			,@NUMANodes int
 			,@MinServerMemory bigint
-			,@MaxServerMemory bigint;
+			,@MaxServerMemory bigint
+			,@ColumnStoreIndexesInUse bit;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -160,6 +161,14 @@ AS
 			  Details NVARCHAR(4000) ,
 			  QueryPlan [XML] NULL ,
 			  QueryPlanFiltered [NVARCHAR](MAX) NULL
+			);
+
+		IF OBJECT_ID('tempdb..#TemporaryDatabaseResults') IS NOT NULL
+			DROP TABLE #TemporaryDatabaseResults;
+		CREATE TABLE #TemporaryDatabaseResults
+			(
+			  DatabaseName NVARCHAR(128) ,
+			  Finding NVARCHAR(128)
 			);
 
 		/*
@@ -530,8 +539,7 @@ AS
 		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
 			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
-
-
+		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
 		First, let's make sure we're actually supposed to do checks on this server.
@@ -3283,12 +3291,12 @@ AS
 						WHILE @@FETCH_STATUS = 0
 						BEGIN 
 
-							/* DW* databases ship with Target Recovery Time (142) set to a non-default number */
+							/* Target Recovery Time (142) can be either 0 or 60 due to a number of bugs */
 						    IF @CurrentCheckID = 142
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.[name] NOT IN (''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'') AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
+									WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
@@ -3773,6 +3781,29 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 							WHERE [available_nodes] < 1';
 		                        EXECUTE(@StringToExecute);
 					END
+
+		/* Reliability - TempDB File Error */
+		IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 191 )
+			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+				BEGIN
+					INSERT    INTO [#BlitzResults]
+							( [CheckID] ,
+								[Priority] ,
+								[FindingsGroup] ,
+								[Finding] ,
+								[URL] ,
+								[Details] )						
+						
+						SELECT
+						191 AS [CheckID] ,
+						50 AS [Priority] ,
+						'Reliability' AS [FindingsGroup] ,
+						'TempDB File Error' AS [Finding] ,
+						'http://BrentOzar.com/go/tempdboops' AS [URL] , 
+						'Mismatch between the number of TempDB files in sys.master_files versus tempdb.sys.database_files' AS [Details]
+				END
 
 
 				IF @CheckUserDatabaseObjects = 1
@@ -4565,6 +4596,23 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''http://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics'' ';
 					        END
 
+	
+						/* Check if columnstore indexes are in use - for Github issue #615 */
+				        IF NOT EXISTS ( SELECT  1
+								        FROM    #SkipChecks
+								        WHERE   DatabaseName IS NULL AND CheckID = 74 ) /* Trace flags */
+					        BEGIN
+								TRUNCATE TABLE #TemporaryDatabaseResults;
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'')';
+								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
+					        END
+
+						IF EXISTS (SELECT * FROM sys.indexes WHERE type IN (5,6))
+						BEGIN
+						SET @ColumnStoreIndexesInUse = 1
+						END
+
+	
 					END /* IF @CheckUserDatabaseObjects = 1 */
 
 				IF @CheckProcedureCache = 1
@@ -5133,7 +5181,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'TraceFlag On' AS Finding ,
-										'http://www.BrentOzar.com/go/traceflags/' AS URL ,
+										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
+											 ELSE'http://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' + 
 										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests'
 											 WHEN [T].[TraceFlag] = '1211' THEN ' 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
@@ -5143,7 +5192,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
 											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
-										     ELSE [T].[TraceFlag] + ' is enabled globally.' END 
+										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+											 ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
 					END
