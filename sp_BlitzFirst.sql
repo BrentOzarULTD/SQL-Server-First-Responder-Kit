@@ -1,4 +1,4 @@
-IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
+﻿IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzFirst AS RETURN 0;')
 GO
 
@@ -28,7 +28,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20161014'
+SET @VersionDate = '20161210'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -2389,7 +2389,45 @@ BEGIN
             -------------------------
             --What happened: #FileStats
             -------------------------
-            SELECT qsNow.*, qsFirst.*
+            SELECT
+                [qsNow].[ID] AS [Now-ID],
+                [qsNow].[Pass] AS [Now-Pass],
+                [qsNow].[SampleTime] AS [Now-SampleTime],
+                [qsNow].[sql_handle] AS [Now-sql_handle],
+                [qsNow].[statement_start_offset] AS [Now-statement_start_offset],
+                [qsNow].[statement_end_offset] AS [Now-statement_end_offset],
+                [qsNow].[plan_generation_num] AS [Now-plan_generation_num],
+                [qsNow].[plan_handle] AS [Now-plan_handle],
+                [qsNow].[execution_count] AS [Now-execution_count],
+                [qsNow].[total_worker_time] AS [Now-total_worker_time],
+                [qsNow].[total_physical_reads] AS [Now-total_physical_reads],
+                [qsNow].[total_logical_writes] AS [Now-total_logical_writes],
+                [qsNow].[total_logical_reads] AS [Now-total_logical_reads],
+                [qsNow].[total_clr_time] AS [Now-total_clr_time],
+                [qsNow].[total_elapsed_time] AS [Now-total_elapsed_time],
+                [qsNow].[creation_time] AS [Now-creation_time],
+                [qsNow].[query_hash] AS [Now-query_hash],
+                [qsNow].[query_plan_hash] AS [Now-query_plan_hash],
+                [qsNow].[Points] AS [Now-Points],
+                [qsFirst].[ID] AS [First-ID],
+                [qsFirst].[Pass] AS [First-Pass],
+                [qsFirst].[SampleTime] AS [First-SampleTime],
+                [qsFirst].[sql_handle] AS [First-sql_handle],
+                [qsFirst].[statement_start_offset] AS [First-statement_start_offset],
+                [qsFirst].[statement_end_offset] AS [First-statement_end_offset],
+                [qsFirst].[plan_generation_num] AS [First-plan_generation_num],
+                [qsFirst].[plan_handle] AS [First-plan_handle],
+                [qsFirst].[execution_count] AS [First-execution_count],
+                [qsFirst].[total_worker_time] AS [First-total_worker_time],
+                [qsFirst].[total_physical_reads] AS [First-total_physical_reads],
+                [qsFirst].[total_logical_writes] AS [First-total_logical_writes],
+                [qsFirst].[total_logical_reads] AS [First-total_logical_reads],
+                [qsFirst].[total_clr_time] AS [First-total_clr_time],
+                [qsFirst].[total_elapsed_time] AS [First-total_elapsed_time],
+                [qsFirst].[creation_time] AS [First-creation_time],
+                [qsFirst].[query_hash] AS [First-query_hash],
+                [qsFirst].[query_plan_hash] AS [First-query_plan_hash],
+                [qsFirst].[Points] AS [First-Points]
             FROM #QueryStats qsNow
               INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
             WHERE qsNow.Pass = 2

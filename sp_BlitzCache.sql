@@ -1,3 +1,28 @@
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET STATISTICS IO OFF;
+SET STATISTICS TIME OFF;
+GO
+
+IF (
+SELECT
+  CASE 
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '8%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '9%' THEN 0
+	 ELSE 1
+  END 
+) = 0
+BEGIN
+	DECLARE @msg VARCHAR(8000) 
+	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933)
+	PRINT @msg
+	RETURN
+END
+
 IF OBJECT_ID('dbo.sp_BlitzCache') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzCache AS RETURN 0;')
 GO
@@ -152,6 +177,10 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	    forced_index BIT,
 	    forced_seek BIT,
 	    forced_scan BIT,
+		columnstore_row_mode BIT,
+		is_computed_scalar BIT ,
+		is_sort_expensive bit,
+		sort_cost float,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -188,6 +217,12 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+DECLARE @Version VARCHAR(30);
+DECLARE @VersionDate VARCHAR(30);
+ SET @Version = '4.1';
+ SET @VersionDate = '20161210';
+
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
 	
@@ -237,7 +272,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 '
-
 
 DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 
@@ -592,6 +626,22 @@ BEGIN
     RETURN
 END
 
+/*Validate version*/
+IF (
+SELECT
+  CASE 
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '8%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) like '9%' THEN 0
+	 ELSE 1
+  END 
+) = 0
+BEGIN
+	DECLARE @version_msg VARCHAR(8000) 
+	SELECT @version_msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
+	PRINT @version_msg;
+	RETURN;
+END
+
 /* validate user inputs */
 IF @Top IS NULL 
     OR @SortOrder IS NULL 
@@ -601,6 +651,8 @@ BEGIN
     RAISERROR(N'Several parameters (@Top, @SortOrder, @QueryFilter, @renalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
     RETURN;
 END
+
+RAISERROR(N'Creating temp tables for results and warnings.', 0, 1) WITH NOWAIT;
 
 IF OBJECT_ID('tempdb.dbo.##bou_BlitzCacheResults') IS NULL
 BEGIN
@@ -746,6 +798,10 @@ BEGIN
 	    forced_index BIT,
 	    forced_seek BIT,
 	    forced_scan BIT,
+		columnstore_row_mode BIT,
+		is_computed_scalar BIT ,
+		is_sort_expensive bit,
+		sort_cost float,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -755,19 +811,30 @@ DECLARE @DurationFilter_i INT,
 		@MinMemoryPerQuery INT,
         @msg NVARCHAR(4000) ;
 
-RAISERROR (N'Setting up temporary tables for sp_BlitzCache',0,1) WITH NOWAIT;
 
 IF @BringThePain = 1
+   BEGIN
+   RAISERROR(N'You have chosen to bring the pain. Setting top to 2147483647.', 0, 1) WITH NOWAIT;
    SET @Top = 2147483647;
+   END 
 
 /* Change duration from seconds to milliseconds */
 IF @DurationFilter IS NOT NULL
+  BEGIN
+  RAISERROR(N'Converting Duration Filter to milliseconds', 0, 1) WITH NOWAIT;
   SET @DurationFilter_i = CAST((@DurationFilter * 1000.0) AS INT)
+  END 
 
+RAISERROR(N'Checking database validity', 0, 1) WITH NOWAIT;
 SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
 IF (DB_ID(@DatabaseName)) IS NULL AND @DatabaseName <> ''
 BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
+   RETURN;
+END
+IF (SELECT DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+BEGIN
+   RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 16, 1);
    RETURN;
 END
 
@@ -780,11 +847,14 @@ SET @SortOrder = REPLACE(@SortOrder, 'executions / minute', 'avg executions');
 SET @SortOrder = REPLACE(@SortOrder, 'xpm', 'avg executions');
 SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 
-
+RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant')
+  BEGIN
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
+  END 
 
 SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
        @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
@@ -793,23 +863,40 @@ SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 SET @QueryFilter = LOWER(@QueryFilter);
 
 IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
+  BEGIN
+  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
   SET @QueryFilter = 'all';
-
-IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
-  SET @Reanalyze = 0;
-ELSE IF @Reanalyze = 0
-  DELETE ##bou_BlitzCacheResults
-    WHERE SPID = @@SPID;
+  END
 
 IF @SkipAnalysis = 1
-    SET @HideSummary = 1;
+  BEGIN
+  RAISERROR(N'Skip Analysis set to 1, hiding Summary', 0, 1) WITH NOWAIT;
+  SET @HideSummary = 1;
+  END 
+
+IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##bou_BlitzCacheResults') IS NULL
+  BEGIN
+  RAISERROR(N'##bou_BlitzCacheResults does not exist, can''t reanalyze', 0, 1) WITH NOWAIT;
+  SET @Reanalyze = 0;
+  END
+
+IF @Reanalyze = 0
+  BEGIN
+  RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
+  DELETE ##bou_BlitzCacheResults
+    WHERE SPID = @@SPID;
+  RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
+  DELETE ##bou_BlitzCacheProcs
+    WHERE SPID = @@SPID;
+  END  
 
 IF @Reanalyze = 1 
+	BEGIN
+	RAISERROR(N'Reanalyzing current data, skipping to results', 0, 1) WITH NOWAIT;
     GOTO Results
+	END
 
-DELETE FROM ##bou_BlitzCacheProcs
-WHERE  SPID = @@SPID ;
-
+RAISERROR(N'Creating temp tables for internal processing', 0, 1) WITH NOWAIT;
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
     DROP TABLE #only_query_hashes ;
 
@@ -863,6 +950,7 @@ CREATE TABLE #configuration (
     value DECIMAL(38,0)
 );
 
+RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
 SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 24 THEN 1 ELSE 0 END) AS [plans_24],
 	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 4 THEN 1 ELSE 0 END) AS [plans_4],
@@ -876,6 +964,34 @@ INTO #plan_creation
 FROM x
 
 
+RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
+SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
+        COUNT(*) AS total_plan_stubs,
+		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
+		@@SPID AS SPID
+INTO #plan_stubs_warning
+FROM    sys.dm_exec_cached_plans cp
+LEFT JOIN sys.dm_exec_query_stats qs
+ON      cp.plan_handle = qs.plan_handle
+WHERE   cp.cacheobjtype = 'Compiled Plan Stub';
+
+
+RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
+SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
+        COUNT(*) AS total_single_use_plans,
+		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
+		@@SPID AS SPID
+INTO #single_use_plans_warning
+FROM    sys.dm_exec_cached_plans cp
+LEFT JOIN sys.dm_exec_query_stats qs
+ON      cp.plan_handle = qs.plan_handle
+WHERE   cp.usecounts = 1
+        AND cp.cacheobjtype = 'Compiled Plan';
+
+
+
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
 SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
@@ -885,7 +1001,8 @@ DECLARE @individual VARCHAR(100) ;
 IF @OnlySqlHandles IS NOT NULL
     AND LEN(@OnlySqlHandles) > 0
 BEGIN
-    SET @individual = '';
+    RAISERROR(N'Processing SQL Handles', 0, 1) WITH NOWAIT;
+	SET @individual = '';
 
     WHILE LEN(@OnlySqlHandles) > 0
     BEGIN
@@ -918,7 +1035,7 @@ END
 IF @StoredProcName IS NOT NULL AND @StoredProcName <> N''
 
 BEGIN
-
+	RAISERROR(N'Setting up filter for stored procedure name', 0, 1) WITH NOWAIT;
 	INSERT #only_sql_handles
 	        ( sql_handle )
 	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),''))
@@ -947,6 +1064,7 @@ END
 IF @OnlyQueryHashes IS NOT NULL
    AND LEN(@OnlyQueryHashes) > 0
 BEGIN
+	RAISERROR(N'Setting up filter for Query Hashes', 0, 1) WITH NOWAIT;
     SET @individual = '';
 
    WHILE LEN(@OnlyQueryHashes) > 0
@@ -987,6 +1105,7 @@ END
 IF @IgnoreQueryHashes IS NOT NULL
    AND LEN(@IgnoreQueryHashes) > 0
 BEGIN
+	RAISERROR(N'Setting up filter to ignore query hashes', 0, 1) WITH NOWAIT;
    SET @individual = '' ;
 
    WHILE LEN(@IgnoreQueryHashes) > 0
@@ -1015,6 +1134,7 @@ END
 
 IF @ConfigurationDatabaseName IS NOT NULL
 BEGIN
+   RAISERROR(N'Reading values from Configuration Database', 0, 1) WITH NOWAIT;
    DECLARE @config_sql NVARCHAR(MAX) = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
         + QUOTENAME(@ConfigurationDatabaseName)
         + '.' + QUOTENAME(@ConfigurationSchemaName)
@@ -1023,6 +1143,7 @@ BEGIN
    EXEC(@config_sql);
 END
 
+RAISERROR(N'Setting up variables', 0, 1) WITH NOWAIT;
 DECLARE @sql NVARCHAR(MAX) = N'',
         @insert_list NVARCHAR(MAX) = N'',
         @plans_triggers_select_list NVARCHAR(MAX) = N'',
@@ -1087,43 +1208,55 @@ SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
 
 IF @IgnoreSystemDBs = 1
-    SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+    BEGIN
+	RAISERROR(N'Ignoring system databases by default', 0, 1) WITH NOWAIT;
+	SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+	END 
 
 IF @DatabaseName IS NOT NULL OR @DatabaseName <> ''
-    SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID('
+	BEGIN 
+    RAISERROR(N'Filtering database name chosen', 0, 1) WITH NOWAIT;
+	SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID('
                  + QUOTENAME(@DatabaseName, N'''')
                  + N') ' + @nl;
+	END 
 
 IF (SELECT COUNT(*) FROM #only_sql_handles) > 0
 BEGIN
-    SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_sql_handles q WHERE q.sql_handle = x.sql_handle) ' + @nl ;
+    RAISERROR(N'Including only chosen SQL Handles', 0, 1) WITH NOWAIT;
+	SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_sql_handles q WHERE q.sql_handle = x.sql_handle) ' + @nl ;
 END      
 
 IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (SELECT COUNT(*) FROM #only_sql_handles) = 0
 BEGIN
-    SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl ;
+    RAISERROR(N'Including only chosen Query Hashes', 0, 1) WITH NOWAIT;
+	SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl ;
 END
 
 /* filtering for query hashes */
 IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
 BEGIN
-    SET @body += N'               AND NOT EXISTS(SELECT 1/0 FROM #ignore_query_hashes iq WHERE iq.query_hash = x.query_hash) ' + @nl ;
+    RAISERROR(N'Excluding chosen Query Hashes', 0, 1) WITH NOWAIT;
+	SET @body += N'               AND NOT EXISTS(SELECT 1/0 FROM #ignore_query_hashes iq WHERE iq.query_hash = x.query_hash) ' + @nl ;
 END
 /* end filtering for query hashes */
 
 
 IF @DurationFilter IS NOT NULL
-    SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
-
+    BEGIN 
+	RAISERROR(N'Setting duration filter', 0, 1) WITH NOWAIT;
+	SET @body += N'       AND (total_elapsed_time / 1000.0) / execution_count > @min_duration ' + @nl ;
+	END 
 
 
 /* Apply the sort order here to only grab relevant plans.
    This should make it faster to process since we'll be pulling back fewer
    plans for processing.
  */
+RAISERROR(N'Applying chosen sort order', 0, 1) WITH NOWAIT;
 SELECT @body += N'        ORDER BY ' +
                 CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                  WHEN N'reads' THEN N'total_logical_reads'
@@ -1289,7 +1422,8 @@ BEGIN
     
     IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
     BEGIN
-        SET @sql += N'
+        RAISERROR(N'Adding additional info columns for newer versions of SQL', 0, 1) WITH NOWAIT;
+		SET @sql += N'
            qs.min_rows AS MinReturnedRows,
            qs.max_rows AS MaxReturnedRows,
            CAST(qs.total_rows as MONEY) / execution_count AS AvgReturnedRows,
@@ -1298,6 +1432,7 @@ BEGIN
     END
     ELSE
     BEGIN
+		RAISERROR(N'Substituting NULLs for more info columns in older versions of SQL', 0, 1) WITH NOWAIT;
         SET @sql += N'
            NULL AS MinReturnedRows,
            NULL AS MaxReturnedRows,
@@ -1309,7 +1444,8 @@ BEGIN
     IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1601)
 
     BEGIN
-        SET @sql += N'
+        RAISERROR(N'Getting memory grant information for newer versions of SQL', 0, 1) WITH NOWAIT;
+		SET @sql += N'
            min_grant_kb AS MinGrantKB,
            max_grant_kb AS MaxGrantKB,
            min_used_grant_kb AS MinUsedGrantKB,
@@ -1319,7 +1455,8 @@ BEGIN
     END
     ELSE
     BEGIN
-        SET @sql += N'
+        RAISERROR(N'Substituting NULLs for memory grant columns in older versions of SQL', 0, 1) WITH NOWAIT;
+		SET @sql += N'
            NULL AS MinGrantKB,
            NULL AS MaxGrantKB,
            NULL AS MinUsedGrantKB, 
@@ -1360,7 +1497,8 @@ BEGIN
 
     IF @SortOrder = 'compiles'
     BEGIN
-        SET @sql = REPLACE(@sql, '#sortable#', 'creation_time');
+        RAISERROR(N'Sorting by compiles', 0, 1) WITH NOWAIT;
+		SET @sql = REPLACE(@sql, '#sortable#', 'creation_time');
     END
 END
 
@@ -1505,6 +1643,7 @@ PRINT SUBSTRING(@sql, 36000, 40000)
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
  */
+RAISERROR(N'Attempting to aggregate stored proc info from separate statements', 0, 1) WITH NOWAIT;
 ;WITH agg AS (
     SELECT 
         b.SqlHandle,
@@ -1554,6 +1693,7 @@ DECLARE @lf NVARCHAR(1) = NCHAR(10);
 DECLARE @tab NVARCHAR(1) = NCHAR(9);
 
 /* Update CPU percentage for stored procedures */
+RAISERROR(N'Update CPU percentage for stored procedures', 0, 1) WITH NOWAIT;
 UPDATE ##bou_BlitzCacheProcs
 SET     PercentCPU = y.PercentCPU,
         PercentDuration = y.PercentDuration,
@@ -1607,7 +1747,7 @@ WHERE ##bou_BlitzCacheProcs.PlanHandle = y.PlanHandle
 OPTION (RECOMPILE) ;
 
 
-
+RAISERROR(N'Gather percentage information from grouped results', 0, 1) WITH NOWAIT;
 UPDATE ##bou_BlitzCacheProcs
 SET     PercentCPU = y.PercentCPU,
         PercentDuration = y.PercentDuration,
@@ -1670,6 +1810,7 @@ OPTION (RECOMPILE) ;
 
 
 /* Testing using XML nodes to speed up processing */
+RAISERROR(N'Begin XML nodes processing', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 SELECT  QueryHash ,
         SqlHandle ,
@@ -1711,6 +1852,7 @@ OPTION (RECOMPILE) ;
 
 
 -- high level plan stuff
+RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
 UPDATE  ##bou_BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
@@ -1726,6 +1868,7 @@ WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
 
 -- statement level checks
+RAISERROR(N'Performing statement level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
@@ -1747,6 +1890,7 @@ WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
 
 --Gather Stored Proc costs
+RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , QueryCost AS (
   SELECT
@@ -1778,6 +1922,7 @@ OPTION (RECOMPILE);
 OPTION (RECOMPILE);
 
 -- query level checks
+RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  ##bou_BlitzCacheProcs
 SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
@@ -1795,6 +1940,7 @@ WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 OPTION (RECOMPILE);
 
 -- operator level checks
+RAISERROR(N'Performing operator level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
@@ -1817,6 +1963,8 @@ FROM   ##bou_BlitzCacheProcs p
        ) AS x ON p.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE);
 
+
+RAISERROR(N'Checking for functions', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , x AS (
 SELECT qs.QueryHash,
@@ -1833,6 +1981,7 @@ JOIN x ON x.QueryHash = p.QueryHash
 OPTION (RECOMPILE);
 
 
+RAISERROR(N'Checking for expensive key lookups', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET key_lookup_cost = x.key_lookup_cost
@@ -1847,6 +1996,7 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
 
+RAISERROR(N'Checking for expensive remote queries', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET remote_query_cost = x.remote_query_cost
@@ -1855,12 +2005,27 @@ SELECT
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop qs
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Remote Query"])]') = 1
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE) ;
 
+RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET sort_cost = (x.sort_io + x.sort_cpu) 
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
+	   relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
 
+RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
 SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
@@ -1871,6 +2036,8 @@ ON b.QueryHash = qs.QueryHash
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 OPTION (RECOMPILE) ;
 
+
+RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
 SET 
@@ -1904,6 +2071,36 @@ CROSS APPLY qs.relop.nodes('//p:TableScan') AS q(n)
 OPTION (RECOMPILE) ;
 
 
+RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET columnstore_row_mode = x.is_row_mode
+FROM (
+SELECT 
+       qs.SqlHandle,
+	   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
+FROM   #relop qs
+WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE) ;
+
+
+RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET is_computed_scalar = x.computed_column_function
+FROM (
+SELECT qs.SqlHandle,
+	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS computed_column_function
+FROM   #relop qs
+CROSS APPLY relop.nodes('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ScalarOperator') n(fn)
+WHERE n.fn.exist('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:ColumnReference[(@ComputedColumn[.="1"])]') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE)
+
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -1917,7 +2114,7 @@ BEGIN
 END ;
 
 /* END Testing using XML nodes to speed up processing */
-
+RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
@@ -1948,6 +2145,7 @@ WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
 
 /* Update to grab stored procedure name for individual statements */
+RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
 UPDATE  p
 SET     QueryType = QueryType + ' (parent ' +
                     + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
@@ -1957,7 +2155,8 @@ FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
 
-/* Trace Flag Checks 2014 SP2 only (Until 2016 updates?)*/
+/* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
+RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
 SELECT  qp.QueryHash,
@@ -1995,11 +2194,14 @@ JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash --AND tf.SqlHandle = p.PlanHa
 OPTION(RECOMPILE);
 
 IF @SkipAnalysis = 1
-    GOTO Results ;
-
+    BEGIN
+	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
+	GOTO Results ;
+	END 
 
 
 /* Set configuration values */
+RAISERROR(N'Setting configuration values', 0, 1) WITH NOWAIT;
 DECLARE @execution_threshold INT = 1000 ,
         @parameter_sniffing_warning_pct TINYINT = 30,
         /* This is in average reads */
@@ -2069,7 +2271,7 @@ BEGIN
     FROM   #configuration
     WHERE 'unused memory grant' = LOWER(parameter_name) ;
 
-    SET @msg = ' Setting "unused memory grant" to ' + CAST(@long_running_query_warning_seconds AS VARCHAR(10));
+    SET @msg = ' Setting "unused memory grant" to ' + CAST(@memory_grant_warning_percent AS VARCHAR(10));
 
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END
@@ -2101,6 +2303,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
+	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
@@ -2145,7 +2348,8 @@ RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 
 /* Populate warnings */
 UPDATE ##bou_BlitzCacheProcs
-SET    Warnings = SUBSTRING(
+SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
+				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
                   CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
@@ -2185,8 +2389,12 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
 				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
 				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
-				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  
+				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
+				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
+				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END 
                   , 2, 200000) 
+				  END
 				  OPTION (RECOMPILE) ;
 
 
@@ -2285,6 +2493,7 @@ BEGIN
 		  MaxUsedGrantKB BIGINT,
 		  PercentMemoryGrantUsed MONEY,
 		  AvgMaxMemoryGrant MONEY,
+		  QueryPlanCost FLOAT,
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     EXEC sp_executesql @insert_sql ;
@@ -2308,7 +2517,7 @@ BEGIN
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost '
           + N' FROM ##bou_BlitzCacheProcs '
           
     SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -2420,7 +2629,8 @@ DECLARE @columns NVARCHAR(MAX) = N'' ;
 
 IF @ExpertMode = 0
 BEGIN
-    SET @columns = N' DatabaseName AS [Database],
+    RAISERROR(N'Returning ExpertMode = 0', 0, 1) WITH NOWAIT;
+	SET @columns = N' DatabaseName AS [Database],
     QueryPlanCost AS [Cost],
     QueryText AS [Query Text],
     QueryType AS [Query Type],
@@ -2462,7 +2672,10 @@ BEGIN
 
     IF @ExpertMode = 2 /* Opserver */
     BEGIN
-        SET @columns += N'        SUBSTRING(
+        RAISERROR(N'Returning Expert Mode = 2', 0, 1) WITH NOWAIT;
+		SET @columns += N'        
+				  CASE WHEN QueryPlan IS NULL THEN ''We couldn''''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.'' ELSE
+				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
                   CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN '', 19'' ELSE '''' END +
@@ -2499,8 +2712,11 @@ BEGIN
 				  CASE WHEN is_table_scan = 1 THEN '', 37'' ELSE '''' END +
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
-				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END 
-				  , 2, 200000) AS opserver_warning , ' + @nl ;
+				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
+				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
+				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
+				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END
+				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
     SET @columns += N'        ExecutionCount AS [# Executions],
@@ -2592,7 +2808,7 @@ BEGIN
         /* Build summary data */
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
-                   WHERE frequent_execution =1
+                   WHERE frequent_execution = 1
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
@@ -2632,7 +2848,6 @@ BEGIN
                     'http://brentozar.com/blitzcache/forced-plans/',
                     'Execution plans have been compiled with forced plans, either through FORCEPLAN, plan guides, or forced parameterization. This will make general tuning efforts less effective.');
 
-        /* Cursors */
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
                    WHERE  is_cursor = 1
@@ -2673,7 +2888,6 @@ BEGIN
                     'Non-forward Only Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are non-forward only cursors in the plan cache, which can harm performance.');
-
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -2780,7 +2994,6 @@ BEGIN
                     'Implicit Conversions',
                     'http://brentozar.com/go/implicit',
                     'One or more queries are comparing two fields that are not of the same data type.') ;
-
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -3083,11 +3296,48 @@ BEGIN
                     'https://www.brentozar.com/blitzcache/optimizer-forcing/',
                     'This can cause inefficient plans by taking seek vs scan choice away from the optimizer.') ;
 
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.columnstore_row_mode = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    41,
+                    100,
+                    'ColumnStore indexes operating in Row Mode',
+                    'Batch Mode is optimal for ColumnStore indexes',
+                    'https://www.brentozar.com/blitzcache/columnstore-indexes-operating-row-mode/',
+                    'ColumnStore indexes operating in Row Mode indicate really poor query choices.') ;
+
+		IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs p
+                   WHERE  p.is_computed_scalar = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    42,
+                    50,
+                    'Computed Columns Referencing Scalar UDFs',
+                    'This makes a whole lot of stuff run serially',
+                    'https://www.brentozar.com/blitzcache/computed-columns-referencing-functions/',
+                    'This can cause a whole mess of bad serializartion problems.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_sort_expensive= 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     43,
+                     100,
+                     'Execution Plans',
+                     'Expensive Sort',
+                     'http://www.brentozar.com/blitzcache/expensive-sorts/',
+                     'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
-                   WHERE p.percent_24 > 0
-				   OR p.percent_4 > 0
+                   WHERE (p.percent_24 > 0 OR p.percent_4 > 0)
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT SPID,
@@ -3097,20 +3347,65 @@ BEGIN
                     'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
-			FROM   #plan_creation p		;
+			FROM   #plan_creation p	;
 
+        IF EXISTS (SELECT 1/0
+                   FROM   #single_use_plans_warning p
+                   WHERE p.total_plans >= 1000
+				   AND p.single_use_plans_percent >= 10.
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    255,
+                    'Plan Cache Information',
+                    'Your plan cache is ' + CONVERT(NVARCHAR(10), p.single_use_plans_percent) + '% single use plans with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
+                    '',
+                    'Having a lot of single use plans indicates plan cache bloat. This can be cause by non-parameterized dynamic SQL and EF code, or lots of ad hoc queries.'
+			FROM   #single_use_plans_warning p	;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_stubs_warning p
+                   WHERE p.total_plans >= 1000
+				   AND p.plan_stubs_percent >= 30.
+				   AND p.total_plan_stubs >= (40009 * 4) 
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT SPID,
+                    999,
+                    255,
+                    'Plan Cache Information',
+                    'Your plan cache has ' + CONVERT(NVARCHAR(10), p.total_plan_stubs) + ' plan stubs, with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
+                    'https://www.brentozar.com/blitz/poison-wait-detected/',
+                    'A high number of plan stubs may result in CMEMTHREAD waits, which you have ' 
+						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (dows.wait_time_ms / 60000.)) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
+			FROM   #plan_stubs_warning p	;			
+			
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
                    WHERE  tf.global_trace_flags IS NOT NULL
 				   )
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
-                    999,
+                    1000,
                     255,
                     'Global Trace Flags Enabled',
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   ##bou_BlitzCacheResults AS bcr
+                       WHERE  bcr.Priority = 2147483647
+				      )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    2147483647,
+                    255,
+                    'Thanks for using sp_BlitzCache!' ,
+                    'From Your Community Volunteers',
+                    'http://FirstResponderKit.org',
+                    'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + @VersionDate);
 	
 	END            
     
@@ -3128,7 +3423,7 @@ BEGIN
             URL,
             Details,
             CheckID
-    ORDER BY Priority ASC
+    ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 END
 
@@ -3136,5 +3431,6 @@ END
 END
 
 GO
+
 
 
