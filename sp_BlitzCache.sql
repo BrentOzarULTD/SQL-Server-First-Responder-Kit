@@ -220,8 +220,8 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
 DECLARE @VersionDate VARCHAR(30);
- SET @Version = '4.0';
- SET @VersionDate = '20161119';
+ SET @Version = '4.1';
+ SET @VersionDate = '20161210';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
