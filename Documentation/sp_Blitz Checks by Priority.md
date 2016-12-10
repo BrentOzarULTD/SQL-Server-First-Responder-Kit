@@ -39,6 +39,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | http://BrentOzar.com/go/cdrive | 26 |
+| 20 | Reliability | TempDB on C Drive | http://BrentOzar.com/go/cdrive | 25 |
 | 50 | Performance | Instant File Initialization Not Enabled | http://BrentOzar.com/go/instant | 192 |
 | 50 | Performance | Log File Growths Slow | http://BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | http://BrentOzar.com/go/poison | 162 |
@@ -103,7 +104,6 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | File Configuration | Multiple Log Files on One Drive | http://BrentOzar.com/go/manylogs | 41 |
 | 170 | File Configuration | System Database on C Drive | http://BrentOzar.com/go/drivec | 24 |
 | 170 | File Configuration | TempDB Has >16 Data Files | http://BrentOzar.com/go/tempdb | 175 |
-| 170 | File Configuration | TempDB on C Drive | http://BrentOzar.com/go/drivec | 25 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | http://BrentOzar.com/go/tempdb | 40 |
 | 170 | File Configuration | TempDB Unevenly Sized Data Files | http://BrentOzar.com/go/tempdb | 183 |
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | http://BrentOzar.com/go/grow | 42 |
@@ -236,6 +236,10 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 210 | Non-Default Database Config | Supplemental Logging Enabled | http://BrentOzar.com/go/dbdefaults | 131 |
 | 210 | Non-Default Database Config | Target Recovery Time Changed | http://BrentOzar.com/go/dbdefaults | 142 |
 | 210 | Non-Default Database Config | Trustworthy Enabled | http://BrentOzar.com/go/dbdefaults | 137 |
+| 210 | Non-Default Database Scoped Config | MAXDOP | http://BrentOzar.com/go/dbscope | 194 |
+| 210 | Non-Default Database Scoped Config | Legacy CE | http://BrentOzar.com/go/dbscope | 195 |
+| 210 | Non-Default Database Scoped Config | Parameter Sniffing | http://BrentOzar.com/go/dbscope | 196 |
+| 210 | Non-Default Database Scoped Config | Query Optimizer Hotfixes | http://BrentOzar.com/go/dbscope | 197 |
 | 230 | Security | Control Server Permissions | http://BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | http://BrentOzar.com/go/owndb | 55 |
 | 230 | Security | Elevated Permissions on a Database | http://BrentOzar.com/go/elevated | 86 |
