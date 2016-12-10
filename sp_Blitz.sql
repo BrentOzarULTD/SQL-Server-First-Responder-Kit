@@ -297,6 +297,11 @@ AS
 		        Details NVARCHAR(4000)
 			);
 
+		IF OBJECT_ID('tempdb..#DatabaseScopedConfigurationDefaults') IS NOT NULL
+			DROP TABLE #DatabaseScopedConfigurationDefaults;
+		CREATE TABLE #DatabaseScopedConfigurationDefaults
+			(ID INT IDENTITY(1,1), configuration_id INT, [name] NVARCHAR(60), default_value sql_variant, default_value_for_secondary sql_variant, CheckID INT, );
+
 
 
 		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL
@@ -1619,7 +1624,7 @@ AS
 								SELECT TOP 1
 										25 AS CheckID ,
 										'tempdb' ,
-										170 AS Priority ,
+										20 AS Priority ,
 										'File Configuration' AS FindingsGroup ,
 										'TempDB on C Drive' AS Finding ,
 										'http://BrentOzar.com/go/cdrive' AS URL ,
@@ -4607,10 +4612,28 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
 					        END
 
-						IF EXISTS (SELECT * FROM sys.indexes WHERE type IN (5,6))
-						BEGIN
-						SET @ColumnStoreIndexesInUse = 1
-						END
+
+						/* Non-Default Database Scoped Config - Github issue #598 */
+				        IF EXISTS ( SELECT * FROM sys.all_objects WHERE [name] = 'database_scoped_configurations' )
+					        BEGIN
+								INSERT INTO #DatabaseScopedConfigurationDefaults (configuration_id, [name], default_value, default_value_for_secondary, CheckID)
+									SELECT 1, 'MAXDOP', 0, NULL, 194
+									UNION ALL
+									SELECT 2, 'LEGACY_CARDINALITY_ESTIMATION', 0, NULL, 195
+									UNION ALL
+									SELECT 3, 'PARAMETER_SNIFFING', 1, NULL, 196
+									UNION ALL
+									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', 0, NULL, 197;
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) 
+									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''http://BrentOzar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
+									FROM [?].sys.database_scoped_configurations dsc 
+									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
+									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (dsc.value = def.default_value OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
+									LEFT OUTER JOIN #SkipChecks sk ON def.CheckID = sk.CheckID AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
+									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1';
+					        END
+
+
 
 	
 					END /* IF @CheckUserDatabaseObjects = 1 */
@@ -6214,6 +6237,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							ORDER BY Priority ,
 									FindingsGroup ,
 									Finding ,
+									DatabaseName ,
 									Details;
 						END
 					ELSE IF @OutputXMLasNVARCHAR = 1 AND @OutputType <> 'NONE'
@@ -6231,6 +6255,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							ORDER BY Priority ,
 									FindingsGroup ,
 									Finding ,
+									DatabaseName ,
 									Details;
 						END
 					ELSE IF @OutputType = 'MARKDOWN'
@@ -6269,6 +6294,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							ORDER BY Priority ,
 									FindingsGroup ,
 									Finding ,
+									DatabaseName ,
 									Details;
 						END
 
