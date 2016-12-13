@@ -22,7 +22,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
-	@ShowSleepingSPIDs TINYINT = 1 ,
+	@ShowSleepingSPIDs TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
