@@ -961,6 +961,7 @@ BEGIN
             ) AS y
 		
 		/* Highlight if non SQL processes are using >25% CPU */
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
 	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
