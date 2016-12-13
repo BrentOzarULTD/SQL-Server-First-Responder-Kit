@@ -727,8 +727,7 @@ BEGIN
     FROM    sys.dm_tran_locks
     WHERE resource_type = N'DATABASE'
     AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+    AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     WHERE r.command LIKE 'RESTORE%';
 
