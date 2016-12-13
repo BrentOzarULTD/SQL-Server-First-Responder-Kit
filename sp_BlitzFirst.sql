@@ -959,7 +959,22 @@ BEGIN
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-
+		
+		/* Highlight if non SQL processes are using >25% CPU */
+	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
+            FROM (
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+					,record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS SQLUsage
+                FROM (
+                    SELECT TOP 1 CONVERT(XML, record) AS record
+                    FROM sys.dm_os_ring_buffers
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb
+            ) AS y
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+		
         END /* IF @Seconds < 30 */
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
