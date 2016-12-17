@@ -179,8 +179,9 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
 		is_computed_scalar BIT ,
-		is_sort_expensive bit,
-		sort_cost float,
+		is_sort_expensive BIT,
+		sort_cost FLOAT,
+		is_computed_filter BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -208,7 +209,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
-   @StoredProcName NVARCHAR(128) = NULL,
+    @StoredProcName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
@@ -800,8 +801,9 @@ BEGIN
 	    forced_scan BIT,
 		columnstore_row_mode BIT,
 		is_computed_scalar BIT ,
-		is_sort_expensive bit,
-		sort_cost float,
+		is_sort_expensive BIT,
+		sort_cost FLOAT,
+		is_computed_filter BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2101,6 +2103,21 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE)
 
 
+RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET is_computed_filter = x.filter_function
+FROM (
+SELECT 
+r.SqlHandle, 
+c.n.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS filter_function
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('/p:RelOp/p:Filter/p:Predicate/p:ScalarOperator/p:Compare/p:ScalarOperator/p:UserDefinedFunction') c(n) 
+) x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+OPTION (RECOMPILE)
+
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2392,7 +2409,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
 				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
 				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END 
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
+				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END 
                   , 2, 200000) 
 				  END
 				  OPTION (RECOMPILE) ;
@@ -2715,7 +2733,8 @@ BEGIN
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
 				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
 				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
-				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END
+				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
+				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3324,7 +3343,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   ##bou_BlitzCacheProcs p
-                    WHERE  p.is_sort_expensive= 1
+                    WHERE  p.is_sort_expensive = 1
   					AND SPID = @@SPID)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
@@ -3334,6 +3353,19 @@ BEGIN
                      'Expensive Sort',
                      'http://www.brentozar.com/blitzcache/expensive-sorts/',
                      'There''s a sort in your plan that costs >=50% of the total plan cost.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_computed_filter = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     44,
+                     50,
+                     'Filters Referencing Scalar UDFs',
+                     'Expensive Sort',
+                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
+                     'Someone put a Scalar UDF in the WHERE clause!') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
