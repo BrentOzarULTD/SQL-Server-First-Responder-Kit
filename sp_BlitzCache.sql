@@ -2548,9 +2548,9 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
 
-
-
-
+UPDATE ##bou_BlitzCacheProcs
+SET Warnings = 'No detected problems.'
+WHERE Warnings = ''
 
 
 Results:
