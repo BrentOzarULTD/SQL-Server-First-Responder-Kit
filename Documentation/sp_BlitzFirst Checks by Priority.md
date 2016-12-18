@@ -22,6 +22,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Query Problems | Plan Cache Erased Recently | http://BrentOzar.com/go/freeproccache | 7 |
 | 50 | Query Problems | Re-Compilations/Sec High | http://BrentOzar.com/go/recompile | 16 |
 | 50 | Server Performance | High CPU Utilization | http://BrentOzar.com/go/cpu | 24 |
+| 50 | Server Performance | High CPU Utilization - Non SQL Processes | http://BrentOzar.com/go/cpu | 28 |
 | 50 | Server Performance | Page Life Expectancy Low | http://BrentOzar.com/go/ple | 10 |
 | 50 | Server Performance | Slow Data File Reads | http://BrentOzar.com/go/slow | 11 |
 | 50 | Server Performance | Slow Log File Writes | http://BrentOzar.com/go/slow | 12 |

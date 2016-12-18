@@ -39,6 +39,8 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | http://BrentOzar.com/go/cdrive | 26 |
+| 20 | Reliability | TempDB on C Drive | http://BrentOzar.com/go/cdrive | 25 |
+| 50 | Performance | Instant File Initialization Not Enabled | http://BrentOzar.com/go/instant | 192 |
 | 50 | Performance | Log File Growths Slow | http://BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | http://BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE | http://BrentOzar.com/go/poison | 108 |
@@ -52,6 +54,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Page Verification Not Optimal | http://BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | http://BrentOzar.com/go/shipping | 111 |
 | 50 | Reliability | Remote Admin Connections Disabled | http://BrentOzar.com/go/dac | 100 |
+| 50 | Reliability | TempDB File Error | http://BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | http://BrentOzar.com/go/biglog | 75 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | http://BrentOzar.com/go/hekaton | 147 |
 | 100 | Features | Missing Features | http://BrentOzar.com/ | 189 |
@@ -101,7 +104,6 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | File Configuration | Multiple Log Files on One Drive | http://BrentOzar.com/go/manylogs | 41 |
 | 170 | File Configuration | System Database on C Drive | http://BrentOzar.com/go/drivec | 24 |
 | 170 | File Configuration | TempDB Has >16 Data Files | http://BrentOzar.com/go/tempdb | 175 |
-| 170 | File Configuration | TempDB on C Drive | http://BrentOzar.com/go/drivec | 25 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | http://BrentOzar.com/go/tempdb | 40 |
 | 170 | File Configuration | TempDB Unevenly Sized Data Files | http://BrentOzar.com/go/tempdb | 183 |
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | http://BrentOzar.com/go/grow | 42 |
@@ -234,6 +236,10 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 210 | Non-Default Database Config | Supplemental Logging Enabled | http://BrentOzar.com/go/dbdefaults | 131 |
 | 210 | Non-Default Database Config | Target Recovery Time Changed | http://BrentOzar.com/go/dbdefaults | 142 |
 | 210 | Non-Default Database Config | Trustworthy Enabled | http://BrentOzar.com/go/dbdefaults | 137 |
+| 210 | Non-Default Database Scoped Config | MAXDOP | http://BrentOzar.com/go/dbscope | 194 |
+| 210 | Non-Default Database Scoped Config | Legacy CE | http://BrentOzar.com/go/dbscope | 195 |
+| 210 | Non-Default Database Scoped Config | Parameter Sniffing | http://BrentOzar.com/go/dbscope | 196 |
+| 210 | Non-Default Database Scoped Config | Query Optimizer Hotfixes | http://BrentOzar.com/go/dbscope | 197 |
 | 230 | Security | Control Server Permissions | http://BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | http://BrentOzar.com/go/owndb | 55 |
 | 230 | Security | Elevated Permissions on a Database | http://BrentOzar.com/go/elevated | 86 |
@@ -255,6 +261,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
 | 250 | Server Info | Hardware |  | 84 |
 | 250 | Server Info | Hardware - NUMA Config |  | 114 |
+| 250 | Server Info | Instant File Initialization Enabled | http://BrentOzar.com/go/instant | 193 |
 | 250 | Server Info | Locked Pages in Memory Enabled | http://BrentOzar.com/go/lpim | 166 |
 | 250 | Server Info | Server Name | http://BrentOzar.com/go/servername | 130 |
 | 250 | Server Info | Services |  | 83 |
