@@ -1982,26 +1982,52 @@ RAISERROR(N'Performing operator level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    busy_loops = CASE WHEN (x.estimated_executions / 100.0) > x.estimated_rows THEN 1 END ,
-       tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END ,
-       warning_no_join_predicate = CASE WHEN x.no_join_warning = 1 THEN 1 END,
-	   is_table_variable = CASE WHEN x.is_table_variable = 1 THEN 1 END,
-	   no_stats_warning = CASE WHEN x.no_stats_warning = 1 THEN 1 END,
-	   relop_warnings = CASE WHEN x.relop_warnings = 1 THEN 1 END
+       tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
             SELECT qs.SqlHandle,
                    relop.value('sum(/p:RelOp/@EstimateRows)', 'float') AS estimated_rows ,
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
-                   relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join,
-                   relop.exist('/p:RelOp/p:Warnings[(@NoJoinPredicate[.="1"])]') AS no_join_warning,
-				   relop.exist('/p:RelOp//*[local-name() = "Object"]/@Table[contains(., "@")]') AS is_table_variable,
-				   relop.exist('/p:RelOp/p:Warnings/p:ColumnsWithNoStatistics') AS no_stats_warning ,
-				   relop.exist('/p:RelOp/p:Warnings') AS relop_warnings
+                   relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, x AS (
+SELECT r.SqlHandle,
+	   c.n.exist('//p:Warnings[(@NoJoinPredicate[.="1"])]') AS warning_no_join_predicate,
+	   c.n.exist('//p:ColumnsWithNoStatistics') AS no_stats_warning ,
+	   c.n.exist('//p:Warnings') AS relop_warnings
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('/p:RelOp/p:Warnings') AS c(n)
+)
+UPDATE p
+SET	   p.warning_no_join_predicate = x.warning_no_join_predicate,
+	   p.no_stats_warning = x.no_stats_warning,
+	   p.relop_warnings = x.relop_warnings
+FROM ##bou_BlitzCacheProcs AS p
+JOIN x ON x.SqlHandle = p.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking for table variables', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+, x AS (
+SELECT r.SqlHandle,
+	   c.n.value('substring(@Table, 2, 1)','VARCHAR(100)') AS first_char
+FROM   #relop r
+CROSS APPLY r.relop.nodes('//p:Object') AS c(n)
+)
+UPDATE p
+SET	   is_table_variable = CASE WHEN x.first_char = '@' THEN 1 END
+FROM ##bou_BlitzCacheProcs AS p
+JOIN x ON x.SqlHandle = p.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for functions', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
