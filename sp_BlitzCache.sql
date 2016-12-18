@@ -1999,7 +1999,7 @@ SET    p.tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
        JOIN (
 			SELECT r.SqlHandle,
-				   r.relop.exist('//p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join
+				   1 AS tvf_join
 			FROM #relop AS r
 			WHERE r.relop.exist('//p:RelOp[(@LogicalOp[.="Table-valued function"])]') = 1
 			AND   r.relop.exist('//p:RelOp[contains(@LogicalOp, "Join")]') = 1
