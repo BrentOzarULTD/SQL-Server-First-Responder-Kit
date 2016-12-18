@@ -182,6 +182,19 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_sort_expensive BIT,
 		sort_cost FLOAT,
 		is_computed_filter BIT,
+		op_name VARCHAR(100) NULL,
+		index_insert_count INT NULL,
+		index_update_count INT NULL,
+		index_delete_count INT NULL,
+		cx_insert_count INT NULL,
+		cx_update_count INT NULL,
+		cx_delete_count INT NULL,
+		table_insert_count INT NULL,
+		table_update_count INT NULL,
+		table_delete_count INT NULL,
+		index_ops AS (index_insert_count + index_update_count + index_delete_count + 
+					  cx_insert_count + cx_update_count + cx_delete_count +
+					  table_insert_count + table_update_count + table_delete_count),
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -804,6 +817,19 @@ BEGIN
 		is_sort_expensive BIT,
 		sort_cost FLOAT,
 		is_computed_filter BIT,
+		op_name VARCHAR(100) NULL,
+		index_insert_count INT NULL,
+		index_update_count INT NULL,
+		index_delete_count INT NULL,
+		cx_insert_count INT NULL,
+		cx_update_count INT NULL,
+		cx_delete_count INT NULL,
+		table_insert_count INT NULL,
+		table_update_count INT NULL,
+		table_delete_count INT NULL,
+		index_ops AS (index_insert_count + index_update_count + index_delete_count + 
+			  cx_insert_count + cx_update_count + cx_delete_count +
+			  table_insert_count + table_update_count + table_delete_count),
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2103,7 +2129,7 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE)
 
 
-RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for filters that reference scalar UDFs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET is_computed_filter = x.filter_function
@@ -2117,6 +2143,57 @@ CROSS APPLY r.relop.nodes('/p:RelOp/p:Filter/p:Predicate/p:ScalarOperator/p:Comp
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 OPTION (RECOMPILE)
 
+RAISERROR(N'Checking modification queries that hit lots of indexes', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),	
+IndexOps AS 
+(
+	SELECT 
+	r.SqlHandle,
+	c.n.value('@PhysicalOp', 'VARCHAR(100)') AS op_name,
+	c.n.exist('@PhysicalOp[.="Index Insert"]') AS ii,
+	c.n.exist('@PhysicalOp[.="Index Update"]') AS iu,
+	c.n.exist('@PhysicalOp[.="Index Delete"]') AS id,
+	c.n.exist('@PhysicalOp[.="Clustered Index Insert"]') AS cii,
+	c.n.exist('@PhysicalOp[.="Clustered Index Update"]') AS ciu,
+	c.n.exist('@PhysicalOp[.="Clustered Index Delete"]') AS cid,
+	c.n.exist('@PhysicalOp[.="Table Insert"]') AS ti,
+	c.n.exist('@PhysicalOp[.="Table Update"]') AS tu,
+	c.n.exist('@PhysicalOp[.="Table Delete"]') AS td
+	FROM #relop AS r
+	CROSS APPLY r.relop.nodes('/p:RelOp') c(n)
+	OUTER APPLY r.relop.nodes('/p:RelOp/p:ScalarInsert/p:Object') q(n)
+	OUTER APPLY r.relop.nodes('/p:RelOp/p:Update/p:Object') o2(n)
+	OUTER APPLY r.relop.nodes('/p:RelOp/p:SimpleUpdate/p:Object') o3(n)
+), iops AS 
+(
+		SELECT	ios.SqlHandle,
+		SUM(CONVERT(TINYINT, ios.ii)) AS index_insert_count,
+		SUM(CONVERT(TINYINT, ios.iu)) AS index_update_count,
+		SUM(CONVERT(TINYINT, ios.id)) AS index_delete_count,
+		SUM(CONVERT(TINYINT, ios.cii)) AS cx_insert_count,
+		SUM(CONVERT(TINYINT, ios.ciu)) AS cx_update_count,
+		SUM(CONVERT(TINYINT, ios.cid)) AS cx_delete_count,
+		SUM(CONVERT(TINYINT, ios.ti)) AS table_insert_count,
+		SUM(CONVERT(TINYINT, ios.tu)) AS table_update_count,
+		SUM(CONVERT(TINYINT, ios.td)) AS table_delete_count
+		FROM IndexOps AS ios
+		WHERE ios.op_name IN ('Index Insert', 'Index Delete', 'Index Update', 
+							  'Clustered Index Insert', 'Clustered Index Delete', 'Clustered Index Update', 
+							  'Table Insert', 'Table Delete', 'Table Update')
+		GROUP BY ios.SqlHandle) 
+UPDATE b
+SET b.index_insert_count = iops.index_insert_count,
+	b.index_update_count = iops.index_update_count,
+	b.index_delete_count = iops.index_delete_count,
+	b.cx_insert_count = iops.cx_insert_count,
+	b.cx_update_count = iops.cx_update_count,
+	b.cx_delete_count = iops.cx_delete_count,
+	b.table_insert_count = iops.table_insert_count,
+	b.table_update_count = iops.table_update_count,
+	b.table_delete_count = iops.table_delete_count
+FROM ##bou_BlitzCacheProcs AS b
+JOIN iops ON  iops.SqlHandle = b.SqlHandle
+OPTION(RECOMPILE);
 
 IF @v >= 12
 BEGIN
@@ -2410,7 +2487,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
 				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
-				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END 
+				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
+				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END 
                   , 2, 200000) 
 				  END
 				  OPTION (RECOMPILE) ;
@@ -2734,7 +2812,8 @@ BEGIN
 				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
 				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
-				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END
+				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
+				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END 
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3366,6 +3445,19 @@ BEGIN
                      'Expensive Sort',
                      'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                      'Someone put a Scalar UDF in the WHERE clause!') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.index_ops >= 5
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     45,
+                     100,
+                     'Many Indexes Modified',
+                     'Write Queries Are Hitting >= 5 Indexes',
+                     'No URL yet',
+                     'This can cause lots of hidden I/O -- Run sp_BLitzIndex for more information.') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
