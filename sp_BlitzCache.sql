@@ -1988,7 +1988,7 @@ FROM   ##bou_BlitzCacheProcs p
             SELECT qs.SqlHandle,
                    relop.value('sum(/p:RelOp/@EstimateRows)', 'float') AS estimated_rows ,
                    relop.value('sum(/p:RelOp/@EstimateRewinds)', 'float') + relop.value('sum(/p:RelOp/@EstimateRebinds)', 'float') + 1.0 AS estimated_executions ,
-                   relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join
+                   relop.exist('//p:RelOp[contains(@LogicalOp, "Join")]/*/p:RelOp[(@LogicalOp[.="Table-valued function"])]') AS tvf_join
             FROM   #relop qs
        ) AS x ON p.SqlHandle = x.SqlHandle
 WHERE SPID = @@SPID
