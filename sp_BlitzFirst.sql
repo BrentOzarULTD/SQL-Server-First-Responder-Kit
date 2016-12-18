@@ -22,6 +22,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
+	@ShowSleepingSPIDs TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
@@ -172,7 +173,8 @@ BEGIN
 		END
 		ELSE
 		BEGIN
-			EXEC [dbo].[sp_BlitzWho]
+		    DECLARE @BlitzWho NVARCHAR(MAX) = 'EXEC [dbo].[sp_BlitzWho] @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs)
+			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
      
