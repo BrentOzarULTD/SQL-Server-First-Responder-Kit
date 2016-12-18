@@ -2549,7 +2549,7 @@ WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
 
 UPDATE ##bou_BlitzCacheProcs
-SET Warnings = 'No detected problems.'
+SET Warnings = 'No warnings detected.'
 WHERE Warnings = ''
 
 
