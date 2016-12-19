@@ -139,29 +139,47 @@ ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL
 ELSE
     SELECT @StartSampleTime = SYSDATETIMEOFFSET(), @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET());
 
+/*Begin code duration value checks*/
+
+/*Check if configurations are missing.*/
+IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)
+		AND (
+				(SELECT CONVERT(BIT, c.value_in_use) FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
+			OR 
+				(SELECT CONVERT(BIT, c.value_in_use) FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
+			)
+   BEGIN
+   RAISERROR('You must enable ''show advanced options'' and ''ad hoc distributed queries'' via sp_configure to use this feature.',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+/*Can't mix a stored proc and an ad hoc query*/
 IF (@UserStoredProc IS NOT NULL AND @UserAdHoc IS NOT NULL)   
    BEGIN
    RAISERROR('You can''t test a stored procedure and ad hoc code at the same time.',0,1) WITH NOWAIT;
    RETURN;
    END  
 
+/*Minimum length for executing a stored procedure based on 'EXEC X' */
 IF (@UserStoredProc IS NOT NULL AND LEN(@UserStoredProc) <= 6)
    BEGIN
    RAISERROR('Are you sure you supplied a stored procedure?',0,1) WITH NOWAIT;
    RETURN;
    END  
 
+/*Minimum length for executing ad hoc code based on 'SELECT ' */
 IF (@UserAdHoc IS NOT NULL AND LEN(@UserAdHoc) <= 7)
    BEGIN
    RAISERROR('Are you sure you supplied working code?',0,1) WITH NOWAIT;
    RETURN;
    END  
 
+/*Minimum length for executing ad hoc code based on 'SELECT ' */
 IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)   
    BEGIN
    SELECT @SinceStartup = 0, @ExpertMode = 1, @Seconds = 1, @StartSampleTime = SYSDATETIMEOFFSET()
    END  
-
+/*End code duration value checks*/
 
 IF @OutputType = 'SCHEMA'
 BEGIN
@@ -1018,16 +1036,6 @@ DECLARE @UserSQL NVARCHAR(MAX) = N''
 		'CREATE PROC #' + REPLACE(CONVERT(VARCHAR(36), @RandomProcName), '-', '') + '
 		  AS
 			BEGIN ' + @LineFeed + 
-		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
-			 THEN ' EXEC sp_configure ''show advanced options'', 1 
-					RECONFIGURE ' + @LineFeed
-			 ELSE ' ' 
-		END + 
-		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
-			 THEN ' EXEC sp_configure ''Ad Hoc Distributed Queries'', 1
-					RECONFIGURE ' + @LineFeed
-			 ELSE ' ' 
-		END +
 		CASE WHEN @UserStoredProc IS NOT NULL THEN 
 				    '			SELECT *
 					INTO #sp_BlitzFirst_Temp 
@@ -1042,16 +1050,6 @@ DECLARE @UserSQL NVARCHAR(MAX) = N''
 									''Server='+@@SERVERNAME+';Trusted_Connection=yes;'',
 									''' + @UserAdHoc 
 									+ ''') ' + @LineFeed
-			 ELSE ' ' 
-		END + 
-		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
-			 THEN ' EXEC sp_configure ''show advanced options'', 0
-					RECONFIGURE ' + @LineFeed
-			 ELSE ' ' 
-		END + 
-		CASE WHEN (SELECT c.value_in_use FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
-			 THEN ' EXEC sp_configure ''Ad Hoc Distributed Queries'', 0
-					RECONFIGURE ' + @LineFeed
 			 ELSE ' ' 
 		END +
 		'	END;'
