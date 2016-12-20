@@ -1930,6 +1930,7 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , QueryCost AS (
   SELECT
+	DISTINCT
     statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS SubTreeCost,
     s.PlanHandle,
 	s.SqlHandle
@@ -1938,6 +1939,7 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 )
 , QueryCostUpdate AS (
   SELECT
+	DISTINCT
 	SUM(qc.SubTreeCost) OVER (PARTITION BY SqlHandle, PlanHandle) PlanTotalQuery,
     qc.PlanHandle,
     qc.SqlHandle
