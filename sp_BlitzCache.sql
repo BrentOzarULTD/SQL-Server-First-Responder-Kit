@@ -878,7 +878,8 @@ SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant')
+                       'compiles', 'memory grant', 'avg memory grant',
+					   'all', 'all avg')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -923,6 +924,13 @@ IF @Reanalyze = 1
 	RAISERROR(N'Reanalyzing current data, skipping to results', 0, 1) WITH NOWAIT;
     GOTO Results
 	END
+
+IF @SortOrder IN ('all', 'all avg')
+	BEGIN
+	RAISERROR(N'Checking all sort orders, please be patient', 0, 1) WITH NOWAIT;
+    GOTO AllSorts
+	END
+
 
 RAISERROR(N'Creating temp tables for internal processing', 0, 1) WITH NOWAIT;
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
@@ -3582,10 +3590,197 @@ BEGIN
     OPTION (RECOMPILE);
 END
 
+AllSorts:
 
+IF OBJECT_ID('tempdb..#checkversion_allsort') IS NULL
+BEGIN
+CREATE TABLE #checkversion_allsort (
+    version NVARCHAR(128),
+    common_version AS SUBSTRING(version, 1, CHARINDEX('.', version) + 1 ),
+    major AS PARSENAME(CONVERT(VARCHAR(32), version), 4),
+    minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
+    build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
+    revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
+);
+
+INSERT INTO #checkversion_allsort (version)
+SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
+OPTION (RECOMPILE);
 END
 
+SELECT @v = common_version ,
+       @build = build
+FROM   #checkversion_allsort
+OPTION (RECOMPILE);
+
+
+CREATE TABLE #bou_allsort (
+							DatabaseName VARCHAR(128),
+							Cost FLOAT,
+							QueryText NVARCHAR(MAX),
+							QueryType NVARCHAR(256),
+							Warnings VARCHAR(MAX),
+							ExecutionCount BIGINT,
+							ExecutionsPerMinute MONEY,
+							ExecutionWeight MONEY,
+							TotalCPU BIGINT,
+							AverageCPU BIGINT,
+							CPUWeight MONEY,
+							TotalDuration BIGINT,
+							AverageDuration BIGINT,
+							DurationWeight MONEY,
+							TotalReads BIGINT,
+							AverageReads BIGINT,
+							ReadWeight MONEY,
+							TotalWrites BIGINT,
+							AverageWrites BIGINT,
+							WriteWeight MONEY,
+							AverageReturnedRows MONEY,
+							MinGrantKB BIGINT,
+							MaxGrantKB BIGINT,
+							MinUsedGrantKB BIGINT,
+							MaxUsedGrantKB BIGINT,
+							AvgMaxMemoryGrant MONEY,
+							PlanCreationTime DATETIME,
+							LastExecutionTime DATETIME,
+							PlanHandle VARBINARY(64),
+							SqlHandle VARBINARY(64),
+							QueryPlan XML,
+							SetOptions VARCHAR(MAX),
+							Pattern NVARCHAR(20)
+						)
+
+DECLARE @AllSortSql NVARCHAR(MAX) = N''
+DECLARE @MemGrant BIT
+SELECT @MemGrant = CASE WHEN ((@v < 11) OR (@v = 11 AND @build < 6020) OR (@v = 12 AND @build < 5000) OR (@v = 13 AND @build < 1601)) THEN 0 ELSE 1 END
+
+
+IF LOWER(@SortOrder) = 'all'
+BEGIN
+SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''cpu''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''cpu'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''reads''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''reads'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''writes''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''writes'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''duration''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''duration'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''executions''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''executions'' WHERE Pattern IS NULL
+					 
+					 ' 
+					IF @MemGrant = 0
+					BEGIN
+						 SET @AllSortSql += N' SELECT * FROM #bou_allsort; '
+					END 
+					IF @MemGrant = 1
+					BEGIN 
+					SET @AllSortSql += N' INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 				 
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''memory grant''
+					 					  
+										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL
+										  
+										  SELECT * FROM #bou_allsort; '
+				    END
+				
+END 			
+
+IF LOWER(@SortOrder) = 'all avg'
+BEGIN 
+SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg cpu''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''avg cpu'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg reads''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''avg reads'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg writes''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''avg writes'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg duration''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''avg duration'' WHERE Pattern IS NULL
+
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg executions''
+					 
+					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL
+					 
+					 '
+					 IF @MemGrant = 0
+					 BEGIN
+						 SET @AllSortSql +=  N' SELECT * FROM #bou_allsort; ' 
+					 END
+					 IF @MemGrant = 1 	 
+					 BEGIN
+					 SET @AllSortSql += N' INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										   MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
+										   EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg memory grant''
+					 					   
+										   UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL
+										   
+										   SELECT * FROM #bou_allsort; '
+					 END
+END
+
+EXEC sys.sp_executesql @AllSortSql
+
+END /*Final End*/
+
 GO
-
-
 
