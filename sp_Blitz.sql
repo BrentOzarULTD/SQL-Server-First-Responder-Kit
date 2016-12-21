@@ -3822,7 +3822,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                        AND parent_node_id < 64
 		                GROUP BY parent_node_id,
 		                        is_online
-		                HAVING  ( COUNT(cpu_id) + 2 ) % 3 = 0 )
+		                HAVING  ( COUNT(cpu_id) + 2 ) % 2 = 1 )
 		   BEGIN
 		
 		         INSERT INTO #BlitzResults
