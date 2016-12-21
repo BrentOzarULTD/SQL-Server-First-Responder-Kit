@@ -3618,6 +3618,7 @@ OPTION  ( RECOMPILE );
 
 CREATE TABLE #bou_allsort
 (
+  Id INT IDENTITY(1,1),
   DatabaseName VARCHAR(128),
   Cost FLOAT,
   QueryText NVARCHAR(MAX),
@@ -3724,7 +3725,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 					 ' 
 					IF @MemGrant = 0
 					BEGIN
-						 SET @AllSortSql += N' SELECT * FROM #bou_allsort OPTION(RECOMPILE); '
+						 SET @AllSortSql += N' SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
 					END 
 					IF @MemGrant = 1
 					BEGIN 
@@ -3737,7 +3738,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL
 										  
-										  SELECT * FROM #bou_allsort  OPTION(RECOMPILE); '
+										  SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
 				    END
 				
 END 			
@@ -3792,7 +3793,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 					 '
 					 IF @MemGrant = 0
 					 BEGIN
-						 SET @AllSortSql +=  N' SELECT * FROM #bou_allsort OPTION(RECOMPILE); ' 
+						 SET @AllSortSql +=  N' SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); ' 
 					 END
 					 IF @MemGrant = 1 	 
 					 BEGIN
@@ -3805,7 +3806,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 					 					   
 										   UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 										   
-										   SELECT * FROM #bou_allsort OPTION(RECOMPILE); '
+										   SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
 					 END
 END
 
