@@ -3651,7 +3651,8 @@ CREATE TABLE #bou_allsort
   SqlHandle VARBINARY(64),
   QueryPlan XML,
   SetOptions VARCHAR(MAX),
-  Pattern NVARCHAR(20)
+  Pattern NVARCHAR(20),
+  PatternList NVARCHAR(4000)
 );
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
@@ -3682,7 +3683,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''cpu''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''cpu'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3691,7 +3692,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''reads''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''reads'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3700,7 +3701,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''writes''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''writes'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3709,7 +3710,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''duration''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''duration'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3718,14 +3719,33 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''executions''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''executions'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 ' 
 					IF @MemGrant = 0
 					BEGIN
-						 SET @AllSortSql += N' SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
+						 SET @AllSortSql += N'  
+												WITH pp AS (
+													SELECT b.SqlHandle,
+													PatternList = STUFF((SELECT DISTINCT N'', '' + b2.Pattern
+													  FROM #bou_allsort AS b2
+													   WHERE b2.SqlHandle = b.SqlHandle 
+													   FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+													FROM #bou_allsort AS b
+													GROUP BY b.SqlHandle
+													)
+													UPDATE b
+													SET b.PatternList = pp.PatternList
+													FROM pp
+													JOIN #bou_allsort AS b
+													ON b.SqlHandle = pp.SqlHandle;
+												
+												SELECT * 
+												FROM #bou_allsort 
+												ORDER BY Id 
+												OPTION(RECOMPILE);  '
 					END 
 					IF @MemGrant = 1
 					BEGIN 
@@ -3734,11 +3754,30 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 				 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''memory grant''
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''memory grant'';
 					 					  
-										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL
+										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL;
 										  
-										  SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
+										   
+												WITH pp AS (
+													SELECT b.SqlHandle,
+													PatternList = STUFF((SELECT DISTINCT N'', '' + b2.Pattern
+													  FROM #bou_allsort AS b2
+													   WHERE b2.SqlHandle = b.SqlHandle 
+													   FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+													FROM #bou_allsort AS b
+													GROUP BY b.SqlHandle
+													)
+													UPDATE b
+													SET b.PatternList = pp.PatternList
+													FROM pp
+													JOIN #bou_allsort AS b
+													ON b.SqlHandle = pp.SqlHandle;
+												
+												SELECT * 
+												FROM #bou_allsort 
+												ORDER BY Id 
+												OPTION(RECOMPILE);  '
 				    END
 				
 END 			
@@ -3750,7 +3789,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg cpu''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg cpu'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3759,7 +3798,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg reads''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg reads'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3768,7 +3807,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg writes''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg writes'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3777,7 +3816,7 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg duration''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg duration'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -3786,14 +3825,33 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg executions''
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg executions'';
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 '
 					 IF @MemGrant = 0
 					 BEGIN
-						 SET @AllSortSql +=  N' SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); ' 
+						 SET @AllSortSql +=  N' 
+												WITH pp AS (
+													SELECT b.SqlHandle,
+													PatternList = STUFF((SELECT DISTINCT N'', '' + b2.Pattern
+													  FROM #bou_allsort AS b2
+													   WHERE b2.SqlHandle = b.SqlHandle 
+													   FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+													FROM #bou_allsort AS b
+													GROUP BY b.SqlHandle
+													)
+													UPDATE b
+													SET b.PatternList = pp.PatternList
+													FROM pp
+													JOIN #bou_allsort AS b
+													ON b.SqlHandle = pp.SqlHandle;
+												
+												SELECT * 
+												FROM #bou_allsort 
+												ORDER BY Id 
+												OPTION(RECOMPILE); ' 
 					 END
 					 IF @MemGrant = 1 	 
 					 BEGIN
@@ -3802,11 +3860,30 @@ SET @AllSortSql += N'INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryT
 										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 										   MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
 										   
-										   EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg memory grant''
+										   EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = 10, @SortOrder =  ''avg memory grant'';
 					 					   
 										   UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 										   
-										   SELECT * FROM #bou_allsort ORDER BY Id OPTION(RECOMPILE); '
+										    
+												WITH pp AS (
+													SELECT b.SqlHandle,
+													PatternList = STUFF((SELECT DISTINCT N'', '' + b2.Pattern
+													  FROM #bou_allsort AS b2
+													   WHERE b2.SqlHandle = b.SqlHandle 
+													   FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+													FROM #bou_allsort AS b
+													GROUP BY b.SqlHandle
+													)
+													UPDATE b
+													SET b.PatternList = pp.PatternList
+													FROM pp
+													JOIN #bou_allsort AS b
+													ON b.SqlHandle = pp.SqlHandle;
+												
+												SELECT * 
+												FROM #bou_allsort 
+												ORDER BY Id 
+												OPTION(RECOMPILE);  '
 					 END
 END
 
