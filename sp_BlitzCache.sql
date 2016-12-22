@@ -3690,7 +3690,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3701,7 +3701,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3712,7 +3712,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3723,7 +3723,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3744,7 +3744,7 @@ SET @AllSortSql += N'
 					END 
 					IF @MemGrant = 1
 					BEGIN 
-					SET @AllSortSql += N' SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					SET @AllSortSql += N' SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 					
 										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3777,7 +3777,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3788,7 +3788,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3799,7 +3799,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3810,7 +3810,7 @@ SET @AllSortSql += N'
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
-					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
+					 SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''')
 
 					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
@@ -3831,7 +3831,7 @@ SET @AllSortSql += N'
 					 END
 					 IF @MemGrant = 1 	 
 					 BEGIN
-					 SET @AllSortSql += N' SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(VARCHAR(MAX),b2.QueryHash, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+					 SET @AllSortSql += N' SELECT TOP 1 @IQH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.QueryHash, 1) FROM ##bou_BlitzCacheProcs AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
 										   
 										   INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
