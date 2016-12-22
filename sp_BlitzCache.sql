@@ -3672,6 +3672,7 @@ END
 AllSorts:
 RAISERROR('Beginning all sort loop', 0, 1) WITH NOWAIT;
 
+
 IF (
      @Top > 10
      AND @BringThePain = 0
@@ -3680,7 +3681,6 @@ IF (
          RAISERROR('You''ve chosen a value greater than 10 to sort the whole plan cache by. That can take a long time and harm performance. Please choose a number <= 10, or set @BringThePain = 1 to signify your understand this is a bad idea.', 0, 1) WITH NOWAIT;
          RETURN;
    END;
-
 
 
 IF OBJECT_ID('tempdb..#checkversion_allsort') IS NULL
@@ -3700,6 +3700,7 @@ IF OBJECT_ID('tempdb..#checkversion_allsort') IS NULL
          SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
          OPTION ( RECOMPILE );
    END;
+
 
 SELECT  @v = common_version,
         @build = build
@@ -3744,6 +3745,7 @@ CREATE TABLE #bou_allsort
   SetOptions VARCHAR(MAX),
   Pattern NVARCHAR(20)
 );
+
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
 DECLARE @MemGrant BIT;
@@ -3826,6 +3828,7 @@ SET @AllSortSql += N'
 					 UPDATE #bou_allsort SET Pattern = ''executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 ' 
+					
 					IF @MemGrant = 0
 					BEGIN
 					SET @AllSortSql += N'  SELECT * 
@@ -3833,6 +3836,7 @@ SET @AllSortSql += N'
 										   ORDER BY Id 
 										   OPTION(RECOMPILE);  '
 					END 
+					
 					IF @MemGrant = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
@@ -3853,6 +3857,7 @@ SET @AllSortSql += N'
 				    END
 				
 END 			
+
 
 IF LOWER(@SortOrder) = 'all avg'
 BEGIN 
@@ -3914,6 +3919,7 @@ SET @AllSortSql += N'
 					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 '
+					 
 					 IF @MemGrant = 0
 					 BEGIN
 					 SET @AllSortSql +=  N' SELECT * 
@@ -3921,6 +3927,7 @@ SET @AllSortSql += N'
 											ORDER BY Id 
 											OPTION(RECOMPILE); ' 
 					 END
+					 
 					 IF @MemGrant = 1 	 
 					 BEGIN
 					 SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''') OPTION(RECOMPILE);
@@ -3942,6 +3949,8 @@ SET @AllSortSql += N'
 END
 
 EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top
+
+/*End of AllSort section*/
 
 END /*Final End*/
 
