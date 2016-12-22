@@ -3712,8 +3712,7 @@ CREATE TABLE #bou_allsort
   SqlHandle VARBINARY(64),
   QueryPlan XML,
   SetOptions VARCHAR(MAX),
-  Pattern NVARCHAR(20),
-  PatternList NVARCHAR(4000)
+  Pattern NVARCHAR(20)
 );
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
