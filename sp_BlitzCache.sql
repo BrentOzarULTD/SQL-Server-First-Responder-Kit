@@ -3678,7 +3678,12 @@ IF (
      AND @BringThePain = 0
    )
    BEGIN
-         RAISERROR('You''ve chosen a value greater than 10 to sort the whole plan cache by. That can take a long time and harm performance. Please choose a number <= 10, or set @BringThePain = 1 to signify you understand this might be a bad idea.', 0, 1) WITH NOWAIT;
+         RAISERROR(
+				  '		  
+		  You''ve chosen a value greater than 10 to sort the whole plan cache by. 
+		  That can take a long time and harm performance. 
+		  Please choose a number <= 10, or set @BringThePain = 1 to signify you understand this might be a bad idea.
+		          ', 0, 1) WITH NOWAIT;
          RETURN;
    END;
 
@@ -3949,7 +3954,7 @@ SET @AllSortSql += N'
 					 END
 END
 
-EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top
+					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top
 
 /*End of AllSort section*/
 
