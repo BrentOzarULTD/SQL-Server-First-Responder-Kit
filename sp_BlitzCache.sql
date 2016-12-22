@@ -660,7 +660,7 @@ END
 /* Set @Top based on sort */
 IF (
      @Top IS NULL
-     AND @SortOrder IN ( 'all', 'all sort' )
+     AND LOWER(@SortOrder) IN ( 'all', 'all sort' )
    )
    BEGIN
          SET @Top = 5;
@@ -668,7 +668,7 @@ IF (
 
 IF (
      @Top IS NULL
-     AND @SortOrder NOT IN ( 'all', 'all sort' )
+     AND LOWER(@SortOrder) NOT IN ( 'all', 'all sort' )
    )
    BEGIN
          SET @Top = 10;
@@ -3678,7 +3678,7 @@ IF (
      AND @BringThePain = 0
    )
    BEGIN
-         RAISERROR('You''ve chosen a value greater than 10 to sort the whole plan cache by. That can take a long time and harm performance. Please choose a number <= 10, or set @BringThePain = 1 to signify your understand this is a bad idea.', 0, 1) WITH NOWAIT;
+         RAISERROR('You''ve chosen a value greater than 10 to sort the whole plan cache by. That can take a long time and harm performance. Please choose a number <= 10, or set @BringThePain = 1 to signify you understand this might be a bad idea.', 0, 1) WITH NOWAIT;
          RETURN;
    END;
 
@@ -3707,45 +3707,46 @@ SELECT  @v = common_version,
 FROM    #checkversion_allsort
 OPTION  ( RECOMPILE );
 
-
-CREATE TABLE #bou_allsort
-(
-  Id INT IDENTITY(1,1),
-  DatabaseName VARCHAR(128),
-  Cost FLOAT,
-  QueryText NVARCHAR(MAX),
-  QueryType NVARCHAR(256),
-  Warnings VARCHAR(MAX),
-  ExecutionCount BIGINT,
-  ExecutionsPerMinute MONEY,
-  ExecutionWeight MONEY,
-  TotalCPU BIGINT,
-  AverageCPU BIGINT,
-  CPUWeight MONEY,
-  TotalDuration BIGINT,
-  AverageDuration BIGINT,
-  DurationWeight MONEY,
-  TotalReads BIGINT,
-  AverageReads BIGINT,
-  ReadWeight MONEY,
-  TotalWrites BIGINT,
-  AverageWrites BIGINT,
-  WriteWeight MONEY,
-  AverageReturnedRows MONEY,
-  MinGrantKB BIGINT,
-  MaxGrantKB BIGINT,
-  MinUsedGrantKB BIGINT,
-  MaxUsedGrantKB BIGINT,
-  AvgMaxMemoryGrant MONEY,
-  PlanCreationTime DATETIME,
-  LastExecutionTime DATETIME,
-  PlanHandle VARBINARY(64),
-  SqlHandle VARBINARY(64),
-  QueryPlan XML,
-  SetOptions VARCHAR(MAX),
-  Pattern NVARCHAR(20)
-);
-
+IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
+   BEGIN
+         CREATE TABLE #bou_allsort
+         (
+           Id INT IDENTITY(1, 1),
+           DatabaseName VARCHAR(128),
+           Cost FLOAT,
+           QueryText NVARCHAR(MAX),
+           QueryType NVARCHAR(256),
+           Warnings VARCHAR(MAX),
+           ExecutionCount BIGINT,
+           ExecutionsPerMinute MONEY,
+           ExecutionWeight MONEY,
+           TotalCPU BIGINT,
+           AverageCPU BIGINT,
+           CPUWeight MONEY,
+           TotalDuration BIGINT,
+           AverageDuration BIGINT,
+           DurationWeight MONEY,
+           TotalReads BIGINT,
+           AverageReads BIGINT,
+           ReadWeight MONEY,
+           TotalWrites BIGINT,
+           AverageWrites BIGINT,
+           WriteWeight MONEY,
+           AverageReturnedRows MONEY,
+           MinGrantKB BIGINT,
+           MaxGrantKB BIGINT,
+           MinUsedGrantKB BIGINT,
+           MaxUsedGrantKB BIGINT,
+           AvgMaxMemoryGrant MONEY,
+           PlanCreationTime DATETIME,
+           LastExecutionTime DATETIME,
+           PlanHandle VARBINARY(64),
+           SqlHandle VARBINARY(64),
+           QueryPlan XML,
+           SetOptions VARCHAR(MAX),
+           Pattern NVARCHAR(20)
+         );
+   END;
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
 DECLARE @MemGrant BIT;
