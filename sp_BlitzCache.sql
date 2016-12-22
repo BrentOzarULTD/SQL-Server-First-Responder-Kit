@@ -527,7 +527,7 @@ BEGIN
     UNION ALL
     SELECT N'MinGrantKB',
            N'BIGINT',
-           N'The minim memory grant the query received in kb.'
+           N'The minimum memory grant the query received in kb.'
 
     UNION ALL
     SELECT N'MaxGrantKB',
@@ -537,7 +537,7 @@ BEGIN
     UNION ALL
     SELECT N'MinUsedGrantKB',
            N'BIGINT',
-           N'The minim used memory grant the query received in kb.'
+           N'The minimum used memory grant the query received in kb.'
 
     UNION ALL
     SELECT N'MaxUsedGrantKB',
