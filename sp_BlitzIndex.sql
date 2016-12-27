@@ -585,7 +585,7 @@ IF @GetAllDatabases = 1
         WHERE user_access_desc='MULTI_USER'
         AND state_desc = 'ONLINE'
         AND database_id > 4
-        AND DB_NAME(database_id) NOT IN ('ReportServer','ReportServerTempDB')
+        AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND is_distributor = 0;
     END
 ELSE
