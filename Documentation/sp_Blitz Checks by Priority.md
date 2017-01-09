@@ -34,10 +34,13 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | http://BrentOzar.com/go/repair | 102 |
 | 20 | Reliability | Memory Dumps Have Occurred | http://BrentOzar.com/go/dump | 171 |
+| 20 | Reliability | No Failover Cluster Nodes Available | http://BrentOzar.com/go/node | 184 |
 | 20 | Reliability | Plan Guides Failing | http://BrentOzar.com/go/guides | 164 |
 | 20 | Reliability | Query Store Cleanup Disabled | http://BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | http://BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | http://BrentOzar.com/go/cdrive | 26 |
+| 20 | Reliability | TempDB on C Drive | http://BrentOzar.com/go/cdrive | 25 |
+| 50 | Performance | Instant File Initialization Not Enabled | http://BrentOzar.com/go/instant | 192 |
 | 50 | Performance | Log File Growths Slow | http://BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | http://BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE | http://BrentOzar.com/go/poison | 108 |
@@ -51,8 +54,10 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Page Verification Not Optimal | http://BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | http://BrentOzar.com/go/shipping | 111 |
 | 50 | Reliability | Remote Admin Connections Disabled | http://BrentOzar.com/go/dac | 100 |
+| 50 | Reliability | TempDB File Error | http://BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | http://BrentOzar.com/go/biglog | 75 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | http://BrentOzar.com/go/hekaton | 147 |
+| 100 | Features | Missing Features | http://BrentOzar.com/ | 189 |
 | 100 | Performance | Change Tracking Enabled | http://BrentOzar.com/go/tracking | 112 |
 | 100 | Performance | Fill Factor Changed | http://brentozar.com/go/fillfactor | 60 |
 | 100 | Performance | High Number of Cached Plans | http://BrentOzar.com/go/planlimits | 161 |
@@ -61,9 +66,11 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 100 | Performance | Max Memory Set Too High | http://BrentOzar.com/go/max | 50 |
 | 100 | Performance | Memory Pressure Affecting Queries | http://BrentOzar.com/go/grants | 117 |
 | 100 | Performance | Partitioned database with non-aligned indexes | http://BrentOzar.com/go/aligned | 72 |
+| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
 | 100 | Performance | Resource Governor Enabled | http://BrentOzar.com/go/rg | 10 |
 | 100 | Performance | Server Triggers Enabled | http://BrentOzar.com/go/logontriggers/ | 11 |
 | 100 | Performance | Shrink Database Job | http://BrentOzar.com/go/autoshrink | 79 |
+| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
 | 100 | Performance | Single-Use Plans in Procedure Cache | http://BrentOzar.com/go/single | 35 |
 | 100 | Performance | Stored Procedure WITH RECOMPILE | http://BrentOzar.com/go/recompile | 78 |
 | 100 | Performance | Unusual SQL Server Edition | http://BrentOzar.com/go/workgroup | 97 |
@@ -97,14 +104,15 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 170 | File Configuration | Multiple Log Files on One Drive | http://BrentOzar.com/go/manylogs | 41 |
 | 170 | File Configuration | System Database on C Drive | http://BrentOzar.com/go/drivec | 24 |
 | 170 | File Configuration | TempDB Has >16 Data Files | http://BrentOzar.com/go/tempdb | 175 |
-| 170 | File Configuration | TempDB on C Drive | http://BrentOzar.com/go/drivec | 25 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | http://BrentOzar.com/go/tempdb | 40 |
+| 170 | File Configuration | TempDB Unevenly Sized Data Files | http://BrentOzar.com/go/tempdb | 183 |
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | http://BrentOzar.com/go/grow | 42 |
 | 170 | Reliability | Database Files on Network File Shares | http://BrentOzar.com/go/nas | 148 |
 | 170 | Reliability | Database Files Stored in Azure | http://BrentOzar.com/go/azurefiles | 149 |
 | 170 | Reliability | Max File Size Set | http://BrentOzar.com/go/maxsize | 80 |
 | 200 | Backup | Backing Up Unneeded Database | http://BrentOzar.com/go/reportservertempdb | 127 |
 | 200 | Backup | MSDB Backup History Not Purged | http://BrentOzar.com/go/history | 3 |
+| 200 | Backup | MSDB Backup History Purged Too Frequently | http://BrentOzar.com/go/history | 186 |
 | 200 | Informational | @@Servername not set | http://BrentOzar.com/go/servername | 70 |
 | 200 | Informational | Agent Jobs Starting Simultaneously | http://BrentOzar.com/go/busyagent | 123 |
 | 200 | Informational | Backup Compression Default Off | http://BrentOzar.com/go/backup | 116 |
@@ -206,10 +214,12 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 200 | Non-Default Server Config | Web Assistant Procedures | http://BrentOzar.com/go/conf | 1064 |
 | 200 | Non-Default Server Config | xp_cmdshell | http://BrentOzar.com/go/conf | 1065 |
 | 200 | Performance | Buffer Pool Extensions Enabled | http://BrentOzar.com/go/bpe | 174 |
+| 200 | Performance | Default Parallelism Settings | http://BrentOzar.com/go/cxpacket | 188 |
 | 200 | Performance | In-Memory OLTP (Hekaton) In Use | http://BrentOzar.com/go/hekaton | 146 |
 | 200 | Performance | Old Compatibility Level | http://BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Snapshot Backups Occurring | http://BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | http://BrentOzar.com/go/userstats | 122 |
+| 200 | Performance | Non-Dynamic Memory | http://BrentOzar.com/go/memory | 190 |
 | 200 | Reliability | Extended Stored Procedures in Master | http://BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | http://BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | http://BrentOzar.com/go/dbdefaults | 135 |
@@ -226,9 +236,14 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 210 | Non-Default Database Config | Supplemental Logging Enabled | http://BrentOzar.com/go/dbdefaults | 131 |
 | 210 | Non-Default Database Config | Target Recovery Time Changed | http://BrentOzar.com/go/dbdefaults | 142 |
 | 210 | Non-Default Database Config | Trustworthy Enabled | http://BrentOzar.com/go/dbdefaults | 137 |
+| 210 | Non-Default Database Scoped Config | MAXDOP | http://BrentOzar.com/go/dbscope | 194 |
+| 210 | Non-Default Database Scoped Config | Legacy CE | http://BrentOzar.com/go/dbscope | 195 |
+| 210 | Non-Default Database Scoped Config | Parameter Sniffing | http://BrentOzar.com/go/dbscope | 196 |
+| 210 | Non-Default Database Scoped Config | Query Optimizer Hotfixes | http://BrentOzar.com/go/dbscope | 197 |
 | 230 | Security | Control Server Permissions | http://BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | http://BrentOzar.com/go/owndb | 55 |
 | 230 | Security | Elevated Permissions on a Database | http://BrentOzar.com/go/elevated | 86 |
+| 230 | Security | Endpoints Owned by Users | http://BrentOzar.com/go/owners | 187 |
 | 230 | Security | Jobs Owned By Users | http://BrentOzar.com/go/owners | 6 |
 | 230 | Security | Security Admins | http://BrentOzar.com/go/sa | 5 |
 | 230 | Security | Server Audits Running | http://BrentOzar.com/go/audits | 8 |
@@ -237,6 +252,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 230 | Security | Sysadmins | http://BrentOzar.com/go/sa | 4 |
 | 240 | Wait Stats | No Significant Waits Detected | http://BrentOzar.com/go/waits | 153 |
 | 240 | Wait Stats | Top Wait Stats | http://BrentOzar.com/go/waits | 152 |
+| 240 | Wait Stats | Wait Stats Have Been Cleared | http://BrentOzar.com/go/waits | 185 |
 | 250 | Informational | SQL Server Agent is running under an NT Service account | http://BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | http://BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |
@@ -245,13 +261,13 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
 | 250 | Server Info | Hardware |  | 84 |
 | 250 | Server Info | Hardware - NUMA Config |  | 114 |
+| 250 | Server Info | Instant File Initialization Enabled | http://BrentOzar.com/go/instant | 193 |
 | 250 | Server Info | Locked Pages in Memory Enabled | http://BrentOzar.com/go/lpim | 166 |
 | 250 | Server Info | Server Name | http://BrentOzar.com/go/servername | 130 |
 | 250 | Server Info | Services |  | 83 |
 | 250 | Server Info | SQL Server Last Restart |  | 88 |
+| 250 | Server Info | Server Last Restart |  | 91 |
 | 250 | Server Info | SQL Server Service |  | 85 |
 | 250 | Server Info | Virtual Server | http://BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
 | 254 | Rundate | (Current Date) |  | 156 |
-| 100 | Performance | Shrink Database Step In Maintenance Plan | http://BrentOzar.com/go/autoshrink | 180 |
-| 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |

@@ -62,7 +62,7 @@ Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if nec
 
 ```SQL
 CREATE TABLE dbo.BlitzChecksToSkip (
-ServerName NVACHAR(128),
+ServerName NVARCHAR(128),
 DatabaseName NVARCHAR(128),
 CheckID INT
 );
