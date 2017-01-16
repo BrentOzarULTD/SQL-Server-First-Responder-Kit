@@ -4082,7 +4082,7 @@ IF @ProductVersionMajor >= 10
 		                                  ''Licensing'',
 		                                  ''Enterprise Edition Features In Use'',
 		                                  ''http://BrentOzar.com/go/ee'',
-		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'')
+		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail on versions prior to 2016 SP1.'')
 		                                  FROM [?].sys.dm_db_persisted_sku_features';
 							        END;
 					        END
