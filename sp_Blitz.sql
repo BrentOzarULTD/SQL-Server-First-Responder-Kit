@@ -114,17 +114,6 @@ AS
 	ELSE /* IF @OutputType = 'SCHEMA' */
 	BEGIN
 
-		/*
-		We start by creating #BlitzResults. It's a temp table that will store all of
-		the results from our checks. Throughout the rest of this stored procedure,
-		we're running a series of checks looking for dangerous things inside the SQL
-		Server. When we find a problem, we insert rows into #BlitzResults. At the
-		end, we return these results to the end user.
-
-		#BlitzResults has a CheckID field, but there's no Check table. As we do
-		checks, we insert data into this table, and we manually put in the CheckID.
-		For a list of checks, visit http://FirstResponderKit.org.
-		*/
 		DECLARE @StringToExecute NVARCHAR(4000)
 			,@curr_tracefilename NVARCHAR(500)
 			,@base_tracefilename NVARCHAR(500)
@@ -157,6 +146,20 @@ AS
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
 		
+		/*
+		--TOURSTOP01--
+		See https://www.BrentOzar.com/go/blitztour for a guided tour.
+
+		We start by creating #BlitzResults. It's a temp table that will store all of
+		the results from our checks. Throughout the rest of this stored procedure,
+		we're running a series of checks looking for dangerous things inside the SQL
+		Server. When we find a problem, we insert rows into #BlitzResults. At the
+		end, we return these results to the end user.
+
+		#BlitzResults has a CheckID field, but there's no Check table. As we do
+		checks, we insert data into this table, and we manually put in the CheckID.
+		For a list of checks, visit http://FirstResponderKit.org.
+		*/
 		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
 			DROP TABLE #BlitzResults;
 		CREATE TABLE #BlitzResults
@@ -197,6 +200,7 @@ AS
 		not used. YET. We added that parameter in so that we could avoid changing the
 		stored proc's surface area (interface) later.
 		*/
+		/* --TOURSTOP07-- */
 		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL
 			DROP TABLE #SkipChecks;
 		CREATE TABLE #SkipChecks
@@ -241,7 +245,8 @@ AS
 		END
 
 
-			/* If the server is Amazon RDS, skip checks that it doesn't allow */
+		/* --TOURSTOP08-- */
+		/* If the server is Amazon RDS, skip checks that it doesn't allow */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
@@ -976,10 +981,12 @@ AS
 					END
 
 
+				/* --TOURSTOP06-- */
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 7 )
 					BEGIN
+						/* --TOURSTOP02-- */
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -1294,6 +1301,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 21 )
 					BEGIN
+						/* --TOURSTOP04-- */
 						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
 							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
 							BEGIN
@@ -3901,6 +3909,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 										WHERE   DatabaseName IS NULL AND CheckID = 163 )
                             AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
 							BEGIN
+								/* --TOURSTOP03-- */
 								EXEC dbo.sp_MSforeachdb 'USE [?];
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -3917,7 +3926,8 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                              ''Query Store Disabled'',
 		                              ''http://BrentOzar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
-		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
+		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0 
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
 							END
 
 						IF NOT EXISTS ( SELECT  1
@@ -6009,7 +6019,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 					END
 
-				/* Add credits for the nice folks who put so much time into building and maintaining this for free: */
+			/* Add credits for the nice folks who put so much time into building and maintaining this for free: */
 				INSERT  INTO #BlitzResults
 						( CheckID ,
 						  Priority ,
@@ -6336,6 +6346,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 						END
 					ELSE IF @OutputType <> 'NONE'
 						BEGIN
+							/* --TOURSTOP05-- */
 							SELECT  [Priority] ,
 									[FindingsGroup] ,
 									[Finding] ,
