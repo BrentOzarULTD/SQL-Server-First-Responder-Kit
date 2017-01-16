@@ -26,6 +26,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 10 | Performance | Auto-Close Enabled | http://BrentOzar.com/go/autoclose | 12 |
 | 10 | Performance | Auto-Shrink Enabled | http://BrentOzar.com/go/autoshrink | 13 |
 | 10 | Performance | CPU Schedulers Offline | http://BrentOzar.com/go/schedulers | 101 |
+| 10 | Performance | CPU w/Odd Number of Cores | http://BrentOzar.com/go/oddity | 198 |
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | http://BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | http://BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | http://BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |

@@ -72,9 +72,17 @@ AS
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see http://www.brentozar.com/blitz/documentation for details.
 
-    MIT License
 
-	Copyright (c) 2016 Brent Ozar Unlimited
+
+    MIT License
+	
+	Copyright for portions of sp_Blitz are held by Microsoft as part of project 
+	tigertoolbox and are provided under the MIT license:
+	https://github.com/Microsoft/tigertoolbox
+	   
+	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
+
+	Copyright (c) 2017 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -93,6 +101,8 @@ AS
 	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
+
+
 
 
 	*/'
@@ -3809,6 +3819,51 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 						'http://BrentOzar.com/go/tempdboops' AS [URL] , 
 						'Mismatch between the number of TempDB files in sys.master_files versus tempdb.sys.database_files' AS [Details]
 				END
+
+/*Perf - Odd number of cores in a socket*/
+		IF NOT EXISTS ( SELECT  1
+		                FROM    #SkipChecks
+		                WHERE   DatabaseName IS NULL
+		                        AND CheckID = 198 )
+		   AND EXISTS ( SELECT  1
+		                FROM    sys.dm_os_schedulers
+		                WHERE   is_online = 1
+		                        AND scheduler_id < 255
+		                        AND parent_node_id < 64
+		                GROUP BY parent_node_id,
+		                        is_online
+		                HAVING  ( COUNT(cpu_id) + 2 ) % 2 = 1 )
+		   BEGIN
+		
+		         INSERT INTO #BlitzResults
+		                (
+		                  CheckID,
+		                  DatabaseName,
+		                  Priority,
+		                  FindingsGroup,
+		                  Finding,
+		                  URL,
+		                  Details
+				        )
+		         SELECT 198 AS CheckID,
+		                NULL AS DatabaseName,
+		                10 AS Priority,
+		                'Performance' AS FindingsGroup,
+		                'CPU w/Odd Number of Cores' AS Finding,
+		                'http://BrentOzar.com/go/oddity' AS URL,
+		                'Node ' + CONVERT(VARCHAR(10), parent_node_id) + ' has ' + CONVERT(VARCHAR(10), COUNT(cpu_id))
+		                + CASE WHEN COUNT(cpu_id) = 1 THEN ' core assigned to it. This is a really bad NUMA configuration.'
+		                       ELSE ' cores assigned to it. This is a really bad NUMA configuration.'
+		                  END AS Details
+		         FROM   sys.dm_os_schedulers
+		         WHERE  is_online = 1
+		                AND scheduler_id < 255
+		                AND parent_node_id < 64
+		         GROUP BY parent_node_id,
+		                is_online
+		         HAVING ( COUNT(cpu_id) + 2 ) % 2 = 1;    
+		
+		   END;
 
 
 				IF @CheckUserDatabaseObjects = 1
