@@ -3335,7 +3335,7 @@ AS
 							
 
 /*This checks to see if Agent is Offline*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 167 )
@@ -3370,7 +3370,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 				END;
 
 /*This checks to see if the Full Text thingy is offline*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 168 )
@@ -3404,7 +3404,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END; 
 
 /*This checks which service account SQL Server is running as.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10 
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 169 )
@@ -3440,7 +3440,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END;
 
 /*This checks which service account SQL Agent is running as.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 170 )
@@ -3475,7 +3475,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END;
 
 /*This counts memory dumps and gives min and max date of in view*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )
@@ -5476,7 +5476,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					BEGIN
 
 /*This checks Windows version. It would be better if Microsoft gave everything a separate build number, but whatever.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 172 )
