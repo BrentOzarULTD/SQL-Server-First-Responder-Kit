@@ -3840,10 +3840,10 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                10 AS Priority,
 		                'Performance' AS FindingsGroup,
 		                'CPU w/Odd Number of Cores' AS Finding,
-		                '' AS URL,
+		                'http://BrentOzar.com/go/oddity' AS URL,
 		                'Node ' + CONVERT(VARCHAR(10), parent_node_id) + ' has ' + CONVERT(VARCHAR(10), COUNT(cpu_id))
-		                + CASE WHEN COUNT(cpu_id) = 1 THEN ' core assigned to it. This is a really bad NUMA configurtation.'
-		                       ELSE ' cores assigned to it. This is a really bad NUMA configurtation.'
+		                + CASE WHEN COUNT(cpu_id) = 1 THEN ' core assigned to it. This is a really bad NUMA configuration.'
+		                       ELSE ' cores assigned to it. This is a really bad NUMA configuration.'
 		                  END AS Details
 		         FROM   sys.dm_os_schedulers
 		         WHERE  is_online = 1
