@@ -195,6 +195,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		index_ops AS (index_insert_count + index_update_count + index_delete_count + 
 					  cx_insert_count + cx_update_count + cx_delete_count +
 					  table_insert_count + table_update_count + table_delete_count),
+		is_row_level BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -852,6 +853,7 @@ BEGIN
 		index_ops AS (index_insert_count + index_update_count + index_delete_count + 
 			  cx_insert_count + cx_update_count + cx_delete_count +
 			  table_insert_count + table_update_count + table_delete_count),
+		is_row_level BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2361,6 +2363,20 @@ BEGIN
 	OPTION (RECOMPILE) ;
 END ;
 
+IF @v >= 13
+BEGIN
+    RAISERROR('Checking for row level security in 2016 only', 0, 1) WITH NOWAIT;
+
+    WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+    UPDATE  p
+    SET     p.is_row_level = 1
+    FROM    ##bou_BlitzCacheProcs p
+            JOIN #statements s ON p.QueryHash = s.QueryHash 
+	WHERE SPID = @@SPID
+	AND statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
+	OPTION (RECOMPILE) ;
+END ;
+
 /* END Testing using XML nodes to speed up processing */
 RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2648,7 +2664,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
-				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END 
+				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END +
+				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -2656,7 +2673,7 @@ WHERE SPID = @@SPID
 
 UPDATE ##bou_BlitzCacheProcs
 SET Warnings = 'No warnings detected.'
-WHERE Warnings = ''
+WHERE Warnings = '' OR	Warnings IS NULL
 
 
 Results:
@@ -2980,7 +2997,8 @@ BEGIN
 				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
 				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
-				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END 
+				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
+				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END 
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3627,6 +3645,19 @@ BEGIN
                      'Write Queries Are Hitting >= 5 Indexes',
                      'No URL yet',
                      'This can cause lots of hidden I/O -- Run sp_BLitzIndex for more information.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_row_level = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     46,
+                     100,
+                     'Plan Confusion',
+                     'Row Level Security is in use',
+                     'No URL yet',
+                     'You may see a lot of confusing junk in your query plan') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
