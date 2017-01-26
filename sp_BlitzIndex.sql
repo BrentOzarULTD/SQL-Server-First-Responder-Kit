@@ -533,7 +533,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 		  table_name NVARCHAR(128) NULL,
 		  schema_name NVARCHAR(128) NULL,
 		  index_name  NVARCHAR(128) NULL,
-		  column_name  NVARCHAR(128) NULL,
+		  column_names  NVARCHAR(4000) NULL,
 		  statistics_name NVARCHAR(128) NULL,
 		  last_statistics_update DATETIME NULL,
 		  days_since_last_stats_update INT NULL,
@@ -1481,7 +1481,7 @@ BEGIN TRY
 					obj.name AS table_name,
 					sch.name AS schema_name,
 			        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
-			        c.name AS column_name,
+			        ca.column_names AS column_names,
 			        s.name AS statistics_name,
 			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
 			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
@@ -1504,12 +1504,6 @@ BEGIN TRY
 					s.has_filter,
 					s.filter_definition
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
-			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
-			ON      sc.object_id = s.object_id
-			        AND sc.stats_id = s.stats_id
-			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
-			ON      c.object_id = sc.object_id
-			        AND c.column_id = sc.column_id
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 			ON      s.object_id = obj.object_id
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
@@ -1518,6 +1512,14 @@ BEGIN TRY
 			ON      i.object_id = s.object_id
 			        AND i.index_id = s.stats_id
 			OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS ddsp
+			CROSS APPLY ( SELECT    STUFF((SELECT   '', '' + c.name
+						  FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns AS sc
+						  JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+						  ON       sc.column_id = c.column_id AND sc.object_id = c.object_id
+						  WHERE    sc.stats_id = s.stats_id AND sc.object_id = s.object_id
+						  ORDER BY sc.stats_column_id
+						  FOR   XML PATH(''''), TYPE).value(''.'', ''varchar(max)''), 1, 2, '''') 
+						) ca (column_names)
 			WHERE obj.is_ms_shipped = 0
 			OPTION (RECOMPILE);'
 			
@@ -1525,7 +1527,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
-			INSERT #Statistics ( database_name, table_name, schema_name, index_name, column_name, statistics_name, last_statistics_update, 
+			INSERT #Statistics ( database_name, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition)
@@ -1540,7 +1542,7 @@ BEGIN TRY
 								obj.name AS table_name,
 								sch.name AS schema_name,
 						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
-						        c.name AS column_name,
+						        ca.column_names  AS column_names,
 						        s.name AS statistics_name,
 						        CONVERT(DATETIME, STATS_DATE(s.object_id, s.stats_id)) AS last_statistics_update,
 						        DATEDIFF(DAY, STATS_DATE(s.object_id, s.stats_id), GETDATE()) AS days_since_last_stats_update,
@@ -1566,12 +1568,6 @@ BEGIN TRY
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
 						ON      si.name = s.name
-						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc
-						ON      sc.object_id = s.object_id
-						        AND sc.stats_id = s.stats_id
-						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c
-						ON      c.object_id = sc.object_id
-						        AND c.column_id = sc.column_id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
@@ -1579,6 +1575,14 @@ BEGIN TRY
 						LEFT HASH JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
 						ON      i.object_id = s.object_id
 						        AND i.index_id = s.stats_id
+						CROSS APPLY ( SELECT    STUFF((SELECT   '', '' + c.name
+									  FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns AS sc
+									  JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+									  ON       sc.column_id = c.column_id AND sc.object_id = c.object_id
+									  WHERE    sc.stats_id = s.stats_id AND sc.object_id = s.object_id
+									  ORDER BY sc.stats_column_id
+									  FOR   XML PATH(''''), TYPE).value(''.'', ''varchar(max)''), 1, 2, '''') 
+									) ca (column_names)
 						WHERE obj.is_ms_shipped = 0
 						AND si.rowcnt > 0
 						OPTION (RECOMPILE);'
@@ -1587,7 +1591,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
 			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
-			INSERT #Statistics(database_name, table_name, schema_name, index_name, column_name, statistics_name, 
+			INSERT #Statistics(database_name, table_name, schema_name, index_name, column_names, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition)
@@ -1925,7 +1929,7 @@ BEGIN;
         RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page) with long average waits', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                SELECT    11 AS check_id, 
+                SELECT  11 AS check_id, 
                         i.index_sanity_id,
                         10 AS Priority,
                         N'Aggressive Indexes' AS findings_group,
@@ -1933,7 +1937,9 @@ BEGIN;
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary AS details, 
+                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
+							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+                                         AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
                         i.index_usage_summary,
@@ -1942,12 +1948,13 @@ BEGIN;
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) > 5000
+				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary
                 OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 12: Total lock wait time > 5 minutes (row + page) with short average waits', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                SELECT    12 AS check_id, 
+                SELECT  12 AS check_id, 
                         i.index_sanity_id,
                         10 AS Priority,
                         N'Aggressive Indexes' AS findings_group,
@@ -1955,7 +1962,9 @@ BEGIN;
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary AS details, 
+                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
+							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+                                         AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
                         i.index_usage_summary,
@@ -1964,6 +1973,7 @@ BEGIN;
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) < 5000
+				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary
                 OPTION    ( RECOMPILE );
 
         END
@@ -3213,8 +3223,8 @@ BEGIN;
 						' modifications in that time, which is ' +
 						CONVERT(NVARCHAR(100), s.percent_modifications) + 
 						'% of the table.'
-					END,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+					END AS details,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
@@ -3232,8 +3242,8 @@ BEGIN;
 				'Antisocial Samples',
 				s.database_name,
 				'' AS URL,
-				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were sampled during the last statistics update. This may lead to poor cardinality estimates.' ,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'Only ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were sampled during the last statistics update. This may lead to poor cardinality estimates.' AS details,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
@@ -3250,8 +3260,8 @@ BEGIN;
 				'Cyberphobic Samples',
 				s.database_name,
 				'' AS URL,
-				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is set to not recompute. This can be helpful if data is really skewed, but harmful if you expect automatic statistics updates.' ,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is set to not recompute. This can be helpful if data is really skewed, but harmful if you expect automatic statistics updates.' AS details,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
@@ -3267,8 +3277,8 @@ BEGIN;
 				'Filter Fixation',
 				s.database_name,
 				'' AS URL,
-				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on [' + s.filter_definition + ']. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' ,
-				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_name) AS index_definition,
+				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on [' + s.filter_definition + ']. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' AS details,
+				 QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
