@@ -2793,9 +2793,10 @@ BEGIN
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost '
           + N' FROM ##bou_BlitzCacheProcs '
+		  + N' WHERE 1=1 '
    IF @MinimumExecutionCount IS NOT NULL
-      SET @insert_sql += N' WHERE ExecutionCount >= @minimumExecutionCount '
-		  + N' WHERE SPID = @@SPID '
+      SET @insert_sql += N' AND ExecutionCount >= @minimumExecutionCount '
+		  + N' AND SPID = @@SPID '
           
     SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
                                                     WHEN 'reads' THEN N' TotalReads '
