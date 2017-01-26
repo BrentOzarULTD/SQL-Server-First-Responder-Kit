@@ -36,7 +36,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 
 ## Announce It
 
-* Copy the FRK scripts into BrentOzar.com's First Responder Kit zip file (Employees/Products/Download Pack)
+* Copy the FRK scripts into BrentOzar.com's First Responder Kit folder (Employees/Products/Download Pack)
 * Copy the old zip file's name, delete the old zip file, then create a new zip file with today's date, like First-Responder-Kit-20170126.zip.
 * Upload it to u.brentozar.com (s3), set permissions so that it's readable by everyone. Delete the old zip file.
 * Change the email download link by going into BrentOzar.com WordPress - click Forms, and in the form list, find First Responder Kit, Settings, Notifications, First Responder Kit. Edit the message to point to the new zip file name.
