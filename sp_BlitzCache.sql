@@ -226,7 +226,8 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @StoredProcName NVARCHAR(128) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
-    @BringThePain BIT = 0 /* This will forcibly set @Top to 2,147,483,647 */
+    @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
+    @MinimumExecutionCount INT = 0
 WITH RECOMPILE
 AS
 BEGIN
@@ -384,9 +385,12 @@ BEGIN
     UNION ALL
     SELECT N'@Reanalyze',
            N'BIT',
-           N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results';
+           N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results'
            
-
+    UNION ALL
+    SELECT N'@MinimumExecutionCount',
+           N'INT',
+           N'Queries with fewer than this number of executions will be omitted from results.';
 
     /* Column definitions */
     SELECT N'# Executions' AS [Column Name],
@@ -2772,6 +2776,8 @@ BEGIN
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost '
           + N' FROM ##bou_BlitzCacheProcs '
+   IF @MinimumExecutionCount IS NOT NULL
+      SET @insert_sql += N' WHERE ExecutionCount >= @minimumExecutionCount '
 		  + N' WHERE SPID = @@SPID '
           
     SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -2791,7 +2797,7 @@ BEGIN
 
     SET @insert_sql += N' OPTION (RECOMPILE) ; '    
     
-    EXEC sp_executesql @insert_sql, N'@Top INT', @Top;
+    EXEC sp_executesql @insert_sql, N'@Top INT, @minimumExecutionCount INT', @Top, @MinimumExecutionCount;
 
     RETURN
 END
@@ -2857,6 +2863,8 @@ BEGIN
     WHERE   1 = 1 
 	AND SPID = @@SPID ' + @nl
 
+    IF @MinimumExecutionCount IS NOT NULL
+      SET @sql += N' AND ExecutionCount >= @minimumExecutionCount '
     SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
                               WHEN 'reads' THEN ' TotalReads '
                               WHEN 'writes' THEN ' TotalWrites '
@@ -2874,7 +2882,7 @@ BEGIN
 
     SET @sql += N' OPTION (RECOMPILE) ; '
 
-    EXEC sp_executesql @sql, N'@Top INT', @Top ;
+    EXEC sp_executesql @sql, N'@Top INT, @minimumExecutionCount INT', @Top, @MinimumExecutionCount;
 END
 
 
@@ -3037,6 +3045,8 @@ SELECT  TOP (@Top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
 WHERE   SPID = @spid ' + @nl
 
+IF @MinimumExecutionCount IS NOT NULL
+    SET @sql += N' AND ExecutionCount >= @minimumExecutionCount '
 SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
                                                 WHEN 'reads' THEN N' TotalReads '
                                                 WHEN 'writes' THEN N' TotalWrites '
@@ -3054,7 +3064,7 @@ SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
 
-EXEC sp_executesql @sql, N'@Top INT, @spid INT', @Top, @@SPID ;
+EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT', @Top, @@SPID, @MinimumExecutionCount ;
 
 IF @HideSummary = 0 AND @ExportToExcel = 0
 BEGIN
