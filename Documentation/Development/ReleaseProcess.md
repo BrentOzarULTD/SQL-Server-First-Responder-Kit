@@ -18,7 +18,15 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 
 * Make sure all issues in the milestone are closed - click Issues, Milestones, and it'll show the percent complete. If there's any issues you want to bump to the next round, add the next round's milestone and tag the issues with it.
 * When enough PRs are in dev, do a round of code testing in 2008-2016 in the cloud lab.
+    * Copy all newly synced scripts to each VM and install in master
+    * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
 * If it passes, bump all the version numbers inside the scripts.
+    * sp_foreachdb (no version number yet)
+    * sp_BlitzWho (no version number yet)
+    * sp_BlitzIndex @Version and @VersionDate
+    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzCache @Version and @VersionDate 
+    * sp_Blitz @VersionDate (no version)
 
 ## Push to Master
 
