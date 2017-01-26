@@ -3,7 +3,8 @@ IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 GO
 
 ALTER PROCEDURE [dbo].[sp_BlitzWho] 
-	@Help TINYINT = 0
+	@Help TINYINT = 0 ,
+	@ShowSleepingSPIDs TINYINT = 0
 AS
 BEGIN
 	SET NOCOUNT ON;
@@ -83,7 +84,7 @@ SET @StringToExecute = N'
 					    SELECT  GETDATE() AS [run_date] ,
 			            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
 			            [s].[session_id] ,
-						DB_NAME(s.database_id) AS database_name,
+						DB_NAME(r.database_id) AS database_name,
 			            [wt].[wait_info] ,
 			            [s].[status] ,
 			            ISNULL(SUBSTRING([dest].[text],
@@ -192,7 +193,7 @@ SET @StringToExecute = N'
 			    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
 			    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
 			    WHERE   [r].[session_id] <> @@SPID
-			            AND [s].[status] <> ''sleeping''
+			            AND (([s].[status] <> ''sleeping'' AND ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 0) OR ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 1)
 			    ORDER BY 2 DESC;
 			    '
 END
@@ -209,7 +210,7 @@ SELECT @StringToExecute = N'
 					    SELECT  GETDATE() AS [run_date] ,
 			            CONVERT(VARCHAR, DATEADD(ms, [r].[total_elapsed_time], 0), 114) AS [elapsed_time] ,
 			            [s].[session_id] ,
-						DB_NAME(s.database_id) AS database_name,
+						DB_NAME(r.database_id) AS database_name,
 			            [wt].[wait_info] ,
 			            [s].[status] ,
 			            ISNULL(SUBSTRING([dest].[text],
@@ -322,7 +323,7 @@ SELECT @StringToExecute = N'
 			    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
 			    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
 			    WHERE   [r].[session_id] <> @@SPID
-			            AND [s].[status] <> ''sleeping''
+			            AND (([s].[status] <> ''sleeping'' AND ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 0) OR ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 1)
 			    ORDER BY 2 DESC;
 			    '
 

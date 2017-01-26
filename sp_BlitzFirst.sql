@@ -22,13 +22,14 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
+	@ShowSleepingSPIDs TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20161210'
+SET @VersionDate = '20170201'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -166,13 +167,14 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL
 		BEGIN
 			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
 		END
 		ELSE
 		BEGIN
-			EXEC [dbo].[sp_BlitzWho]
+		    DECLARE @BlitzWho NVARCHAR(MAX) = 'EXEC [dbo].[sp_BlitzWho] @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs)
+			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
      
@@ -727,8 +729,7 @@ BEGIN
     FROM    sys.dm_tran_locks
     WHERE resource_type = N'DATABASE'
     AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+    AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     WHERE r.command LIKE 'RESTORE%';
 
@@ -761,44 +762,34 @@ BEGIN
 
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-    /*
-    IF @Seconds > 0
+    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 5 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
         'Long-Running Query Blocking Others' AS Finding,
         'http://www.BrentOzar.com/go/blocking' AS URL,
-        'Query in ' + DB_NAME(db.resource_database_id) + ' has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed + @LineFeed
-            + CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
+        'Query in ' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
+            (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), '(Unknown)') + ' has a last request start time of ' + CAST(s.last_request_start_time AS NVARCHAR(100)) + '. Query follows:' + @LineFeed + @LineFeed
+            + CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
             (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
         'KILL ' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(rBlocker.plan_handle)) AS QueryPlan,
-        COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
+        (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
+        COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
             (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id)) AS QueryText,
         r.start_time AS StartTime,
         s.login_name AS LoginName,
         s.nt_user_name AS NTUserName,
         s.[program_name] AS ProgramName,
         s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
+        r.[database_id] AS DatabaseID,
+        DB_NAME(r.database_id) AS DatabaseName,
         0 AS OpenTransactionCount
-    FROM sys.dm_exec_sessions s
-    INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+    FROM sys.dm_os_waiting_tasks tBlocked
+	INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
+    LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
     INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-    INNER JOIN sys.dm_os_waiting_tasks tBlocked ON tBlocked.session_id = s.session_id AND tBlocked.session_id <> s.session_id
-    INNER JOIN (
-    SELECT DISTINCT request_session_id, resource_database_id
-    FROM    sys.dm_tran_locks
-    WHERE resource_type = N'DATABASE'
-    AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    LEFT OUTER JOIN sys.dm_exec_requests rBlocker ON tBlocked.blocking_session_id = rBlocker.session_id
-      WHERE NOT EXISTS (SELECT * FROM sys.dm_os_waiting_tasks tBlocker WHERE tBlocker.session_id = tBlocked.blocking_session_id AND tBlocker.blocking_session_id IS NOT NULL)
-      AND s.last_request_start_time < DATEADD(SECOND, -30, SYSDATETIMEOFFSET())
-    */
+    WHERE tBlocked.wait_type LIKE 'LCK%' AND tBlocked.wait_duration_ms > 30000;
 
     /* Query Problems - Plan Cache Erased Recently */
     IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
@@ -959,7 +950,23 @@ BEGIN
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-
+		
+		/* Highlight if non SQL processes are using >25% CPU */
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
+            FROM (
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+					,record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS SQLUsage
+                FROM (
+                    SELECT TOP 1 CONVERT(XML, record) AS record
+                    FROM sys.dm_os_ring_buffers
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb
+            ) AS y
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+		
         END /* IF @Seconds < 30 */
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
@@ -2438,7 +2445,7 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NOT NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NOT NULL
 		BEGIN
 			EXEC [dbo].[sp_BlitzWho]
 		END

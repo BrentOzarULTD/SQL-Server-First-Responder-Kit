@@ -1,0 +1,45 @@
+# First Responder Kit Release Process
+
+From http://FirstResponderKit.org
+
+This doc explains how to do a release of the First Responder Kit scripts.
+
+It's for internal use at BrentOzar.com, but other folks might find it useful.
+
+Well, useful is probably the wrong word. More like entertaining. Here we go.
+
+## Preparations
+
+* Create a Milestone to tag issues/PRs as you work on them. In Github, go into Issues, Milestones (button at the top), and add a new milestone named YYYY-MM, like 2017-01.
+* As you merge pull requests into the dev branch (or before), tag them with the milestone. This makes it easy to find the related issues when you go to write release notes.
+
+
+## Finalize and Test the Code
+
+* Make sure all issues in the milestone are closed - click Issues, Milestones, and it'll show the percent complete. If there's any issues you want to bump to the next round, add the next round's milestone and tag the issues with it.
+* When enough PRs are in dev, do a round of code testing in 2008-2016 in the cloud lab.
+    * Copy all newly synced scripts to each VM and install in master
+    * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
+* If it passes, bump all the version numbers inside the scripts.
+    * sp_foreachdb (no version number yet)
+    * sp_BlitzWho (no version number yet)
+    * sp_BlitzIndex @Version and @VersionDate
+    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzCache @Version and @VersionDate 
+    * sp_Blitz @VersionDate (no version)
+
+## Push to Master
+
+* Push to the master branch from dev. (Make sure you're pushing FROM dev, TO master.)
+* Draft a new release. Click Code, Releases, and edit one of the recent releases to get the Markdown syntax. Copy/paste that into a new release, and put the issue numbers for the relevant changes.
+* Publish the release pointing at the current master branch code (not dev).
+
+## Announce It
+
+* Copy the FRK scripts into BrentOzar.com's First Responder Kit zip file (Employees/Products/Download Pack)
+* Copy the old zip file's name, delete the old zip file, then create a new zip file with today's date, like First-Responder-Kit-20170126.zip.
+* Upload it to u.brentozar.com (s3), set permissions so that it's readable by everyone. Delete the old zip file.
+* Change the email download link by going into BrentOzar.com WordPress - click Forms, and in the form list, find First Responder Kit, Settings, Notifications, First Responder Kit. Edit the message to point to the new zip file name.
+* Copy the Github release text into a WordPress blog post. The nice thing about doing the Github release first is that you should be able to copy/paste the Github release page and the HTML should paste smoothly into the WordPress draft window, complete with links to the Github issues. At the end of the post, put a download now link that points to: https://www.brentozar.com/first-aid/
+* Create a Mailchimp announcement to people who subscribed to the FRK releases, linking directly to the zip file. (For now, Brent will do this part.)
+
