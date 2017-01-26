@@ -167,7 +167,7 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL
 		BEGIN
 			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
 		END
@@ -2445,7 +2445,7 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NOT NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NOT NULL
 		BEGIN
 			EXEC [dbo].[sp_BlitzWho]
 		END
