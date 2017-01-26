@@ -3335,7 +3335,7 @@ AS
 							
 
 /*This checks to see if Agent is Offline*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 167 )
@@ -3370,7 +3370,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 				END;
 
 /*This checks to see if the Full Text thingy is offline*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 168 )
@@ -3404,7 +3404,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END; 
 
 /*This checks which service account SQL Server is running as.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10 
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 169 )
@@ -3440,7 +3440,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END;
 
 /*This checks which service account SQL Agent is running as.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 170 )
@@ -3475,7 +3475,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					END;
 
 /*This counts memory dumps and gives min and max date of in view*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )
@@ -3930,32 +3930,34 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
 							END
 
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 182 )
-                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+						
+							IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
+							AND NOT EXISTS ( SELECT  1
+											 FROM    #SkipChecks
+											 WHERE   DatabaseName IS NULL AND CheckID = 182 )
 							AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
 							AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
-							BEGIN
-								EXEC dbo.sp_MSforeachdb 'USE [?];
-			                            INSERT INTO #BlitzResults
-			                            (CheckID,
-			                            DatabaseName,
-			                            Priority,
-			                            FindingsGroup,
-			                            Finding,
-			                            URL,
-			                            Details)
-		                              SELECT TOP 1 182,
-		                              ''?'',
-		                              20,
-		                              ''Reliability'',
-		                              ''Query Store Cleanup Disabled'',
-		                              ''http://BrentOzar.com/go/cleanup'',
-		                              (''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run.'')
-		                              FROM [?].sys.database_query_store_options WHERE desired_state <> 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'')';
+							BEGIN 
+			                SET @StringToExecute = 'INSERT INTO #BlitzResults
+													(CheckID,
+													DatabaseName,
+													Priority,
+													FindingsGroup,
+													Finding,
+													URL,
+													Details)
+													SELECT TOP 1 
+													182,
+													''Server'',
+													20,
+													''Reliability'',
+													''Query Store Cleanup Disabled'',
+													''http://BrentOzar.com/go/cleanup'',
+													(''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run. This is fixed in CU1 and later: https://sqlserverupdates.com/sql-server-2016-updates/'')
+													FROM    sys.databases AS d
+													WHERE   d.is_query_store_on = 1;'
+							EXECUTE(@StringToExecute)
 							END
-
 
 				        IF NOT EXISTS ( SELECT  1
 								        FROM    #SkipChecks
@@ -4082,7 +4084,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 		                                  ''Licensing'',
 		                                  ''Enterprise Edition Features In Use'',
 		                                  ''http://BrentOzar.com/go/ee'',
-		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail.'')
+		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail on versions prior to 2016 SP1.'')
 		                                  FROM [?].sys.dm_db_persisted_sku_features';
 							        END;
 					        END
@@ -5476,7 +5478,7 @@ IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50
 					BEGIN
 
 /*This checks Windows version. It would be better if Microsoft gave everything a separate build number, but whatever.*/
-IF @ProductVersionMajor >= 10 AND @ProductVersionMinor >= 50 
+IF @ProductVersionMajor >= 10
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 172 )
