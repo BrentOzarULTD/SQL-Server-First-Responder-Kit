@@ -586,7 +586,10 @@ BEGIN
 		       'SLEEP_SYSTEMTASK',
 		       'BROKER_TRANSMITTER',
 		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+		       'UCS_SESSION_REGISTRATION',
+			   'PREEMPTIVE_XE_DISPATCHER',
+			   'TRACEWRITE',
+			   'OLEDB'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -1054,7 +1057,10 @@ BEGIN
 		       'SLEEP_SYSTEMTASK',
 		       'BROKER_TRANSMITTER',
 		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+		       'UCS_SESSION_REGISTRATION',			   
+			   'PREEMPTIVE_XE_DISPATCHER',
+			   'TRACEWRITE',
+			   'OLEDB'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
