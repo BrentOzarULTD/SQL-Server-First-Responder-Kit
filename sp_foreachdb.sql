@@ -10,7 +10,7 @@ CREATE PROCEDURE dbo.sp_foreachdb
     @replace_character NCHAR(1) = N'?' ,
     @print_dbname BIT = 0 ,
     @print_command_only BIT = 0 ,
-    @suppress_quotename BIT = 0 ,
+    @suppress_quotename BIT = 1 ,
     @system_only BIT = NULL ,
     @user_only BIT = NULL ,
     @name_pattern NVARCHAR(300) = N'%' ,
