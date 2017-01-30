@@ -20,6 +20,6 @@ EXEC sp_BlitzCache @SortOrder = 'all'
 
 EXEC sp_BlitzCache @SortOrder = 'all avg'
 
-EXEC sp_BlitzCache @MinimumExecutionCount = 400
+EXEC sp_BlitzCache @MinimumExecutionCount = 10
 
 EXEC sp_BlitzCache @OutputDatabaseName = 'ChangeMe', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache'
