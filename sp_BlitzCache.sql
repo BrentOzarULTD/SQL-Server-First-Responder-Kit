@@ -3645,7 +3645,7 @@ BEGIN
                      'Many Indexes Modified',
                      'Write Queries Are Hitting >= 5 Indexes',
                      'No URL yet',
-                     'This can cause lots of hidden I/O -- Run sp_BLitzIndex for more information.') ;
+                     'This can cause lots of hidden I/O -- Run sp_BlitzIndex for more information.') ;
 
         IF EXISTS (SELECT 1/0
                     FROM   ##bou_BlitzCacheProcs p
