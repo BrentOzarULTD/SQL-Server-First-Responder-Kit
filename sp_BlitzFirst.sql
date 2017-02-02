@@ -31,7 +31,7 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20161210'
+SET @VersionDate = '20170201'
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -133,7 +133,7 @@ IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure
         WHERE wait_type IN ('BROKER_TASK_STOP','DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
                             'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_DISPATCHER_WAIT','XE_TIMER_EVENT')
 ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
-    SELECT @StartSampleTime = create_date , @FinishSampleTime = SYSDATETIMEOFFSET()
+    SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.databases
         WHERE database_id = 2;
 ELSE
@@ -211,7 +211,7 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL
 		BEGIN
 			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
 		END
@@ -629,7 +629,10 @@ BEGIN
 		       'SLEEP_SYSTEMTASK',
 		       'BROKER_TRANSMITTER',
 		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+		       'UCS_SESSION_REGISTRATION',
+			   'PREEMPTIVE_XE_DISPATCHER',
+			   'TRACEWRITE',
+			   'OLEDB'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -1145,7 +1148,10 @@ END
 		       'SLEEP_SYSTEMTASK',
 		       'BROKER_TRANSMITTER',
 		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+		       'UCS_SESSION_REGISTRATION',			   
+			   'PREEMPTIVE_XE_DISPATCHER',
+			   'TRACEWRITE',
+			   'OLEDB'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -2529,6 +2535,7 @@ END
                 [qsFirst].[query_hash] AS [First-query_hash],
                 [qsFirst].[query_plan_hash] AS [First-query_plan_hash],
                 [qsFirst].[Points] AS [First-Points]
+			SELECT qsNow.*, qsFirst.*
             FROM #QueryStats qsNow
               INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
             WHERE qsNow.Pass = 2
@@ -2538,13 +2545,14 @@ END
 			SELECT 'Plan Cache' AS [Pattern], 'Plan cache not analyzed' AS [Finding], 'Use @CheckProcedureCache = 1 or run sp_BlitzCache for more analysis' AS [More Info], CONVERT(XML, @StockDetailsHeader + 'firstresponderkit.org' + @StockDetailsFooter) AS [Details]
 			END
 		END
+        END
 
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NOT NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NOT NULL
 		BEGIN
 			EXEC [dbo].[sp_BlitzWho]
 		END
