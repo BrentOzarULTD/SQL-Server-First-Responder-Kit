@@ -42,7 +42,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | User Databases on C Drive | https://www.BrentOzar.com/go/cdrive | 26 |
 | 20 | Reliability | TempDB on C Drive | https://www.BrentOzar.com/go/cdrive | 25 |
 | 50 | Performance | Instant File Initialization Not Enabled | https://www.BrentOzar.com/go/instant | 192 |
-| 50 | Performance | Log File Growths Slow | https://www.BrentOzar.com/go/filegrowth | 151 |
+| 50 | Performance | File Growths Slow | https://www.BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | https://www.BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE | https://www.BrentOzar.com/go/poison | 108 |
 | 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE | https://www.BrentOzar.com/go/poison | 109 |
