@@ -508,9 +508,10 @@ AS
             WHERE   name='tempdb';
 
 		/* Have they cleared wait stats? Using a 10% fudge factor */
-		IF @MsSinceWaitsCleared * .9 > (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+		IF @MsSinceWaitsCleared * .9 > (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'))
 			BEGIN
-				SET @MsSinceWaitsCleared = (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+				SET @MsSinceWaitsCleared = (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'));
+				IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 				INSERT  INTO #BlitzResults
 						( CheckID ,
 							Priority ,
