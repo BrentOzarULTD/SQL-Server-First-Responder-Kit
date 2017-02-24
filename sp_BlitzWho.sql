@@ -4,11 +4,16 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_BlitzWho] 
 	@Help TINYINT = 0 ,
-	@ShowSleepingSPIDs TINYINT = 0
+	@ShowSleepingSPIDs TINYINT = 0,
+	@VersionDate DATETIME = NULL OUTPUT
 AS
 BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '5.0';
+	SET @VersionDate = '20170301';
+
 
 	IF @Help = 1
 		PRINT '

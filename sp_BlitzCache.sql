@@ -228,7 +228,8 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
-    @MinimumExecutionCount INT = 0
+    @MinimumExecutionCount INT = 0,
+	@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 BEGIN
@@ -236,9 +237,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-DECLARE @VersionDate VARCHAR(30);
- SET @Version = '4.3';
- SET @VersionDate = '20170201';
+SET @Version = '5.0';
+SET @VersionDate = '20170301';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
