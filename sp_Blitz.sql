@@ -3576,7 +3576,7 @@ IF @ProductVersionMajor >= 10
 																	 ELSE CAST([current_size_in_kb] / 1024. AS VARCHAR(100))
 																		  + ' MB'
 								END +
-								'. Did you know that BPEs only provide single threaded access 8 bytes at a time?'	
+								'. Did you know that BPEs only provide single threaded access 8KB (one page) at a time?'	
 							   ) AS [Details]
 							 FROM sys.dm_os_buffer_pool_extension_configuration
 							 WHERE [state_description] <> 'BUFFER POOL EXTENSION DISABLED'
