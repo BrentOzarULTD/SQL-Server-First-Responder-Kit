@@ -462,6 +462,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
             equality_columns NVARCHAR(4000), 
             inequality_columns NVARCHAR(4000),
             included_columns NVARCHAR(4000),
+			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
                                     (user_seeks + user_scans)
@@ -1273,8 +1274,15 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
         INSERT    #MissingIndexes ( [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
-                                    inequality_columns,included_columns)
+                                    inequality_columns, included_columns)
         EXEC sp_executesql @dsql;
+
+		RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
+		UPDATE #MissingIndexes 
+		SET is_low = CASE WHEN (user_seeks + user_scans) < 10000 
+					      OR avg_user_impact < 70. THEN 1
+						  ELSE 0 
+					 END
 
         SET @dsql = N'
             SELECT ' + QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
@@ -1764,7 +1772,7 @@ BEGIN
         WHERE   [object_id] = @ObjectID
                 /* Minimum benefit threshold = 100k/day of uptime */
         AND (magic_benefit_number/@DaysUptime) >= 100000
-        ORDER BY magic_benefit_number DESC
+        ORDER BY is_low, magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END       
     ELSE     
@@ -2702,12 +2710,16 @@ BEGIN;
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info
                         FROM
                         (
-                            SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
+                            SELECT  ROW_NUMBER() OVER (ORDER BY mi.is_low, magic_benefit_number DESC) AS rownum,
                                 50 AS check_id, 
                                 sz.index_sanity_id,
                                 10 AS Priority,
                                 N'Indexaphobia' AS findings_group,
-                                N'High value missing index' AS finding, 
+                                N'High value missing index' + CASE mi.is_low 
+															  WHEN 0 THEN N' with High Impact' 
+															  WHEN 1 THEN N' with Low Impact'
+															  END
+															  AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/Indexaphobia' AS URL,
                                 mi.[statement] + 
@@ -2722,14 +2734,15 @@ BEGIN;
                                 sz.index_size_summary,
                                 mi.create_tsql,
                                 mi.more_info,
-                                magic_benefit_number
+                                magic_benefit_number,
+								mi.is_low
                         FROM    #MissingIndexes mi
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id AND DB_ID(mi.database_name) = sz.database_id
                                         /* Minimum benefit threshold = 100k/day of uptime */
                         WHERE ( @Mode = 4 AND (magic_benefit_number/@DaysUptime) >= 100000 ) OR (magic_benefit_number/@DaysUptime) >= 100000
                         ) AS t
                         WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
-                        ORDER BY magic_benefit_number DESC
+                        ORDER BY t.is_low, magic_benefit_number DESC
 
 
     END
@@ -3615,7 +3628,7 @@ BEGIN;
             N'',
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
             NULL, 0 AS display_order
-        ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+        ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 		OPTION (RECOMPILE);
 
     END /* End @Mode=3 (index detail)*/
