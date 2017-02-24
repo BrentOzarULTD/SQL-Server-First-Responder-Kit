@@ -100,7 +100,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
-    @ObjectFullName NVARCHAR(2000);
+    @ObjectFullName NVARCHAR(2000),
+	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
 
 /* Sanitize our inputs */
 SELECT
@@ -167,13 +168,12 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
 			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
 		END
 		ELSE
 		BEGIN
-		    DECLARE @BlitzWho NVARCHAR(MAX) = 'EXEC [dbo].[sp_BlitzWho] @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs)
 			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
@@ -2429,10 +2429,15 @@ BEGIN
 
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NOT NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
-			EXEC [dbo].[sp_BlitzWho]
+			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
+		END
+		ELSE
+		BEGIN
+			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
 
