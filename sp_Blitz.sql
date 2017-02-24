@@ -3124,7 +3124,7 @@ AS
 	                        END
 
 
-                        /* Performance - Log File Growths Slow */
+                        /* Performance - File Growths Slow */
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
@@ -3143,11 +3143,11 @@ AS
 					                            t.DatabaseName,
 						                        50 AS Priority ,
 						                        'Performance' AS FindingsGroup ,
-						                        'Log File Growths Slow' AS Finding ,
+						                        'File Growths Slow' AS Finding ,
 						                        'https://BrentOzar.com/go/filegrowth' AS URL ,
-						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting log file autogrowth to a smaller increment.' AS Details
+						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting file autogrowth to a smaller increment.' AS Details
                                         FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
-                                        WHERE t.EventClass = 93
+                                        WHERE t.EventClass IN (92, 93)
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
                                           AND t.Duration > 15000000
                                         GROUP BY t.DatabaseName
