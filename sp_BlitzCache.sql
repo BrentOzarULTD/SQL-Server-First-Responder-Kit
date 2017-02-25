@@ -1431,7 +1431,7 @@ SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q) + @nl ;
 SET @plans_triggers_select_list += N'
 SELECT TOP (@Top)
        @@SPID ,
-       ''#query_type#: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       ''Stored Procedure or Function: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
        (total_worker_time / 1000.0) AS TotalCPU ,
@@ -1511,7 +1511,7 @@ BEGIN
     SET @sql += N'
     SELECT TOP (@Top)
            @@SPID ,
-           ''#query_type#'' AS QueryType,
+           ''Statement'' AS QueryType,
            COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
            (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
            (total_worker_time / 1000.0) AS TotalCPU ,
