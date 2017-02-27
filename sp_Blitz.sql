@@ -668,7 +668,7 @@ AS
 										d.name AS DatabaseName ,
 										1 AS Priority ,
 										'Backup' AS FindingsGroup ,
-										'Full Recovery Mode w/o Log Backups' AS Finding ,
+										'Full Recovery Model w/o Log Backups' AS Finding ,
 										'https://BrentOzar.com/go/biglogs' AS URL ,
 										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
