@@ -130,13 +130,27 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 ## sp_BlitzIndex: Tune Your Indexes
 
-(stub - describe the big picture here)
+SQL Server tracks your indexes: how big they are, how often they change, whether they're used to make queries go faster, and which indexes you should consider adding. The results columns are fairly self-explanatory.
+
+By default, sp_BlitzIndex analyzes the indexes of the database you're in (your current context.)
+
+Common parameters include:
+
+* @DatabaseName - if you want to analyze a specific database
+* @SchemaName, @TableName - if you pass in these, sp_BlitzIndex does a deeper-dive analysis of just one table. You get several result sets back describing more information about the table's current indexes, foreign key relationships, missing indexes, and fields in the table.
+* @GetAllDatabases = 1 - slower, but lets you analyze all the databases at once, up to 50. If you want more than 50 databases, you also have to pass in @BringThePain = 1.
+* @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
+* @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
+
 
 ### Advanced sp_BlitzIndex Parameters
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
 
-(stub - describe the lesser-used stuff)
+* @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
+* @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
+* @Filter = 0 (default) - 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB
+
 
 ## sp_BlitzFirst: Real-Time Performance Advice
 
