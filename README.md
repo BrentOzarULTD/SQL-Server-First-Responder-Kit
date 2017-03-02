@@ -81,13 +81,52 @@ Checks for the existence of a table named Fred - just kidding, named DBAtools.db
 
 ## sp_BlitzCache: Find the Most Resource-Intensive Queries
 
-(stub - describe the big picture here)
+sp_BlitzCache looks at your plan cache where SQL Server keeps track of which queries have run recently, and how much impact they've had on the server.
+
+By default, it includes two result sets:
+
+* The first result set shows your 10 most resource-intensive queries.
+* The second result set explains the contents of the Warnings column - but it only shows the warnings that were produced in the first result set. (It's kinda like the most relevant glossary of execution plan terms.)
+
+Output columns include:
+
+* Database - the database context where the query ran. Keep in mind that if you fully qualify your object names, the same query might be run from multiple databases.
+* Cost - the Estimated Subtree Cost of the query, what Kendra Little calls "Query Bucks."
+* Query Text - don't copy/paste from here - it's only a quick reference. A better source for the query will show up later on.
+* Warnings - problems we found.
+* Created At - when the plan showed up in the cache.
+* Last Execution - maybe the query only runs at night.
+* Query Plan - click on this, and the graphical plan pops up.
+
+### Common sp_BlitzCache Parameters
+
+The @SortOrder parameter lets you pick which top 10 queries you want to examine:
+
+* reads - logical reads
+* CPU - from total_worker_time in sys.dm_exec_query_stats
+* executions - how many times the query ran since the CreationDate
+* xpm - executions per minute, derived from the CreationDate and LastExecution
+* recent compilations - if you're looking for things that are recompiling a lot
+* memory grant - if you're troubleshooting a RESOURCE_SEMAPHORE issue and want to find queries getting a lot of memory
+* writes - if you wanna find those pesky ETL processes
+* You can also use average or avg for a lot of the sorts, like @SortOrder = 'avg reads'
+
+Other common parameters include:
+
+* @Top = 10 - by default, you get 10 plans, but you can ask for more. Just know that the more you get, the slower it goes.
+* @ExportToExcel = 1 - turn this on, and it doesn't return XML fields that would hinder you from copy/pasting the data into Excel.
+* @ExpertMode = 1 - turn this on, and you get more columns with more data. Doesn't take longer to run though.
+* @IgnoreSystemDBs = 0 - if you want to show queries in master/model/msdb. By default we hide these.
+* @MinimumExecutionCount = 0 - in servers like data warehouses where lots of queries only run a few times, you can set a floor number for examination.
 
 ### Advanced sp_BlitzCache Parameters
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
-(stub - describe the lesser-used stuff)
+* OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
+* IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
+* OnlySqlHandles, @IgnoreSqlHandles - just like the above two params
+* @DatabaseName - if you only want to analyze plans in a single database. However, keep in mind that this is only the database context. A single query that runs in Database1 can join across objects in Database2 and Database3, but we can only know that it ran in Database1.
 
 ## sp_BlitzIndex: Tune Your Indexes
 
