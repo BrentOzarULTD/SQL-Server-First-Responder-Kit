@@ -3945,6 +3945,10 @@ SET @AllSortSql += N'
 					
 					IF @MemGrant = 0
 					BEGIN
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);'
+						END 
 					SET @AllSortSql += N'  SELECT * 
 										   FROM #bou_allsort 
 										   ORDER BY Id 
@@ -3962,9 +3966,12 @@ SET @AllSortSql += N'
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName;
 					 					  
-										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);
-												
-										  SELECT * 
+										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);'
+					IF @ExportToExcel = 1
+					BEGIN
+						SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);'
+					END 
+					SET @AllSortSql += N' SELECT * 
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  '
