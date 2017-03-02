@@ -996,7 +996,7 @@ BEGIN TRY
         SET        key_column_names_with_sort_order_no_types = D2.key_column_names_with_sort_order_no_types
         FROM    #IndexSanity si
                 CROSS APPLY ( SELECT    RTRIM(STUFF( (SELECT    N', ' + QUOTENAME(c.column_name) + CASE c.is_descending_key
-                                    WHEN 1 THEN N' [DESC]'
+                                    WHEN 1 THEN N' DESC'
                                     ELSE N''
                                 END AS col_definition
                             FROM    #IndexColumns c
