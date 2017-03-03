@@ -162,6 +162,24 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 (stub - describe the lesser-used stuff)
 
+## DatabaseRestore: Easier Multi-File Restores
+
+If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
+
+Parameters include:
+
+* @Database
+* @RestoreDatabaseName
+* @BackupPathFull
+* @BackupPathLog
+* @MoveFiles, @MOveDataDrive, @MoveLogDrive
+* @TestRestore
+* @RunCheckDB
+* @ContinueLogs
+* @RunRecovery
+
+For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
+
 ## Parameters Common to Many of the Stored Procedures
 
 * @Help = 1 - returns a result set or prints messages explaining the stored procedure's input and output. Make sure to check the Messages tab in SSMS to read it.
