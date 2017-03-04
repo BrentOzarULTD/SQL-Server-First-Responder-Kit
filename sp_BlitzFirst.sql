@@ -1343,6 +1343,21 @@ BEGIN
     WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * (DATEDIFF(ss,@StartSampleTime,@FinishSampleTime)) * 1000)) /* Only look for things we've actually waited on for half of the time or more */
     ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
 
+    /* Server Performance - Poison Wait Detected - CheckID 30 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
+    SELECT 30 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'Poison Wait Detected: ' + wNow.wait_type AS Finding,
+        N'http://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
+        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
+    FROM #WaitStats wNow
+    LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
+    WHERE wNow.wait_type IN ('RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE', 'THREADPOOL') AND wNow.wait_time_ms > wBase.wait_time_ms;
+
+
     /* Server Performance - Slow Data File Reads - CheckID 11 */
 	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE Finding LIKE 'PAGEIOLATCH%')
 	BEGIN
