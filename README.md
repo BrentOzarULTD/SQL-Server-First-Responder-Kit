@@ -13,7 +13,12 @@ You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's you
 
 To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/releases), then run the SQL files in the master database. (You can use other databases if you prefer.)
 
-Only Microsoft-supported versions of SQL Server are supported here - sorry, 2005 and 2000. Some of these may work some of the time on 2005, but no promises, and don't file a support issue when they fail. (For example, we know the output tables won't work on SQL 2005 because one of the output fields is a DATETIMEOFFSET datatype, which isn't available in 2005.)
+The First Responder Kit runs on:
+
+* SQL Server 2008, 2008R2, 2012, 2014, 2016 - yes, fully supported
+* SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
+* Amazon RDS SQL Server - fully supported
+* Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
 
 ## How to Get Support
 
