@@ -630,7 +630,6 @@ BEGIN
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS)
 
-
 	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
 
 
@@ -1460,6 +1459,24 @@ BEGIN
         AND ps.counter_name = 'Batch Requests/sec'
         AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
         AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
+
+    /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 29 AS CheckID,
+        40 AS Priority,
+        'Table Problems' AS FindingGroup,
+        'Forwarded Fetches/Sec High' AS Finding,
+        'https://BrentOzar.com/go/fetch/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(20)) + ' Forwarded Records (from SQLServer:Access Methods counter)' + @LineFeed
+            + 'Check your heaps: they need to be rebuilt, or they need a clustered index applied.' + @LineFeed AS Details,
+        'Rebuild your heaps. If you use Ola Hallengren maintenance scripts, those do not rebuild heaps by default: https://www.brentozar.com/archive/2016/07/fix-forwarded-records/' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':Access Methods' AND psComp.counter_name = 'Forwarded Records/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name = @ServiceName + ':Access Methods'
+        AND ps.counter_name = 'Forwarded Records/sec'
+        AND ps.value_delta > (100 * @Seconds) /* Ignore servers sitting idle */
+
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
