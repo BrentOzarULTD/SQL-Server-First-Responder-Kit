@@ -3615,7 +3615,8 @@ BEGIN;
             index_estimated_impact AS [Estimated Impact], 
             create_tsql AS [Create TSQL], 
             more_info AS [More Info],
-            1 AS [Display Order]
+            1 AS [Display Order],
+			is_low
         FROM #MissingIndexes
         /* Minimum benefit threshold = 100k/day of uptime */
         WHERE (magic_benefit_number/@DaysUptime) >= 100000
@@ -3627,7 +3628,7 @@ BEGIN;
             100000000000,
             N'',
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-            NULL, 0 AS display_order
+            NULL, 0 AS [Display Order], NULL AS is_low
         ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 		OPTION (RECOMPILE);
 
