@@ -675,13 +675,13 @@ BEGIN
     END
 
 
-    /* Maintenance Tasks Running - DBCC Running - CheckID 2 */
-    IF @Seconds > 0
+    /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
+    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 2 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
-        'DBCC Running' AS Finding,
+        'DBCC CHECK* Running' AS Finding,
         'http://www.BrentOzar.com/askbrent/dbcc/' AS URL,
         'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
         'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
@@ -705,7 +705,9 @@ BEGIN
     AND    l.request_status = N'GRANT'
     AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'DBCC%';
+    CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+    WHERE r.command LIKE 'DBCC%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%';
 
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */

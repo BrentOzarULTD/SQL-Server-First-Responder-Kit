@@ -9,7 +9,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
 | 1 | Maintenance Tasks Running | Backup Running | http://BrentOzar.com/askbrent/backups | 1 |
-| 1 | Maintenance Tasks Running | DBCC Running | http://BrentOzar.com/askbrent/dbcc | 2 |
+| 1 | Maintenance Tasks Running | DBCC CHECK* Running | http://BrentOzar.com/askbrent/dbcc | 2 |
 | 1 | Maintenance Tasks Running | Restore Running | http://BrentOzar.com/askbrent/backups | 3 |
 | 1 | Outdated sp_AskBrent | sp_AskBrent is Over 6 Months Old | http://BrentOzar.com/askbrent/ | 27 |
 | 1 | Query Problems | Long-Running Query Blocking Others | http://BrentOzar.com/go/blocking | 5 |
