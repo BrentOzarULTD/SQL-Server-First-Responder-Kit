@@ -18,6 +18,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 1 | SQL Server Internal Maintenance | Data File Growing | http://BrentOzar.com/go/instant | 4 |
 | 1 | SQL Server Internal Maintenance | Log File Growing | http://BrentOzar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | http://BrentOzar.com/go/logsize | 14 |
+| 40 | Table Problems | Forwarded Fetches/Sec High | http://BrentOzar.com/go/fetch | 29 |
 | 10 | Server Performance | Poison Wait Detected | http://BrentOzar.com/go/poison | 30 |
 | 50 | Query Problems | Compilations/Sec High | http://BrentOzar.com/go/compile | 15 |
 | 50 | Query Problems | Plan Cache Erased Recently | http://BrentOzar.com/go/freeproccache | 7 |
