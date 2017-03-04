@@ -1703,7 +1703,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 121)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1739,7 +1739,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -1825,7 +1825,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -1857,7 +1857,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -1933,7 +1933,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
 
@@ -1959,7 +1959,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -2033,7 +2033,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
     END
@@ -2055,7 +2055,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
     END
