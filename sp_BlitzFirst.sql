@@ -1434,7 +1434,9 @@ BEGIN
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
-        'Find out why plans are not being reused, and consider enabling Forced Parameterization. See the URL for more details.' AS HowToStopIt
+        'To find the queries that are compiling, start with:' + @LineFeed
+            + 'sp_BlitzCache @SortOrder = ''recent compilations''' + @LineFeed
+            + 'If dynamic SQL or non-parameterized strings are involved, consider enabling Forced Parameterization. See the URL for more details.' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':SQL Statistics' AND psComp.counter_name = 'SQL Compilations/sec' AND psComp.value_delta > 0
     WHERE ps.Pass = 2
@@ -1453,7 +1455,9 @@ BEGIN
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
-        'Find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' AS HowToStopIt
+        'To find the queries that are being forced to recompile, start with:' + @LineFeed
+            + 'sp_BlitzCache @SortOrder = ''recent compilations''' + @LineFeed
+            + 'Examine those plans to find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':SQL Statistics' AND psComp.counter_name = 'SQL Re-Compilations/sec' AND psComp.value_delta > 0
     WHERE ps.Pass = 2
