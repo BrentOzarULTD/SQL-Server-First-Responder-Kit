@@ -9,7 +9,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
 | 1 | Maintenance Tasks Running | Backup Running | http://BrentOzar.com/askbrent/backups | 1 |
-| 1 | Maintenance Tasks Running | DBCC Running | http://BrentOzar.com/askbrent/dbcc | 2 |
+| 1 | Maintenance Tasks Running | DBCC CHECK* Running | http://BrentOzar.com/askbrent/dbcc | 2 |
 | 1 | Maintenance Tasks Running | Restore Running | http://BrentOzar.com/askbrent/backups | 3 |
 | 1 | Outdated sp_BlitzFirst | sp_BlitzFirst is Over 6 Months Old | http://BrentOzar.com/askbrent/ | 27 |
 | 1 | Query Problems | Long-Running Query Blocking Others | http://BrentOzar.com/go/blocking | 5 |
@@ -18,6 +18,8 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 1 | SQL Server Internal Maintenance | Data File Growing | http://BrentOzar.com/go/instant | 4 |
 | 1 | SQL Server Internal Maintenance | Log File Growing | http://BrentOzar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | http://BrentOzar.com/go/logsize | 14 |
+| 40 | Table Problems | Forwarded Fetches/Sec High | http://BrentOzar.com/go/fetch | 29 |
+| 10 | Server Performance | Poison Wait Detected | http://BrentOzar.com/go/poison | 30 |
 | 50 | Query Problems | Compilations/Sec High | http://BrentOzar.com/go/compile | 15 |
 | 50 | Query Problems | Plan Cache Erased Recently | http://BrentOzar.com/go/freeproccache | 7 |
 | 50 | Query Problems | Re-Compilations/Sec High | http://BrentOzar.com/go/recompile | 16 |
