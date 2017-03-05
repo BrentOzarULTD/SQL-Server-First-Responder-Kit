@@ -43,11 +43,9 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | TempDB on C Drive | https://www.BrentOzar.com/go/cdrive | 25 |
 | 50 | Performance | Instant File Initialization Not Enabled | https://www.BrentOzar.com/go/instant | 192 |
 | 50 | Performance | File Growths Slow | https://www.BrentOzar.com/go/filegrowth | 151 |
+| 50 | Performance | Poison Wait Detected | https://www.BrentOzar.com/go/poison | 107 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | https://www.BrentOzar.com/go/poison | 162 |
-| 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE | https://www.BrentOzar.com/go/poison | 108 |
-| 50 | Performance | Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE | https://www.BrentOzar.com/go/poison | 109 |
 | 50 | Performance | Poison Wait Detected: Serializable Locking | https://www.BrentOzar.com/go/serializable | 121 |
-| 50 | Performance | Poison Wait Detected: THREADPOOL | https://www.BrentOzar.com/go/poison | 107 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Reliability | Database Snapshot Online | https://www.BrentOzar.com/go/snapshot | 77 |
 | 50 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
