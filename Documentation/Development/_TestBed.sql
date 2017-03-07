@@ -21,6 +21,13 @@ EXEC sp_BlitzIndex @DatabaseName = 'StackOverflow', @Mode = 4, @SkipPartitions =
 
 EXEC sp_BlitzIndex @DatabaseName = 'ChangeMe', @Mode = 4, @SkipPartitions = 0, @SkipStatistics = 0
 
+EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 1
+
+EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 2
+
+EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 3
+
+
 /*BlitzCache*/
 EXEC sp_BlitzCache @SortOrder = 'all'
 
