@@ -287,6 +287,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
               [index_sanity_id] INT NULL ,
               [database_id] INT NOT NULL ,
               [object_id] INT NOT NULL ,
+			  [schema_name] NVARCHAR(128) NOT NULL,
               [index_id] INT NOT NULL ,
               [partition_number] INT NOT NULL ,
               row_count BIGINT NOT NULL ,
@@ -1073,6 +1074,7 @@ BEGIN TRY
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT    ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
                                 ps.object_id, 
+								s.name,
                                 ps.index_id, 
                                 ps.partition_number, 
                                 ps.row_count,
@@ -1103,6 +1105,7 @@ BEGIN TRY
                     JOIN ' + QUOTENAME(@DatabaseName) + '.sys.objects AS so ON ps.object_id = so.object_id
                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                AND so.type <> ''TF'' /*Exclude table valued functions*/
+					JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
                     LEFT JOIN ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_index_operational_stats('
                 + CAST(@DatabaseID AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
                     ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
@@ -1121,6 +1124,7 @@ BEGIN TRY
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
                                 ps.object_id, 
+								s.name,
                                 ps.index_id, 
                                 ps.partition_number, 
                                 ps.row_count,
@@ -1151,6 +1155,7 @@ BEGIN TRY
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so ON ps.object_id = so.object_id
                                    AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                    AND so.type <> ''TF'' /*Exclude table valued functions*/
+						JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
                         OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
                     + CAST(@DatabaseID AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
                         WHERE 1=1 
@@ -1167,6 +1172,7 @@ BEGIN TRY
         RAISERROR (N'Inserting data into #IndexPartitionSanity',0,1) WITH NOWAIT;
         INSERT    #IndexPartitionSanity ( [database_id],
                                           [object_id], 
+										  [schema_name],
                                           index_id, 
                                           partition_number, 
                                           row_count, 
