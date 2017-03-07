@@ -501,7 +501,9 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
             );
 
         CREATE TABLE #ForeignKeys (
+			[database_id] INT NOT NULL,
             [database_name] NVARCHAR(128) NOT NULL ,
+			[schema_name] NVARCHAR(128) NOT NULL ,
             foreign_key_name NVARCHAR(256),
             parent_object_id INT,
             parent_object_name NVARCHAR(256),
@@ -1286,7 +1288,9 @@ BEGIN TRY
 					 END
 
         SET @dsql = N'
-            SELECT ' + QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
+            SELECT DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], '
+			    + QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
+				s.name,
                 fk_object.name AS foreign_key_name,
                 parent_object.[object_id] AS parent_object_id,
                 parent_object.name AS parent_object_name,
@@ -1303,6 +1307,7 @@ BEGIN TRY
             JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
             JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
             JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON fk.schema_id=s.schema_id
             CROSS APPLY ( SELECT    STUFF( (SELECT    N'', '' + c_parent.name AS fk_columns
                                             FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
                                             JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
@@ -1330,7 +1335,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
         RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
-        INSERT  #ForeignKeys ( [database_name], foreign_key_name, parent_object_id,parent_object_name, referenced_object_id, referenced_object_name,
+        INSERT  #ForeignKeys ( [database_id], [database_name], [schema_name], foreign_key_name, parent_object_id,parent_object_name, referenced_object_id, referenced_object_name,
                                 is_disabled, is_not_trusted, is_not_for_replication, parent_fk_columns, referenced_fk_columns,
                                 [update_referential_action_desc], [delete_referential_action_desc] )
                 EXEC sp_executesql @dsql;
