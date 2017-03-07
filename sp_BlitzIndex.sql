@@ -1635,7 +1635,7 @@ BEGIN TRY
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
 			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
-			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS [database_name],
 							   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
    					   		   t.name AS table_name,
    					           s.name AS schema_name,
@@ -1663,7 +1663,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
 			INSERT #ComputedColumns
-			        ( database_name, database_id, table_name, schema_name, column_name, is_nullable, definition, 
+			        ( [database_name], database_id, table_name, schema_name, column_name, is_nullable, definition, 
 					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
 			EXEC sp_executesql @dsql;
 
