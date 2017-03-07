@@ -1890,13 +1890,13 @@ BEGIN;
 
         RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
-                      AS ( SELECT    [object_id], key_column_names, database_id
+                      AS ( SELECT    [object_id], key_column_names, database_id, [schema_name]
                            FROM        #IndexSanity
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
 								AND is_primary_key = 0
-                           GROUP BY    [object_id], key_column_names, database_id
+                           GROUP BY    [object_id], key_column_names, database_id, [schema_name]
                            HAVING    COUNT(*) > 1)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -1915,6 +1915,7 @@ BEGIN;
                         FROM    duplicate_indexes di
                                 JOIN #IndexSanity ip ON di.[object_id] = ip.[object_id]
                                                          AND ip.database_id = di.database_id
+														 AND ip.[schema_name] = di.[schema_name]
                                                          AND di.key_column_names = ip.key_column_names
                                 JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id AND ip.database_id = ips.database_id
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
@@ -2207,11 +2208,15 @@ BEGIN;
             RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
+								   [database_id],
+								   [schema_name],
                                 SUM(CASE is_nullable WHEN 1 THEN 0 ELSE 1 END) AS non_nullable_columns,
                                 COUNT(*) AS total_columns
                             FROM #IndexColumns ic
                             WHERE index_id IN (1,0) /*Heap or clustered only*/
-                            GROUP BY object_id
+                            GROUP BY [object_id],
+								     [database_id],
+								     [schema_name]
                             )
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -2233,6 +2238,8 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
+								AND cc.database_id = ip.database_id
+								AND cc.[schema_name] = ip.[schema_name]
                         WHERE    i.index_id IN (1,0)
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                             AND cc.non_nullable_columns < 2
@@ -2242,12 +2249,16 @@ BEGIN;
             RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
+								   [database_id],
+								   [schema_name],
                                 SUM(CASE max_length WHEN -1 THEN 1 ELSE 0 END) AS count_lob_columns,
                                 SUM(CASE max_length WHEN -1 THEN 0 ELSE max_length END) AS sum_max_length,
                                 COUNT(*) AS total_columns
                             FROM #IndexColumns ic
                             WHERE index_id IN (1,0) /*Heap or clustered only*/
-                            GROUP BY object_id
+                            GROUP BY [object_id],
+								     [database_id],
+								     [schema_name]
                             )
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -2273,6 +2284,8 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
+								AND cc.database_id = i.database_id
+								AND cc.[schema_name] = i.[schema_name]
                         WHERE    i.index_id IN (1,0)
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                             AND 
@@ -2283,11 +2296,15 @@ BEGIN;
             RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
+								   [database_id],
+								   [schema_name],
                                 SUM(CASE WHEN system_type_name IN ('varchar','nvarchar','char') OR max_length=-1 THEN 1 ELSE 0 END) AS string_or_LOB_columns,
                                 COUNT(*) AS total_columns
                             FROM #IndexColumns ic
                             WHERE index_id IN (1,0) /*Heap or clustered only*/
-                            GROUP BY object_id
+                            GROUP BY [object_id],
+								     [database_id],
+								     [schema_name]
                             )
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -2309,6 +2326,8 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
+								AND cc.database_id = i.database_id
+								AND cc.[schema_name] = i.[schema_name]
                         CROSS APPLY (SELECT cc.total_columns - string_or_LOB_columns AS non_string_or_lob_columns) AS calc1
                         WHERE    i.index_id IN (1,0)
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
@@ -2440,10 +2459,11 @@ BEGIN;
                 i.index_usage_summary, 
                 sz.index_size_summary
         FROM #IndexColumns ic 
-        JOIN #IndexSanity i ON 
-            ic.[object_id]=i.[object_id] AND
-            ic.[index_id]=i.[index_id] AND
-            i.[index_id] > 1 /* non-clustered index */
+        JOIN #IndexSanity i ON ic.[object_id]=i.[object_id] 
+			AND ic.database_id =i.database_id
+			AND ic.schema_name = i.schema_name
+			AND ic.[index_id]=i.[index_id] 
+			AND i.[index_id] > 1 /* non-clustered index */
         JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
         WHERE (column_name LIKE 'is%'
             OR column_name LIKE '%archive%'
