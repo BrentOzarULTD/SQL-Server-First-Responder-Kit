@@ -36,8 +36,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '4.8';
-SET @VersionDate = '20170201';
+SET @Version = '5.0';
+SET @VersionDate = '20170307';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -462,6 +462,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
             equality_columns NVARCHAR(4000), 
             inequality_columns NVARCHAR(4000),
             included_columns NVARCHAR(4000),
+			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
                                     (user_seeks + user_scans)
@@ -995,7 +996,7 @@ BEGIN TRY
         SET        key_column_names_with_sort_order_no_types = D2.key_column_names_with_sort_order_no_types
         FROM    #IndexSanity si
                 CROSS APPLY ( SELECT    RTRIM(STUFF( (SELECT    N', ' + QUOTENAME(c.column_name) + CASE c.is_descending_key
-                                    WHEN 1 THEN N' [DESC]'
+                                    WHEN 1 THEN N' DESC'
                                     ELSE N''
                                 END AS col_definition
                             FROM    #IndexColumns c
@@ -1273,8 +1274,15 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
         INSERT    #MissingIndexes ( [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
-                                    inequality_columns,included_columns)
+                                    inequality_columns, included_columns)
         EXEC sp_executesql @dsql;
+
+		RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
+		UPDATE #MissingIndexes 
+		SET is_low = CASE WHEN (user_seeks + user_scans) < 10000 
+					      OR avg_user_impact < 70. THEN 1
+						  ELSE 0 
+					 END
 
         SET @dsql = N'
             SELECT ' + QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
@@ -1764,7 +1772,7 @@ BEGIN
         WHERE   [object_id] = @ObjectID
                 /* Minimum benefit threshold = 100k/day of uptime */
         AND (magic_benefit_number/@DaysUptime) >= 100000
-        ORDER BY magic_benefit_number DESC
+        ORDER BY is_low, magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END       
     ELSE     
@@ -1948,7 +1956,7 @@ BEGIN;
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) > 5000
-				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary
+				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
                 OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 12: Total lock wait time > 5 minutes (row + page) with short average waits', 0,1) WITH NOWAIT;
@@ -1973,7 +1981,7 @@ BEGIN;
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) < 5000
-				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary
+				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
                 OPTION    ( RECOMPILE );
 
         END
@@ -2515,11 +2523,11 @@ BEGIN;
 
             RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
             WITH    heaps_cte
-                      AS ( SELECT    [object_id], 
+                      AS ( SELECT    [object_id], [database_id], 
                                     SUM(forwarded_fetch_count) AS forwarded_fetch_count,
                                     SUM(leaf_delete_count) AS leaf_delete_count
                            FROM        #IndexPartitionSanity
-                           GROUP BY    [object_id]
+                           GROUP BY    [object_id], [database_id]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2539,7 +2547,7 @@ BEGIN;
                                 i.index_usage_summary,
                                 sz.index_size_summary
                         FROM    #IndexSanity i
-                        JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        JOIN heaps_cte h ON i.[object_id] = h.[object_id] AND i.[database_id] = h.[database_id]
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                         AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
@@ -2547,10 +2555,10 @@ BEGIN;
 
             RAISERROR(N'check_id 44: Large Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
-                      AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+                      AS ( SELECT    [object_id], [database_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
                                     SUM(leaf_delete_count) AS leaf_delete_count
                            FROM        #IndexPartitionSanity
-                           GROUP BY    [object_id]
+                           GROUP BY    [object_id], [database_id]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2568,7 +2576,7 @@ BEGIN;
                                 i.index_usage_summary,
                                 sz.index_size_summary
                         FROM    #IndexSanity i
-                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] AND i.[database_id] = h.[database_id]
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                                 AND 
@@ -2580,10 +2588,10 @@ BEGIN;
 
             RAISERROR(N'check_id 45: Medium Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
-                      AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+                      AS ( SELECT    [object_id], [database_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
                                     SUM(leaf_delete_count) AS leaf_delete_count
                            FROM        #IndexPartitionSanity
-                           GROUP BY    [object_id]
+                           GROUP BY    [object_id], [database_id]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2601,7 +2609,7 @@ BEGIN;
                                 i.index_usage_summary,
                                 sz.index_size_summary
                         FROM    #IndexSanity i
-                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] AND i.[database_id] = h.[database_id]
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                                 AND 
@@ -2613,10 +2621,10 @@ BEGIN;
 
             RAISERROR(N'check_id 46: Small Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
-                      AS ( SELECT    [object_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
+                      AS ( SELECT    [object_id], [database_id], SUM(forwarded_fetch_count) AS forwarded_fetch_count,
                                     SUM(leaf_delete_count) AS leaf_delete_count
                            FROM        #IndexPartitionSanity
-                           GROUP BY    [object_id]
+                           GROUP BY    [object_id], [database_id]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2634,7 +2642,7 @@ BEGIN;
                                 i.index_usage_summary,
                                 sz.index_size_summary
                         FROM    #IndexSanity i
-                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
+                        LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] AND i.[database_id] = h.[database_id]
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                                 AND 
@@ -2702,12 +2710,16 @@ BEGIN;
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info
                         FROM
                         (
-                            SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
+                            SELECT  ROW_NUMBER() OVER (ORDER BY mi.is_low, magic_benefit_number DESC) AS rownum,
                                 50 AS check_id, 
                                 sz.index_sanity_id,
                                 10 AS Priority,
                                 N'Indexaphobia' AS findings_group,
-                                N'High value missing index' AS finding, 
+                                N'High value missing index' + CASE mi.is_low 
+															  WHEN 0 THEN N' with High Impact' 
+															  WHEN 1 THEN N' with Low Impact'
+															  END
+															  AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/Indexaphobia' AS URL,
                                 mi.[statement] + 
@@ -2722,14 +2734,15 @@ BEGIN;
                                 sz.index_size_summary,
                                 mi.create_tsql,
                                 mi.more_info,
-                                magic_benefit_number
+                                magic_benefit_number,
+								mi.is_low
                         FROM    #MissingIndexes mi
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id AND DB_ID(mi.database_name) = sz.database_id
                                         /* Minimum benefit threshold = 100k/day of uptime */
                         WHERE ( @Mode = 4 AND (magic_benefit_number/@DaysUptime) >= 100000 ) OR (magic_benefit_number/@DaysUptime) >= 100000
                         ) AS t
                         WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
-                        ORDER BY magic_benefit_number DESC
+                        ORDER BY t.is_low, magic_benefit_number DESC
 
 
     END
@@ -3602,7 +3615,8 @@ BEGIN;
             index_estimated_impact AS [Estimated Impact], 
             create_tsql AS [Create TSQL], 
             more_info AS [More Info],
-            1 AS [Display Order]
+            1 AS [Display Order],
+			is_low
         FROM #MissingIndexes
         /* Minimum benefit threshold = 100k/day of uptime */
         WHERE (magic_benefit_number/@DaysUptime) >= 100000
@@ -3614,8 +3628,8 @@ BEGIN;
             100000000000,
             N'',
             NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-            NULL, 0 AS display_order
-        ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+            NULL, 0 AS [Display Order], NULL AS is_low
+        ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 		OPTION (RECOMPILE);
 
     END /* End @Mode=3 (index detail)*/
