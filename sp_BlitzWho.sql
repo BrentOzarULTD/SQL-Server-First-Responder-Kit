@@ -12,7 +12,7 @@ BEGIN
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
 	SET @Version = '5.0';
-	SET @VersionDate = '20170301';
+	SET @VersionDate = '20170307';
 
 
 	IF @Help = 1
