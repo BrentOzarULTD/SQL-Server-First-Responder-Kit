@@ -425,6 +425,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
         CREATE TABLE #IndexColumns
             (
               [database_id] INT NOT NULL,
+			  [schema_name] NVARCHAR(128),
               [object_id] INT NOT NULL ,
               [index_id] INT NOT NULL ,
               [key_ordinal] INT NULL ,
@@ -795,7 +796,8 @@ BEGIN TRY
         --insert columns for clustered indexes and heaps
         --collect info on identity columns for this one
         SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',    
+                SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',
+					s.name,    
                     si.object_id, 
                     si.index_id, 
                     sc.key_ordinal, 
@@ -831,6 +833,7 @@ BEGIN TRY
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types st ON 
                     c.system_type_id=st.system_type_id
                     AND c.user_type_id=st.user_type_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON s.schema_id = st.schema_id
                 WHERE si.index_id in (0,1) ' 
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
@@ -841,7 +844,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
         RAISERROR (N'Inserting data into #IndexColumns for clustered indexes and heaps',0,1) WITH NOWAIT;
-        INSERT    #IndexColumns ( database_id, object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+        INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
             column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
             is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
                 EXEC sp_executesql @dsql;
@@ -850,7 +853,8 @@ BEGIN TRY
         --this uses a full join to sys.index_columns
         --We don't collect info on identity columns here. They may be in NC indexes, but we just analyze identities in the base table.
         SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',    
+                SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ', 
+					s.name,    
                     si.object_id, 
                     si.index_id, 
                     sc.key_ordinal, 
@@ -879,6 +883,7 @@ BEGIN TRY
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS st ON 
                     c.system_type_id=st.system_type_id
                     AND c.user_type_id=st.user_type_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON s.schema_id = st.schema_id
                 WHERE si.index_id not in (0,1) ' 
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
@@ -889,7 +894,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
         RAISERROR (N'Inserting data into #IndexColumns for nonclustered indexes',0,1) WITH NOWAIT;
-        INSERT    #IndexColumns ( database_id, object_id, index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+        INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
             column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
             is_replicated, is_sparse, is_filestream )
                 EXEC sp_executesql @dsql;
