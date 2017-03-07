@@ -962,6 +962,7 @@ BEGIN TRY
                                         AS col_definition
                                     FROM    #IndexColumns c
                                     WHERE    c.database_id= si.database_id
+											AND c.schema_name = si.schema_name
                                             AND c.object_id = si.object_id
                                             AND c.index_id = si.index_id
                                             AND c.is_included_column = 0 /*Just Keys*/
@@ -977,6 +978,7 @@ BEGIN TRY
                 CROSS APPLY ( SELECT    RTRIM(STUFF( (SELECT    N', ' + c.column_name AS col_definition
                                     FROM    #IndexColumns c
                                     WHERE    c.database_id= si.database_id
+											AND c.schema_name = si.schema_name
                                             AND c.object_id = si.object_id
                                             AND c.index_id = si.index_id
                                             AND c.partition_ordinal <> 0 /*Just Partitioned Keys*/
@@ -995,6 +997,7 @@ BEGIN TRY
                                 END AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
+									AND c.schema_name = si.schema_name
                                     AND c.object_id = si.object_id
                                     AND c.index_id = si.index_id
                                     AND c.is_included_column = 0 /*Just Keys*/
@@ -1013,6 +1016,7 @@ BEGIN TRY
                                 END AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
+									AND c.schema_name = si.schema_name
                                     AND c.object_id = si.object_id
                                     AND c.index_id = si.index_id
                                     AND c.is_included_column = 0 /*Just Keys*/
@@ -1029,6 +1033,7 @@ BEGIN TRY
                                 + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
                                 FROM    #IndexColumns c
                                 WHERE    c.database_id= si.database_id
+										AND c.schema_name = si.schema_name
                                         AND c.object_id = si.object_id
                                         AND c.index_id = si.index_id
                                         AND c.is_included_column = 1 /*Just includes*/
@@ -1044,6 +1049,7 @@ BEGIN TRY
                 CROSS APPLY ( SELECT    RTRIM(STUFF( (SELECT    N', ' + QUOTENAME(c.column_name)
                                 FROM    #IndexColumns c
                                         WHERE    c.database_id= si.database_id
+										AND c.schema_name = si.schema_name
                                         AND c.object_id = si.object_id
                                         AND c.index_id = si.index_id
                                         AND c.is_included_column = 1 /*Just includes*/
@@ -1065,6 +1071,7 @@ BEGIN TRY
                                             END) AS count_key_columns
                               FROM        #IndexColumns c
                                     WHERE    c.database_id= si.database_id
+											AND c.schema_name = si.schema_name
                                             AND c.object_id = si.object_id
                                         AND c.index_id = si.index_id 
                                         ) AS D4 ( count_included_columns, count_key_columns );
