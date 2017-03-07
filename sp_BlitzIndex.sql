@@ -448,7 +448,8 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
             );
 
         CREATE TABLE #MissingIndexes
-            ([object_id] INT NOT NULL,
+            ([database_id] INT NOT NULL,
+			[object_id] INT NOT NULL,
             [database_name] NVARCHAR(128) NOT NULL ,
             [schema_name] NVARCHAR(128) NOT NULL ,
             [table_name] NVARCHAR(128),
@@ -1254,7 +1255,7 @@ BEGIN TRY
 
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                SELECT    id.object_id, ' + QUOTENAME(@DatabaseName,'''') + N', sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
+                SELECT  id.database_id, id.object_id, ' + QUOTENAME(@DatabaseName,'''') + N', sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
                         gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
                         id.inequality_columns,id.included_columns
                 FROM    sys.dm_db_missing_index_groups ig
@@ -1272,7 +1273,7 @@ BEGIN TRY
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
-        INSERT    #MissingIndexes ( [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
+        INSERT    #MissingIndexes ( [database_id], [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
                                     inequality_columns, included_columns)
         EXEC sp_executesql @dsql;
