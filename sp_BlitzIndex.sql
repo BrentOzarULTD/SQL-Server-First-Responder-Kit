@@ -320,6 +320,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
               [index_sanity_size_id] INT IDENTITY NOT NULL ,
               [index_sanity_id] INT NULL ,
               [database_id] INT NOT NULL,
+			  [schema_name] NVARCHAR(128) NOT NULL,
               partition_count INT NOT NULL ,
               total_rows BIGINT NOT NULL ,
               total_reserved_MB NUMERIC(29,2) NOT NULL ,
@@ -1211,7 +1212,7 @@ BEGIN TRY
 
 
         RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
-        INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], partition_count, total_rows, total_reserved_MB,
+        INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], partition_count, total_rows, total_reserved_MB,
                                      total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
                                      total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
                                      total_forwarded_fetch_count,total_row_lock_count,
@@ -1219,7 +1220,8 @@ BEGIN TRY
                                      total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
                                      avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
                                      total_index_lock_promotion_count, data_compression_desc )
-                SELECT    index_sanity_id, ipp.database_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
+                SELECT    index_sanity_id, ipp.database_id, ipp.schema_name,						
+						COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
                         SUM(reserved_row_overflow_MB), 
                         SUM(range_scan_count),
                         SUM(singleton_lookup_count),
@@ -1253,7 +1255,7 @@ BEGIN TRY
                     FOR      XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
                         data_compression_info(data_compression_rollup)
                 WHERE ipp.database_id = @DatabaseID
-                GROUP BY index_sanity_id, ipp.database_id
+                GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name
                 ORDER BY index_sanity_id 
         OPTION    ( RECOMPILE );
 
@@ -3542,7 +3544,7 @@ BEGIN;
         RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
         SELECT  [database_name] AS [Database Name], 
-                [schema_name] AS [Schema Name], 
+                i.[schema_name] AS [Schema Name], 
                 [object_name] AS [Object Name], 
                 ISNULL(index_name, '') AS [Index Name], 
                 CAST(index_id AS VARCHAR(10))AS [Index ID],
