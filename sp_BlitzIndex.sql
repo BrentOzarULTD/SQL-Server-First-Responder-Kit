@@ -564,6 +564,7 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 		(
 		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
 		  database_name NVARCHAR(128) NULL,
+		  database_id INT NOT NULL,
 		  table_name NVARCHAR(128) NOT NULL,
 		  schema_name NVARCHAR(128) NOT NULL,
 		  column_name NVARCHAR(128) NULL,
@@ -1635,6 +1636,7 @@ BEGIN TRY
 			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS DatabaseName,
+							   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
    					   		   t.name AS table_name,
    					           s.name AS schema_name,
    					           c.name AS column_name,
@@ -1661,7 +1663,7 @@ BEGIN TRY
             RAISERROR('@dsql is null',16,1);
 
 			INSERT #ComputedColumns
-			        ( database_name, table_name, schema_name, column_name, is_nullable, definition, 
+			        ( database_name, database_id, table_name, schema_name, column_name, is_nullable, definition, 
 					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
 			EXEC sp_executesql @dsql;
 
