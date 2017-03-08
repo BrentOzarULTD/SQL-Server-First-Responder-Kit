@@ -3542,6 +3542,8 @@ BEGIN;
 		DECLARE @LinkedServerDBCheck NVARCHAR(2000)
 		DECLARE @ValidLinkedServerDB INT
 		DECLARE @tmpdbchk table (cnt int)
+		DECLARE @StringToExecute NVARCHAR(MAX);
+		
 		IF @OutputServerName IS NOT NULL
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -3609,7 +3611,6 @@ BEGIN;
 
 		/* @OutputTableName lets us export the results to a permanent table */
 		DECLARE @RunId UNIQUEIDENTIFIER;
-		DECLARE @StringToExecute NVARCHAR(MAX);
 		SET @RunId = NEWID();
 		
 		IF @ValidOutputLocation = 1
