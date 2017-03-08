@@ -3544,7 +3544,11 @@ BEGIN;
 		DECLARE @tmpdbchk table (cnt int)
 		IF @OutputServerName IS NOT NULL
 			BEGIN
-				IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+				IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+					BEGIN
+						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
+					END
+				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 					BEGIN
 						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')'
 						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck
@@ -3583,6 +3587,20 @@ BEGIN;
 					BEGIN
 						RAISERROR('The specified output database was not found on this server', 16, 0)
 					END
+				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+					BEGIN
+						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+						EXEC(@StringToExecute);
+						
+						SET @OutputDatabaseName = '[tempdb]';
+						SET @OutputSchemaName = '[dbo]';
+						SET @ValidOutputLocation = 1;
+					END
+				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+					BEGIN
+						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+					END
 				ELSE
 					BEGIN
 						SET @ValidOutputLocation = 0 
@@ -3593,27 +3611,6 @@ BEGIN;
 		DECLARE @RunId UNIQUEIDENTIFIER;
 		DECLARE @StringToExecute NVARCHAR(MAX);
 		SET @RunId = NEWID();
-		
-		IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
-			BEGIN
-				IF @ValidOutputServer = 1
-					BEGIN
-						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
-					END
-				ELSE
-					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
-						EXEC(@StringToExecute);
-						SET @OutputDatabaseName = '[tempdb]';
-						SET @OutputSchemaName = '[dbo]';
-						SET @ValidOutputLocation = 1;
-					END
-			END
-		ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
-			BEGIN
-				RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
-			END
 		
 		IF @ValidOutputLocation = 1
 			BEGIN
@@ -3722,7 +3719,8 @@ IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMAT
 	SET @TableExists = 0
 ELSE
 	SET @TableExists = 1';
-	
+				
+				SET @TableExists = NULL
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
@@ -3870,47 +3868,9 @@ OPTION (RECOMPILE);';
 					END /* @TableExists = 1 */
 				ELSE
 					RAISERROR('Creation of the output table failed.', 16, 0)
-		ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
-			BEGIN
-				IF @ValidOutputServer = 1
-					BEGIN
-						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0)
-					END
-				ELSE
-					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-							+ @OutputTableName
-							+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
-							+ 'CREATE TABLE '
-							+ @OutputTableName
-							+ ' (ID INT IDENTITY(1,1) NOT NULL,
-								ServerName NVARCHAR(128),
-								CheckDate DATETIMEOFFSET,
-								Priority TINYINT ,
-								FindingsGroup VARCHAR(50) ,
-								Finding VARCHAR(200) ,
-								DatabaseName NVARCHAR(128),
-								URL VARCHAR(200) ,
-								Details NVARCHAR(4000) ,
-								QueryPlan [XML] NULL ,
-								QueryPlanFiltered [NVARCHAR](MAX) NULL,
-								CheckID INT ,
-								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
-							+ ' INSERT '
-							+ @OutputTableName
-							+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
-							+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-							+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-					
-							EXEC(@StringToExecute);
-					END
-			END /* (SUBSTRING(@OutputTableName, 2, 2) = '##') */
-		ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
-			BEGIN
-				RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
-			END
-
-        SELECT  [database_name] AS [Database Name], 
+			END /* @ValidOutputLocation = 1 */
+			
+		SELECT  [database_name] AS [Database Name], 
                 [schema_name] AS [Schema Name], 
                 [object_name] AS [Object Name], 
                 ISNULL(index_name, '') AS [Index Name], 
