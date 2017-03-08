@@ -53,7 +53,7 @@ IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
 
 -- get list of files 
-SET @cmd = 'DIR /b '+ @BackupPathFull;
+SET @cmd = 'DIR /b "'+ @BackupPathFull + '"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
@@ -160,7 +160,7 @@ END;
 --Clear out table variables for translogs
 DELETE FROM @FileList;
         
-SET @cmd = 'DIR /b '+ @BackupPathLog;
+SET @cmd = 'DIR /b "'+ @BackupPathLog + '"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
 
