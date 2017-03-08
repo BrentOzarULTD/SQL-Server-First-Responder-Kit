@@ -3590,6 +3590,7 @@ BEGIN;
 
 		/* @OutputTableName lets us export the results to a permanent table */
 		DECLARE @RunId UNIQUEIDENTIFIER;
+		DECLARE @StringToExecute NVARCHAR(MAX);
 		SET @RunId = NEWID();
 		IF @ValidOutputLocation = 1
 			BEGIN
