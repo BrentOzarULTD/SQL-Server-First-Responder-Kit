@@ -41,7 +41,6 @@ CREATE PROCEDURE [dbo].[DatabaseRestore]
 	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, 
 	  @ContinueLogs bit = 0, @RunRecovery bit = 0
 AS
-
 SET NOCOUNT ON;
 
 DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @BackupFile NVARCHAR(500);
@@ -65,7 +64,24 @@ WHERE BackupFile LIKE '%.bak'
     AND
     BackupFile LIKE '%'+@Database+'%';
 
-DECLARE @FileListParameters TABLE
+-- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
+-- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
+-- Need to capture BuildVersion because RESTORE HEADERONLY changed with 2014 CU1, not RTM
+SELECT SERVERPROPERTY ('productversion')
+DECLARE @ProductVersion AS varchar(20) = CAST(SERVERPROPERTY ('productversion') AS varchar(20));
+DECLARE @MajorVersion AS smallint = CAST(PARSENAME(@ProductVersion, 4) AS smallint);
+DECLARE @MinorVersion AS smallint = CAST(PARSENAME(@ProductVersion, 3) AS smallint);
+DECLARE @BuildVersion AS smallint = CAST(PARSENAME(@ProductVersion, 2) AS smallint);
+
+IF @MajorVersion < 10
+BEGIN
+  RAISERROR('Sorry, DatabaseRestore doesn''t work on versions of SQL prior to 2008.', 15, 1);
+  RETURN;
+END
+
+-- Build SQL for RESTORE FILELIST ONLY
+IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
+CREATE TABLE #FileListParameters
 (
 	 LogicalName NVARCHAR(128) NOT NULL
 	,PhysicalName NVARCHAR(260) NOT NULL
@@ -90,11 +106,67 @@ DECLARE @FileListParameters TABLE
 	,TDEThumbprint VARBINARY(32) NULL
 	,SnapshotUrl NVARCHAR(360) NULL
 );
+DECLARE @FileListParamSQL AS nvarchar(4000);
+SET @FileListParamSQL = 
+  'INSERT INTO #FileListParameters
+   (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
+   ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
+   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint'
 
-INSERT INTO @FileListParameters
-EXEC ('RESTORE FILELISTONLY FROM DISK='''+@BackupPathFull + @LastFullBackup+'''');
+IF @MajorVersion >= 13
+  SET @FileListParamSQL += ', SnapshotUrl'
 
-DECLARE @MoveOption AS NVARCHAR(1000)= '';
+SET @FileListParamSQL += ')' + CHAR(13) + CHAR(10);
+SET @FileListParamSQL += 'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
+
+SET @sql = REPLACE(@FileListParamSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+PRINT @sql;
+EXEC (@sql);
+
+-- Build SQL for RESTORE HEADERONLY - this will be used a bit further below
+IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
+CREATE TABLE #Headers (
+	BackupName VARCHAR(256), BackupDescription VARCHAR(256), BackupType VARCHAR(256), ExpirationDate VARCHAR(256),
+	Compressed VARCHAR(256), Position VARCHAR(256), DeviceType VARCHAR(256), UserName VARCHAR(256), ServerName VARCHAR(
+	256), DatabaseName VARCHAR(256), DatabaseVersion VARCHAR(256), DatabaseCreationDate VARCHAR(256), BackupSize VARCHAR(
+	256), FirstLSN VARCHAR(256), LastLSN VARCHAR(256), CheckpointLSN VARCHAR(256), DatabaseBackupLSN VARCHAR(256),
+	BackupStartDate VARCHAR(256), BackupFinishDate VARCHAR(256), SortOrder VARCHAR(256), CodePage VARCHAR(256),
+	UnicodeLocaleId VARCHAR(256), UnicodeComparisonStyle VARCHAR(256), CompatibilityLevel VARCHAR(256), SoftwareVendorId
+	VARCHAR(256), SoftwareVersionMajor VARCHAR(256), SoftwareVersionMinor VARCHAR(256), SoftwareVersionBuild VARCHAR(256),
+	MachineName VARCHAR(256), Flags VARCHAR(256), BindingID VARCHAR(256), RecoveryForkID VARCHAR(256), Collation VARCHAR(
+	256), FamilyGUID VARCHAR(256), HasBulkLoggedData VARCHAR(256), IsSnapshot VARCHAR(256), IsReadOnly VARCHAR(256),
+	IsSingleUser VARCHAR(256), HasBackupChecksums VARCHAR(256), IsDamaged VARCHAR(256), BeginsLogChain VARCHAR(256),
+	HasIncompleteMetaData VARCHAR(256), IsForceOffline VARCHAR(256), IsCopyOnly VARCHAR(256), FirstRecoveryForkID VARCHAR
+	(256), ForkPointLSN VARCHAR(256), RecoveryModel VARCHAR(256), DifferentialBaseLSN VARCHAR(256), DifferentialBaseGUID
+	VARCHAR(256), BackupTypeDescription VARCHAR(256), BackupSetGUID VARCHAR(256), CompressedBackupSize VARCHAR(256),
+	Containment VARCHAR(256), KeyAlgorithm NVARCHAR(32), EncryptorThumbprint VARBINARY(20), EncryptorType NVARCHAR(32),
+	--
+	-- Seq added to retain order by
+	--
+	Seq INT NOT NULL IDENTITY(1, 1)
+);
+
+DECLARE @HeadersSQL AS nvarchar(4000);
+SET @HeadersSQL = 
+'INSERT INTO #Headers
+  (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
+  ,DatabaseName, DatabaseVersion, DatabaseCreationDate, BackupSize, FirstLSN, LastLSN, CheckpointLSN, DatabaseBackupLSN
+  ,BackupStartDate, BackupFinishDate, SortOrder, CodePage, UnicodeLocaleId, UnicodeComparisonStyle, CompatibilityLevel
+  ,SoftwareVendorId, SoftwareVersionMajor, SoftwareVersionMinor, SoftwareVersionBuild, MachineName, Flags, BindingID
+  ,RecoveryForkID, Collation, FamilyGUID, HasBulkLoggedData, IsSnapshot, IsReadOnly, IsSingleUser, HasBackupChecksums
+  ,IsDamaged, BeginsLogChain, HasIncompleteMetaData, IsForceOffline, IsCopyOnly, FirstRecoveryForkID, ForkPointLSN
+  ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize'
+  
+IF @MajorVersion >= 11
+  SET @HeadersSQL += CHAR(13) + CHAR(10) + '  ,Containment';
+
+IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
+  SET @HeadersSQL += ', KeyAlgorithm, EncryptorThumbprint, EncryptorType'
+
+SET @HeadersSQL += ')' + CHAR(13) + CHAR(10);
+SET @HeadersSQL += 'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
+  
+DECLARE @MoveOption AS NVARCHAR(2000)= '';
 
 IF @MoveFiles = 1
 BEGIN
@@ -105,7 +177,7 @@ BEGIN
 				WHEN Type = 'D' THEN @MoveDataDrive
 				WHEN Type = 'L' THEN @MoveLogDrive
 			END+REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1)-1)) +'''' AS logicalcmds
-		FROM @FileListParameters)
+		FROM #FileListParameters)
 	SELECT @MoveOption = @MoveOption + logicalcmds
 	FROM Files;
 END;
@@ -117,35 +189,15 @@ BEGIN
 	EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 
 	--get the backup completed data so we can apply tlogs from that point forwards
-	DECLARE @Headers TABLE (
-		BackupName VARCHAR(256), BackupDescription VARCHAR(256), BackupType VARCHAR(256), ExpirationDate VARCHAR(256),
-		Compressed VARCHAR(256), Position VARCHAR(256), DeviceType VARCHAR(256), UserName VARCHAR(256), ServerName VARCHAR(
-		256), DatabaseName VARCHAR(256), DatabaseVersion VARCHAR(256), DatabaseCreationDate VARCHAR(256), BackupSize VARCHAR(
-		256), FirstLSN VARCHAR(256), LastLSN VARCHAR(256), CheckpointLSN VARCHAR(256), DatabaseBackupLSN VARCHAR(256),
-		BackupStartDate VARCHAR(256), BackupFinishDate VARCHAR(256), SortOrder VARCHAR(256), CodePage VARCHAR(256),
-		UnicodeLocaleId VARCHAR(256), UnicodeComparisonStyle VARCHAR(256), CompatibilityLevel VARCHAR(256), SoftwareVendorId
-		VARCHAR(256), SoftwareVersionMajor VARCHAR(256), SoftwareVersionMinor VARCHAR(256), SoftwareVersionBuild VARCHAR(256),
-		MachineName VARCHAR(256), Flags VARCHAR(256), BindingID VARCHAR(256), RecoveryForkID VARCHAR(256), Collation VARCHAR(
-		256), FamilyGUID VARCHAR(256), HasBulkLoggedData VARCHAR(256), IsSnapshot VARCHAR(256), IsReadOnly VARCHAR(256),
-		IsSingleUser VARCHAR(256), HasBackupChecksums VARCHAR(256), IsDamaged VARCHAR(256), BeginsLogChain VARCHAR(256),
-		HasIncompleteMetaData VARCHAR(256), IsForceOffline VARCHAR(256), IsCopyOnly VARCHAR(256), FirstRecoveryForkID VARCHAR
-		(256), ForkPointLSN VARCHAR(256), RecoveryModel VARCHAR(256), DifferentialBaseLSN VARCHAR(256), DifferentialBaseGUID
-		VARCHAR(256), BackupTypeDescription VARCHAR(256), BackupSetGUID VARCHAR(256), CompressedBackupSize VARCHAR(256),
-		Containment VARCHAR(256), KeyAlgorithm NVARCHAR(32), EncryptorThumbprint VARBINARY(20), EncryptorType NVARCHAR(32),
-		--
-		-- Seq added to retain order by
-		--
-		Seq INT NOT NULL IDENTITY(1, 1)
-	);
+  SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+  PRINT @sql;
+  EXECUTE (@sql);
 
-	INSERT INTO @Headers
-	EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathFull + @LastFullBackup+'''');
-
-	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN BIGINT;
+	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN numeric(25,0);
 
 	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
 
-	SELECT @FullLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 1;
+	SELECT @FullLastLSN = CAST(LastLSN AS numeric(25,0)) FROM #Headers WHERE BackupType = 1;
 END;
 ELSE
 BEGIN
@@ -174,7 +226,7 @@ DECLARE BackupFiles CURSOR FOR
 
 OPEN BackupFiles;
 
-DECLARE @i tinyint = 1, @LogFirstLSN BIGINT, @LogLastLSN BIGINT;;
+DECLARE @i tinyint = 1, @LogFirstLSN numeric(25,0), @LogLastLSN numeric(25,0);
 
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -182,15 +234,16 @@ WHILE @@FETCH_STATUS = 0
 BEGIN
 	IF @i = 1
 	BEGIN
-		INSERT INTO @Headers
-		EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathLog + @BackupFile+'''');
+    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathLog + @BackupFile);
+    PRINT @sql;
+    EXECUTE (@sql);
 		
-		SELECT @LogFirstLSN = CAST(FirstLSN AS BIGINT), @LogLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 2;
+		SELECT @LogFirstLSN = CAST(FirstLSN AS numeric(25,0)), @LogLastLSN = CAST(LastLSN AS numeric(25,0)) FROM #Headers WHERE BackupType = 2;
 
 		IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN)
 			SET @i = 2;
 
-		DELETE FROM @Headers WHERE BackupType = 2;
+		DELETE FROM #Headers WHERE BackupType = 2;
 	END;
 
 	IF @i = 2
