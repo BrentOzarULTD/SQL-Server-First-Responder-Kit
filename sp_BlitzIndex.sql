@@ -2763,7 +2763,6 @@ BEGIN;
             RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
             WITH    index_size_cte
                       AS ( SELECT   i.database_id,
-									i.[schema_name],
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
                                 ISNULL (
@@ -2785,7 +2784,7 @@ BEGIN;
                             LEFT    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id  AND i.database_id = sz.database_id
 							WHERE i.is_hypothetical = 0
                                   AND i.is_disabled = 0
-                           GROUP BY    i.database_id, i.[object_id], [i].[schema_name])
+                           GROUP BY    i.database_id, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info )
                         
@@ -2820,9 +2819,7 @@ BEGIN;
                                 magic_benefit_number,
 								mi.is_low
                         FROM    #MissingIndexes mi
-                                LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.[object_id] 
-										AND mi.database_id = sz.database_id
-										AND mi.[schema_name] = sz.[schema_name]
+                                LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id AND DB_ID(mi.database_name) = sz.database_id
                                         /* Minimum benefit threshold = 100k/day of uptime */
                         WHERE ( @Mode = 4 AND (magic_benefit_number/@DaysUptime) >= 100000 ) OR (magic_benefit_number/@DaysUptime) >= 100000
                         ) AS t
@@ -2953,8 +2950,6 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanity AS iParent ON
                         i.[object_id]=iParent.[object_id]
-						AND i.database_id = iParent.database_id
-						AND i.[schema_name] = iParent.[schema_name]
                         AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
                         AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
@@ -3046,9 +3041,8 @@ BEGIN;
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
                         FROM    #IndexSanity i
-                        JOIN    #IndexColumns ic ON i.[object_id] = ic.[object_id]
-							AND i.database_id = ic.database_id
-							AND i.[schema_name] = ic.[schema_name]
+                        JOIN    #IndexColumns ic ON
+                            i.object_id=ic.object_id
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
