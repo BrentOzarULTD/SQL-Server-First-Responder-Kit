@@ -141,17 +141,17 @@ BEGIN
 	INSERT INTO @Headers
 	EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathFull + @LastFullBackup+'''');
 
-	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN BIGINT;
+	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
 
 	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
 
-	SELECT @FullLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 1;
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM @Headers WHERE BackupType = 1;
 END;
 ELSE
 BEGIN
-	DECLARE @DatabaseLastLSN BIGINT;
+	DECLARE @DatabaseLastLSN NUMERIC(25, 0);
 
-	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS BIGINT)
+	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
 	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1
@@ -174,7 +174,7 @@ DECLARE BackupFiles CURSOR FOR
 
 OPEN BackupFiles;
 
-DECLARE @i tinyint = 1, @LogFirstLSN BIGINT, @LogLastLSN BIGINT;;
+DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);;
 
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -185,7 +185,7 @@ BEGIN
 		INSERT INTO @Headers
 		EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathLog + @BackupFile+'''');
 		
-		SELECT @LogFirstLSN = CAST(FirstLSN AS BIGINT), @LogLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 2;
+		SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM @Headers WHERE BackupType = 2;
 
 		IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN)
 			SET @i = 2;
