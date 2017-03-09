@@ -24,9 +24,9 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_foreachdb (no version number yet)
     * sp_BlitzWho (no version number yet)
     * sp_BlitzIndex @Version and @VersionDate
-    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzFirst @Version and @VersionDate
     * sp_BlitzCache @Version and @VersionDate 
-    * sp_Blitz @VersionDate (no version)
+    * sp_Blitz @Version and @VersionDate
 
 ## Push to Master
 
