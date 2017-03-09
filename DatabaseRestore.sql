@@ -92,7 +92,7 @@ DECLARE @FileListParameters TABLE
 INSERT INTO @FileListParameters
 EXEC ('RESTORE FILELISTONLY FROM DISK='''+@BackupPathFull + @LastFullBackup+'''');
 
-DECLARE @MoveOption AS NVARCHAR(1000)= '';
+DECLARE @MoveOption AS NVARCHAR(MAX)= '';
 
 IF @MoveFiles = 1
 BEGIN
