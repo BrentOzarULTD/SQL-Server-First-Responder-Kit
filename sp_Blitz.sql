@@ -32,7 +32,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
 	SET @Version = '5.0';
-	SET @VersionDate = '20170301';
+	SET @VersionDate = '20170307';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -278,6 +278,15 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (181);
 			END /* Amazon RDS skipped checks */
 
+		/* If the server is ExpressEdition, skip checks that it doesn't allow */
+		IF CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%'
+			BEGIN
+						INSERT INTO #SkipChecks (CheckID) VALUES (30); /* Alerts not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (31); /* Operators not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61); /* Agent alerts 19-25 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* Failsafe operator */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+			END /* Express Edition skipped checks */
 
 
 		/*
