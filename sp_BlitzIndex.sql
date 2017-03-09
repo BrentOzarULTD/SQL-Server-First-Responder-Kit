@@ -2794,6 +2794,7 @@ BEGIN;
             RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
             WITH    index_size_cte
                       AS ( SELECT   i.database_id,
+									i.schema_name,
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
                                 ISNULL (
@@ -2815,7 +2816,7 @@ BEGIN;
                             LEFT    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id  AND i.database_id = sz.database_id
 							WHERE i.is_hypothetical = 0
                                   AND i.is_disabled = 0
-                           GROUP BY    i.database_id, i.[object_id])
+                           GROUP BY    i.database_id, i.schema_name, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info )
                         
@@ -2850,7 +2851,9 @@ BEGIN;
                                 magic_benefit_number,
 								mi.is_low
                         FROM    #MissingIndexes mi
-                                LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id AND DB_ID(mi.database_name) = sz.database_id
+                                LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id 
+										  AND mi.database_id = sz.database_id
+										  AND mi.schema_name = sz.schema_name
                                         /* Minimum benefit threshold = 100k/day of uptime */
                         WHERE ( @Mode = 4 AND (magic_benefit_number/@DaysUptime) >= 100000 ) OR (magic_benefit_number/@DaysUptime) >= 100000
                         ) AS t
