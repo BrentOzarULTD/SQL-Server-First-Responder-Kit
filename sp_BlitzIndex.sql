@@ -2943,6 +2943,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanity AS iParent ON
                         i.[object_id]=iParent.[object_id]
+						AND i.database_id = iParent.database_id
                         AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
                         AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
@@ -3036,6 +3037,7 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexColumns ic ON
                             i.object_id=ic.object_id
+							AND i.database_id = ic.database_id
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
@@ -3088,6 +3090,7 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexColumns ic ON
                             i.object_id=ic.object_id
+							AND i.database_id = ic.database_id
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
@@ -3099,11 +3102,15 @@ BEGIN;
             RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
+								   database_id,
+								   schema_name,
                                 COUNT(*) AS column_count
                             FROM #IndexColumns ic
                             WHERE index_id IN (1,0) /*Heap or clustered only*/
                                 AND collation_name <> @collation
-                            GROUP BY object_id
+                            GROUP BY [object_id],
+								     database_id,
+								     schema_name
                             )
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -3126,6 +3133,8 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
+								AND cc.database_id = i.database_id
+								AND cc.schema_name = i.schema_name
                         WHERE    i.index_id IN (1,0)
                         AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
