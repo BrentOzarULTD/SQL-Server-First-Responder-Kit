@@ -1716,7 +1716,7 @@ DEALLOCATE c1;
 --STEP 2: DIAGNOSE THE PATIENT
 --EVERY QUERY AFTER THIS GOES AGAINST TEMP TABLES ONLY.
 ----------------------------------------
- --                                                                                                                                                                                                                                                                                                                                                         /*This is for debugging*/                                                                                                                                                                                                                                                                                                                                   SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
+                                                                                                                                                                                                                                                                                                                                                          /*This is for debugging*/                                                                                                                                                                                                                                                                                                                                --   SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
 
  --   SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
 
@@ -1740,7 +1740,7 @@ DEALLOCATE c1;
 
  --   SELECT '#ComputedColumns' AS table_name, * FROM  #ComputedColumns;
 	
-	--SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;                   
+--	  SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;                   
 /*End debug*/	                                                                                                                                                                                                                                                                                                                                                     
 
 BEGIN TRY
