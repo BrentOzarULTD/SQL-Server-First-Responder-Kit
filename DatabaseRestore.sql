@@ -47,8 +47,6 @@ SET NOCOUNT ON;
 DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @BackupFile NVARCHAR(500);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
 
-DECLARE @MoveDataLocation AS NVARCHAR(500), @MoveDataLocationName AS NVARCHAR(500), @MoveLogLocation AS NVARCHAR(500), @MoveLogLocationName AS NVARCHAR(500);
-
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
 
