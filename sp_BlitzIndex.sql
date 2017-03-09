@@ -1222,7 +1222,6 @@ BEGIN TRY
                 JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
                                         AND ps.index_id = i.index_id
                                         AND i.database_id = ps.database_id
-										AND i.schema_name = ps.schema_name
 		END; --End Check For @SkipPartitions = 0
 
 
