@@ -1383,6 +1383,8 @@ BEGIN TRY
             END
         FROM #IndexSanity AS nc
         JOIN #IndexSanity AS tb ON nc.object_id=tb.object_id
+			AND nc.database_id = tb.database_id
+			AND nc.schema_name = tb.schema_name
             AND tb.index_id IN (0,1) 
         WHERE nc.index_id > 1;
 
