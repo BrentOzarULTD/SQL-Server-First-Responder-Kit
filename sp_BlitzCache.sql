@@ -196,6 +196,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 					  cx_insert_count + cx_update_count + cx_delete_count +
 					  table_insert_count + table_update_count + table_delete_count),
 		is_row_level BIT,
+		is_spatial BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -854,6 +855,7 @@ BEGIN
 			  cx_insert_count + cx_update_count + cx_delete_count +
 			  table_insert_count + table_update_count + table_delete_count),
 		is_row_level BIT,
+		is_spatial BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2374,6 +2376,21 @@ JOIN iops ON  iops.SqlHandle = b.SqlHandle
 WHERE SPID = @@SPID
 OPTION(RECOMPILE);
 
+RAISERROR(N'Checking for Spatial index use', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET is_spatial = x.is_spatial
+FROM (
+SELECT qs.SqlHandle,
+	   1 AS is_spatial
+FROM   #relop qs
+CROSS APPLY relop.nodes('/p:RelOp//p:Object') n(fn)
+WHERE n.fn.exist('(@IndexKind[.="Spatial"])') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE)
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2689,7 +2706,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
 				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END +
-				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END
+				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
+				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END 
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -3023,7 +3041,8 @@ BEGIN
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
 				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
-				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END 
+				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END +
+				  CASE WHEN is_spatial = 1 THEN '', 47'' ELSE '''' END 
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3683,6 +3702,19 @@ BEGIN
                      'Row Level Security is in use',
                      'No URL yet',
                      'You may see a lot of confusing junk in your query plan') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_spatial = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     47,
+                     200,
+                     'Spatial Abuse',
+                     'You hit a Spatial Index',
+                     'No URL yet',
+                     'Purely informational') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
