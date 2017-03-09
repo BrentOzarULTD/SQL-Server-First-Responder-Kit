@@ -1716,18 +1716,31 @@ DEALLOCATE c1;
 --STEP 2: DIAGNOSE THE PATIENT
 --EVERY QUERY AFTER THIS GOES AGAINST TEMP TABLES ONLY.
 ----------------------------------------
+ --                                                                                                                                                                                                                                                                                                                                                         /*This is for debugging*/                                                                                                                                                                                                                                                                                                                                   SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
 
+ --   SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
 
+ --   SELECT '#IndexSanitySize' AS table_name, * FROM  #IndexSanitySize;
 
+ --   SELECT '#IndexColumns' AS table_name, * FROM  #IndexColumns;
 
+ --   SELECT '#MissingIndexes' AS table_name, * FROM  #MissingIndexes;
 
+ --   SELECT '#ForeignKeys' AS table_name, * FROM  #ForeignKeys;
 
+ --   SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults;
         
+ --   SELECT '#IndexCreateTsql' AS table_name, * FROM  #IndexCreateTsql;
 
+ --   SELECT '#DatabaseList' AS table_name, * FROM  #DatabaseList;
 
+ --   SELECT '#Statistics' AS table_name, * FROM  #Statistics;
 
+ --   SELECT '#PartitionCompressionInfo' AS table_name, * FROM  #PartitionCompressionInfo;
 
+ --   SELECT '#ComputedColumns' AS table_name, * FROM  #ComputedColumns;
 	
+	--SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;                   
 /*End debug*/	                                                                                                                                                                                                                                                                                                                                                     
 
 BEGIN TRY
