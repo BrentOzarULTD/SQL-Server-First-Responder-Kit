@@ -3695,6 +3695,7 @@ N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableNam
 		[create_date] DATETIME, 
 		[modify_date] DATETIME, 
 		[more_info] NVARCHAR(500),
+		[display_order] INT,
 		CONSTRAINT [PK_ID] PRIMARY KEY CLUSTERED (ID ASC)
 	);'
 		
@@ -3791,11 +3792,14 @@ N'INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.
 		[data_compression_desc], 
 		[create_date], 
 		[modify_date], 
-		[more_info]
+		[more_info],
+		[display_order]
 	)
 SELECT ''@@@RunID@@@'',
 	''@@@GETDATE@@@'',
 	''@@@LocalServerName@@@'',
+	-- Below should be a copy/paste of the real query
+	-- Make sure all quotes are escaped
 	[database_name] AS [Database Name], 
 	[schema_name] AS [Schema Name], 
 	[object_name] AS [Object Name], 
@@ -3852,7 +3856,8 @@ SELECT ''@@@RunID@@@'',
 	sz.data_compression_desc AS [Data Compression],
 	i.create_date AS [Create Date],
 	i.modify_date AS [Modify Date],
-	more_info AS [More Info]
+	more_info AS [More Info],
+    1 AS [Display Order]
 FROM #IndexSanity AS i
 LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
 ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
