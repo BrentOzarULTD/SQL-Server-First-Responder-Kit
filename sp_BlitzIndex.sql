@@ -835,7 +835,9 @@ BEGIN TRY
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types st ON 
                     c.system_type_id=st.system_type_id
                     AND c.user_type_id=st.user_type_id
-				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON s.schema_id = st.schema_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so  ON si.object_id = so.object_id
+																		  AND so.is_ms_shipped = 0
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
                 WHERE si.index_id in (0,1) ' 
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
@@ -885,7 +887,9 @@ BEGIN TRY
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS st ON 
                     c.system_type_id=st.system_type_id
                     AND c.user_type_id=st.user_type_id
-				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON s.schema_id = st.schema_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so  ON si.object_id = so.object_id
+																		  AND so.is_ms_shipped = 0
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
                 WHERE si.index_id not in (0,1) ' 
                     + CASE WHEN @ObjectID IS NOT NULL 
                         THEN N' AND si.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
@@ -1712,7 +1716,21 @@ DEALLOCATE c1;
 --STEP 2: DIAGNOSE THE PATIENT
 --EVERY QUERY AFTER THIS GOES AGAINST TEMP TABLES ONLY.
 ----------------------------------------
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                BEGIN TRY
+
+
+
+
+
+
+        
+
+
+
+
+	
+/*End debug*/	                                                                                                                                                                                                                                                                                                                                                     
+
+BEGIN TRY
 ----------------------------------------
 --If @TableName is specified, just return information for that table.
 --The @Mode parameter doesn't matter if you're looking at a specific table.
