@@ -1259,6 +1259,7 @@ BEGIN TRY
                     WHERE ipp.[object_id]=ipp2.[object_id]
                         AND ipp.[index_id]=ipp2.[index_id]
                         AND ipp.database_id = @DatabaseID
+						AND ipp.schema_name = ipp2.schema_name
                     ORDER BY ipp2.partition_number
                     FOR      XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
                         data_compression_info(data_compression_rollup)
