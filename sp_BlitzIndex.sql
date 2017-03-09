@@ -2985,6 +2985,7 @@ BEGIN;
                     JOIN #IndexSanity AS iParent ON
                         i.[object_id]=iParent.[object_id]
 						AND i.database_id = iParent.database_id
+						AND i.schema_name = iParent.schema_name
                         AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
                         AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
@@ -3079,6 +3080,7 @@ BEGIN;
                         JOIN    #IndexColumns ic ON
                             i.object_id=ic.object_id
 							AND i.database_id = ic.database_id
+							AND i.schema_name = ic.schema_name
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
@@ -3132,6 +3134,7 @@ BEGIN;
                         JOIN    #IndexColumns ic ON
                             i.object_id=ic.object_id
 							AND i.database_id = ic.database_id
+							AND i.schema_name = ic.schema_name
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
@@ -3183,11 +3186,15 @@ BEGIN;
             RAISERROR(N'check_id 70: Replicated columns', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
+								database_id,
+								schema_name,
                                 COUNT(*) AS column_count,
                                 SUM(CASE is_replicated WHEN 1 THEN 1 ELSE 0 END) AS replicated_column_count
                             FROM #IndexColumns ic
                             WHERE index_id IN (1,0) /*Heap or clustered only*/
-                            GROUP BY object_id
+                            GROUP BY object_id,
+								     database_id,
+								     schema_name
                             )
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -3211,6 +3218,8 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
+								AND i.database_id = cc.database_id
+								AND i.schema_name = cc.schema_name
                         WHERE    i.index_id IN (1,0)
                             AND replicated_column_count > 0
                             AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
@@ -3238,7 +3247,7 @@ BEGIN;
                     N'N/A' AS secret_columns,
                     N'N/A' AS index_usage_summary,
                     N'N/A' AS index_size_summary,
-                    (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id)
+                    (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
                         AS more_info
             FROM #ForeignKeys fk
             WHERE ([delete_referential_action_desc] <> N'NO_ACTION'
