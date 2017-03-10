@@ -3617,265 +3617,272 @@ BEGIN;
 		IF @ValidOutputLocation = 1
 			BEGIN
 				DECLARE @TableExists BIT;
+				DECLARE @SchemaExists BIT;
 				SET @StringToExecute = 
-N'USE @@@OutputDatabaseName@@@; 
-IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-	AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
-	SET @TableExists = 0
-ELSE
-	SET @TableExists = 1';
+					N'USE @@@OutputDatabaseName@@@; 
+					SET @SchemaExists = 0;
+					SET @TableExists = 0;
+					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+						SET @SchemaExists = 1
+					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+						SET @TableExists = 1';
 	
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName)
 	
-				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT', @TableExists OUTPUT
+				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT
 				
-				IF @TableExists = 0
+				IF @SchemaExists = 1
 					BEGIN
-						SET @StringToExecute = 
-N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@ 
-	(
-		[id] INT IDENTITY(1,1) NOT NULL, 
-		[run_id] UNIQUEIDENTIFIER,
-		[run_datetime] DATETIME, 
-		[server_name] NVARCHAR(128), 
-		[database_name] NVARCHAR(128), 
-		[schema_name] NVARCHAR(128), 
-		[table_name] NVARCHAR(128), 
-		[index_name] NVARCHAR(128), 
-		[index_id] INT, 
-		[db_schema_object_indexid] NVARCHAR(500), 
-		[object_type] NVARCHAR(15), 
-		[index_definition] NVARCHAR(4000), 
-		[key_column_names_with_sort_order] NVARCHAR(MAX), 
-		[count_key_columns] INT, 
-		[include_column_names] NVARCHAR(MAX), 
-		[count_included_columns] INT, 
-		[secret_columns] NVARCHAR(MAX), 
-		[count_secret_columns] INT, 
-		[partition_key_column_name] NVARCHAR(MAX), 
-		[filter_definition] NVARCHAR(MAX), 
-		[is_indexed_view] BIT, 
-		[is_primary_key] BIT, 
-		[is_XML] BIT, 
-		[is_spatial] BIT, 
-		[is_NC_columnstore] BIT, 
-		[is_CX_columnstore] BIT, 
-		[is_disabled] BIT, 
-		[is_hypothetical] BIT, 
-		[is_padded] BIT, 
-		[fill_factor] INT, 
-		[is_referenced_by_foreign_key] BIT,
-		[last_user_seek] DATETIME, 
-		[last_user_scan] DATETIME, 
-		[last_user_lookup] DATETIME, 
-		[last_user_update] DATETIME, 
-		[total_reads] BIGINT, 
-		[user_updates] BIGINT, 
-		[reads_per_write] MONEY, 
-		[index_usage_summary] NVARCHAR(200), 
-		[partition_count] INT, 
-		[total_rows] BIGINT, 
-		[total_reserved_MB] NUMERIC(29,2), 
-		[total_reserved_LOB_MB] NUMERIC(29,2), 
-		[total_reserved_row_overflow_MB] NUMERIC(29,2), 
-		[index_size_summary] NVARCHAR(300), 
-		[total_row_lock_count] BIGINT, 
-		[total_row_lock_wait_count] BIGINT, 
-		[total_row_lock_wait_in_ms] BIGINT, 
-		[avg_row_lock_wait_in_ms] BIGINT, 
-		[total_page_lock_count] BIGINT, 
-		[total_page_lock_wait_count] BIGINT, 
-		[total_page_lock_wait_in_ms] BIGINT, 
-		[avg_page_lock_wait_in_ms] BIGINT, 
-		[total_index_lock_promotion_attempt_count] BIGINT, 
-		[total_index_lock_promotion_count] BIGINT, 
-		[data_compression_desc] VARCHAR(8000), 
-		[create_date] DATETIME, 
-		[modify_date] DATETIME, 
-		[more_info] NVARCHAR(500),
-		[display_order] INT,
-		CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED (ID ASC)
-	);'
+						IF @TableExists = 0
+							BEGIN
+								SET @StringToExecute = 
+									N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@ 
+										(
+											[id] INT IDENTITY(1,1) NOT NULL, 
+											[run_id] UNIQUEIDENTIFIER,
+											[run_datetime] DATETIME, 
+											[server_name] NVARCHAR(128), 
+											[database_name] NVARCHAR(128), 
+											[schema_name] NVARCHAR(128), 
+											[table_name] NVARCHAR(128), 
+											[index_name] NVARCHAR(128), 
+											[index_id] INT, 
+											[db_schema_object_indexid] NVARCHAR(500), 
+											[object_type] NVARCHAR(15), 
+											[index_definition] NVARCHAR(4000), 
+											[key_column_names_with_sort_order] NVARCHAR(MAX), 
+											[count_key_columns] INT, 
+											[include_column_names] NVARCHAR(MAX), 
+											[count_included_columns] INT, 
+											[secret_columns] NVARCHAR(MAX), 
+											[count_secret_columns] INT, 
+											[partition_key_column_name] NVARCHAR(MAX), 
+											[filter_definition] NVARCHAR(MAX), 
+											[is_indexed_view] BIT, 
+											[is_primary_key] BIT, 
+											[is_XML] BIT, 
+											[is_spatial] BIT, 
+											[is_NC_columnstore] BIT, 
+											[is_CX_columnstore] BIT, 
+											[is_disabled] BIT, 
+											[is_hypothetical] BIT, 
+											[is_padded] BIT, 
+											[fill_factor] INT, 
+											[is_referenced_by_foreign_key] BIT,
+											[last_user_seek] DATETIME, 
+											[last_user_scan] DATETIME, 
+											[last_user_lookup] DATETIME, 
+											[last_user_update] DATETIME, 
+											[total_reads] BIGINT, 
+											[user_updates] BIGINT, 
+											[reads_per_write] MONEY, 
+											[index_usage_summary] NVARCHAR(200), 
+											[partition_count] INT, 
+											[total_rows] BIGINT, 
+											[total_reserved_MB] NUMERIC(29,2), 
+											[total_reserved_LOB_MB] NUMERIC(29,2), 
+											[total_reserved_row_overflow_MB] NUMERIC(29,2), 
+											[index_size_summary] NVARCHAR(300), 
+											[total_row_lock_count] BIGINT, 
+											[total_row_lock_wait_count] BIGINT, 
+											[total_row_lock_wait_in_ms] BIGINT, 
+											[avg_row_lock_wait_in_ms] BIGINT, 
+											[total_page_lock_count] BIGINT, 
+											[total_page_lock_wait_count] BIGINT, 
+											[total_page_lock_wait_in_ms] BIGINT, 
+											[avg_page_lock_wait_in_ms] BIGINT, 
+											[total_index_lock_promotion_attempt_count] BIGINT, 
+											[total_index_lock_promotion_count] BIGINT, 
+											[data_compression_desc] VARCHAR(8000), 
+											[create_date] DATETIME, 
+											[modify_date] DATETIME, 
+											[more_info] NVARCHAR(500),
+											[display_order] INT,
+											CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED (ID ASC)
+										);'
 		
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID) 
-						
-						IF @ValidOutputServer = 1
-							BEGIN
-								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''')
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
-							END   
-						ELSE
-							BEGIN
-								EXEC(@StringToExecute);
-							END
-					END /* @TableExists = 0 */
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID) 
+								
+								IF @ValidOutputServer = 1
+									BEGIN
+										SET @StringToExecute = REPLACE(@StringToExecute,'''','''''')
+										EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+									END   
+								ELSE
+									BEGIN
+										EXEC(@StringToExecute);
+									END
+							END /* @TableExists = 0 */
 					
-				SET @StringToExecute = 
-N'USE @@@OutputDatabaseName@@@; 
-IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-	AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
-	SET @TableExists = 0
-ELSE
-	SET @TableExists = 1';
-				
-				SET @TableExists = NULL
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
-	
-				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT', @TableExists OUTPUT
-				
-				IF @TableExists = 1
-					BEGIN
 						SET @StringToExecute = 
-N'INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
-	(
-		[run_id], 
-		[run_datetime], 
-		[server_name], 
-		[database_name], 
-		[schema_name], 
-		[table_name], 
-		[index_name], 
-		[index_id], 
-		[db_schema_object_indexid], 
-		[object_type], 
-		[index_definition], 
-		[key_column_names_with_sort_order], 
-		[count_key_columns], 
-		[include_column_names], 
-		[count_included_columns], 
-		[secret_columns], 
-		[count_secret_columns], 
-		[partition_key_column_name], 
-		[filter_definition], 
-		[is_indexed_view], 
-		[is_primary_key], 
-		[is_XML], 
-		[is_spatial], 
-		[is_NC_columnstore], 
-		[is_CX_columnstore], 
-		[is_disabled], 
-		[is_hypothetical], 
-		[is_padded], 
-		[fill_factor], 
-		[is_referenced_by_foreign_key], 
-		[last_user_seek], 
-		[last_user_scan], 
-		[last_user_lookup], 
-		[last_user_update], 
-		[total_reads], 
-		[user_updates], 
-		[reads_per_write], 
-		[index_usage_summary], 
-		[partition_count], 
-		[total_rows], 
-		[total_reserved_MB], 
-		[total_reserved_LOB_MB], 
-		[total_reserved_row_overflow_MB], 
-		[index_size_summary], 
-		[total_row_lock_count], 
-		[total_row_lock_wait_count], 
-		[total_row_lock_wait_in_ms], 
-		[avg_row_lock_wait_in_ms], 
-		[total_page_lock_count], 
-		[total_page_lock_wait_count], 
-		[total_page_lock_wait_in_ms], 
-		[avg_page_lock_wait_in_ms], 
-		[total_index_lock_promotion_attempt_count], 
-		[total_index_lock_promotion_count], 
-		[data_compression_desc], 
-		[create_date], 
-		[modify_date], 
-		[more_info],
-		[display_order]
-	)
-SELECT ''@@@RunID@@@'',
-	''@@@GETDATE@@@'',
-	''@@@LocalServerName@@@'',
-	-- Below should be a copy/paste of the real query
-	-- Make sure all quotes are escaped
-	[database_name] AS [Database Name], 
-	[schema_name] AS [Schema Name], 
-	[object_name] AS [Object Name], 
-	ISNULL(index_name, '''') AS [Index Name], 
-	CAST(index_id AS VARCHAR(10))AS [Index ID],
-	db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
-	CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
-		ELSE ''NonClustered''
-		END AS [Object Type], 
-	index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
-	ISNULL(LTRIM(key_column_names_with_sort_order), '''') AS [Key Column Names With Sort],
-	ISNULL(count_key_columns, 0) AS [Count Key Columns],
-	ISNULL(include_column_names, '''') AS [Include Column Names], 
-	ISNULL(count_included_columns,0) AS [Count Included Columns],
-	ISNULL(secret_columns,'''') AS [Secret Column Names], 
-	ISNULL(count_secret_columns,0) AS [Count Secret Columns],
-	ISNULL(partition_key_column_name, '''') AS [Partition Key Column Name],
-	ISNULL(filter_definition, '''') AS [Filter Definition], 
-	is_indexed_view AS [Is Indexed View], 
-	is_primary_key AS [Is Primary Key],
-	is_XML AS [Is XML],
-	is_spatial AS [Is Spatial],
-	is_NC_columnstore AS [Is NC Columnstore],
-	is_CX_columnstore AS [Is CX Columnstore],
-	is_disabled AS [Is Disabled], 
-	is_hypothetical AS [Is Hypothetical],
-	is_padded AS [Is Padded], 
-	fill_factor AS [Fill Factor], 
-	is_referenced_by_foreign_key AS [Is Reference by Foreign Key], 
-	last_user_seek AS [Last User Seek], 
-	last_user_scan AS [Last User Scan], 
-	last_user_lookup AS [Last User Lookup],
-	last_user_update AS [Last User Update], 
-	total_reads AS [Total Reads], 
-	user_updates AS [User Updates], 
-	reads_per_write AS [Reads Per Write], 
-	index_usage_summary AS [Index Usage], 
-	sz.partition_count AS [Partition Count],
-	sz.total_rows AS [Rows], 
-	sz.total_reserved_MB AS [Reserved MB], 
-	sz.total_reserved_LOB_MB AS [Reserved LOB MB], 
-	sz.total_reserved_row_overflow_MB AS [Reserved Row Overflow MB],
-	sz.index_size_summary AS [Index Size], 
-	sz.total_row_lock_count AS [Row Lock Count],
-	sz.total_row_lock_wait_count AS [Row Lock Wait Count],
-	sz.total_row_lock_wait_in_ms AS [Row Lock Wait ms],
-	sz.avg_row_lock_wait_in_ms AS [Avg Row Lock Wait ms],
-	sz.total_page_lock_count AS [Page Lock Count],
-	sz.total_page_lock_wait_count AS [Page Lock Wait Count],
-	sz.total_page_lock_wait_in_ms AS [Page Lock Wait ms],
-	sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
-	sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
-	sz.total_index_lock_promotion_count AS [Lock Escalations],
-	sz.data_compression_desc AS [Data Compression],
-	i.create_date AS [Create Date],
-	i.modify_date AS [Modify Date],
-	more_info AS [More Info],
-    1 AS [Display Order]
-FROM #IndexSanity AS i
-LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
-OPTION (RECOMPILE);';
-	
+							N'USE @@@OutputDatabaseName@@@; 
+							IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+								AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+								SET @TableExists = 0
+							ELSE
+								SET @TableExists = 1';
+				
+						SET @TableExists = NULL
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID)
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@GETDATE@@@', GETDATE())
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@LocalServerName@@@', CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)))
-						EXEC(@StringToExecute);
-					END /* @TableExists = 1 */
+			
+						EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT', @TableExists OUTPUT
+						
+						IF @TableExists = 1
+							BEGIN
+								SET @StringToExecute = 
+									N'INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
+										(
+											[run_id], 
+											[run_datetime], 
+											[server_name], 
+											[database_name], 
+											[schema_name], 
+											[table_name], 
+											[index_name], 
+											[index_id], 
+											[db_schema_object_indexid], 
+											[object_type], 
+											[index_definition], 
+											[key_column_names_with_sort_order], 
+											[count_key_columns], 
+											[include_column_names], 
+											[count_included_columns], 
+											[secret_columns], 
+											[count_secret_columns], 
+											[partition_key_column_name], 
+											[filter_definition], 
+											[is_indexed_view], 
+											[is_primary_key], 
+											[is_XML], 
+											[is_spatial], 
+											[is_NC_columnstore], 
+											[is_CX_columnstore], 
+											[is_disabled], 
+											[is_hypothetical], 
+											[is_padded], 
+											[fill_factor], 
+											[is_referenced_by_foreign_key], 
+											[last_user_seek], 
+											[last_user_scan], 
+											[last_user_lookup], 
+											[last_user_update], 
+											[total_reads], 
+											[user_updates], 
+											[reads_per_write], 
+											[index_usage_summary], 
+											[partition_count], 
+											[total_rows], 
+											[total_reserved_MB], 
+											[total_reserved_LOB_MB], 
+											[total_reserved_row_overflow_MB], 
+											[index_size_summary], 
+											[total_row_lock_count], 
+											[total_row_lock_wait_count], 
+											[total_row_lock_wait_in_ms], 
+											[avg_row_lock_wait_in_ms], 
+											[total_page_lock_count], 
+											[total_page_lock_wait_count], 
+											[total_page_lock_wait_in_ms], 
+											[avg_page_lock_wait_in_ms], 
+											[total_index_lock_promotion_attempt_count], 
+											[total_index_lock_promotion_count], 
+											[data_compression_desc], 
+											[create_date], 
+											[modify_date], 
+											[more_info],
+											[display_order]
+										)
+									SELECT ''@@@RunID@@@'',
+										''@@@GETDATE@@@'',
+										''@@@LocalServerName@@@'',
+										-- Below should be a copy/paste of the real query
+										-- Make sure all quotes are escaped
+										[database_name] AS [Database Name], 
+										[schema_name] AS [Schema Name], 
+										[object_name] AS [Object Name], 
+										ISNULL(index_name, '''') AS [Index Name], 
+										CAST(index_id AS VARCHAR(10))AS [Index ID],
+										db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
+										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
+											ELSE ''NonClustered''
+											END AS [Object Type], 
+										index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
+										ISNULL(LTRIM(key_column_names_with_sort_order), '''') AS [Key Column Names With Sort],
+										ISNULL(count_key_columns, 0) AS [Count Key Columns],
+										ISNULL(include_column_names, '''') AS [Include Column Names], 
+										ISNULL(count_included_columns,0) AS [Count Included Columns],
+										ISNULL(secret_columns,'''') AS [Secret Column Names], 
+										ISNULL(count_secret_columns,0) AS [Count Secret Columns],
+										ISNULL(partition_key_column_name, '''') AS [Partition Key Column Name],
+										ISNULL(filter_definition, '''') AS [Filter Definition], 
+										is_indexed_view AS [Is Indexed View], 
+										is_primary_key AS [Is Primary Key],
+										is_XML AS [Is XML],
+										is_spatial AS [Is Spatial],
+										is_NC_columnstore AS [Is NC Columnstore],
+										is_CX_columnstore AS [Is CX Columnstore],
+										is_disabled AS [Is Disabled], 
+										is_hypothetical AS [Is Hypothetical],
+										is_padded AS [Is Padded], 
+										fill_factor AS [Fill Factor], 
+										is_referenced_by_foreign_key AS [Is Reference by Foreign Key], 
+										last_user_seek AS [Last User Seek], 
+										last_user_scan AS [Last User Scan], 
+										last_user_lookup AS [Last User Lookup],
+										last_user_update AS [Last User Update], 
+										total_reads AS [Total Reads], 
+										user_updates AS [User Updates], 
+										reads_per_write AS [Reads Per Write], 
+										index_usage_summary AS [Index Usage], 
+										sz.partition_count AS [Partition Count],
+										sz.total_rows AS [Rows], 
+										sz.total_reserved_MB AS [Reserved MB], 
+										sz.total_reserved_LOB_MB AS [Reserved LOB MB], 
+										sz.total_reserved_row_overflow_MB AS [Reserved Row Overflow MB],
+										sz.index_size_summary AS [Index Size], 
+										sz.total_row_lock_count AS [Row Lock Count],
+										sz.total_row_lock_wait_count AS [Row Lock Wait Count],
+										sz.total_row_lock_wait_in_ms AS [Row Lock Wait ms],
+										sz.avg_row_lock_wait_in_ms AS [Avg Row Lock Wait ms],
+										sz.total_page_lock_count AS [Page Lock Count],
+										sz.total_page_lock_wait_count AS [Page Lock Wait Count],
+										sz.total_page_lock_wait_in_ms AS [Page Lock Wait ms],
+										sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
+										sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
+										sz.total_index_lock_promotion_count AS [Lock Escalations],
+										sz.data_compression_desc AS [Data Compression],
+										i.create_date AS [Create Date],
+										i.modify_date AS [Modify Date],
+										more_info AS [More Info],
+										1 AS [Display Order]
+									FROM #IndexSanity AS i
+									LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
+									OPTION (RECOMPILE);';
+	
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID)
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@GETDATE@@@', GETDATE())
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@LocalServerName@@@', CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)))
+								EXEC(@StringToExecute);
+							END /* @TableExists = 1 */
+						ELSE
+							RAISERROR('Creation of the output table failed.', 16, 0)
+					END /* @TableExists = 0 */
 				ELSE
-					RAISERROR('Creation of the output table failed.', 16, 0)
+					RAISERROR (N'Invalid schema name, data will not be saved',0,1) WITH NOWAIT;
 			END /* @ValidOutputLocation = 1 */
 			
 		SELECT  [database_name] AS [Database Name], 
