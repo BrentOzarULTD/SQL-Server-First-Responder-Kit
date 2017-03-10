@@ -3570,7 +3570,21 @@ BEGIN;
 			END
 		ELSE
 			BEGIN
-				IF @OutputDatabaseName IS NOT NULL
+				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+					BEGIN
+						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+						EXEC(@StringToExecute);
+						
+						SET @OutputDatabaseName = '[tempdb]';
+						SET @OutputSchemaName = '[dbo]';
+						SET @ValidOutputLocation = 1;
+					END
+				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+					BEGIN
+						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+					END
+				ELSE IF @OutputDatabaseName IS NOT NULL
 					AND @OutputSchemaName IS NOT NULL
 					AND @OutputTableName IS NOT NULL
 					AND EXISTS ( SELECT *
@@ -3588,20 +3602,6 @@ BEGIN;
 						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 					BEGIN
 						RAISERROR('The specified output database was not found on this server', 16, 0)
-					END
-				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
-					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
-						EXEC(@StringToExecute);
-						
-						SET @OutputDatabaseName = '[tempdb]';
-						SET @OutputSchemaName = '[dbo]';
-						SET @ValidOutputLocation = 1;
-					END
-				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
-					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
 					END
 				ELSE
 					BEGIN
@@ -3696,12 +3696,13 @@ N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableNam
 		[modify_date] DATETIME, 
 		[more_info] NVARCHAR(500),
 		[display_order] INT,
-		CONSTRAINT [PK_ID] PRIMARY KEY CLUSTERED (ID ASC)
+		CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED (ID ASC)
 	);'
 		
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID) 
 						
 						IF @ValidOutputServer = 1
 							BEGIN
