@@ -3572,10 +3572,11 @@ BEGIN;
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
 						EXEC(@StringToExecute);
 						
+						SET @OutputServerName = QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)))
 						SET @OutputDatabaseName = '[tempdb]';
 						SET @OutputSchemaName = '[dbo]';
 						SET @ValidOutputLocation = 1;
@@ -3627,7 +3628,7 @@ ELSE
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName) 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName) 
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName)
 	
 				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT', @TableExists OUTPUT
 				
