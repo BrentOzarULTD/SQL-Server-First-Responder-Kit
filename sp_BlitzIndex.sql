@@ -3619,8 +3619,7 @@ BEGIN;
 				DECLARE @TableExists BIT;
 				DECLARE @SchemaExists BIT;
 				SET @StringToExecute = 
-					N'USE @@@OutputDatabaseName@@@; 
-					SET @SchemaExists = 0;
+					N'SET @SchemaExists = 0;
 					SET @TableExists = 0;
 					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
 						SET @SchemaExists = 1
@@ -3721,8 +3720,7 @@ BEGIN;
 							END /* @TableExists = 0 */
 					
 						SET @StringToExecute = 
-							N'USE @@@OutputDatabaseName@@@; 
-							IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+							N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
 								AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
 								SET @TableExists = 0
 							ELSE
