@@ -2039,6 +2039,7 @@ SET     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
                                 END
 FROM    #statements s
 WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+		OR s.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2093,6 +2094,7 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
 		is_forced_serial = CASE WHEN query_plan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+		OR qp.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2671,7 +2673,7 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' with forward only' ELSE '' END							
+							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -2704,7 +2706,7 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
-				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END +
+				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END 
                   , 2, 200000) 
