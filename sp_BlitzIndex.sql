@@ -3701,7 +3701,7 @@ BEGIN;
 											[modify_date] DATETIME, 
 											[more_info] NVARCHAR(500),
 											[display_order] INT,
-											CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED (ID ASC)
+											CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED ([id] ASC)
 										);'
 		
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName)
@@ -3882,8 +3882,10 @@ BEGIN;
 							RAISERROR('Creation of the output table failed.', 16, 0)
 					END /* @TableExists = 0 */
 				ELSE
-					RAISERROR (N'Invalid schema name, data will not be saved',0,1) WITH NOWAIT;
+					RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0)
 			END /* @ValidOutputLocation = 1 */
+		ELSE
+			RAISERROR (N'The output parameters were invalid or incomplete.', 16, 0)
 			
 		SELECT  [database_name] AS [Database Name], 
                 [schema_name] AS [Schema Name], 
