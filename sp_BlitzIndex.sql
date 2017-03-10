@@ -3611,8 +3611,8 @@ BEGIN;
 			END
 
 		/* @OutputTableName lets us export the results to a permanent table */
-		DECLARE @RunId UNIQUEIDENTIFIER;
-		SET @RunId = NEWID();
+		DECLARE @RunID UNIQUEIDENTIFIER;
+		SET @RunID = NEWID();
 		
 		IF @ValidOutputLocation = 1
 			BEGIN
