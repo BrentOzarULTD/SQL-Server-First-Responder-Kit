@@ -3673,7 +3673,7 @@ BEGIN
                      44,
                      50,
                      'Filters Referencing Scalar UDFs',
-                     'Expensive Sort',
+                     'This forces serialization',
                      'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
                      'Someone put a Scalar UDF in the WHERE clause!') ;
 
