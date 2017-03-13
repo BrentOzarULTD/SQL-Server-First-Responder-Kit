@@ -2022,24 +2022,18 @@ OPTION (RECOMPILE) ;
 -- statement level checks
 RAISERROR(N'Performing statement level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET     QueryPlanCost = CASE WHEN QueryType LIKE '%Stored Procedure%' THEN
-                                statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float')
-                             ELSE
-                                statement.value('sum(/p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
-                        END ,
+UPDATE b
+SET     
         compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
         compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
-        unmatched_index_count = statement.value('count(//p:UnmatchedIndexes/Parameterization/Object)', 'int') ,
-        is_trivial = CASE WHEN statement.exist('/p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
         unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
                                           statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
                                      WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
                                           statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
                                 END
 FROM    #statements s
-WHERE   s.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-		OR s.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
+JOIN ##bou_BlitzCacheProcs b
+ON  s.SqlHandle= b.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2093,8 +2087,7 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         plan_warnings = CASE WHEN query_plan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
 		is_forced_serial = CASE WHEN query_plan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
 FROM    #query_plan qp
-WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-		OR qp.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
+WHERE   qp.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2236,7 +2229,7 @@ SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcu
 	b.is_forward_only_cursor = CASE WHEN n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
 FROM ##bou_BlitzCacheProcs b
 JOIN #statements AS qs
-ON b.QueryHash = qs.QueryHash
+ON b.SqlHandle = qs.SqlHandle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -2448,8 +2441,13 @@ FROM   ##bou_BlitzCacheProcs
 WHERE SPID = @@SPID
 GROUP BY QueryHash
 ) AS x
-WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
+WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash 
 OPTION (RECOMPILE) ;
+
+
+/*
+
+*/
 
 /* Update to grab stored procedure name for individual statements */
 RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
