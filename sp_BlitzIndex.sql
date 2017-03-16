@@ -160,6 +160,9 @@ IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL
 IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 	DROP TABLE #TraceStatus;
 
+IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
+	DROP TABLE #TemporalTables;
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -575,6 +578,20 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 		 status BIT ,
 		 Global BIT ,
 		 Session BIT
+		);
+
+		CREATE TABLE #TemporalTables
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NOT NULL,
+		  database_id INT NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  history_table_name NVARCHAR(128) NOT NULL,
+		  history_schema_name NVARCHAR(128) NOT NULL,
+		  start_column_name NVARCHAR(128) NOT NULL,
+		  end_column_name NVARCHAR(128) NOT NULL,
+		  period_name NVARCHAR(128) NOT NULL
 		);
 
 
@@ -1621,7 +1638,7 @@ BEGIN TRY
    					           cc.uses_database_collation,
    					           cc.is_persisted,
    					           cc.is_computed,
-   					   		   CASE WHEN cc.definition LIKE ''%\].\[%'' ESCAPE ''\'' THEN 1 ELSE 0 END AS is_function,
+   					   		   CASE WHEN cc.definition LIKE ''%.%'' THEN 1 ELSE 0 END AS is_function,
    					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
    					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition  + 
 							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' COLLATE DATABASE_DEFAULT AS [column_definition]
@@ -1647,7 +1664,51 @@ BEGIN TRY
 			
 			RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
 			INSERT #TraceStatus
-			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS')			
+			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS')		
+			
+			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 13)
+			BEGIN
+			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
+			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
+								   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   s.name AS schema_name,
+								   t.name AS table_name, 
+								   oa.hsn as history_schema_name,
+								   oa.htn AS history_table_name, 
+								   c1.name AS start_column_name,
+								   c2.name AS end_column_name,
+								   p.name AS period_name
+							FROM ' + QUOTENAME(@DatabaseName) + N'.sys.periods AS p
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+							ON  p.object_id = t.object_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c1
+							ON  t.object_id = c1.object_id
+							    AND p.start_column_id = c1.column_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c2
+							ON  t.object_id = c2.object_id
+							    AND p.end_column_id = c2.column_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+							ON t.schema_id = s.schema_id
+							CROSS APPLY ( SELECT s2.name as hsn, t2.name htn
+							              FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t2
+										  INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s2
+										  ON t2.schema_id = s2.schema_id
+							              WHERE t2.object_id = t.history_table_id
+							              AND t2.temporal_type = 1 /*History table*/ ) AS oa
+							WHERE t.temporal_type IN ( 2, 4 ) /*BOL currently points to these types, but has no definition for 4*/
+							OPTION (RECOMPILE);
+							'
+			
+			IF @dsql IS NULL 
+			RAISERROR('@dsql is null',16,1);
+			
+			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_table_name, 
+									 history_schema_name, start_column_name, end_column_name, period_name )
+					
+			EXEC sp_executesql @dsql;
+
+END
+				
 			
 END                    
 END TRY
@@ -3326,7 +3387,7 @@ BEGIN;
 		END 
 
          ----------------------------------------
-        --Computed Column Info: Check_id 90-99
+        --Computed Column Info: Check_id 99 - 109
         ----------------------------------------
     BEGIN
 
@@ -3366,6 +3427,29 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_persisted = 0
+
+         ----------------------------------------
+        --Temporal Table Info: Check_id 110-119
+        ----------------------------------------
+		RAISERROR(N'check_id 110: Temporal Tables.', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+
+				SELECT  110 AS check_id, 
+				200 AS Priority,
+				'Temporal Tables' AS findings_group,
+				'Obsessive Compulsive Tables',
+				t.database_name,
+				'' AS URL,
+				'The table ' + QUOTENAME(t.schema_name) + '.' + QUOTENAME(t.table_name) + ' is a temporal table, with rows versioned in ' 
+					+ QUOTENAME(t.history_schema_name) + '.' + QUOTENAME(t.history_table_name) + ' on History columns ' + QUOTENAME(t.start_column_name) + ' and ' + QUOTENAME(t.end_column_name) + '.'
+				 AS details,
+				'' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #TemporalTables AS t
+
 
 	END 
  
