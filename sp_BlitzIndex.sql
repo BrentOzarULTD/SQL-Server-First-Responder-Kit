@@ -2081,14 +2081,14 @@ BEGIN;
                             GROUP BY i.database_name 
                     OPTION    ( RECOMPILE );
 
-                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
+                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    22 AS check_id, 
                                 i.index_sanity_id,
-                                150 AS Priority,
+                                100 AS Priority,
                                 N'Index Hoarder' AS findings_group,
-                                N'Unused NC index' AS finding, 
+                                N'Unused NC index with High Writes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
                                 N'0 reads: ' + i.db_schema_object_indexid AS details, 
@@ -2099,6 +2099,7 @@ BEGIN;
                         FROM    #IndexSanity AS i
                         JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.total_reads=0
+								AND i.user_updates >= 10000
                                 AND i.index_id NOT IN (0,1) /*NCs only*/
                                 AND i.is_unique = 0
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
@@ -2310,6 +2311,30 @@ BEGIN;
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE )
 
+                RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT    22 AS check_id, 
+                                i.index_sanity_id,
+                                150 AS Priority,
+                                N'Index Hoarder' AS findings_group,
+                                N'Unused NC index with Low Writes' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+                                N'0 reads: ' + i.db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                i.secret_columns, 
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity AS i
+                        JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.total_reads=0
+								AND i.user_updates < 10000
+                                AND i.index_id NOT IN (0,1) /*NCs only*/
+                                AND i.is_unique = 0
+                                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                        ORDER BY i.db_schema_object_indexid
+                        OPTION    ( RECOMPILE );
 
 
         END
