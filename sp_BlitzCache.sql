@@ -2036,21 +2036,35 @@ ON  s.SqlHandle= b.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-RAISERROR(N'Performing statement level checks', 0, 1) WITH NOWAIT;
+
+--Gather costs
+RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE b
-SET    QueryPlanCost = CASE WHEN QueryType LIKE '%Procedure%' THEN
-        QueryPlanCost
-        ELSE
-        QueryPlan.value('sum(//p:StmtSimple[xs:hexBinary(substring(@QueryPlanHash, 3)) = xs:hexBinary(sql:column("QueryPlanHash"))]/@StatementSubTreeCost)', 'float')
-        END
+SELECT  DISTINCT
+		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') QueryPlanCost,
+		s.SqlHandle,
+		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
+		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryPlanHash
+INTO #plan_cost
 FROM    #statements s
-JOIN ##bou_BlitzCacheProcs b
-ON  s.SqlHandle= b.SqlHandle
-AND SPID = @@SPID
+CROSS APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
+WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
 OPTION (RECOMPILE);
 
---Gather Stored Proc costs
+WITH pc AS (
+SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
+FROM #plan_cost AS pc
+GROUP BY pc.QueryHash, pc.QueryPlanHash
+)
+UPDATE b
+SET b.QueryPlanCost = ISNULL(pc.QueryPlanCostSum, 0)
+FROM pc
+JOIN ##bou_BlitzCacheProcs b
+ON b.QueryPlanHash = pc.QueryPlanHash
+OR b.QueryHash = pc.QueryHash
+WHERE b.QueryType NOT LIKE '%Procedure%'
+OPTION (RECOMPILE);
+
 RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , QueryCost AS (
@@ -2073,12 +2087,12 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 )
   UPDATE b
     SET b.QueryPlanCost = 
-    CASE WHEN 
+    ISNULL(CASE WHEN 
       b.QueryType LIKE '%Procedure%' THEN 
          (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
        ELSE 
          b.QueryPlanCost 
-    	 END
+    	 END, 0)
   FROM QueryCostUpdate qcu
     JOIN  ##bou_BlitzCacheProcs AS b
   ON qcu.SqlHandle = b.SqlHandle
