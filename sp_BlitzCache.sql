@@ -2193,7 +2193,7 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for functions', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , x AS (
-SELECT qs.QueryHash,
+SELECT qs.SqlHandle,
 	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[not(@IsClrFunction)]))', 'INT') AS function_count,
 	   n.fn.value('count(distinct-values(//p:UserDefinedFunction[@IsClrFunction = "1"]))', 'INT') AS clr_function_count
 FROM   #relop qs
@@ -2203,7 +2203,7 @@ UPDATE p
 SET	   p.function_count = x.function_count,
 	   p.clr_function_count = x.clr_function_count
 FROM ##bou_BlitzCacheProcs AS p
-JOIN x ON x.QueryHash = p.QueryHash
+JOIN x ON x.SqlHandle = p.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
