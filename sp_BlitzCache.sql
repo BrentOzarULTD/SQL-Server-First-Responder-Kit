@@ -2099,6 +2099,12 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
   AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
+UPDATE b
+SET b.QueryPlanCost = 0.0
+FROM ##bou_BlitzCacheProcs b
+WHERE b.QueryPlanCost IS NULL
+OPTION (RECOMPILE);
+
 -- query level checks
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
