@@ -2115,13 +2115,40 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CachedPlanSize = query_plan.value('sum(/p:QueryPlan/@CachedPlanSize)', 'float') ,
         CompileTime = query_plan.value('sum(/p:QueryPlan/@CompileTime)', 'float') ,
         CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
-        CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float') ,
-        implicit_conversions = CASE WHEN query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1 THEN 1 END ,
-        plan_warnings = CASE WHEN query_plan.value('count(/p:QueryPlan/p:Warnings)', 'int') > 0 THEN 1 END,
-		is_forced_serial = CASE WHEN query_plan.value('count(/p:QueryPlan/@NonParallelPlanReason)', 'int') > 0 THEN 1 END
+        CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float')
 FROM    #query_plan qp
-WHERE   qp.SqlHandle= ##bou_BlitzCacheProcs.SqlHandle
+WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
+OPTION (RECOMPILE);
+
+RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET is_forced_serial = 1
+FROM    #query_plan qp
+WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+AND SPID = @@SPID
+AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
+OPTION (RECOMPILE);
+
+RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET plan_warnings = 1
+FROM    #query_plan qp
+WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+AND SPID = @@SPID
+AND query_plan.exist('/p:QueryPlan/p:Warnings') = 1
+OPTION (RECOMPILE);
+
+RAISERROR(N'Checking for implicit conversion', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET implicit_conversions = 1
+FROM    #query_plan qp
+WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+AND SPID = @@SPID
+AND query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1
 OPTION (RECOMPILE);
 
 -- operator level checks
@@ -2640,7 +2667,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_key_lookup_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND key_lookup_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
-	   is_forced_serial = CASE WHEN is_forced_serial = 1 AND QueryPlanCost > (@ctp / 2) THEN 1 END,
+	   is_forced_serial = CASE WHEN is_forced_serial = 1 THEN 1 END,
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
