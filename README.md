@@ -13,6 +13,11 @@ You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's you
 
 To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/releases), then run the SQL files in the master database. (You can use other databases if you prefer.)
 
+Or you can install using PowerShell (requires SqlServer PowerShell module)
+```powershell
+Invoke-Expression (Invoke-WebRequest https://raw.githubusercontent.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/dev/install.ps1 -ServerInstance '(local)' -Database 'master' )
+```
+
 The First Responder Kit runs on:
 
 * SQL Server 2008, 2008R2, 2012, 2014, 2016 - yes, fully supported
