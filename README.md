@@ -15,7 +15,7 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 Or you can install using PowerShell (requires SqlServer PowerShell module)
 ```powershell
-Invoke-Expression (Invoke-WebRequest https://raw.githubusercontent.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/dev/install.ps1 -ServerInstance '(local)' -Database 'master' )
+Invoke-Expression (Invoke-WebRequest https://raw.githubusercontent.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/dev/install.ps1)
 ```
 
 The First Responder Kit runs on:

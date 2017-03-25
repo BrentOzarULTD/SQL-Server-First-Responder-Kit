@@ -1,8 +1,16 @@
 [CmdletBinding()]
-param (
-	[string]$ServerInstance = '(local)',
-    [string]$Database = 'master'
-)
+[string]$defaultServerInstance = '(local)'
+[string]$defaultDatabase = 'master'
+
+$ServerInstance = Read-Host "Enter Server Instance, default is [$($defaultServerInstance)]"
+if ($ServerInstance -eq "") {
+    $ServerInstance = $defaultServerInstance
+}
+
+$Database = Read-Host "Enter Database, default is [$($defaultDatabase)]"
+if ($Database -eq "") {
+    $Database = $defaultDatabase
+}
 
 Write-Output "Installing SQL Server First Responder Kit to [$Database] on $($ServerInstance.ToUpper())"
 
@@ -54,8 +62,14 @@ $scripts = Get-ChildItem "$temp\SQL-Server-First-Responder-Kit-master\*" -Includ
 
 foreach ($script in $scripts) {
     If (($script.Name -ne 'sp_BlitzRS.sql') -or ($script.Name -eq 'sp_BlitzRS.sql' -and $ReportServer -eq $true)) {
-        Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -InputFile $script -SuppressProviderContextWarning
-        Write-Host "Executing $($script.name)"
+        try {
+            Invoke-Sqlcmd -ServerInstance $ServerInstance -Database $Database -InputFile $script -SuppressProviderContextWarning -ErrorAction Stop
+            Write-Host "Executing $($script.name)"
+        } catch {
+            Write-Host "Error executing $($script.name)" -ForegroundColor Red
+            Write-Host $_ -ForegroundColor Red
+            Continue
+        }
     } else {
         Write-Host "ReportServer not found skipping $($script.name)"
     }
