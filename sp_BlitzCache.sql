@@ -2052,18 +2052,18 @@ WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
 OPTION (RECOMPILE);
 
 WITH pc AS (
-SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
-FROM #plan_cost AS pc
-GROUP BY pc.QueryHash, pc.QueryPlanHash
+	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
+	FROM #plan_cost AS pc
+	GROUP BY pc.QueryHash, pc.QueryPlanHash
 )
-UPDATE b
-SET b.QueryPlanCost = ISNULL(pc.QueryPlanCostSum, 0)
-FROM pc
-JOIN ##bou_BlitzCacheProcs b
-ON b.QueryPlanHash = pc.QueryPlanHash
-OR b.QueryHash = pc.QueryHash
-WHERE b.QueryType NOT LIKE '%Procedure%'
-OPTION (RECOMPILE);
+	UPDATE b
+		SET b.QueryPlanCost = ISNULL(pc.QueryPlanCostSum, 0)
+		FROM pc
+		JOIN ##bou_BlitzCacheProcs b
+		ON b.QueryPlanHash = pc.QueryPlanHash
+		OR b.QueryHash = pc.QueryHash
+		WHERE b.QueryType NOT LIKE '%Procedure%'
+	OPTION (RECOMPILE);
 
 RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
