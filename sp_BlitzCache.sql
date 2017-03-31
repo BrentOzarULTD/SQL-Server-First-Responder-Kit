@@ -2051,6 +2051,7 @@ CROSS APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
 OPTION (RECOMPILE);
 
+RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
 	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
 	FROM #plan_cost AS pc
@@ -2086,17 +2087,12 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
     WHERE qc.SubTreeCost > 0
 )
   UPDATE b
-    SET b.QueryPlanCost = 
-    ISNULL(CASE WHEN 
-      b.QueryType LIKE '%Procedure%' THEN 
-         (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
-       ELSE 
-         b.QueryPlanCost 
-    	 END, 0)
+    SET b.QueryPlanCost = (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
   FROM QueryCostUpdate qcu
     JOIN  ##bou_BlitzCacheProcs AS b
   ON qcu.SqlHandle = b.SqlHandle
   AND b.SPID = @@SPID
+WHERE b.QueryType LIKE '%Procedure%'
 OPTION (RECOMPILE);
 
 UPDATE b
