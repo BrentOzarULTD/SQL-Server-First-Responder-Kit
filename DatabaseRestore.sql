@@ -28,15 +28,11 @@ EXEC dbo.DatabaseRestore
 	@RunRecovery = 1;
 */
 
-USE [master]
+IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;')
 GO
 
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-
-CREATE PROCEDURE [dbo].[DatabaseRestore]
+ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
 	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, 
 	  @ContinueLogs bit = 0, @RunRecovery bit = 0
