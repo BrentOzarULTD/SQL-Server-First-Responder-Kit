@@ -2032,7 +2032,7 @@ SET     compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOpt
                                 END
 FROM    #statements s
 JOIN ##bou_BlitzCacheProcs b
-ON  s.SqlHandle= b.SqlHandle
+ON  s.QueryHash = b.QueryHash
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2113,7 +2113,7 @@ SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingInde
         CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float')
 FROM    #query_plan qp
-WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
