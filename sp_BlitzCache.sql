@@ -375,6 +375,11 @@ BEGIN
            N'A database name which is used for filtering results.'
 
     UNION ALL
+    SELECT N'@StoredProcName',
+           N'NVARCHAR(128)',
+           N'Name of stored procedure you want to find plans for.'
+
+    UNION ALL
     SELECT N'@BringThePain',
            N'BIT',
            N'This forces sp_BlitzCache to examine the entire plan cache. Be careful running this on servers with a lot of memory or a large execution plan cache.'
