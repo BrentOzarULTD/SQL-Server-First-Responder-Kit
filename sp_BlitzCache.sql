@@ -2772,10 +2772,77 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  END
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
+RAISERROR('Populating Warnings column for stored procedures', 0, 1) WITH NOWAIT;
+WITH statement_warnings AS 
+	(
+SELECT  DISTINCT
+		SqlHandle,
+		Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
+				  SUBSTRING(
+                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
+                  CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
+                  CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
+                  CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
+                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
+                  CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
+                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
+                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
+                  CASE WHEN is_cursor = 1 THEN ', Cursor' 
+							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+				  ELSE '' END +
+                  CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
+                  CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
+                  CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
+                  CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
+                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
+                  CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
+                  CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
+                  CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
+                  CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
+                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
+				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
+				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
+				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
+				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
+				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
+				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
+				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
+				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
+				  CASE WHEN is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
+				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
+				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
+				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
+				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
+				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
+				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
+				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
+				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
+				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
+				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
+				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END 
+                  , 2, 200000) 
+				  END
+FROM ##bou_BlitzCacheProcs 
+WHERE SPID = @@SPID
+AND QueryType LIKE 'Statement (parent%'
+	)
+UPDATE b
+SET b.Warnings = s.Warnings
+FROM ##bou_BlitzCacheProcs AS b
+JOIN statement_warnings s
+ON b.SqlHandle = s.SqlHandle
+OPTION(RECOMPILE);
 
 UPDATE ##bou_BlitzCacheProcs
 SET Warnings = 'No warnings detected.'
 WHERE Warnings = '' OR	Warnings IS NULL
+OPTION (RECOMPILE);
 
 
 Results:
