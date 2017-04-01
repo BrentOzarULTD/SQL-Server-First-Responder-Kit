@@ -943,10 +943,12 @@ IF @Reanalyze = 0
   BEGIN
   RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
   DELETE ##bou_BlitzCacheResults
-    WHERE SPID = @@SPID;
+    WHERE SPID = @@SPID
+	OPTION (RECOMPILE) ;
   RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
   DELETE ##bou_BlitzCacheProcs
-    WHERE SPID = @@SPID;
+    WHERE SPID = @@SPID
+	OPTION (RECOMPILE) ;
   END  
 
 IF @Reanalyze = 1 
@@ -1035,6 +1037,7 @@ SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100
 	   @@SPID AS SPID
 INTO #plan_creation
 FROM x
+OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
@@ -1047,7 +1050,8 @@ INTO #plan_stubs_warning
 FROM    sys.dm_exec_cached_plans cp
 LEFT JOIN sys.dm_exec_query_stats qs
 ON      cp.plan_handle = qs.plan_handle
-WHERE   cp.cacheobjtype = 'Compiled Plan Stub';
+WHERE   cp.cacheobjtype = 'Compiled Plan Stub'
+OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
@@ -1061,7 +1065,8 @@ FROM    sys.dm_exec_cached_plans cp
 LEFT JOIN sys.dm_exec_query_stats qs
 ON      cp.plan_handle = qs.plan_handle
 WHERE   cp.usecounts = 1
-        AND cp.cacheobjtype = 'Compiled Plan';
+        AND cp.cacheobjtype = 'Compiled Plan'
+OPTION (RECOMPILE) ;
 
 
 
@@ -1098,6 +1103,7 @@ BEGIN
                INSERT INTO #only_sql_handles
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
@@ -1111,6 +1117,7 @@ BEGIN
                INSERT INTO #only_sql_handles
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
@@ -1132,6 +1139,7 @@ BEGIN
                INSERT INTO #ignore_sql_handles
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
@@ -1145,6 +1153,7 @@ BEGIN
                INSERT INTO #ignore_sql_handles
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
@@ -1160,6 +1169,7 @@ BEGIN
 	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),'0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'))
 	FROM sys.dm_exec_procedure_stats AS deps
 	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
+	OPTION (RECOMPILE) ;
 
 		IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
 			BEGIN
@@ -1201,6 +1211,7 @@ BEGIN
                INSERT INTO #only_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
                
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
 
@@ -1214,6 +1225,7 @@ BEGIN
                INSERT INTO #only_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
                FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
+			   OPTION (RECOMPILE) ;
 
                --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
         END
@@ -1241,7 +1253,8 @@ BEGIN
                
                INSERT INTO #ignore_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) 
+			   OPTION (RECOMPILE) ;
                
                SET @IgnoreQueryHashes = SUBSTRING(@IgnoreQueryHashes, LEN(@individual + ',') + 1, LEN(@IgnoreQueryHashes)) ;
         END
@@ -1252,7 +1265,8 @@ BEGIN
 
                INSERT INTO #ignore_query_hashes
                SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) ;
+               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) 
+			   OPTION (RECOMPILE) ;
         END
    END
 END
@@ -2365,7 +2379,7 @@ WHERE n.fn.exist('/p:RelOp/p:ComputeScalar/p:DefinedValues/p:DefinedValue/p:Colu
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
-OPTION (RECOMPILE)
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for filters that reference scalar UDFs', 0, 1) WITH NOWAIT;
@@ -2381,7 +2395,7 @@ CROSS APPLY r.relop.nodes('/p:RelOp/p:Filter/p:Predicate/p:ScalarOperator/p:Comp
 ) x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
-OPTION (RECOMPILE)
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking modification queries that hit lots of indexes', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),	
@@ -2449,7 +2463,7 @@ WHERE n.fn.exist('(@IndexKind[.="Spatial"])') = 1
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
-OPTION (RECOMPILE)
+OPTION (RECOMPILE);
 
 IF @v >= 12
 BEGIN
@@ -2521,6 +2535,7 @@ FROM    ##bou_BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
+OPTION (RECOMPILE) ;
 
 /* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
@@ -2772,6 +2787,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  END
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
+
+
 RAISERROR('Populating Warnings column for stored procedures', 0, 1) WITH NOWAIT;
 WITH statement_warnings AS 
 	(
