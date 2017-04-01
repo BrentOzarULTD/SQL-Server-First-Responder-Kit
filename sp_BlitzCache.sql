@@ -1152,9 +1152,15 @@ BEGIN
 	RAISERROR(N'Setting up filter for stored procedure name', 0, 1) WITH NOWAIT;
 	INSERT #only_sql_handles
 	        ( sql_handle )
-	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),''))
+	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),'0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'))
 	FROM sys.dm_exec_procedure_stats AS deps
 	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
+
+		IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
+			BEGIN
+			RAISERROR(N'No information for that stored procedure was found.', 0, 1) WITH NOWAIT;
+			RETURN;
+			END
 
 END
 
@@ -2163,7 +2169,6 @@ WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Performing TVF join check', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    p.tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
@@ -2176,7 +2181,6 @@ FROM   ##bou_BlitzCacheProcs p
        ) AS x ON p.SqlHandle = x.SqlHandle
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
-
 
 RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
