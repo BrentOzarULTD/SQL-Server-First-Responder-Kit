@@ -2169,6 +2169,7 @@ WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Performing TVF join check', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
 SET    p.tvf_join = CASE WHEN x.tvf_join = 1 THEN 1 END
 FROM   ##bou_BlitzCacheProcs p
