@@ -28,15 +28,11 @@ EXEC dbo.DatabaseRestore
 	@RunRecovery = 1;
 */
 
-USE [master]
+IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;')
 GO
 
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-
-CREATE PROCEDURE [dbo].[DatabaseRestore]
+ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
 	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, 
 	  @ContinueLogs bit = 0, @RunRecovery bit = 0
@@ -46,8 +42,6 @@ SET NOCOUNT ON;
 
 DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @BackupFile NVARCHAR(500);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
-
-DECLARE @MoveDataLocation AS NVARCHAR(500), @MoveDataLocationName AS NVARCHAR(500), @MoveLogLocation AS NVARCHAR(500), @MoveLogLocationName AS NVARCHAR(500);
 
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
@@ -94,7 +88,7 @@ DECLARE @FileListParameters TABLE
 INSERT INTO @FileListParameters
 EXEC ('RESTORE FILELISTONLY FROM DISK='''+@BackupPathFull + @LastFullBackup+'''');
 
-DECLARE @MoveOption AS NVARCHAR(1000)= '';
+DECLARE @MoveOption AS NVARCHAR(MAX)= '';
 
 IF @MoveFiles = 1
 BEGIN
@@ -141,17 +135,17 @@ BEGIN
 	INSERT INTO @Headers
 	EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathFull + @LastFullBackup+'''');
 
-	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN BIGINT;
+	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
 
 	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
 
-	SELECT @FullLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 1;
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM @Headers WHERE BackupType = 1;
 END;
 ELSE
 BEGIN
-	DECLARE @DatabaseLastLSN BIGINT;
+	DECLARE @DatabaseLastLSN NUMERIC(25, 0);
 
-	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS BIGINT)
+	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
 	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1
@@ -174,7 +168,7 @@ DECLARE BackupFiles CURSOR FOR
 
 OPEN BackupFiles;
 
-DECLARE @i tinyint = 1, @LogFirstLSN BIGINT, @LogLastLSN BIGINT;;
+DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);;
 
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -185,7 +179,7 @@ BEGIN
 		INSERT INTO @Headers
 		EXEC ('RESTORE HEADERONLY FROM DISK = '''+@BackupPathLog + @BackupFile+'''');
 		
-		SELECT @LogFirstLSN = CAST(FirstLSN AS BIGINT), @LogLastLSN = CAST(LastLSN AS BIGINT) FROM @Headers WHERE BackupType = 2;
+		SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM @Headers WHERE BackupType = 2;
 
 		IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN)
 			SET @i = 2;
