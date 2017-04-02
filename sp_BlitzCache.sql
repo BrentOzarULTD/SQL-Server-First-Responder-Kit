@@ -198,6 +198,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_row_level BIT,
 		is_spatial BIT,
 		index_dml BIT,
+		table_dml BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -862,6 +863,7 @@ BEGIN
 		is_row_level BIT,
 		is_spatial BIT,
 		index_dml BIT,
+		table_dml BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1825,8 +1827,7 @@ RAISERROR(N'Attempting to aggregate stored proc info from separate statements', 
         SUM(b.TotalReturnedRows) AS TotalReturnedRows,
         SUM(b.LastReturnedRows) AS LastReturnedRows
     FROM ##bou_BlitzCacheProcs b
-    WHERE b.QueryHash IS NOT NULL 
-	AND b.SPID = @@SPID
+    WHERE b.SPID = @@SPID
     GROUP BY b.SqlHandle
 )
 UPDATE b
@@ -2047,24 +2048,82 @@ WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
 
 -- statement level checks
-RAISERROR(N'Performing statement level checks', 0, 1) WITH NOWAIT;
+RAISERROR(N'Performing compile timeout checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET     compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END ,
-        compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END ,
-        unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
-                                     WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
-                                END,
-		index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]')= 1 THEN 1
-						 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]')= 1 THEN 1
-						 END
+SET     compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END 
 FROM    #statements s
 JOIN ##bou_BlitzCacheProcs b
 ON  s.QueryHash = b.QueryHash
 AND SPID = @@SPID
+WHERE statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1
 OPTION (RECOMPILE);
+
+RAISERROR(N'Performing compile memory limit exceeded checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET     compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END 
+FROM    #statements s
+JOIN ##bou_BlitzCacheProcs b
+ON  s.QueryHash = b.QueryHash
+AND SPID = @@SPID
+WHERE statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1
+OPTION (RECOMPILE);
+
+RAISERROR(N'Performing unparameterized query checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+unparameterized_query AS (
+	SELECT s.QueryHash,
+		   unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
+                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
+                                     WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
+                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
+                                END
+	FROM #statements AS s
+			)
+UPDATE b
+SET b.unparameterized_query = u.unparameterized_query
+FROM ##bou_BlitzCacheProcs b
+JOIN unparameterized_query u
+ON  u.QueryHash = b.QueryHash
+AND SPID = @@SPID
+WHERE u.unparameterized_query = 1
+OPTION (RECOMPILE);
+
+
+RAISERROR(N'Performing index DML checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+index_dml AS (
+	SELECT	s.QueryHash,	
+			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]')= 1 THEN 1
+								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]')= 1 THEN 1
+								 END
+	FROM    #statements s
+			)
+	UPDATE b
+		SET b.index_dml = i.index_dml
+	FROM ##bou_BlitzCacheProcs AS b
+	JOIN index_dml i
+	ON i.QueryHash = b.QueryHash
+	WHERE i.index_dml = 1
+	AND b.SPID = @@SPID;
+
+RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+table_dml AS (
+	SELECT s.QueryHash,			
+		   table_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]')= 1 THEN 1
+							WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]')= 1 THEN 1
+							END
+		 FROM #statements AS s
+		 )
+	UPDATE b
+		SET b.index_dml = t.table_dml
+	FROM ##bou_BlitzCacheProcs AS b
+	JOIN table_dml t
+	ON t.QueryHash = b.QueryHash
+	WHERE t.table_dml = 1
+	AND b.SPID = @@SPID;
 
 
 --Gather costs
@@ -2129,22 +2188,6 @@ UPDATE b
 SET b.QueryPlanCost = 0.0
 FROM ##bou_BlitzCacheProcs b
 WHERE b.QueryPlanCost IS NULL
-OPTION (RECOMPILE);
-
--- query level checks
-RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE  ##bou_BlitzCacheProcs
-SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
-        SerialDesiredMemory = query_plan.value('sum(/p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
-        SerialRequiredMemory = query_plan.value('sum(/p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
-        CachedPlanSize = query_plan.value('sum(/p:QueryPlan/@CachedPlanSize)', 'float') ,
-        CompileTime = query_plan.value('sum(/p:QueryPlan/@CompileTime)', 'float') ,
-        CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
-        CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float')
-FROM    #query_plan qp
-WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-AND SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
@@ -2497,22 +2540,33 @@ BEGIN
 	OPTION (RECOMPILE) ;
 END ;
 
+-- query level checks
+RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
+		unmatched_index_count = query_plan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
+        SerialDesiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
+        SerialRequiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
+        CachedPlanSize = query_plan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
+        CompileTime = query_plan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
+        CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
+        CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
+FROM    #query_plan qp
+WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+		OR qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE);
+
+
 /* END Testing using XML nodes to speed up processing */
 RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-	missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
-    unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
-    is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-    SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
-    SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
-    CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
-    CompileTime = QueryPlan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
-    CompileCPU = QueryPlan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
-    CompileMemory = QueryPlan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
+    is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -2783,7 +2837,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END + 
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END
+				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -2844,7 +2899,8 @@ SELECT  DISTINCT
 				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END +
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END
+				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
                   , 2, 200000) 
 				  END
 FROM ##bou_BlitzCacheProcs 
@@ -3191,7 +3247,8 @@ BEGIN
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
 				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END +
 				  CASE WHEN is_spatial = 1 THEN '', 47'' ELSE '''' END +
-				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END
+				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
+				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3875,6 +3932,19 @@ BEGIN
                      150,
                      'Index DML',
                      'Indexes were created or dropped',
+                     'No URL yet',
+                     'This can cause recompiles and stuff.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.table_dml = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     49,
+                     150,
+                     'Table DML',
+                     'Tables were created or dropped',
                      'No URL yet',
                      'This can cause recompiles and stuff.') ;
 
