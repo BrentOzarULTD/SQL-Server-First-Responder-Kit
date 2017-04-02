@@ -3226,7 +3226,8 @@ BEGIN
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
 				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END +
 				  CASE WHEN is_spatial = 1 THEN '', 47'' ELSE '''' END +
-				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END
+				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
+				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3919,7 +3920,7 @@ BEGIN
   					AND SPID = @@SPID)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     48,
+                     49,
                      150,
                      'Table DML',
                      'Tables were created or dropped',
