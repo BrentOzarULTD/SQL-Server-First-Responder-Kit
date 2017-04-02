@@ -198,6 +198,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_row_level BIT,
 		is_spatial BIT,
 		index_dml BIT,
+		table_dml BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -862,6 +863,7 @@ BEGIN
 		is_row_level BIT,
 		is_spatial BIT,
 		index_dml BIT,
+		table_dml BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2056,15 +2058,46 @@ SET     compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOpt
                                           statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
                                      WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
                                           statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
-                                END,
-		index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]')= 1 THEN 1
-						 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]')= 1 THEN 1
-						 END
+                                END
 FROM    #statements s
 JOIN ##bou_BlitzCacheProcs b
 ON  s.QueryHash = b.QueryHash
 AND SPID = @@SPID
 OPTION (RECOMPILE);
+
+RAISERROR(N'Performing index DML checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+index_dml AS (
+	SELECT	s.QueryHash,	
+			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]')= 1 THEN 1
+								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]')= 1 THEN 1
+								 END
+	FROM    #statements s
+			)
+	UPDATE b
+		SET b.index_dml = i.index_dml
+		FROM ##bou_BlitzCacheProcs AS b
+	JOIN index_dml i
+	ON i.QueryHash = b.QueryHash
+	WHERE i.index_dml = 1
+	AND b.SPID = @@SPID;
+
+RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+table_dml AS (
+	SELECT s.QueryHash,			
+		   table_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]')= 1 THEN 1
+							WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]')= 1 THEN 1
+							END
+		 FROM #statements AS s
+		 )
+	UPDATE b
+		SET b.index_dml = t.table_dml
+		FROM ##bou_BlitzCacheProcs AS b
+	JOIN table_dml t
+	ON t.QueryHash = b.QueryHash
+	WHERE t.table_dml = 1
+	AND b.SPID = @@SPID;
 
 
 --Gather costs
@@ -2783,7 +2816,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END + 
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END
+				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -2844,7 +2878,8 @@ SELECT  DISTINCT
 				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END +
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END
+				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
                   , 2, 200000) 
 				  END
 FROM ##bou_BlitzCacheProcs 
@@ -3875,6 +3910,19 @@ BEGIN
                      150,
                      'Index DML',
                      'Indexes were created or dropped',
+                     'No URL yet',
+                     'This can cause recompiles and stuff.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.table_dml = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     48,
+                     150,
+                     'Table DML',
+                     'Tables were created or dropped',
                      'No URL yet',
                      'This can cause recompiles and stuff.') ;
 
