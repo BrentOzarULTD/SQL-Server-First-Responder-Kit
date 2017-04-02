@@ -2386,12 +2386,13 @@ AS
 								SELECT  97 AS CheckID ,
 										100 AS Priority ,
 										'Performance' AS FindingsGroup ,
-										'Unusual SQL Server Edition' AS Finding ,
+										'Low-End SQL Server Edition' AS Finding ,
 										'https://BrentOzar.com/go/workgroup' AS URL ,
 										( 'This server is using '
 										  + CAST(SERVERPROPERTY('edition') AS VARCHAR(100))
 										  + ', which is capped at low amounts of CPU and memory.' ) AS Details
 								WHERE   CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
+										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Web%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Enterprise%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Data Center%'
 										AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Developer%'
