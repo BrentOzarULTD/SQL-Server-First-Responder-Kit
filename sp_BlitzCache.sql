@@ -1827,8 +1827,7 @@ RAISERROR(N'Attempting to aggregate stored proc info from separate statements', 
         SUM(b.TotalReturnedRows) AS TotalReturnedRows,
         SUM(b.LastReturnedRows) AS LastReturnedRows
     FROM ##bou_BlitzCacheProcs b
-    WHERE b.QueryHash IS NOT NULL 
-	AND b.SPID = @@SPID
+    WHERE b.SPID = @@SPID
     GROUP BY b.SqlHandle
 )
 UPDATE b
@@ -2103,7 +2102,7 @@ index_dml AS (
 			)
 	UPDATE b
 		SET b.index_dml = i.index_dml
-		FROM ##bou_BlitzCacheProcs AS b
+	FROM ##bou_BlitzCacheProcs AS b
 	JOIN index_dml i
 	ON i.QueryHash = b.QueryHash
 	WHERE i.index_dml = 1
@@ -2120,7 +2119,7 @@ table_dml AS (
 		 )
 	UPDATE b
 		SET b.index_dml = t.table_dml
-		FROM ##bou_BlitzCacheProcs AS b
+	FROM ##bou_BlitzCacheProcs AS b
 	JOIN table_dml t
 	ON t.QueryHash = b.QueryHash
 	WHERE t.table_dml = 1
@@ -2189,22 +2188,6 @@ UPDATE b
 SET b.QueryPlanCost = 0.0
 FROM ##bou_BlitzCacheProcs b
 WHERE b.QueryPlanCost IS NULL
-OPTION (RECOMPILE);
-
--- query level checks
-RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE  ##bou_BlitzCacheProcs
-SET     missing_index_count = query_plan.value('count(/p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
-        SerialDesiredMemory = query_plan.value('sum(/p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
-        SerialRequiredMemory = query_plan.value('sum(/p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
-        CachedPlanSize = query_plan.value('sum(/p:QueryPlan/@CachedPlanSize)', 'float') ,
-        CompileTime = query_plan.value('sum(/p:QueryPlan/@CompileTime)', 'float') ,
-        CompileCPU = query_plan.value('sum(/p:QueryPlan/@CompileCPU)', 'float') ,
-        CompileMemory = query_plan.value('sum(/p:QueryPlan/@CompileMemory)', 'float')
-FROM    #query_plan qp
-WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-AND SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
@@ -2557,22 +2540,33 @@ BEGIN
 	OPTION (RECOMPILE) ;
 END ;
 
+-- query level checks
+RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
+		unmatched_index_count = query_plan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
+        SerialDesiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
+        SerialRequiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
+        CachedPlanSize = query_plan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
+        CompileTime = query_plan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
+        CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
+        CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
+FROM    #query_plan qp
+WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+		OR qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE);
+
+
 /* END Testing using XML nodes to speed up processing */
 RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-	missing_index_count = QueryPlan.value('count(//p:MissingIndexGroup)', 'int') ,
-    unmatched_index_count = QueryPlan.value('count(//p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') ,
     plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END ,
-    is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END ,
-    SerialDesiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
-    SerialRequiredMemory = QueryPlan.value('sum(//p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
-    CachedPlanSize = QueryPlan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
-    CompileTime = QueryPlan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
-    CompileCPU = QueryPlan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
-    CompileMemory = QueryPlan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
+    is_trivial = CASE WHEN QueryPlan.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1 THEN 1 END
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
