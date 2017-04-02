@@ -2482,7 +2482,6 @@ AS
 										AND j.category_id <> 100 /* Exclude SSRS category */
 					END
 
-
 				IF EXISTS ( SELECT  1
 							FROM    sys.configurations
 							WHERE   name = 'remote admin connections'
@@ -2506,6 +2505,36 @@ AS
 										'https://BrentOzar.com/go/dac' AS URL ,
 										'Remote access to the Dedicated Admin Connection (DAC) is not enabled. The DAC can make remote troubleshooting much easier when SQL Server is unresponsive.'
 					END
+					
+				IF EXISTS ( SELECT  1
+							FROM    sys.configurations
+							WHERE   name = 'remote admin connections'
+									AND value_in_use = 1 )
+					AND NOT EXISTS ( SELECT 1
+									 FROM   #SkipChecks
+									 WHERE  DatabaseName IS NULL AND CheckID = 100 )
+					BEGIN
+						INSERT INTO #TraceStatus
+						EXEC ( ' DBCC TRACESTATUS(7806,-1) WITH NO_INFOMSGS')
+						IF ((CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') AND (SELECT #TraceStatus.Global FROM #TraceStatus where #TraceStatus.Global <> 1) = 0)
+							BEGIN
+								INSERT INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT  100 AS CheckID ,
+											51 AS Priority ,
+											'Reliability' AS FindingGroup ,
+											'Remote DAC switched on but needs traceflag 7806' AS Finding ,
+											'https://BrentOzar.com/go/dac' AS URL ,
+											'Remote access to the Dedicated Admin Connection (DAC) is not enabled, because express editions need traceflag 7806. The DAC can make remote troubleshooting much easier when SQL Server is unresponsive.' 
+							END
+					END
+
 
 
 				IF EXISTS ( SELECT  *
@@ -5224,6 +5253,7 @@ IF @ProductVersionMajor >= 10
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 74 )
 					BEGIN
+						TRUNCATE TABLE #TraceStatus
 						INSERT  INTO #TraceStatus
 								EXEC ( ' DBCC TRACESTATUS(-1) WITH NO_INFOMSGS'
 									)
@@ -5250,9 +5280,11 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
 											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
-										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+											 WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+											 WHEN [T].[TraceFlag] = '7806' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN ' 7806 is enabled globally, which is required for Dedicated Admin Connection when using SQL server express edition.'
+											 WHEN [T].[TraceFlag] = '7806' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 7806 is enabled globally, which is required for Dedicated Admin Connection ONLY when using SQL server express edition, but you are not.'
 											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN ' 8017 is enabled globally, which is the default for express edition.'
-                                             WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 8017 is enabled globally. Using this Trace Flag disables creation schedulers for all logical processors. Not good.'
+											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 8017 is enabled globally. Using this Trace Flag disables creation schedulers for all logical processors. Not good.'
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
