@@ -2127,7 +2127,7 @@ table_dml AS (
 		 FROM #statements AS s
 		 )
 	UPDATE b
-		SET b.index_dml = t.table_dml
+		SET b.table_dml = t.table_dml
 	FROM ##bou_BlitzCacheProcs AS b
 	JOIN table_dml t
 	ON t.QueryHash = b.QueryHash
