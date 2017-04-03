@@ -27,7 +27,6 @@ EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 2
 
 EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 3
 
-
 /*BlitzCache*/
 EXEC sp_BlitzCache @SortOrder = 'all'
 
