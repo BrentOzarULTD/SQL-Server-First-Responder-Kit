@@ -2104,8 +2104,8 @@ RAISERROR(N'Performing index DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 index_dml AS (
 	SELECT	s.QueryHash,	
-			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]')= 1 THEN 1
-								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]')= 1 THEN 1
+			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]') = 1 THEN 1
+								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
 								 END
 	FROM    #statements s
 			)
@@ -2121,8 +2121,8 @@ RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 table_dml AS (
 	SELECT s.QueryHash,			
-		   table_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]')= 1 THEN 1
-							WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]')= 1 THEN 1
+		   table_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]') = 1 THEN 1
+							WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]') = 1 THEN 1
 							END
 		 FROM #statements AS s
 		 )
