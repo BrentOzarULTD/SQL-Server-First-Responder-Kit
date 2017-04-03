@@ -2562,7 +2562,7 @@ SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingInd
         CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
 FROM    #query_plan qp
-WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2793,7 +2793,6 @@ OPTION (RECOMPILE) ;
 
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
-
 /* Populate warnings */
 UPDATE ##bou_BlitzCacheProcs
 SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
@@ -2866,7 +2865,7 @@ SELECT  DISTINCT
                   CASE WHEN busy_loops = 1 THEN ', Busy Loops' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
-                  CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
+                  --CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
