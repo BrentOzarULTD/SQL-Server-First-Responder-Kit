@@ -199,6 +199,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_spatial BIT,
 		index_dml BIT,
 		table_dml BIT,
+		long_running_low_cpu BIT,
+		low_cost_high_cpu BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -864,6 +866,8 @@ BEGIN
 		is_spatial BIT,
 		index_dml BIT,
 		table_dml BIT,
+		long_running_low_cpu BIT,
+		low_cost_high_cpu BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2751,7 +2755,9 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_sort_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND sort_cost >= QueryPlanCost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= QueryPlanCost * .05 THEN 1 END,
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 THEN 1 END,
-	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END
+	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END,
+	   long_running_low_cpu = CASE WHEN AverageDuration > AverageCPU * 4 THEN 1 END,
+	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
@@ -2845,7 +2851,9 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END + 
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
-				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END +
+				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
+				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -2907,7 +2915,9 @@ SELECT  DISTINCT
 				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
 				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END +
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
-				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
+				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END + 
+				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
+				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
 				  END
 FROM ##bou_BlitzCacheProcs b
@@ -3255,7 +3265,9 @@ BEGIN
 				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END +
 				  CASE WHEN is_spatial = 1 THEN '', 47'' ELSE '''' END +
 				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
-				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END
+				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END + 
+				  CASE WHEN long_running_low_cpu = 1 THEN '', 50'' ELSE '''' END +
+				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51, '' ELSE '''' END
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3955,6 +3967,32 @@ BEGIN
                      'No URL yet',
                      'This can cause recompiles and stuff.') ;
 
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.long_running_low_cpu = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     50,
+                     150,
+                     'Long Running Low CPU',
+                     'You have a query that runs for much longer than it uses CPU',
+                     'No URL yet',
+                     'This can be a sign of blocking, linked servers, or poor client application code (ASYNC_NETWORK_IO).') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.low_cost_high_cpu = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     51,
+                     150,
+                     'Low Cost Query With High CPU',
+                     'You have a low cost query that uses a lot of CPU',
+                     'No URL yet',
+                     'This can be a sign of functions or Dynamic SQL that calls black-box code.') ;
+					 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
                    WHERE (p.percent_24 > 0 OR p.percent_4 > 0)
