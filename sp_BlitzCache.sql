@@ -2060,7 +2060,7 @@ OPTION (RECOMPILE) ;
 RAISERROR(N'Performing compile timeout checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET     compile_timeout = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1 THEN 1 END 
+SET     compile_timeout = 1 
 FROM    #statements s
 JOIN ##bou_BlitzCacheProcs b
 ON  s.QueryHash = b.QueryHash
@@ -2071,7 +2071,7 @@ OPTION (RECOMPILE);
 RAISERROR(N'Performing compile memory limit exceeded checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET     compile_memory_limit_exceeded = CASE WHEN statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1 THEN 1 END 
+SET     compile_memory_limit_exceeded = 1 
 FROM    #statements s
 JOIN ##bou_BlitzCacheProcs b
 ON  s.QueryHash = b.QueryHash
@@ -2562,8 +2562,7 @@ SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingInd
         CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
         CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
 FROM    #query_plan qp
-WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-		OR qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -2868,8 +2867,8 @@ SELECT  DISTINCT
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
                   CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
-                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
-                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
+                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +
+                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
 							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
@@ -2890,8 +2889,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ' function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ' CLR function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
@@ -2912,7 +2911,7 @@ SELECT  DISTINCT
 				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END
                   , 2, 200000) 
 				  END
-FROM ##bou_BlitzCacheProcs 
+FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
 AND QueryType LIKE 'Statement (parent%'
 	)
