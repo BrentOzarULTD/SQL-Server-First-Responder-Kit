@@ -37,7 +37,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
 SET @Version = '5.0';
-SET @VersionDate = '20170301';
+SET @VersionDate = '20170307';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -159,6 +159,9 @@ IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL
 	
 IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 	DROP TABLE #TraceStatus;
+
+IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
+	DROP TABLE #TemporalTables;
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -575,6 +578,20 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 		 status BIT ,
 		 Global BIT ,
 		 Session BIT
+		);
+
+		CREATE TABLE #TemporalTables
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NOT NULL,
+		  database_id INT NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  history_table_name NVARCHAR(128) NOT NULL,
+		  history_schema_name NVARCHAR(128) NOT NULL,
+		  start_column_name NVARCHAR(128) NOT NULL,
+		  end_column_name NVARCHAR(128) NOT NULL,
+		  period_name NVARCHAR(128) NOT NULL
 		);
 
 
@@ -1647,7 +1664,51 @@ BEGIN TRY
 			
 			RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
 			INSERT #TraceStatus
-			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS')			
+			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS')		
+			
+			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 13)
+			BEGIN
+			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
+			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
+								   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   s.name AS schema_name,
+								   t.name AS table_name, 
+								   oa.hsn as history_schema_name,
+								   oa.htn AS history_table_name, 
+								   c1.name AS start_column_name,
+								   c2.name AS end_column_name,
+								   p.name AS period_name
+							FROM ' + QUOTENAME(@DatabaseName) + N'.sys.periods AS p
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+							ON  p.object_id = t.object_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c1
+							ON  t.object_id = c1.object_id
+							    AND p.start_column_id = c1.column_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c2
+							ON  t.object_id = c2.object_id
+							    AND p.end_column_id = c2.column_id
+							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+							ON t.schema_id = s.schema_id
+							CROSS APPLY ( SELECT s2.name as hsn, t2.name htn
+							              FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t2
+										  INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s2
+										  ON t2.schema_id = s2.schema_id
+							              WHERE t2.object_id = t.history_table_id
+							              AND t2.temporal_type = 1 /*History table*/ ) AS oa
+							WHERE t.temporal_type IN ( 2, 4 ) /*BOL currently points to these types, but has no definition for 4*/
+							OPTION (RECOMPILE);
+							'
+			
+			IF @dsql IS NULL 
+			RAISERROR('@dsql is null',16,1);
+			
+			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_table_name, 
+									 history_schema_name, start_column_name, end_column_name, period_name )
+					
+			EXEC sp_executesql @dsql;
+
+END
+				
 			
 END                    
 END TRY
@@ -2081,14 +2142,14 @@ BEGIN;
                             GROUP BY i.database_name 
                     OPTION    ( RECOMPILE );
 
-                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
+                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    22 AS check_id, 
                                 i.index_sanity_id,
-                                150 AS Priority,
+                                100 AS Priority,
                                 N'Index Hoarder' AS findings_group,
-                                N'Unused NC index' AS finding, 
+                                N'Unused NC index with High Writes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
                                 N'0 reads: ' + i.db_schema_object_indexid AS details, 
@@ -2099,6 +2160,7 @@ BEGIN;
                         FROM    #IndexSanity AS i
                         JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.total_reads=0
+								AND i.user_updates >= 10000
                                 AND i.index_id NOT IN (0,1) /*NCs only*/
                                 AND i.is_unique = 0
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
@@ -2310,6 +2372,30 @@ BEGIN;
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE )
 
+                RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT    22 AS check_id, 
+                                i.index_sanity_id,
+                                150 AS Priority,
+                                N'Index Hoarder' AS findings_group,
+                                N'Unused NC index with Low Writes' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/IndexHoarder' AS URL,
+                                N'0 reads: ' + i.db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                i.secret_columns, 
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity AS i
+                        JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.total_reads=0
+								AND i.user_updates < 10000
+                                AND i.index_id NOT IN (0,1) /*NCs only*/
+                                AND i.is_unique = 0
+                                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                        ORDER BY i.db_schema_object_indexid
+                        OPTION    ( RECOMPILE );
 
 
         END
@@ -3301,7 +3387,7 @@ BEGIN;
 		END 
 
          ----------------------------------------
-        --Computed Column Info: Check_id 90-99
+        --Computed Column Info: Check_id 99 - 109
         ----------------------------------------
     BEGIN
 
@@ -3341,6 +3427,29 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_persisted = 0
+
+         ----------------------------------------
+        --Temporal Table Info: Check_id 110-119
+        ----------------------------------------
+		RAISERROR(N'check_id 110: Temporal Tables.', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+
+				SELECT  110 AS check_id, 
+				200 AS Priority,
+				'Temporal Tables' AS findings_group,
+				'Obsessive Compulsive Tables',
+				t.database_name,
+				'' AS URL,
+				'The table ' + QUOTENAME(t.schema_name) + '.' + QUOTENAME(t.table_name) + ' is a temporal table, with rows versioned in ' 
+					+ QUOTENAME(t.history_schema_name) + '.' + QUOTENAME(t.history_table_name) + ' on History columns ' + QUOTENAME(t.start_column_name) + ' and ' + QUOTENAME(t.end_column_name) + '.'
+				 AS details,
+				'' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #TemporalTables AS t
+
 
 	END 
  

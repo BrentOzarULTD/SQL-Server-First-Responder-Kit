@@ -12,7 +12,7 @@ BEGIN
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
 	SET @Version = '5.0';
-	SET @VersionDate = '20170301';
+	SET @VersionDate = '20170307';
 
 
 	IF @Help = 1
@@ -198,6 +198,7 @@ SET @StringToExecute = N'
 			    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
 			    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
 			    WHERE   [r].[session_id] <> @@SPID
+						AND [s].[host_name] IS NOT NULL
 			            AND (([s].[status] <> ''sleeping'' AND ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 0) OR ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 1)
 			    ORDER BY 2 DESC;
 			    '
@@ -328,6 +329,7 @@ SELECT @StringToExecute = N'
 			    OUTER APPLY [sys].[dm_exec_sql_text]([r].[sql_handle]) AS [dest]
 			    OUTER APPLY [sys].[dm_exec_query_plan]([r].[plan_handle]) AS [derp]
 			    WHERE   [r].[session_id] <> @@SPID
+						AND [s].[host_name] IS NOT NULL
 			            AND (([s].[status] <> ''sleeping'' AND ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 0) OR ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + ' = 1)
 			    ORDER BY 2 DESC;
 			    '
