@@ -8,33 +8,36 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
-| 1 | Maintenance Tasks Running | Backup Running | http://BrentOzar.com/askbrent/backups | 1 |
-| 1 | Maintenance Tasks Running | DBCC CHECK* Running | http://BrentOzar.com/askbrent/dbcc | 2 |
-| 1 | Maintenance Tasks Running | Restore Running | http://BrentOzar.com/askbrent/backups | 3 |
-| 1 | Outdated sp_BlitzFirst | sp_BlitzFirst is Over 6 Months Old | http://BrentOzar.com/askbrent/ | 27 |
-| 1 | Query Problems | Long-Running Query Blocking Others | http://BrentOzar.com/go/blocking | 5 |
-| 1 | Query Problems | Query Rolling Back | http://BrentOzar.com/go/rollback | 9 |
-| 1 | Query Problems | Sleeping Query with Open Transactions | http://BrentOzar.com/go/sleeping | 8 |
-| 1 | SQL Server Internal Maintenance | Data File Growing | http://BrentOzar.com/go/instant | 4 |
-| 1 | SQL Server Internal Maintenance | Log File Growing | http://BrentOzar.com/go/logsize | 13 |
-| 1 | SQL Server Internal Maintenance | Log File Shrinking | http://BrentOzar.com/go/logsize | 14 |
-| 40 | Table Problems | Forwarded Fetches/Sec High | http://BrentOzar.com/go/fetch | 29 |
-| 10 | Server Performance | Poison Wait Detected | http://BrentOzar.com/go/poison | 30 |
-| 50 | Query Problems | Compilations/Sec High | http://BrentOzar.com/go/compile | 15 |
-| 50 | Query Problems | Plan Cache Erased Recently | http://BrentOzar.com/go/freeproccache | 7 |
-| 50 | Query Problems | Re-Compilations/Sec High | http://BrentOzar.com/go/recompile | 16 |
-| 50 | Server Performance | High CPU Utilization | http://BrentOzar.com/go/cpu | 24 |
-| 50 | Server Performance | High CPU Utilization - Non SQL Processes | http://BrentOzar.com/go/cpu | 28 |
-| 50 | Server Performance | Page Life Expectancy Low | http://BrentOzar.com/go/ple | 10 |
-| 50 | Server Performance | Slow Data File Reads | http://BrentOzar.com/go/slow | 11 |
-| 50 | Server Performance | Slow Log File Writes | http://BrentOzar.com/go/slow | 12 |
-| 200 | Wait Stats | (One per wait type) | http://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
-| 210 | Query Stats | Plan Cache Analysis Skipped | http://BrentOzar.com/go/topqueries | 18 |
-| 210 | Query Stats | Top Resource-Intensive Queries | http://BrentOzar.com/go/topqueries | 17 |
-| 250 | Server Info | Batch Requests per Second | http://BrentOzar.com/go/measure | 19 |
-| 250 | Server Info | Re-Compiles per Second | http://BrentOzar.com/go/measure | 26 |
-| 250 | Server Info | SQL Compilations/sec | http://BrentOzar.com/go/measure | 25 |
-| 250 | Server Info | Wait Time per Core per Second | http://BrentOzar.com/go/measure | 20 |
+| 1 | Maintenance Tasks Running | Backup Running | https://BrentOzar.com/askbrent/backups | 1 |
+| 1 | Maintenance Tasks Running | DBCC CHECK* Running | https://BrentOzar.com/askbrent/dbcc | 2 |
+| 1 | Maintenance Tasks Running | Restore Running | https://BrentOzar.com/askbrent/backups | 3 |
+| 1 | Outdated sp_BlitzFirst | sp_BlitzFirst is Over 6 Months Old | https://BrentOzar.com/askbrent/ | 27 |
+| 1 | Query Problems | Long-Running Query Blocking Others | https://BrentOzar.com/go/blocking | 5 |
+| 1 | Query Problems | Query Rolling Back | https://BrentOzar.com/go/rollback | 9 |
+| 1 | Query Problems | Sleeping Query with Open Transactions | https://BrentOzar.com/go/sleeping | 8 |
+| 1 | SQL Server Internal Maintenance | Data File Growing | https://BrentOzar.com/go/instant | 4 |
+| 1 | SQL Server Internal Maintenance | Log File Growing | https://BrentOzar.com/go/logsize | 13 |
+| 1 | SQL Server Internal Maintenance | Log File Shrinking | https://BrentOzar.com/go/logsize | 14 |
+| 10 | Server Performance | Poison Wait Detected | https://BrentOzar.com/go/poison | 30 |
+| 40 | Table Problems | Forwarded Fetches/Sec High | https://BrentOzar.com/go/fetch | 29 |
+| 50 | In-Memory OLTP | Garbage Collection in Progress | https://BrentOzar.com/go/garbage | 31 |
+| 50 | Query Problems | Compilations/Sec High | https://BrentOzar.com/go/compile | 15 |
+| 50 | Query Problems | Plan Cache Erased Recently | https://BrentOzar.com/go/freeproccache | 7 |
+| 50 | Query Problems | Re-Compilations/Sec High | https://BrentOzar.com/go/recompile | 16 |
+| 50 | Server Performance | High CPU Utilization | https://BrentOzar.com/go/cpu | 24 |
+| 50 | Server Performance | High CPU Utilization - Non SQL Processes | https://BrentOzar.com/go/cpu | 28 |
+| 50 | Server Performance | Page Life Expectancy Low | https://BrentOzar.com/go/ple | 10 |
+| 50 | Server Performance | Slow Data File Reads | https://BrentOzar.com/go/slow | 11 |
+| 50 | Server Performance | Slow Log File Writes | https://BrentOzar.com/go/slow | 12 |
+| 100 | In-Memory OLTP | Transactions aborted | https://BrentOzar.com/go/aborted | 32 |
+| 100 | Query Problems | Suboptimal Plans/Sec High | https://BrentOzar.com/go/suboptimal | 33 |
+| 200 | Wait Stats | (One per wait type) | https://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
+| 210 | Query Stats | Plan Cache Analysis Skipped | https://BrentOzar.com/go/topqueries | 18 |
+| 210 | Query Stats | Top Resource-Intensive Queries | https://BrentOzar.com/go/topqueries | 17 |
+| 250 | Server Info | Batch Requests per Second | https://BrentOzar.com/go/measure | 19 |
+| 250 | Server Info | Re-Compiles per Second | https://BrentOzar.com/go/measure | 26 |
+| 250 | Server Info | SQL Compilations/sec | https://BrentOzar.com/go/measure | 25 |
+| 250 | Server Info | Wait Time per Core per Second | https://BrentOzar.com/go/measure | 20 |
 | 251 | Server Info | CPU Utilization |  | 23 |
 | 251 | Server Info | Database Count |  | 22 |
 | 251 | Server Info | Database Size, Total GB |  | 21 |
