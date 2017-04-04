@@ -571,7 +571,7 @@ AS
 		/* Get the major and minor build numbers */
 		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
-			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
+			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2);
 		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
@@ -3443,6 +3443,7 @@ IF @ProductVersionMajor >= 10
 
 /*This counts memory dumps and gives min and max date of in view*/
 IF @ProductVersionMajor >= 10
+               AND NOT (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 4297) /* Skip due to crash bug: https://support.microsoft.com/en-us/help/2908087 */
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )
