@@ -1475,63 +1475,6 @@ FROM #IndexSanity AS tb
 WHERE tb.index_id = 0 /*Heaps-- these have the RID */
     OR (tb.index_id=1 AND tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
-RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
-INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
-SELECT
-    index_sanity_id,
-    ISNULL (
-    /* Script drops for disabled non-clustered indexes*/
-    CASE WHEN is_disabled = 1 AND index_id <> 1
-        THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
-            + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
-    ELSE
-        CASE index_id WHEN 0 THEN N'--I''m a Heap!' 
-        ELSE 
-            CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
-            ELSE 
-                CASE WHEN is_primary_key=1 THEN
-                    N'ALTER TABLE ' + QUOTENAME([schema_name]) +
-                        N'.' + QUOTENAME([object_name]) + 
-                        N' ADD CONSTRAINT [' +
-                        index_name + 
-                        N'] PRIMARY KEY ' + 
-                        CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-                        key_column_names_with_sort_order_no_types + N' )' 
-                    WHEN is_CX_columnstore= 1 THEN
-                            N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name])
-                ELSE /*Else not a PK or cx columnstore */ 
-                    N'CREATE ' + 
-                    CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
-                    CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
-                    CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' 
-                    ELSE N'' END +
-                    N'INDEX ['
-                            + index_name + N'] ON ' + 
-                        QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
-                            CASE WHEN is_NC_columnstore=1 THEN 
-                                N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
-                            ELSE /*Else not colunnstore */ 
-                                N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
-                                + CASE WHEN include_column_names_no_types IS NOT NULL THEN 
-                                    N' INCLUDE (' + include_column_names_no_types + N')' 
-                                    ELSE N'' 
-                                END
-                            END /*End non-colunnstore case */ 
-                        + CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
-                    END /*End Non-PK index CASE */ 
-                + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
-                    N' WITH (' 
-                        + N'FILLFACTOR=' + CASE fill_factor WHEN 0 THEN N'100' ELSE CAST(fill_factor AS NVARCHAR(5)) END + ', '
-                        + N'ONLINE=?, SORT_IN_TEMPDB=?'
-                    + N')'
-                ELSE N'' END
-                + N';'
-                END /*End non-spatial and non-xml CASE */ 
-        END
-    END, '[Unknown Error]')
-        AS create_tsql
-FROM #IndexSanity
-
 
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 ;WITH    [maps]
@@ -1748,6 +1691,62 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
+RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
+INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
+SELECT
+    index_sanity_id,
+    ISNULL (
+    /* Script drops for disabled non-clustered indexes*/
+    CASE WHEN is_disabled = 1 AND index_id <> 1
+        THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
+            + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
+    ELSE
+        CASE index_id WHEN 0 THEN N'--I''m a Heap!' 
+        ELSE 
+            CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
+            ELSE 
+                CASE WHEN is_primary_key=1 THEN
+                    N'ALTER TABLE ' + QUOTENAME([schema_name]) +
+                        N'.' + QUOTENAME([object_name]) + 
+                        N' ADD CONSTRAINT [' +
+                        index_name + 
+                        N'] PRIMARY KEY ' + 
+                        CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+                        key_column_names_with_sort_order_no_types + N' )' 
+                    WHEN is_CX_columnstore= 1 THEN
+                            N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name])
+                ELSE /*Else not a PK or cx columnstore */ 
+                    N'CREATE ' + 
+                    CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
+                    CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+                    CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' 
+                    ELSE N'' END +
+                    N'INDEX ['
+                            + index_name + N'] ON ' + 
+                        QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
+                            CASE WHEN is_NC_columnstore=1 THEN 
+                                N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
+                            ELSE /*Else not colunnstore */ 
+                                N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
+                                + CASE WHEN include_column_names_no_types IS NOT NULL THEN 
+                                    N' INCLUDE (' + include_column_names_no_types + N')' 
+                                    ELSE N'' 
+                                END
+                            END /*End non-colunnstore case */ 
+                        + CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
+                    END /*End Non-PK index CASE */ 
+                + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
+                    N' WITH (' 
+                        + N'FILLFACTOR=' + CASE fill_factor WHEN 0 THEN N'100' ELSE CAST(fill_factor AS NVARCHAR(5)) END + ', '
+                        + N'ONLINE=?, SORT_IN_TEMPDB=?'
+                    + N')'
+                ELSE N'' END
+                + N';'
+                END /*End non-spatial and non-xml CASE */ 
+        END
+    END, '[Unknown Error]')
+        AS create_tsql
+FROM #IndexSanity;
 
 
 
