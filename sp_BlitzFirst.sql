@@ -810,9 +810,10 @@ BEGIN
                 ''Long-Running Query Blocking Others'' AS Finding,
                 ''http://www.BrentOzar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' + @LineFeed + @LineFeed
-                    + CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
+                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' ' 
+					+ @LineFeed + @LineFeed + 
+					'+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '''') AS NVARCHAR(2000)) AS Details,
                 ''KILL '' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + '';'' AS HowToStopIt,
                 (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
                 COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
@@ -830,7 +831,7 @@ BEGIN
             LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
             INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
             WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000;'
-        EXECUTE sp_executesql @StringToExecute;
+		EXECUTE sp_executesql @StringToExecute;
     END
 
     /* Query Problems - Plan Cache Erased Recently */
