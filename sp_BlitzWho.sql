@@ -93,7 +93,7 @@ SET @StringToExecute = N'
 								+ CONVERT(VARCHAR(20), DATEADD(MILLISECOND,  DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
 			            s.session_id ,
-						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) AS database_name,
+						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
@@ -243,7 +243,7 @@ SELECT @StringToExecute = N'
 								+ CONVERT(VARCHAR(20), DATEADD(MILLISECOND,  DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
 			            s.session_id ,
-						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) AS database_name,
+						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
