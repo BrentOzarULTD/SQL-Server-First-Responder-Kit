@@ -31,8 +31,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.0';
-	SET @VersionDate = '20170307';
+	SET @Version = '5.2';
+	SET @VersionDate = '20170406';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -571,7 +571,7 @@ AS
 		/* Get the major and minor build numbers */
 		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
-			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
+			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2);
 		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
@@ -2128,6 +2128,7 @@ AS
 						IF ( SELECT COUNT (distinct [size])
 							FROM   tempdb.sys.database_files
 							WHERE  type_desc = 'ROWS'
+							HAVING MAX((size * 8) / (1024. * 1024)) - MIN((size * 8) / (1024. * 1024)) > 1.
 							) <> 1
 							BEGIN
 								INSERT  INTO #BlitzResults
@@ -3443,6 +3444,7 @@ IF @ProductVersionMajor >= 10
 
 /*This counts memory dumps and gives min and max date of in view*/
 IF @ProductVersionMajor >= 10
+               AND NOT (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 4297) /* Skip due to crash bug: https://support.microsoft.com/en-us/help/2908087 */
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )

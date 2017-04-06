@@ -30,8 +30,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.0';
-SET @VersionDate = '20170307';
+SET @Version = '5.2';
+SET @VersionDate = '20170406';
 
 
 IF @Help = 1 PRINT '
@@ -63,7 +63,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2017 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -457,6 +457,9 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Buffer Manager','Active Transactions','_Total')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Log Growths', '_Total')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Log Shrinks', '_Total')
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Transactions/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Write Transactions/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','XTP Memory Used (KB)',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','Distributed Query', 'Execs in progress')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','DTC calls', 'Execs in progress')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','Extended Procedures', 'Execs in progress')
@@ -475,6 +478,8 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Attention rate', NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Compilations/sec', NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Re-Compilations/sec', NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Workload Group Stats','Query optimizations/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Workload Group Stats','Suboptimal plans/sec',NULL)
         /* Below counters added by Jefferson Elias */
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Worktables From Cache Base',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Worktables From Cache Ratio',NULL)
@@ -511,6 +516,32 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Index Searches/sec',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Buffer Manager','Page lookups/sec',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Cursor Manager by Type','Active cursors',NULL)
+        /* Below counters are for In-Memory OLTP (Hekaton), which have a different naming convention.
+           And yes, they actually hard-coded the version numbers into the counters.
+           For why, see: https://connect.microsoft.com/SQLServer/feedback/details/817216/xtp-perfmon-counters-should-appear-under-sql-server-perfmon-counter-group
+        */
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Cursors','Expired rows removed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Cursors','Expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Garbage Collection','Rows processed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP IO Governor','Io Issued/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Phantom Processor','Phantom expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Phantom Processor','Phantom rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transaction Log','Log bytes written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transaction Log','Log records written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions aborted by user/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions aborted/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions created/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Cursors','Expired rows removed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Cursors','Expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Garbage Collection','Rows processed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP IO Governor','Io Issued/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Phantom Processor','Phantom expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Phantom Processor','Phantom rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transaction Log','Log bytes written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transaction Log','Log records written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted by user/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions created/sec',NULL)
         END
 
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
@@ -547,52 +578,52 @@ BEGIN
 		   FROM sys.dm_os_wait_stats os
 		) x
 		   WHERE x.wait_type NOT IN (
-		       'REQUEST_FOR_DEADLOCK_SEARCH',
-		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-		       'SQLTRACE_BUFFER_FLUSH',
-		       'LAZYWRITER_SLEEP',
-		       'XE_TIMER_EVENT',
-		       'XE_DISPATCHER_WAIT',
-		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
-		       'LOGMGR_QUEUE',
-		       'CHECKPOINT_QUEUE',
-		       'BROKER_TO_FLUSH',
-		       'BROKER_TASK_STOP',
-		       'BROKER_EVENTHANDLER',
-		       'SLEEP_TASK',
-		       'WAITFOR',
-		       'DBMIRROR_DBM_MUTEX',
-		       'DBMIRROR_EVENTS_QUEUE',
-		       'DBMIRRORING_CMD',
-		       'DISPATCHER_QUEUE_SEMAPHORE',
-		       'BROKER_RECEIVE_WAITFOR',
-		       'CLR_AUTO_EVENT',
-		       'DIRTY_PAGE_POLL',
-		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-		       'ONDEMAND_TASK_QUEUE',
-		       'FT_IFTSHC_MUTEX',
-		       'CLR_MANUAL_EVENT',
-		       'CLR_SEMAPHORE',
-		       'DBMIRROR_WORKER_QUEUE',
-		       'DBMIRROR_DBM_EVENT',
-		       'SP_SERVER_DIAGNOSTICS_SLEEP',
-		       'HADR_CLUSAPI_CALL',
-		       'HADR_LOGCAPTURE_WAIT',
-		       'HADR_NOTIFICATION_DEQUEUE',
-		       'HADR_TIMER_TASK',
-		       'HADR_WORK_QUEUE',
-		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-		       'RESOURCE_GOVERNOR_IDLE',
-		       'QDS_ASYNC_QUEUE',
-		       'QDS_SHUTDOWN_QUEUE',
-		       'SLEEP_SYSTEMTASK',
-		       'BROKER_TRANSMITTER',
-		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION',
-			   'PREEMPTIVE_XE_DISPATCHER',
-			   'TRACEWRITE',
-			   'OLEDB'
+                  'BROKER_EVENTHANDLER'
+                , 'BROKER_RECEIVE_WAITFOR'
+                , 'BROKER_TASK_STOP'
+                , 'BROKER_TO_FLUSH'
+                , 'BROKER_TRANSMITTER'
+                , 'CHECKPOINT_QUEUE'
+                , 'CLR_AUTO_EVENT'
+                , 'CLR_MANUAL_EVENT'
+                , 'CLR_SEMAPHORE'
+                , 'DBMIRROR_DBM_EVENT'
+                , 'DBMIRROR_DBM_MUTEX'
+                , 'DBMIRROR_EVENTS_QUEUE'
+                , 'DBMIRROR_WORKER_QUEUE'
+                , 'DBMIRRORING_CMD'
+                , 'DIRTY_PAGE_POLL'
+                , 'DISPATCHER_QUEUE_SEMAPHORE'
+                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
+                , 'FT_IFTSHC_MUTEX'
+                , 'HADR_CLUSAPI_CALL'
+                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
+                , 'HADR_LOGCAPTURE_WAIT'
+                , 'HADR_NOTIFICATION_DEQUEUE'
+                , 'HADR_TIMER_TASK'
+                , 'HADR_WORK_QUEUE'
+                , 'LAZYWRITER_SLEEP'
+                , 'LOGMGR_QUEUE'
+                , 'ONDEMAND_TASK_QUEUE'
+                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
+                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
+                , 'QDS_ASYNC_QUEUE'
+                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_SHUTDOWN_QUEUE'
+                , 'REDO_THREAD_PENDING_WORK'
+                , 'REQUEST_FOR_DEADLOCK_SEARCH'
+                , 'SLEEP_SYSTEMTASK'
+                , 'SLEEP_TASK'
+                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
+                , 'SQLTRACE_BUFFER_FLUSH'
+                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
+                , 'UCS_SESSION_REGISTRATION'
+                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
+                , 'WAITFOR'
+                , 'XE_DISPATCHER_WAIT'
+                , 'XE_LIVE_TARGET_TVF'
+                , 'XE_TIMER_EVENT'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -779,9 +810,10 @@ BEGIN
                 ''Long-Running Query Blocking Others'' AS Finding,
                 ''http://www.BrentOzar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' + @LineFeed + @LineFeed
-                    + CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
+                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' ' 
+					+ @LineFeed + @LineFeed + 
+					'+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '''') AS NVARCHAR(2000)) AS Details,
                 ''KILL '' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + '';'' AS HowToStopIt,
                 (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
                 COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
@@ -799,7 +831,7 @@ BEGIN
             LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
             INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
             WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000;'
-        EXECUTE sp_executesql @StringToExecute;
+		EXECUTE sp_executesql @StringToExecute;
     END
 
     /* Query Problems - Plan Cache Erased Recently */
@@ -1023,52 +1055,52 @@ BEGIN
 		   FROM sys.dm_os_wait_stats os
 		) x
 		   WHERE x.wait_type NOT IN (
-		       'REQUEST_FOR_DEADLOCK_SEARCH',
-		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-		       'SQLTRACE_BUFFER_FLUSH',
-		       'LAZYWRITER_SLEEP',
-		       'XE_TIMER_EVENT',
-		       'XE_DISPATCHER_WAIT',
-		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
-		       'LOGMGR_QUEUE',
-		       'CHECKPOINT_QUEUE',
-		       'BROKER_TO_FLUSH',
-		       'BROKER_TASK_STOP',
-		       'BROKER_EVENTHANDLER',
-		       'SLEEP_TASK',
-		       'WAITFOR',
-		       'DBMIRROR_DBM_MUTEX',
-		       'DBMIRROR_EVENTS_QUEUE',
-		       'DBMIRRORING_CMD',
-		       'DISPATCHER_QUEUE_SEMAPHORE',
-		       'BROKER_RECEIVE_WAITFOR',
-		       'CLR_AUTO_EVENT',
-		       'DIRTY_PAGE_POLL',
-		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-		       'ONDEMAND_TASK_QUEUE',
-		       'FT_IFTSHC_MUTEX',
-		       'CLR_MANUAL_EVENT',
-		       'CLR_SEMAPHORE',
-		       'DBMIRROR_WORKER_QUEUE',
-		       'DBMIRROR_DBM_EVENT',
-		       'SP_SERVER_DIAGNOSTICS_SLEEP',
-		       'HADR_CLUSAPI_CALL',
-		       'HADR_LOGCAPTURE_WAIT',
-		       'HADR_NOTIFICATION_DEQUEUE',
-		       'HADR_TIMER_TASK',
-		       'HADR_WORK_QUEUE',
-		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-		       'RESOURCE_GOVERNOR_IDLE',
-		       'QDS_ASYNC_QUEUE',
-		       'QDS_SHUTDOWN_QUEUE',
-		       'SLEEP_SYSTEMTASK',
-		       'BROKER_TRANSMITTER',
-		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION',			   
-			   'PREEMPTIVE_XE_DISPATCHER',
-			   'TRACEWRITE',
-			   'OLEDB'
+                  'BROKER_EVENTHANDLER'
+                , 'BROKER_RECEIVE_WAITFOR'
+                , 'BROKER_TASK_STOP'
+                , 'BROKER_TO_FLUSH'
+                , 'BROKER_TRANSMITTER'
+                , 'CHECKPOINT_QUEUE'
+                , 'CLR_AUTO_EVENT'
+                , 'CLR_MANUAL_EVENT'
+                , 'CLR_SEMAPHORE'
+                , 'DBMIRROR_DBM_EVENT'
+                , 'DBMIRROR_DBM_MUTEX'
+                , 'DBMIRROR_EVENTS_QUEUE'
+                , 'DBMIRROR_WORKER_QUEUE'
+                , 'DBMIRRORING_CMD'
+                , 'DIRTY_PAGE_POLL'
+                , 'DISPATCHER_QUEUE_SEMAPHORE'
+                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
+                , 'FT_IFTSHC_MUTEX'
+                , 'HADR_CLUSAPI_CALL'
+                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
+                , 'HADR_LOGCAPTURE_WAIT'
+                , 'HADR_NOTIFICATION_DEQUEUE'
+                , 'HADR_TIMER_TASK'
+                , 'HADR_WORK_QUEUE'
+                , 'LAZYWRITER_SLEEP'
+                , 'LOGMGR_QUEUE'
+                , 'ONDEMAND_TASK_QUEUE'
+                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
+                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
+                , 'QDS_ASYNC_QUEUE'
+                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_SHUTDOWN_QUEUE'
+                , 'REDO_THREAD_PENDING_WORK'
+                , 'REQUEST_FOR_DEADLOCK_SEARCH'
+                , 'SLEEP_SYSTEMTASK'
+                , 'SLEEP_TASK'
+                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
+                , 'SQLTRACE_BUFFER_FLUSH'
+                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
+                , 'UCS_SESSION_REGISTRATION'
+                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
+                , 'WAITFOR'
+                , 'XE_DISPATCHER_WAIT'
+                , 'XE_LIVE_TARGET_TVF'
+                , 'XE_TIMER_EVENT'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -1500,6 +1532,60 @@ BEGIN
         AND ps.object_name = @ServiceName + ':Access Methods'
         AND ps.counter_name = 'Forwarded Records/sec'
         AND ps.value_delta > (100 * @Seconds) /* Ignore servers sitting idle */
+
+
+    /* In-Memory OLTP - Garbage Collection in Progress - CheckID 31 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 31 AS CheckID,
+        50 AS Priority,
+        'In-Memory OLTP' AS FindingGroup,
+        'Garbage Collection in Progress' AS Finding,
+        'https://BrentOzar.com/go/garbage/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
+            + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
+            + 'due to transactional workloads that constantly insert/delete data.' AS Details,
+        'Sadly, you cannot choose when garbage collection occurs. This is one of the many gotchas of Hekaton. Learn more: http://nedotter.com/archive/2016/04/row-version-lifecycle-for-in-memory-oltp/' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Garbage Collection' AND psComp.counter_name = 'Rows processed/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name LIKE '%XTP Garbage Collection'
+        AND ps.counter_name = 'Rows processed/sec'
+        AND ps.value_delta > (100 * @Seconds) /* Ignore servers sitting idle */
+
+    /* In-Memory OLTP - Transactions Aborted - CheckID 32 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 32 AS CheckID,
+        100 AS Priority,
+        'In-Memory OLTP' AS FindingGroup,
+        'Transactions Aborted' AS Finding,
+        'https://BrentOzar.com/go/aborted/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' transactions aborted (from SQL Server YYYY XTP Transactions:Transactions aborted/sec counter)'  + @LineFeed 
+            + 'This may indicate that data is changing, or causing folks to retry their transactions, thereby increasing load.' AS Details,
+        'Dig into your In-Memory OLTP transactions to figure out which ones are failing and being retried.' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Transactions' AND psComp.counter_name = 'Transactions aborted/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name LIKE '%XTP Transactions'
+        AND ps.counter_name = 'Transactions aborted/sec'
+        AND ps.value_delta > (10 * @Seconds) /* Ignore servers sitting idle */
+
+    /* Query Problems - Suboptimal Plans/Sec High - CheckID 33 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 32 AS CheckID,
+        100 AS Priority,
+        'Query Problems' AS FindingGroup,
+        'Suboptimal Plans/Sec High' AS Finding,
+        'https://BrentOzar.com/go/suboptimal/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' plans reported in the ' + CAST(ps.instance_name AS NVARCHAR(100)) + ' workload group (from Workload GroupStats:Suboptimal plans/sec counter)'  + @LineFeed 
+            + 'Even if you are not using Resource Governor, it still tracks information about user queries, memory grants, etc.' AS Details,
+        'Check out sp_BlitzCache to get more information about recent queries, or try sp_BlitzWho to see currently running queries.' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':Workload GroupStats' AND psComp.counter_name = 'Suboptimal plans/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name = @ServiceName + ':Workload GroupStats' 
+        AND ps.counter_name = 'Suboptimal plans/sec'
+        AND ps.value_delta > (10 * @Seconds) /* Ignore servers sitting idle */
+
 
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
