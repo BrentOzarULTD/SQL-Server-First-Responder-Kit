@@ -1553,9 +1553,15 @@ BEGIN
                 WHEN COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time), 0) = 0 THEN 0
                 ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
                 END AS AverageCPUPerMinute ,
-           CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY) AS PercentCPUByType,
-           CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY) AS PercentDurationByType,
-           CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY) AS PercentReadsByType,
+           CASE WHEN t.t_TotalWorker = 0 THEN 0
+                ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+                END AS PercentCPUByType,
+           CASE WHEN t.t_TotalElapsed = 0 THEN 0
+                ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+                END AS PercentDurationByType,
+           CASE WHEN t.t_TotalReads = 0 THEN 0
+                ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
+                END AS PercentReadsByType,
            CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY) AS PercentExecutionsByType,
            (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
            (total_elapsed_time / 1000.0) AS TotalDuration ,
@@ -1798,6 +1804,21 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
+/*
+--Debugging section
+SELECT DATALENGTH(@sql)
+PRINT SUBSTRING(@sql, 0, 4000)
+PRINT SUBSTRING(@sql, 4000, 8000)
+PRINT SUBSTRING(@sql, 8000, 12000)
+PRINT SUBSTRING(@sql, 12000, 16000)
+PRINT SUBSTRING(@sql, 16000, 20000)
+PRINT SUBSTRING(@sql, 20000, 24000)
+PRINT SUBSTRING(@sql, 24000, 28000)
+PRINT SUBSTRING(@sql, 28000, 32000)
+PRINT SUBSTRING(@sql, 32000, 36000)
+PRINT SUBSTRING(@sql, 36000, 40000)
+*/
+
 IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
@@ -1805,18 +1826,6 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT', @Top, @DurationFilter_i;
 END
 
-/*
---Debugging section
-SELECT DATALENGTH(@sql)
-PRINT SUBSTRING(@sql, 0, 4000)
-PRINT SUBSTRING(@sql, 4000, 8000)
-PRINT SUBSTRING(@sql, 8000, 12000)
-PRINT SUBSTRING(@sql, 16000, 24000)
-PRINT SUBSTRING(@sql, 24000, 28000)
-PRINT SUBSTRING(@sql, 28000, 32000)
-PRINT SUBSTRING(@sql, 32000, 36000)
-PRINT SUBSTRING(@sql, 36000, 40000)
-*/
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
