@@ -3734,7 +3734,7 @@ BEGIN;
 		DECLARE @RunID UNIQUEIDENTIFIER;
 		SET @RunID = NEWID();
 		
-		IF @ValidOutputLocation = 1
+		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
 			BEGIN
 				DECLARE @TableExists BIT;
 				DECLARE @SchemaExists BIT;
@@ -4003,7 +4003,6 @@ BEGIN;
 					RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0)
 			END /* @ValidOutputLocation = 1 */
 		ELSE
-			RAISERROR (N'The output parameters were invalid or incomplete.', 16, 0)
 			
 		SELECT  [database_name] AS [Database Name], 
                 [schema_name] AS [Schema Name], 
