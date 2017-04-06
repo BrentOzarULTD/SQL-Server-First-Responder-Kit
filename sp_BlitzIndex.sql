@@ -1107,54 +1107,6 @@ BEGIN TRY
                 EXEC sp_executesql @dsql;
 		END; --End Check For @SkipPartitions = 0
 
-
-        RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
-        INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], partition_count, total_rows, total_reserved_MB,
-                                     total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
-                                     total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
-                                     total_forwarded_fetch_count,total_row_lock_count,
-                                     total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
-                                     total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
-                                     avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
-                                     total_index_lock_promotion_count, data_compression_desc )
-                SELECT    index_sanity_id, ipp.database_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
-                        SUM(reserved_row_overflow_MB), 
-                        SUM(range_scan_count),
-                        SUM(singleton_lookup_count),
-                        SUM(leaf_delete_count), 
-                        SUM(leaf_update_count),
-                        SUM(forwarded_fetch_count),
-                        SUM(row_lock_count), 
-                        SUM(row_lock_wait_count),
-                        SUM(row_lock_wait_in_ms), 
-                        CASE WHEN SUM(row_lock_wait_in_ms) > 0 THEN
-                            SUM(row_lock_wait_in_ms)/(1.*SUM(row_lock_wait_count))
-                        ELSE 0 END AS avg_row_lock_wait_in_ms,           
-                        SUM(page_lock_count), 
-                        SUM(page_lock_wait_count),
-                        SUM(page_lock_wait_in_ms), 
-                        CASE WHEN SUM(page_lock_wait_in_ms) > 0 THEN
-                            SUM(page_lock_wait_in_ms)/(1.*SUM(page_lock_wait_count))
-                        ELSE 0 END AS avg_page_lock_wait_in_ms,           
-                        SUM(index_lock_promotion_attempt_count),
-                        SUM(index_lock_promotion_count),
-                        LEFT(MAX(data_compression_info.data_compression_rollup),8000)
-                FROM #IndexPartitionSanity ipp
-                /* individual partitions can have distinct compression settings, just roll them into a list here*/
-                OUTER APPLY (SELECT STUFF((
-                    SELECT    N', ' + data_compression_desc
-                    FROM #IndexPartitionSanity ipp2
-                    WHERE ipp.[object_id]=ipp2.[object_id]
-                        AND ipp.[index_id]=ipp2.[index_id]
-                        AND ipp.database_id = @DatabaseID
-                    ORDER BY ipp2.partition_number
-                    FOR      XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
-                        data_compression_info(data_compression_rollup)
-                WHERE ipp.database_id = @DatabaseID
-                GROUP BY index_sanity_id, ipp.database_id
-                ORDER BY index_sanity_id 
-        OPTION    ( RECOMPILE );
-
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 SELECT    id.object_id, ' + QUOTENAME(@DatabaseName,'''') + N', sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
@@ -1618,6 +1570,60 @@ SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Parti
 					).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
 FROM grps;
 		
+RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
+UPDATE    #IndexPartitionSanity
+SET        index_sanity_id = i.index_sanity_id
+FROM #IndexPartitionSanity ps
+        JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
+                                AND ps.index_id = i.index_id
+                                AND i.database_id = ps.database_id;
+
+RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
+INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], partition_count, total_rows, total_reserved_MB,
+                                total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
+                                total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
+                                total_forwarded_fetch_count,total_row_lock_count,
+                                total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
+                                total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
+                                avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
+                                total_index_lock_promotion_count, data_compression_desc )
+        SELECT    index_sanity_id, ipp.database_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
+                SUM(reserved_row_overflow_MB), 
+                SUM(range_scan_count),
+                SUM(singleton_lookup_count),
+                SUM(leaf_delete_count), 
+                SUM(leaf_update_count),
+                SUM(forwarded_fetch_count),
+                SUM(row_lock_count), 
+                SUM(row_lock_wait_count),
+                SUM(row_lock_wait_in_ms), 
+                CASE WHEN SUM(row_lock_wait_in_ms) > 0 THEN
+                    SUM(row_lock_wait_in_ms)/(1.*SUM(row_lock_wait_count))
+                ELSE 0 END AS avg_row_lock_wait_in_ms,           
+                SUM(page_lock_count), 
+                SUM(page_lock_wait_count),
+                SUM(page_lock_wait_in_ms), 
+                CASE WHEN SUM(page_lock_wait_in_ms) > 0 THEN
+                    SUM(page_lock_wait_in_ms)/(1.*SUM(page_lock_wait_count))
+                ELSE 0 END AS avg_page_lock_wait_in_ms,           
+                SUM(index_lock_promotion_attempt_count),
+                SUM(index_lock_promotion_count),
+                LEFT(MAX(data_compression_info.data_compression_rollup),8000)
+        FROM #IndexPartitionSanity ipp
+        /* individual partitions can have distinct compression settings, just roll them into a list here*/
+        OUTER APPLY (SELECT STUFF((
+            SELECT    N', ' + data_compression_desc
+            FROM #IndexPartitionSanity ipp2
+            WHERE ipp.[object_id]=ipp2.[object_id]
+                AND ipp.[index_id]=ipp2.[index_id]
+                AND ipp.database_id = ipp2.database_id
+            ORDER BY ipp2.partition_number
+            FOR      XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
+                data_compression_info(data_compression_rollup)
+        GROUP BY index_sanity_id, ipp.database_id
+        ORDER BY index_sanity_id 
+OPTION    ( RECOMPILE );
+
 RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 UPDATE sz
 SET sz.data_compression_desc = pci.partition_compression_detail
@@ -1741,15 +1747,6 @@ FROM    #IndexSanity si
                                     AND c.object_id = si.object_id
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
-
-RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
-UPDATE    #IndexPartitionSanity
-SET        index_sanity_id = i.index_sanity_id
-FROM #IndexPartitionSanity ps
-        JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
-                                AND ps.index_id = i.index_id
-                                AND i.database_id = ps.database_id
-WHERE ps.database_id=@DatabaseID;
 
 
 
