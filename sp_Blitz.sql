@@ -2128,6 +2128,7 @@ AS
 						IF ( SELECT COUNT (distinct [size])
 							FROM   tempdb.sys.database_files
 							WHERE  type_desc = 'ROWS'
+							HAVING MAX((size * 8) / (1024. * 1024)) - MIN((size * 8) / (1024. * 1024)) > 1.
 							) <> 1
 							BEGIN
 								INSERT  INTO #BlitzResults
