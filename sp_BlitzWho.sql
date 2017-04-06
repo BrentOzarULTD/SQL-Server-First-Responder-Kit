@@ -130,7 +130,7 @@ SET @StringToExecute = N'
 			              WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
 			              ELSE ''WHAT HAVE YOU DONE?''
 			            END AS transaction_isolation_level ,
-			            r.open_transaction_count ,
+			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 			            qmg.dop AS degree_of_parallelism ,
 			            qmg.request_time ,
 			            COALESCE(CAST(qmg.grant_time AS VARCHAR), ''N/A'') AS grant_time ,
@@ -216,8 +216,14 @@ SET @StringToExecute = N'
 			    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 			    WHERE s.session_id <> @@SPID 
 				AND s.host_name IS NOT NULL
-				AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL
-				ORDER BY 2 DESC;
+				'
+				+ CASE WHEN @ShowSleepingSPIDs = 0 THEN
+						N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
+					  WHEN @ShowSleepingSPIDs = 1 THEN
+						N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+					 ELSE N'' END
+				+
+				' ORDER BY 2 DESC;
 			    '
 END
 IF @ProductVersionMajor >= 11 
@@ -279,7 +285,7 @@ SELECT @StringToExecute = N'
 			              WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
 			              ELSE ''WHAT HAVE YOU DONE?''
 			            END AS transaction_isolation_level ,
-			            r.open_transaction_count ,
+			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 			            qmg.dop AS degree_of_parallelism ,
 			            qmg.request_time ,
 			            COALESCE(CAST(qmg.grant_time AS VARCHAR), ''Memory Not Granted'') AS grant_time ,
@@ -365,9 +371,15 @@ SELECT @StringToExecute = N'
 						OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
-						AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL
-						ORDER BY 2 DESC
-			    '
+						'
+						+ CASE WHEN @ShowSleepingSPIDs = 0 THEN
+								N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
+							  WHEN @ShowSleepingSPIDs = 1 THEN
+								N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+							 ELSE N'' END
+						+
+						' ORDER BY 2 DESC;
+						'
 
 END 
 
