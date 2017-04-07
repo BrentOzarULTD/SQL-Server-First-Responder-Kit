@@ -2944,6 +2944,7 @@ FROM ##bou_BlitzCacheProcs b
    CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, 0, -1) tqp
    CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) qp
    WHERE tqp.encrypted = 0
+   AND b.SPID = @@SPID
    AND (qp.query_plan IS NULL
 			AND tqp.query_plan IS NOT NULL)
 )
@@ -2960,6 +2961,7 @@ OPTION (RECOMPILE);
 UPDATE ##bou_BlitzCacheProcs
 SET Warnings = 'No warnings detected.'
 WHERE Warnings = '' OR	Warnings IS NULL
+AND SPID = @@SPID
 OPTION (RECOMPILE);
 
 
