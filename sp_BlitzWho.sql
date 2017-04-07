@@ -203,7 +203,7 @@ SET @StringToExecute = N'
 			    ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 					    AND qmg.pool_id = qrs.pool_id
 			    OUTER APPLY (
-								SELECT
+								SELECT TOP 1
 								sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
 								sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime
 								FROM sys.sysprocesses AS sys1
@@ -358,7 +358,7 @@ SELECT @StringToExecute = N'
 						ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 							    AND qmg.pool_id = qrs.pool_id
 						OUTER APPLY (
-								SELECT
+								SELECT TOP 1
 									sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
 									sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
 									FROM sys.sysprocesses AS sys1
