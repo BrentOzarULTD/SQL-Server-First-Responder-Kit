@@ -33,13 +33,13 @@ IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 GO
 
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
-	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
-	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, 
+	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathDiff NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
+	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, @ContinueDiff bit = 0,
 	  @ContinueLogs bit = 0, @RunRecovery bit = 0
 AS
 SET NOCOUNT ON;
 
-DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @BackupFile NVARCHAR(500);
+DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
 
 IF @RestoreDatabaseName IS NULL
@@ -174,34 +174,59 @@ BEGIN
 	SELECT @MoveOption = @MoveOption + logicalcmds
 	FROM Files;
 END;
-
 IF @ContinueLogs = 0
 BEGIN
 	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathFull + @LastFullBackup+ ''' WITH NORECOVERY, REPLACE' + @MoveOption+CHAR(13);
 	PRINT @sql;
 	EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-
 	--get the backup completed data so we can apply tlogs from that point forwards
                                                         
   SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
   PRINT @sql;
   EXECUTE (@sql);
-
-	DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
-
+	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
 	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
-
-	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;
-                                                        
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
+	PRINT @BackupDateTime                                                
 END;
 ELSE
 BEGIN
 	DECLARE @DatabaseLastLSN NUMERIC(25, 0);
-
 	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
 	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1
+END;
+
+--Clear out table variables for differential
+DELETE FROM @FileList;
+
+-- get list of files 
+SET @cmd = 'DIR /b "'+ @BackupPathDiff + '"';
+INSERT INTO @FileList (BackupFile)
+EXEC master.sys.xp_cmdshell @cmd; 
+
+-- select * from @fileList
+-- Find latest diff backup 
+SELECT @LastDiffBackup = MAX(BackupFile)
+FROM @FileList
+WHERE BackupFile LIKE '%.bak'
+    AND
+    BackupFile LIKE '%'+@Database+'%';
+
+IF @ContinueDiff = 1 AND @BackupDateTime < RIGHT(@LastDiffBackup, 19)
+BEGIN
+	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathDiff + @LastDiffBackup+ ''' WITH NORECOVERY';
+	PRINT @sql;
+	EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+	--get the backup completed data so we can apply tlogs from that point forwards
+                                                        
+  SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+  PRINT @sql;
+  EXECUTE (@sql);
+	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
+	SELECT @BackupDateTime = RIGHT(@LastDiffBackup, 19)
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;                                                  
 END;
 
 --Clear out table variables for translogs
@@ -210,7 +235,6 @@ DELETE FROM @FileList;
 SET @cmd = 'DIR /b "'+ @BackupPathLog + '"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
-
 --check for log backups 
 DECLARE BackupFiles CURSOR FOR
 	SELECT BackupFile
@@ -218,11 +242,8 @@ DECLARE BackupFiles CURSOR FOR
 	WHERE BackupFile LIKE '%.trn'
 	  AND BackupFile LIKE '%'+@Database+'%'
 	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND LEFT(RIGHT(BackupFile, 19), 15) >= @BackupDateTime));
-
 OPEN BackupFiles;
-
 DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);
-
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
 WHILE @@FETCH_STATUS = 0
@@ -234,26 +255,20 @@ BEGIN
     EXECUTE (@sql);
 		
 		SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 2;
-
 		IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN)
 			SET @i = 2;
-
 		DELETE FROM #Headers WHERE BackupType = 2;
 	END;
-
 	IF @i = 2
 	BEGIN
 		SET @sql = 'RESTORE LOG '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathLog + @BackupFile+''' WITH NORECOVERY'+CHAR(13);
 		PRINT @sql
 		EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	END;
-
 	FETCH NEXT FROM BackupFiles INTO @BackupFile;
 END;
-
 CLOSE BackupFiles;
 DEALLOCATE BackupFiles;  
-
 -- put database in a useable state 
 IF @RunRecovery = 1
 BEGIN
@@ -264,11 +279,9 @@ END;
  --Run checkdb against this database
 IF @RunCheckDB = 1
 	EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = @RestoreDatabaseName, @LogToTable = 'Y';
-
  --If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 BEGIN
 	SET @sql = 'DROP DATABASE '+@RestoreDatabaseName;
 	EXECUTE sp_executesql @sql;
 END;
-
