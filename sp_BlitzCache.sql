@@ -2190,20 +2190,26 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 )
 , QueryCostUpdate AS (
   SELECT
-	DISTINCT
 	SUM(qc.SubTreeCost) OVER (PARTITION BY SqlHandle, PlanHandle) PlanTotalQuery,
     qc.PlanHandle,
     qc.SqlHandle
   FROM QueryCost qc
-    WHERE qc.SubTreeCost > 0
 )
-  UPDATE b
-    SET b.QueryPlanCost = (SELECT TOP 1 PlanTotalQuery FROM QueryCostUpdate qcu WHERE qcu.PlanHandle = b.PlanHandle ORDER BY PlanTotalQuery DESC)
-  FROM QueryCostUpdate qcu
-    JOIN  ##bou_BlitzCacheProcs AS b
-  ON qcu.SqlHandle = b.SqlHandle
-  AND b.SPID = @@SPID
-WHERE b.QueryType LIKE '%Procedure%'
+SELECT qcu.PlanTotalQuery, PlanHandle, SqlHandle
+INTO #proc_costs
+FROM QueryCostUpdate AS qcu
+
+UPDATE b
+    SET b.QueryPlanCost = ca.PlanTotalQuery
+FROM ##bou_BlitzCacheProcs AS b
+CROSS APPLY (
+		SELECT TOP 1 PlanTotalQuery 
+		FROM #proc_costs qcu 
+		WHERE qcu.PlanHandle = b.PlanHandle 
+		ORDER BY PlanTotalQuery DESC
+) ca
+WHERE b.QueryType LIKE 'Procedure%'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 UPDATE b
