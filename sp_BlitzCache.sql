@@ -2816,8 +2816,7 @@ OPTION (RECOMPILE) ;
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 /* Populate warnings */
 UPDATE ##bou_BlitzCacheProcs
-SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
-				  SUBSTRING(
+SET    Warnings = SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
                   CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
@@ -2870,7 +2869,6 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
-				  END
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
 
@@ -2880,8 +2878,7 @@ WITH statement_warnings AS
 	(
 SELECT  DISTINCT
 		SqlHandle,
-		Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.' ELSE
-				  SUBSTRING(
+		Warnings = SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
                   CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
@@ -2934,7 +2931,6 @@ SELECT  DISTINCT
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
-				  END
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
 AND QueryType LIKE 'Statement (parent%'
@@ -2947,9 +2943,32 @@ ON b.SqlHandle = s.SqlHandle
 WHERE QueryType LIKE 'Procedure or Function%'
 OPTION(RECOMPILE);
 
+RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;	
+WITH plan_handle AS (
+SELECT b.PlanHandle
+FROM ##bou_BlitzCacheProcs b
+   CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, 0, -1) tqp
+   CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) qp
+   WHERE tqp.encrypted = 0
+   AND b.SPID = @@SPID
+   AND (qp.query_plan IS NULL
+			AND tqp.query_plan IS NOT NULL)
+)
+UPDATE b
+SET Warnings = ISNULL('Your query plan is >128 levels of nested nodes, and can''t be converted to XML. Use SELECT * FROM sys.dm_exec_text_query_plan('+ CONVERT(VARCHAR(128), ph.PlanHandle, 1) + ', 0, -1) to get more information' 
+                        , 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.')
+FROM ##bou_BlitzCacheProcs b
+LEFT JOIN plan_handle ph ON
+b.PlanHandle = ph.PlanHandle
+WHERE b.QueryPlan IS NULL
+AND b.SPID = @@SPID
+OPTION (RECOMPILE);			  
+
+RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
 UPDATE ##bou_BlitzCacheProcs
 SET Warnings = 'No warnings detected.'
 WHERE Warnings = '' OR	Warnings IS NULL
+AND SPID = @@SPID
 OPTION (RECOMPILE);
 
 
