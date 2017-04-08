@@ -2937,7 +2937,7 @@ ON b.SqlHandle = s.SqlHandle
 WHERE QueryType LIKE 'Procedure or Function%'
 OPTION(RECOMPILE);
 
-		
+RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;	
 WITH plan_handle AS (
 SELECT b.PlanHandle
 FROM ##bou_BlitzCacheProcs b
@@ -2952,12 +2952,13 @@ UPDATE b
 SET Warnings = ISNULL('Your query plan is >128 levels of nested nodes, and can''t be converted to XML. Use SELECT * FROM sys.dm_exec_text_query_plan('+ CONVERT(VARCHAR(128), ph.PlanHandle, 1) + ', 0, -1) to get more information' 
                         , 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.')
 FROM ##bou_BlitzCacheProcs b
-JOIN plan_handle ph ON
+LEFT JOIN plan_handle ph ON
 b.PlanHandle = ph.PlanHandle
 WHERE b.QueryPlan IS NULL
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);			  
 
-
+RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
 UPDATE ##bou_BlitzCacheProcs
 SET Warnings = 'No warnings detected.'
 WHERE Warnings = '' OR	Warnings IS NULL
