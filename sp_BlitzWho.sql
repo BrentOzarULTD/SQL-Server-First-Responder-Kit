@@ -30,7 +30,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2017 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -86,7 +86,9 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
 BEGIN
 SET @StringToExecute = N'
-					    
+		      SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+    
+    
 						DECLARE @blocked TABLE 
 								(
 								  dbid SMALLINT NOT NULL,
@@ -108,10 +110,9 @@ SET @StringToExecute = N'
 							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
 						FROM sys.sysprocesses AS sys1
 						JOIN sys.sysprocesses AS sys2
-						ON sys1.spid = sys2.blocked
+						ON sys1.spid = sys2.blocked;
 
-						
-						SELECT  GETDATE() AS run_date ,
+					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
 							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
 							CONVERT(VARCHAR(20), DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()) / 1000 / 86400) + '':''
@@ -259,7 +260,8 @@ SELECT @EnhanceFlag =
 	    END
 
 SELECT @StringToExecute = N'
-
+            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            
 						DECLARE @blocked TABLE 
 								(
 								  dbid SMALLINT NOT NULL,
@@ -281,7 +283,7 @@ SELECT @StringToExecute = N'
 							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
 						FROM sys.sysprocesses AS sys1
 						JOIN sys.sysprocesses AS sys2
-						ON sys1.spid = sys2.blocked
+						ON sys1.spid = sys2.blocked;
 
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
