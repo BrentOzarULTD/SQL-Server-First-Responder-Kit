@@ -2867,7 +2867,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
 				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END +
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
+				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;

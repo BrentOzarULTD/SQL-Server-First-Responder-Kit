@@ -85,7 +85,33 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
 
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
 BEGIN
-SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SET @StringToExecute = N'
+		      SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+    
+    
+						DECLARE @blocked TABLE 
+								(
+								  dbid SMALLINT NOT NULL,
+								  last_batch DATETIME NOT NULL,
+								  open_tran SMALLINT NOT NULL,
+								  sql_handle BINARY(20) NOT NULL,
+								  session_id SMALLINT NOT NULL,
+								  blocking_session_id SMALLINT NOT NULL,
+								  lastwaittype NCHAR(32) NOT NULL,
+								  waittime BIGINT NOT NULL,
+								  cpu INT NOT NULL,
+								  physical_io BIGINT NOT NULL,
+								  memusage INT NOT NULL
+								); 
+						
+						INSERT @blocked ( dbid, last_batch, open_tran, sql_handle, session_id, blocking_session_id, lastwaittype, waittime, cpu, physical_io, memusage )
+						SELECT
+							sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
+							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
+						FROM sys.sysprocesses AS sys1
+						JOIN sys.sysprocesses AS sys2
+						ON sys1.spid = sys2.blocked;
+
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
 							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
@@ -204,13 +230,11 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					    AND qmg.pool_id = qrs.pool_id
 			    OUTER APPLY (
 								SELECT TOP 1
-								sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
-								sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime
-								FROM sys.sysprocesses AS sys1
-								JOIN sys.sysprocesses AS sys2
-								ON sys1.spid = sys2.blocked
-								WHERE (s.session_id = sys2.spid
-										OR s.session_id = sys2.blocked)
+								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
+								b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
+								FROM @blocked b
+								WHERE (s.session_id = b.session_id
+										OR s.session_id = b.blocking_session_id)
 							) AS blocked				
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
@@ -235,7 +259,32 @@ SELECT @EnhanceFlag =
 		     ELSE 0 
 	    END
 
-SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SELECT @StringToExecute = N'
+            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            
+						DECLARE @blocked TABLE 
+								(
+								  dbid SMALLINT NOT NULL,
+								  last_batch DATETIME NOT NULL,
+								  open_tran SMALLINT NOT NULL,
+								  sql_handle BINARY(20) NOT NULL,
+								  session_id SMALLINT NOT NULL,
+								  blocking_session_id SMALLINT NOT NULL,
+								  lastwaittype NCHAR(32) NOT NULL,
+								  waittime BIGINT NOT NULL,
+								  cpu INT NOT NULL,
+								  physical_io BIGINT NOT NULL,
+								  memusage INT NOT NULL
+								); 
+						
+						INSERT @blocked ( dbid, last_batch, open_tran, sql_handle, session_id, blocking_session_id, lastwaittype, waittime, cpu, physical_io, memusage )
+						SELECT
+							sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
+							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
+						FROM sys.sysprocesses AS sys1
+						JOIN sys.sysprocesses AS sys2
+						ON sys1.spid = sys2.blocked;
+
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
 							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
@@ -359,14 +408,12 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							    AND qmg.pool_id = qrs.pool_id
 						OUTER APPLY (
 								SELECT TOP 1
-									sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
-									sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
-									FROM sys.sysprocesses AS sys1
-									JOIN sys.sysprocesses AS sys2
-									ON sys1.spid = sys2.blocked
-									WHERE (s.session_id = sys2.spid
-											OR s.session_id = sys2.blocked)
-								) AS blocked
+								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
+								b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
+								FROM @blocked b
+								WHERE (s.session_id = b.session_id
+										OR s.session_id = b.blocking_session_id)
+							) AS blocked
 						OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 						OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 						WHERE s.session_id <> @@SPID 
