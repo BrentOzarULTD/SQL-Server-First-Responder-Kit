@@ -85,8 +85,7 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
 
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
 BEGIN
-SET @StringToExecute = N'
-		      SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
     
     
 						DECLARE @blocked TABLE 
@@ -259,8 +258,7 @@ SELECT @EnhanceFlag =
 		     ELSE 0 
 	    END
 
-SELECT @StringToExecute = N'
-            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             
 						DECLARE @blocked TABLE 
 								(
