@@ -26,6 +26,15 @@ EXEC dbo.DatabaseRestore
 	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
 	@ContinueLogs = 0, 
 	@RunRecovery = 1;
+
+EXEC dbo.DatabaseRestore 
+	@Database = 'LogShipMe', 
+	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
+	@BackupPathDiff = 'D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\',
+	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
+	@RestoreDiff = 1,
+	@ContinueLogs = 0, 
+	@RunRecovery = 1;
 */
 
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
@@ -34,8 +43,8 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathDiff NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
-	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, @ContinueDiff bit = 0,
-	  @ContinueLogs bit = 0, @RunRecovery bit = 0
+	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, @RestoreDiff bit = 0,
+	  @ContinueLogs bit = 0, @RunRecovery bit = 0, @Debug INT = 0
 AS
 SET NOCOUNT ON;
 
@@ -178,13 +187,14 @@ IF @ContinueLogs = 0
 BEGIN
 	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathFull + @LastFullBackup+ ''' WITH NORECOVERY, REPLACE' + @MoveOption+CHAR(13);
 	PRINT @sql;
-	EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-	--get the backup completed data so we can apply tlogs from that point forwards
-                                                        
+	IF @Debug = 0
+		EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+
+  --get the backup completed data so we can apply tlogs from that point forwards                                                   
   SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
   PRINT @sql;
   EXECUTE (@sql);
-	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
+	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0); Commented out for testing
 	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
 	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
 	PRINT @BackupDateTime                                                
@@ -214,13 +224,14 @@ WHERE BackupFile LIKE '%.bak'
     AND
     BackupFile LIKE '%'+@Database+'%';
 
-IF @ContinueDiff = 1 AND @BackupDateTime < RIGHT(@LastDiffBackup, 19)
+IF @RestoreDiff = 1 AND @BackupDateTime < RIGHT(@LastDiffBackup, 19)
 BEGIN
 	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathDiff + @LastDiffBackup+ ''' WITH NORECOVERY';
 	PRINT @sql;
-	EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-	--get the backup completed data so we can apply tlogs from that point forwards
-                                                        
+	IF @Debug = 0
+		EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+	
+  --get the backup completed data so we can apply tlogs from that point forwards                                                   
   SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
   PRINT @sql;
   EXECUTE (@sql);
@@ -241,7 +252,8 @@ DECLARE BackupFiles CURSOR FOR
 	FROM @FileList
 	WHERE BackupFile LIKE '%.trn'
 	  AND BackupFile LIKE '%'+@Database+'%'
-	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND LEFT(RIGHT(BackupFile, 19), 15) >= @BackupDateTime));
+	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND LEFT(RIGHT(BackupFile, 19), 15) >= @BackupDateTime))
+	  ORDER BY BackupFile;
 OPEN BackupFiles;
 DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);
 -- Loop through all the files for the database  
