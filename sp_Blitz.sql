@@ -506,13 +506,6 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('XE_DISPATCHER_WAIT');
 		INSERT INTO #IgnorableWaits VALUES ('XE_LIVE_TARGET_TVF');
 		INSERT INTO #IgnorableWaits VALUES ('XE_TIMER_EVENT');
-
-
-        /* Used for the default trace checks. */
-        DECLARE @TracePath NVARCHAR(256);
-        SELECT @TracePath=CAST(value as NVARCHAR(256))
-            FROM sys.fn_trace_getinfo(1)
-            WHERE traceid=1 AND property=2;
         
         SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0
             FROM    sys.databases
@@ -3061,7 +3054,7 @@ AS
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 150 )
-                            AND @TracePath IS NOT NULL
+                            AND @base_tracefilename IS NOT NULL
 	                        BEGIN
 
 		                        INSERT  INTO #BlitzResults
@@ -3080,7 +3073,7 @@ AS
 						                        'Errors Logged Recently in the Default Trace' AS Finding ,
 						                        'https://BrentOzar.com/go/defaulttrace' AS URL ,
 						                         CAST(t.TextData AS NVARCHAR(4000)) AS Details
-                                        FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
+                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
                                         WHERE t.EventClass = 22
                                           AND t.Severity >= 17
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
@@ -3091,7 +3084,7 @@ AS
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
-                            AND @TracePath IS NOT NULL
+                            AND @base_tracefilename IS NOT NULL
 	                        BEGIN
 		                        INSERT  INTO #BlitzResults
 				                        ( CheckID ,
@@ -3109,7 +3102,7 @@ AS
 						                        'File Growths Slow' AS Finding ,
 						                        'https://BrentOzar.com/go/filegrowth' AS URL ,
 						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting file autogrowth to a smaller increment.' AS Details
-                                        FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
+                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
                                         WHERE t.EventClass IN (92, 93)
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
                                           AND t.Duration > 15000000
