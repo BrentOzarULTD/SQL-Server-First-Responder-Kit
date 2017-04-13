@@ -114,8 +114,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
 							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
-							CONVERT(VARCHAR(20), DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()) / 1000 / 86400) + '':''
-								+ CONVERT(VARCHAR(20), DATEADD(MILLISECOND,  DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()), 0), 114)
+							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
+								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
 			            s.session_id ,
 						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
@@ -286,8 +286,8 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
 							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
-							CONVERT(VARCHAR(20), DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()) / 1000 / 86400) + '':''
-								+ CONVERT(VARCHAR(20), DATEADD(MILLISECOND,  DATEDIFF(MILLISECOND, s.last_request_start_time, GETDATE()), 0), 114)
+							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
+								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
 			            s.session_id ,
 						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
