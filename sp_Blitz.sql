@@ -3835,6 +3835,194 @@ IF @ProductVersionMajor >= 10
 		
 		   END;
 
+/*Begin: checking default trace for odd DBCC activity*/
+		
+		--Grab relevant event data
+		SELECT UPPER(
+					REPLACE(
+						SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 0, 
+								ISNULL(
+									NULLIF(
+										CHARINDEX('(', CONVERT(NVARCHAR(MAX), t.TextData)), 
+										 0), 
+									  LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 ))
+										, SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 
+											ISNULL(
+												NULLIF(
+													CHARINDEX(' WITH ',CONVERT(NVARCHAR(MAX), t.TextData))
+													, 0), 
+												LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1), 
+													LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 )
+					   , '')
+					) AS [dbcc_event_trunc_upper],
+			UPPER(
+				REPLACE(
+					CONVERT(NVARCHAR(MAX), t.TextData), SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 
+											ISNULL(
+												NULLIF(
+													CHARINDEX(' WITH ',CONVERT(NVARCHAR(MAX), t.TextData))
+													, 0), 
+												LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1), 
+													LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 ), '')) AS [dbcc_event_full_upper],
+			MIN(t.StartTime) OVER (PARTITION BY CONVERT(NVARCHAR(128), t.TextData)) AS	min_start_time,
+			MAX(t.StartTime) OVER (PARTITION BY CONVERT(NVARCHAR(128), t.TextData)) AS max_start_time,
+			t.NTUserName AS [nt_user_name], 
+			t.NTDomainName AS [nt_domain_name], 
+			t.HostName AS [host_name],
+		    t.ApplicationName AS [application_name], 
+			t.LoginName [login_name], 
+			t.DBUserName AS [db_user_name]
+		 	INTO #dbcc_events_from_trace
+		    FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+			WHERE t.EventClass = 116
+			OPTION(RECOMPILE);
+
+			/*Overall count of DBCC events excluding silly stuff*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+			SELECT 199 AS CheckID ,
+			        50 AS Priority ,
+			        'DBCC Events' AS FindingsGroup ,
+			        'Overall Events' AS Finding ,
+			        '' AS URL ,
+			        CAST(COUNT(*) AS NVARCHAR(100)) + ' DBCC events have taken place between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+					'. This does not include CHECKDB and other usually benign DBCC events.'
+					AS Details
+			FROM    #dbcc_events_from_trace d
+			WHERE d.[dbcc_event_trunc_upper] NOT IN (
+			N'DBCC CHECKCB', N' DBCC CHECKALLOC' , N'DBCC CHECKTABLE', N'DBCC CHECKCATALOG', N'DBCC CHECKFILEGROUP', --CHECKDB related
+			N'DBCC TRACEON', N'DBCC TRACEOFF', N'DBCC DBINFO', N'DBCC LOGINFO', N'DBCC DBINFO WITH TABLERESULTS', N'DBCC TRACESTATUS', --Usually monitoring tool related
+			N'DBCC CHECKIDENT', N'DBCC SHOW_STATISTICS', N'DBCC CHECKCONSTRAINTS', N'DBCC INPUTBUFFER', --Probably rational
+			N'DBCC CLEANTABLE', N'DBCC CHECKPRIMARYFILE', N'DBCC OPENTRAN', 'DBCC SHOWFILESTATS' --Weird but okay
+													)
+			AND d.dbcc_event_full_upper NOT IN('DBCC SQLPERF(NETSTATS)', 'DBCC SQLPERF(LOGSPACE)')
+			HAVING COUNT(*) > 0
+			
+				END
+
+			/*Check for someone running drop clean buffers*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 200 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC DROPCLEANBUFFERS' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC DROPCLEANBUFFERS'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END 
+
+			/*Check for someone running free proc cache*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 201 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC FREEPROCCACHE' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC FREEPROCCACHE'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END
+
+			/*Check for someone clearing wait stats*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 202 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. Why are you clearing wait stats? What are you hiding?'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END
+
+			/*Check for someone writing to pages. Yeah, right?*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+						SELECT 203 AS CheckID ,
+						        50 AS Priority ,
+						        'DBCC Events' AS FindingsGroup ,
+						        'DBCC WRITEPAGE' AS Finding ,
+						        '' AS URL ,
+						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								AS Details
+						FROM    #dbcc_events_from_trace d
+						WHERE d.dbcc_event_trunc_upper = N'DBCC WRITEPAGE'
+						GROUP BY COALESCE(d.nt_user_name, d.login_name)
+						HAVING COUNT(*) > 0
+
+						END
+
+
+/*End: checking default trace for odd DBCC activity*/
+
+
+
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
