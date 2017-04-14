@@ -3845,7 +3845,7 @@ IF @ProductVersionMajor >= 10
 									NULLIF(
 										CHARINDEX('(', CONVERT(NVARCHAR(MAX), t.TextData)), 
 										 0), 
-									  LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 ))
+									  LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 )) --This replaces everything up to an open paren, if one exists. 
 										, SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 
 											ISNULL(
 												NULLIF(
@@ -3853,7 +3853,7 @@ IF @ProductVersionMajor >= 10
 													, 0), 
 												LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1), 
 													LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 )
-					   , '')
+					   , '') --This replaces any optional WITH clause to a DBCC command, like tableresults.
 					) AS [dbcc_event_trunc_upper],
 			UPPER(
 				REPLACE(
@@ -4012,6 +4012,33 @@ IF @ProductVersionMajor >= 10
 								AS Details
 						FROM    #dbcc_events_from_trace d
 						WHERE d.dbcc_event_trunc_upper = N'DBCC WRITEPAGE'
+						GROUP BY COALESCE(d.nt_user_name, d.login_name)
+						HAVING COUNT(*) > 0
+
+						END
+
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+						SELECT 204 AS CheckID ,
+						        50 AS Priority ,
+						        'DBCC Events' AS FindingsGroup ,
+						        'DBCC SHRINK%' AS Finding ,
+						        '' AS URL ,
+						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								AS Details
+						FROM    #dbcc_events_from_trace d
+						WHERE d.dbcc_event_trunc_upper LIKE N'DBCC SHRINK%'
 						GROUP BY COALESCE(d.nt_user_name, d.login_name)
 						HAVING COUNT(*) > 0
 
