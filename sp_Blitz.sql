@@ -4046,9 +4046,39 @@ IF @ProductVersionMajor >= 10
 
 
 /*End: checking default trace for odd DBCC activity*/
+				
+				/*Begin check for autoshrink events*/
 
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 205 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
 
-
+						SELECT	205 AS CheckID ,
+								        50 AS Priority ,
+								        'Autoshrink events' AS FindingsGroup ,
+								        'File shrinking' AS Finding ,
+								        '' AS URL , 
+										N'The database ' + QUOTENAME(t.DatabaseName) + N' has had ' 
+											+ CONVERT(NVARCHAR(10), COUNT(*)) 
+												+ N' auto shrink events between ' 
+													+ CONVERT(NVARCHAR(30), MIN(t.StartTime)) + ' and ' + CONVERT(NVARCHAR(30), MAX(t.StartTime)) 
+														+ ' that lasted on average ' 
+															+ CONVERT(NVARCHAR(10), AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)))
+																+ ' seconds.' AS Details
+						FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+						WHERE t.EventClass IN (94, 95)
+						GROUP BY t.DatabaseName
+						HAVING AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)) > 5
+				
+				END
 
 
 				IF @CheckUserDatabaseObjects = 1
