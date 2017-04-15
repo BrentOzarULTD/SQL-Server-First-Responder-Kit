@@ -36,6 +36,7 @@ EXEC dbo.sp_DatabaseRestore
 	@ContinueLogs = 0, 
 	@RunRecovery = 1;
 
+-- 
 EXEC dbo.sp_DatabaseRestore 
 	@Database = 'LogShipMe', 
 	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
@@ -243,7 +244,7 @@ WHERE BackupFile LIKE '%.bak'
 
 IF @RestoreDiff = 1 AND @BackupDateTime < RIGHT(@LastDiffBackup, 19)
 BEGIN
-	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathDiff + @LastDiffBackup+ ''' WITH NORECOVERY';
+	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathDiff + @LastDiffBackup+ ''' WITH NORECOVERY'+CHAR(13);
 	PRINT @sql;
 	IF @Debug = 0
 		EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
