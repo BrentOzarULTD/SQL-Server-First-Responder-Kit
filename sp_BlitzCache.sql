@@ -1035,13 +1035,15 @@ CREATE TABLE #configuration (
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
-SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 24 THEN 1 ELSE 0 END) AS [plans_24],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 4 THEN 1 ELSE 0 END) AS [plans_4],
+SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END) AS [plans_24],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END) AS [plans_4],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END) AS [plans_1],
 	   COUNT(deqs.creation_time) AS [total_plans]
 FROM sys.dm_exec_query_stats AS deqs
 )
-SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(3,2), x.plans_4 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   @@SPID AS SPID
 INTO #plan_creation
 FROM x
@@ -1049,9 +1051,9 @@ OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
+SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
         COUNT(*) AS total_plan_stubs,
-		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
         ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
 		@@SPID AS SPID
 INTO #plan_stubs_warning
@@ -1063,9 +1065,9 @@ OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
+SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
         COUNT(*) AS total_single_use_plans,
-		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
         ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
 		@@SPID AS SPID
 INTO #single_use_plans_warning
@@ -2218,16 +2220,6 @@ FROM ##bou_BlitzCacheProcs b
 WHERE b.QueryPlanCost IS NULL
 OPTION (RECOMPILE);
 
-RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE  ##bou_BlitzCacheProcs
-SET is_forced_serial = 1
-FROM    #query_plan qp
-WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
-AND SPID = @@SPID
-AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
-OPTION (RECOMPILE);
-
 RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  ##bou_BlitzCacheProcs
@@ -2426,22 +2418,6 @@ WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 
-RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET columnstore_row_mode = x.is_row_mode
-FROM (
-SELECT 
-       qs.SqlHandle,
-	   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
-FROM   #relop qs
-WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-AND SPID = @@SPID
-OPTION (RECOMPILE) ;
-
-
 RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -2541,6 +2517,37 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+IF @v >= 11
+BEGIN
+
+	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+	UPDATE  ##bou_BlitzCacheProcs
+	SET is_forced_serial = 1
+	FROM    #query_plan qp
+	WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+	AND SPID = @@SPID
+	AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
+	OPTION (RECOMPILE);
+	
+	
+	RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+	UPDATE ##bou_BlitzCacheProcs
+	SET columnstore_row_mode = x.is_row_mode
+	FROM (
+	SELECT 
+	       qs.SqlHandle,
+		   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
+	FROM   #relop qs
+	WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+	) AS x
+	WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+	AND SPID = @@SPID
+	OPTION (RECOMPILE) ;
+
+END
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2619,6 +2626,8 @@ AND SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 /* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
+IF @v >= 11
+BEGIN
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
@@ -2656,6 +2665,7 @@ FROM   ##bou_BlitzCacheProcs p
 JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash 
 WHERE SPID = @@SPID
 OPTION(RECOMPILE);
+END
 
 IF @SkipAnalysis = 1
     BEGIN
@@ -3244,6 +3254,7 @@ END
 ELSE
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+		QueryPlanCost AS [Cost],
         QueryText AS [Query Text],
         QueryType AS [Query Type],
         Warnings AS [Warnings], ' + @nl
@@ -3252,7 +3263,6 @@ BEGIN
     BEGIN
         RAISERROR(N'Returning Expert Mode = 2', 0, 1) WITH NOWAIT;
 		SET @columns += N'        
-				  CASE WHEN QueryPlan IS NULL THEN ''We couldn''''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.'' ELSE
 				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
                   CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
@@ -3281,7 +3291,7 @@ BEGIN
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
 				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
-				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
+				  CASE WHEN function_count > 0 THEN '', 31'' ELSE '''' END +
 				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
 				  CASE WHEN is_table_variable = 1 THEN '', 34'' ELSE '''' END  + 
@@ -3291,8 +3301,8 @@ BEGIN
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
-				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
-				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
+				  CASE WHEN columnstore_row_mode = 1 THEN '', 41'' ELSE '''' END + 
+				  CASE WHEN is_computed_scalar = 1 THEN '', 42'' ELSE '''' END +
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
 				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
@@ -3301,8 +3311,8 @@ BEGIN
 				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
 				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN '', 50'' ELSE '''' END +
-				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51, '' ELSE '''' END
-				  , 2, 200000) END AS opserver_warning , ' + @nl ;
+				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51'' ELSE '''' END
+				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
     SET @columns += N'        ExecutionCount AS [# Executions],
@@ -3340,7 +3350,6 @@ BEGIN
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
-        QueryPlanCost AS [Query Plan Cost],
         QueryPlan AS [Query Plan],
         CachedPlanSize AS [Cached Plan Size (KB)],
         CompileTime AS [Compile Time (ms)],
@@ -4029,14 +4038,14 @@ BEGIN
 					 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
-                   WHERE (p.percent_24 > 0 OR p.percent_4 > 0)
+                   WHERE (p.percent_24 > 0)
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT SPID,
                     999,
                     254,
                     'Plan Cache Information',
-                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
+                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours, and ' + CONVERT(NVARCHAR(10), p.percent_1) + '% created in the past 1 hour.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
