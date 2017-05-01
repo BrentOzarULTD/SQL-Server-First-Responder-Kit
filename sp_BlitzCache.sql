@@ -2220,16 +2220,6 @@ FROM ##bou_BlitzCacheProcs b
 WHERE b.QueryPlanCost IS NULL
 OPTION (RECOMPILE);
 
-RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE  ##bou_BlitzCacheProcs
-SET is_forced_serial = 1
-FROM    #query_plan qp
-WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
-AND SPID = @@SPID
-AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
-OPTION (RECOMPILE);
-
 RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  ##bou_BlitzCacheProcs
@@ -2428,22 +2418,6 @@ WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 
-RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##bou_BlitzCacheProcs
-SET columnstore_row_mode = x.is_row_mode
-FROM (
-SELECT 
-       qs.SqlHandle,
-	   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
-FROM   #relop qs
-WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
-) AS x
-WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
-AND SPID = @@SPID
-OPTION (RECOMPILE) ;
-
-
 RAISERROR(N'Checking for computed columns that reference scalar UDFs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE ##bou_BlitzCacheProcs
@@ -2543,6 +2517,37 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+IF @v >= 11
+BEGIN
+
+	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+	UPDATE  ##bou_BlitzCacheProcs
+	SET is_forced_serial = 1
+	FROM    #query_plan qp
+	WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
+	AND SPID = @@SPID
+	AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
+	OPTION (RECOMPILE);
+	
+	
+	RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+	UPDATE ##bou_BlitzCacheProcs
+	SET columnstore_row_mode = x.is_row_mode
+	FROM (
+	SELECT 
+	       qs.SqlHandle,
+		   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
+	FROM   #relop qs
+	WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+	) AS x
+	WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+	AND SPID = @@SPID
+	OPTION (RECOMPILE) ;
+
+END
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2621,6 +2626,8 @@ AND SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 /* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
+IF @v >= 11
+BEGIN
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
@@ -2658,6 +2665,7 @@ FROM   ##bou_BlitzCacheProcs p
 JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash 
 WHERE SPID = @@SPID
 OPTION(RECOMPILE);
+END
 
 IF @SkipAnalysis = 1
     BEGIN
