@@ -1035,13 +1035,15 @@ CREATE TABLE #configuration (
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
-SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 24 THEN 1 ELSE 0 END) AS [plans_24],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) < 4 THEN 1 ELSE 0 END) AS [plans_4],
+SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END) AS [plans_24],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END) AS [plans_4],
+	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END) AS [plans_1],
 	   COUNT(deqs.creation_time) AS [total_plans]
 FROM sys.dm_exec_query_stats AS deqs
 )
-SELECT CONVERT(DECIMAL(3,2), x.plans_24 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(3,2), x.plans_4 / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   @@SPID AS SPID
 INTO #plan_creation
 FROM x
@@ -1049,9 +1051,9 @@ OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
+SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
         COUNT(*) AS total_plan_stubs,
-		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
         ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
 		@@SPID AS SPID
 INTO #plan_stubs_warning
@@ -1063,9 +1065,9 @@ OPTION (RECOMPILE) ;
 
 
 RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), ( CAST(COUNT(*) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
+SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
         COUNT(*) AS total_single_use_plans,
-		( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) AS total_plans,
+		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
         ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
 		@@SPID AS SPID
 INTO #single_use_plans_warning
@@ -4029,14 +4031,14 @@ BEGIN
 					 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
-                   WHERE (p.percent_24 > 0 OR p.percent_4 > 0)
+                   WHERE (p.percent_24 > 0)
 				   AND SPID = @@SPID)
             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT SPID,
                     999,
                     254,
                     'Plan Cache Information',
-                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, and ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours.',
+                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours, and ' + CONVERT(NVARCHAR(10), p.percent_1) + '% created in the past 1 hour.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
