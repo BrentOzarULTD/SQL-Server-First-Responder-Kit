@@ -2550,42 +2550,31 @@ BEGIN;
 
             RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 
-                SELECT    database_name, 
-						  COUNT(*) AS count_filtered_indexes
-				INTO #filtered_index_count
-                FROM    #IndexSanity
-                WHERE    filter_definition <> '' 
-				GROUP BY database_name
-				OPTION    ( RECOMPILE );
-
-                SELECT  i.database_name,  
-						COUNT(*) AS count_indexed_views
-				INTO #indexed_view_count
-                FROM    #IndexSanity AS i
-                        JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                WHERE    is_indexed_view = 1 
-				GROUP BY i.database_name
-				OPTION ( RECOMPILE );
-
             IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT   32 AS check_id, 
+                        SELECT  DISTINCT
+								32 AS check_id, 
                                 NULL AS index_sanity_id,
                                 250 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
                                 N'Borderline: No filtered indexes or indexed views exist' AS finding, 
-                                fic.database_name AS [Database Name],
+                                i.database_name AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexFeatures' AS URL,
                                 N'These are NOT always needed-- but do you know when you would use them?' AS details,
-                                fic.database_name + N' (Entire database)' AS index_definition, 
+                                i.database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns,
                                 N'N/A' AS index_usage_summary, 
                                 N'N/A' AS index_size_summary 
-						FROM #filtered_index_count AS fic
-						JOIN #indexed_view_count AS ivc
-						ON ivc.database_name = fic.database_name
-						WHERE count_filtered_indexes = 0 AND count_indexed_views = 0
+						FROM #IndexSanity i
+						WHERE i.database_name NOT IN (                
+								SELECT   database_name
+								FROM     #IndexSanity
+								WHERE    filter_definition <> '' )
+						AND i.database_name NOT IN (
+						       SELECT  database_name
+							   FROM    #IndexSanity
+							   WHERE   is_indexed_view = 1 )
 						OPTION    ( RECOMPILE );
         END;
 
