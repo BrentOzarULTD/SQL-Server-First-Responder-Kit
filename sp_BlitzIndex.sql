@@ -2511,12 +2511,13 @@ BEGIN;
 			GROUP BY database_name;
 
             IF NOT (@Mode = 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  30 AS check_id, 
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
+								database_name AS [Database Name],
                                 N'No indexes use includes' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
                                 N'No indexes use includes' AS details,
                                 database_name + N' (Entire database)' AS index_definition, 
@@ -2584,7 +2585,7 @@ BEGIN;
 						FROM #filtered_index_count AS fic
 						JOIN #indexed_view_count AS ivc
 						ON ivc.database_name = fic.database_name
-						WHERE count_filtered_indexes = 0 AND count_indexed_views=0
+						WHERE count_filtered_indexes = 0 AND count_indexed_views = 0
 						OPTION    ( RECOMPILE );
         END;
 
