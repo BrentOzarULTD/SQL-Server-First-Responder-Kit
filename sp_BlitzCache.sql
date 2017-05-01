@@ -3255,7 +3255,6 @@ BEGIN
     BEGIN
         RAISERROR(N'Returning Expert Mode = 2', 0, 1) WITH NOWAIT;
 		SET @columns += N'        
-				  CASE WHEN QueryPlan IS NULL THEN ''We couldn''''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.'' ELSE
 				  SUBSTRING(
                   CASE WHEN warning_no_join_predicate = 1 THEN '', 20'' ELSE '''' END +
                   CASE WHEN compile_timeout = 1 THEN '', 18'' ELSE '''' END +
@@ -3284,7 +3283,7 @@ BEGIN
 				  CASE WHEN is_remote_query_expensive = 1 THEN '', 28'' ELSE '''' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN '', 29'' ELSE '''' END + 
 				  CASE WHEN is_unused_grant = 1 THEN '', 30'' ELSE '''' END +
-				  CASE WHEN function_count > 0 IS NOT NULL THEN '', 31'' ELSE '''' END +
+				  CASE WHEN function_count > 0 THEN '', 31'' ELSE '''' END +
 				  CASE WHEN clr_function_count > 0 THEN '', 32'' ELSE '''' END +
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN '', 33'' ELSE '''' END +
 				  CASE WHEN is_table_variable = 1 THEN '', 34'' ELSE '''' END  + 
@@ -3294,8 +3293,8 @@ BEGIN
 				  CASE WHEN backwards_scan = 1 THEN '', 38'' ELSE '''' END + 
 				  CASE WHEN forced_index = 1 THEN '', 39'' ELSE '''' END +
 				  CASE WHEN forced_seek = 1 OR forced_scan = 1 THEN '', 40'' ELSE '''' END +
-				  CASE WHEN columnstore_row_mode = 1 THEN '', 41 '' ELSE '' END + 
-				  CASE WHEN is_computed_scalar = 1 THEN '', 42 '' ELSE '' END +
+				  CASE WHEN columnstore_row_mode = 1 THEN '', 41'' ELSE '''' END + 
+				  CASE WHEN is_computed_scalar = 1 THEN '', 42'' ELSE '''' END +
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
 				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
@@ -3304,8 +3303,8 @@ BEGIN
 				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
 				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN '', 50'' ELSE '''' END +
-				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51, '' ELSE '''' END
-				  , 2, 200000) END AS opserver_warning , ' + @nl ;
+				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51'' ELSE '''' END
+				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
     SET @columns += N'        ExecutionCount AS [# Executions],
