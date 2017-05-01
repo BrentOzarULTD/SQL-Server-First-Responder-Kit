@@ -3246,6 +3246,7 @@ END
 ELSE
 BEGIN
     SET @columns = N' DatabaseName AS [Database],
+		QueryPlanCost AS [Cost],
         QueryText AS [Query Text],
         QueryType AS [Query Type],
         Warnings AS [Warnings], ' + @nl
@@ -3342,7 +3343,6 @@ BEGIN
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
-        QueryPlanCost AS [Query Plan Cost],
         QueryPlan AS [Query Plan],
         CachedPlanSize AS [Cached Plan Size (KB)],
         CompileTime AS [Compile Time (ms)],
