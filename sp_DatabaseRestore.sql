@@ -57,9 +57,13 @@ GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathDiff NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
 	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, @RestoreDiff bit = 0,
-	  @ContinueLogs bit = 0, @RunRecovery bit = 0, @Debug INT = 0
+	  @ContinueLogs bit = 0, @RunRecovery bit = 0, @Debug INT = 0, @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
+
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '5.3';
+	SET @VersionDate = '20170501';
 
 DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0), @DiffLastLSN NUMERIC(25, 0);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));

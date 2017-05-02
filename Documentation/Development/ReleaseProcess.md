@@ -27,6 +27,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_BlitzFirst @VersionDate (no version) 
     * sp_BlitzCache @Version and @VersionDate 
     * sp_Blitz @Version and @VersionDate
+    * sp_DatabaseRestore @Version and @VersionDate
 
 ## Push to Master
 

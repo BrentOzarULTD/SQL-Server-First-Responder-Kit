@@ -242,8 +242,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.2';
-SET @VersionDate = '20170406';
+SET @Version = '5.3';
+SET @VersionDate = '20170501';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -4081,7 +4081,9 @@ BEGIN
                     'A high number of plan stubs may result in CMEMTHREAD waits, which you have ' 
 						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (dows.wait_time_ms / 60000.)) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
 			FROM   #plan_stubs_warning p	;			
-			
+		
+		IF @v >= 11
+		BEGIN	
         IF EXISTS (SELECT 1/0
                    FROM   #trace_flags AS tf 
                    WHERE  tf.global_trace_flags IS NOT NULL
@@ -4094,6 +4096,7 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+		END 
 
         IF NOT EXISTS (SELECT 1/0
 					   FROM   ##bou_BlitzCacheResults AS bcr

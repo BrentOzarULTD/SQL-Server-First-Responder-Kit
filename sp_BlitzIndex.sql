@@ -36,8 +36,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.2';
-SET @VersionDate = '20170406';
+SET @Version = '5.3';
+SET @VersionDate = '20170501';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -2503,30 +2503,33 @@ BEGIN;
                https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/825
             */
 
-            DECLARE    @number_indexes_with_includes INT;
-            DECLARE    @percent_indexes_with_includes NUMERIC(10, 1);
+			SELECT    database_name,
+					  SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0    END) AS number_indexes_with_includes,
+					  100.* SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0 END) / ( 1.0 * COUNT(*) ) AS percent_indexes_with_includes
+			INTO #index_includes
+            FROM    #IndexSanity
+			GROUP BY database_name;
 
-            SELECT    @number_indexes_with_includes = SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0    END),
-                    @percent_indexes_with_includes = 100.* 
-                        SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0 END) / ( 1.0 * COUNT(*) )
-            FROM    #IndexSanity;
-
-            IF @number_indexes_with_includes = 0 AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, URL, details, index_definition,
+            IF NOT (@Mode = 0)
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT    30 AS check_id, 
+                        SELECT  30 AS check_id, 
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
+								database_name AS [Database Name],
                                 N'No indexes use includes' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
                                 N'No indexes use includes' AS details,
-                                @DatabaseName + N' (Entire database)' AS index_definition, 
+                                database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns, 
                                 N'N/A' AS index_usage_summary, 
-                                N'N/A' AS index_size_summary OPTION    ( RECOMPILE );
+                                N'N/A' AS index_size_summary 
+						FROM #index_includes
+						WHERE number_indexes_with_includes = 0
+						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
-            IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    31 AS check_id,
@@ -2534,42 +2537,45 @@ BEGIN;
                                 150 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
                                 N'Borderline: Includes are used in < 3% of indexes' AS findings,
-                                @DatabaseName AS [Database Name],
+                                database_name AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexFeatures' AS URL,
-                                N'Only ' + CAST(@percent_indexes_with_includes AS NVARCHAR(10)) + '% of indexes have includes' AS details, 
+                                N'Only ' + CAST(percent_indexes_with_includes AS NVARCHAR(20)) + '% of indexes have includes' AS details, 
                                 N'Entire database' AS index_definition, 
                                 N'' AS secret_columns,
                                 N'N/A' AS index_usage_summary, 
-                                N'N/A' AS index_size_summary OPTION    ( RECOMPILE );
+                                N'N/A' AS index_size_summary
+						FROM #index_includes
+						WHERE number_indexes_with_includes > 0 AND percent_indexes_with_includes <= 3
+						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
-            DECLARE @count_filtered_indexes INT;
-            DECLARE @count_indexed_views INT;
 
-                SELECT    @count_filtered_indexes=COUNT(*)
-                FROM    #IndexSanity
-                WHERE    filter_definition <> '' OPTION    ( RECOMPILE );
-
-                SELECT    @count_indexed_views=COUNT(*)
-                FROM    #IndexSanity AS i
-                        JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                WHERE    is_indexed_view = 1 OPTION    ( RECOMPILE );
-
-            IF @count_filtered_indexes = 0 AND @count_indexed_views=0 AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT    32 AS check_id, 
+                        SELECT  DISTINCT
+								32 AS check_id, 
                                 NULL AS index_sanity_id,
                                 250 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
                                 N'Borderline: No filtered indexes or indexed views exist' AS finding, 
-                                @DatabaseName AS [Database Name],
+                                i.database_name AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexFeatures' AS URL,
                                 N'These are NOT always needed-- but do you know when you would use them?' AS details,
-                                @DatabaseName + N' (Entire database)' AS index_definition, 
+                                i.database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns,
                                 N'N/A' AS index_usage_summary, 
-                                N'N/A' AS index_size_summary OPTION    ( RECOMPILE );
+                                N'N/A' AS index_size_summary 
+						FROM #IndexSanity i
+						WHERE i.database_name NOT IN (                
+								SELECT   database_name
+								FROM     #IndexSanity
+								WHERE    filter_definition <> '' )
+						AND i.database_name NOT IN (
+						       SELECT  database_name
+							   FROM    #IndexSanity
+							   WHERE   is_indexed_view = 1 )
+						OPTION    ( RECOMPILE );
         END;
 
         RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
