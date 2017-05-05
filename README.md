@@ -4,6 +4,8 @@
 [![stars badge]][stars]
 [![forks badge]][forks]
 [![issues badge]][issues]
+[![AppVeyor branch](https://img.shields.io/appveyor/ci/BrentOzarULTD/SQL-Server-First-Responder-Kit/master.svg?maxAge=2592000)]()
+[![GitHub release](https://img.shields.io/github/release/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg?maxAge=2592000)](https://ci.appveyor.com/api/projects/BrentOzarULTD/SQL-Server-First-Responder-Kit/artifacts/SQL_Server_First_Responder_Kit.zip?branch=master)
 
 Navigation
  - [How to Get Support](#how-to-get-support)
