@@ -100,6 +100,15 @@ BEGIN
 	CREATE TABLE #Backups (id INT IDENTITY(1,1)
 		,database_name NVARCHAR(128)
 		,database_guid UNIQUEIDENTIFIER
+		,RPOWorstCaseMinutes INT
+		,RPOWorstCaseBackupSetID INT
+		,RPOWorstCaseBackupSetFinishTime DATETIME
+		,RPOWorstCaseBackupSetIDPrior INT
+		,RPOWorstCaseBackupSetPriorFinishTime DATETIME
+		,RTOWorstCaseBackupSetID INT
+		,RTOWorstCaseBackupSetTotalMinutes DECIMAL(18,2)
+		,RTOWorstCaseBackupSetTotalGB DECIMAL(18,2)
+		,RTOWorstCaseBackupSetIDPrior INT
 		,FullMBpsAvg DECIMAL(18,2)
 		,FullMBpsMin DECIMAL(18,2)
 		,FullMBpsMax DECIMAL(18,2)
@@ -127,18 +136,14 @@ BEGIN
 		,LogCompressedSizeMBAvg DECIMAL(18,2)
 		,LogCompressedSizeMBMin DECIMAL(18,2)
 		,LogCompressedSizeMBMax DECIMAL(18,2)
-		,RPOWorstCaseBackupSetID INT
-		,RPOWorstCaseBackupSetFinishTime DATETIME
-		,RPOWorstCaseBackupSetIDPrior INT
-		,RPOWorstCaseBackupSetPriorFinishTime DATETIME
 		);
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
 	SET @StringToExecute = @StringToExecute + 'WITH Backups AS (SELECT bs.database_name, bs.database_guid, bs.type AS backup_type ' + @crlf
-		+ ' , MBpsAvg = CAST(AVG(( bs.backup_size / ( DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) ) / 1048576 )) AS INT) ' + @crlf
-		+ ' , MBpsMin = CAST(AVG(( bs.backup_size / ( DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) ) / 1048576 )) AS INT) ' + @crlf
-		+ ' , MBpsMax = CAST(AVG(( bs.backup_size / ( DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) ) / 1048576 )) AS INT) ' + @crlf
+		+ ' , MBpsAvg = CAST(AVG(( bs.backup_size / ( CASE WHEN DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) = 0 THEN 1 ELSE DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) END ) / 1048576 )) AS INT) ' + @crlf
+		+ ' , MBpsMin = CAST(MIN(( bs.backup_size / ( CASE WHEN DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) = 0 THEN 1 ELSE DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) END ) / 1048576 )) AS INT) ' + @crlf
+		+ ' , MBpsMax = CAST(MAX(( bs.backup_size / ( CASE WHEN DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) = 0 THEN 1 ELSE DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) END ) / 1048576 )) AS INT) ' + @crlf
 		+ ' , SizeMBAvg = AVG(backup_size / 1048576.0) ' + @crlf
 		+ ' , SizeMBMin = MIN(backup_size / 1048576.0) ' + @crlf
 		+ ' , SizeMBMax = MAX(backup_size / 1048576.0) ' + @crlf
@@ -195,7 +200,7 @@ BEGIN
 
 	SET @StringToExecute = 'WITH BackupGaps AS (SELECT bs.database_name, bs.database_guid, bs.backup_set_id, bsPrior.backup_set_id AS backup_set_id_prior,
 			bs.backup_finish_date, bsPrior.backup_finish_date AS backup_finish_date_prior,
-			DATEDIFF(ss, bs.backup_finish_date, bsPrior.backup_finish_date) AS backup_gap_seconds
+			DATEDIFF(ss, bsPrior.backup_finish_date, bs.backup_finish_date) AS backup_gap_seconds
 		FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bs 
 		INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bsPrior 
 			ON bs.database_name = bsPrior.database_name 
@@ -210,10 +215,11 @@ BEGIN
 		AND bsBetween.backup_set_id IS NULL
 	)
 	UPDATE #Backups
-		SET RPOWorstCaseBackupSetID = bg.backup_set_id
+		SET RPOWorstCaseMinutes = bg.backup_gap_seconds / 60.0
+            ,  RPOWorstCaseBackupSetID = bg.backup_set_id
 			, RPOWorstCaseBackupSetFinishTime = bg.backup_finish_date
 			, RPOWorstCaseBackupSetIDPrior = bg.backup_set_id_prior
-			, RPOWorstCaseBackupSetPriorFinishTime = bg.backup_set_id_prior
+			, RPOWorstCaseBackupSetPriorFinishTime = bg.backup_finish_date_prior
 		FROM #Backups b
 		INNER JOIN BackupGaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
 		LEFT OUTER JOIN BackupGaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.backup_gap_seconds < bgBigger.backup_gap_seconds
@@ -225,7 +231,7 @@ BEGIN
 	EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 	SELECT b.*, 
-		RPOWorstCaseMoreInfoQuery = 'SELECT * FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset WHERE database_name = ''' + b.database_name + ''' AND database_guid = ''' + CAST(b.database_guid AS NVARCHAR(50)) + ''' AND backup_finish_date >= DATEADD(hh, -2, ''' + CAST(b.RPOWorstCaseBackupSetPriorFinishTime AS NVARCHAR(50)) + ''') AND backup_finish_date <= DATEADD(hh, 2, ''' + CAST(b.RPOWorstCaseBackupSetFinishTime AS NVARCHAR(50)) + ''');'
+		RPOWorstCaseMoreInfoQuery = 'SELECT * FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset WHERE database_name = ''' + b.database_name + ''' AND database_guid = ''' + CAST(b.database_guid AS NVARCHAR(50)) + ''' AND backup_finish_date >= DATEADD(hh, -2, ''' + CAST(b.RPOWorstCaseBackupSetPriorFinishTime AS NVARCHAR(50)) + ''') AND backup_finish_date <= DATEADD(hh, 2, ''' + CAST(b.RPOWorstCaseBackupSetFinishTime AS NVARCHAR(50)) + ''') ORDER BY backup_finish_date;'
 	  FROM #Backups b;
 
 	DROP TABLE #Backups;
