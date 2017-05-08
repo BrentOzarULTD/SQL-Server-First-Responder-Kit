@@ -91,24 +91,29 @@ BEGIN
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@StartTime DATETIME2
 		,@ResultText NVARCHAR(MAX)
-		,@crlf NVARCHAR(2);
+		,@crlf NVARCHAR(2)
+        ,@MoreInfoHeader NVARCHAR(100)
+        ,@MoreInfoFooter NVARCHAR(100);
 
 	IF @HoursBack > 0 SET @HoursBack = @HoursBack * -1;
-	SELECT @crlf = NCHAR(13) + NCHAR(10),
-		@StartTime = DATEADD(hh, @HoursBack, GETDATE());
+
+	SELECT @crlf = NCHAR(13) + NCHAR(10)
+		, @StartTime = DATEADD(hh, @HoursBack, GETDATE())
+        , @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf
+        , @MoreInfoFooter = @crlf + ' -- ?>';
 
 	CREATE TABLE #Backups (id INT IDENTITY(1,1)
 		,database_name NVARCHAR(128)
 		,database_guid UNIQUEIDENTIFIER
-		,RPOWorstCaseMinutes INT
+		,RPOWorstCaseMinutes DECIMAL(18,1)
+		,RTOWorstCaseMinutes DECIMAL(18,1)
 		,RPOWorstCaseBackupSetID INT
 		,RPOWorstCaseBackupSetFinishTime DATETIME
 		,RPOWorstCaseBackupSetIDPrior INT
 		,RPOWorstCaseBackupSetPriorFinishTime DATETIME
-		,RTOWorstCaseBackupSetID INT
-		,RTOWorstCaseBackupSetTotalMinutes DECIMAL(18,2)
-		,RTOWorstCaseBackupSetTotalGB DECIMAL(18,2)
-		,RTOWorstCaseBackupSetIDPrior INT
+        ,RPOWorstCaseMoreInfoQuery XML
+		,RTOWorstCaseBackupFileSizeMB DECIMAL(18,2)
+        ,RTOWorstCaseMoreInfoQuery XML
 		,FullMBpsAvg DECIMAL(18,2)
 		,FullMBpsMin DECIMAL(18,2)
 		,FullMBpsMax DECIMAL(18,2)
@@ -137,6 +142,27 @@ BEGIN
 		,LogCompressedSizeMBMin DECIMAL(18,2)
 		,LogCompressedSizeMBMax DECIMAL(18,2)
 		);
+
+CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
+	,database_name NVARCHAR(128)
+	,database_guid UNIQUEIDENTIFIER
+    ,rto_worst_case_size_mb AS (COALESCE(log_file_size_mb,0) + COALESCE(diff_file_size_mb,0) + COALESCE(full_file_size_mb,0))
+    ,rto_worst_case_time_seconds AS (COALESCE(log_time_seconds,0) + COALESCE(diff_time_seconds,0) + COALESCE(full_time_seconds,0))
+    ,full_backup_set_id INT
+    ,full_last_lsn NUMERIC(25,0)
+    ,full_backup_set_uuid UNIQUEIDENTIFIER
+    ,full_time_seconds BIGINT
+    ,full_file_size_mb DECIMAL(18,2)
+    ,diff_backup_set_id INT
+    ,diff_last_lsn NUMERIC(25,0)
+    ,diff_time_seconds BIGINT
+    ,diff_file_size_mb DECIMAL(18,2)
+    ,log_backup_set_id INT
+    ,log_last_lsn NUMERIC(25,0)
+    ,log_time_seconds BIGINT
+    ,log_file_size_mb DECIMAL(18,2)
+    ,log_backups INT
+);
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
@@ -189,8 +215,8 @@ BEGIN
 		+ ' , bL.CompressedSizeMBMin AS LogCompressedSizeMBMin ' + @crlf
 		+ ' , bL.CompressedSizeMBMax AS LogCompressedSizeMBMax ' + @crlf
 		+ ' FROM Backups bF ' + @crlf
-		+ ' INNER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
-		+ ' INNER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bD.database_guid AND bL.backup_type = ''L''' + @crlf
+		+ ' LEFT OUTER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
+		+ ' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bD.database_guid AND bL.backup_type = ''L''' + @crlf
 		+ ' WHERE bF.backup_type = ''D''; ';
 
 	IF @Debug = 1
@@ -198,6 +224,8 @@ BEGIN
 
 	EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
+    
+    /* FIXFIX Tune this */
 	SET @StringToExecute = 'WITH BackupGaps AS (SELECT bs.database_name, bs.database_guid, bs.backup_set_id, bsPrior.backup_set_id AS backup_set_id_prior,
 			bs.backup_finish_date, bsPrior.backup_finish_date AS backup_finish_date_prior,
 			DATEDIFF(ss, bsPrior.backup_finish_date, bs.backup_finish_date) AS backup_gap_seconds
@@ -224,15 +252,129 @@ BEGIN
 		INNER JOIN BackupGaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
 		LEFT OUTER JOIN BackupGaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.backup_gap_seconds < bgBigger.backup_gap_seconds
 		WHERE bgBigger.backup_set_id IS NULL;'
-
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
 	EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
-	SELECT b.*, 
-		RPOWorstCaseMoreInfoQuery = 'SELECT * FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset WHERE database_name = ''' + b.database_name + ''' AND database_guid = ''' + CAST(b.database_guid AS NVARCHAR(50)) + ''' AND backup_finish_date >= DATEADD(hh, -2, ''' + CAST(b.RPOWorstCaseBackupSetPriorFinishTime AS NVARCHAR(50)) + ''') AND backup_finish_date <= DATEADD(hh, 2, ''' + CAST(b.RPOWorstCaseBackupSetFinishTime AS NVARCHAR(50)) + ''') ORDER BY backup_finish_date;'
-	  FROM #Backups b;
+
+    UPDATE #Backups
+      SET RPOWorstCaseMoreInfoQuery = @MoreInfoHeader + 'SELECT * ' + @crlf
+            + ' FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset ' + @crlf
+            + ' WHERE database_name = ''' + database_name + ''' ' + @crlf
+            + ' AND database_guid = ''' + CAST(database_guid AS NVARCHAR(50)) + ''' ' + @crlf
+            + ' AND backup_finish_date >= DATEADD(hh, -2, ''' + CAST(CONVERT(DATETIME, RPOWorstCaseBackupSetPriorFinishTime, 102) AS NVARCHAR(100)) + ''') ' + @crlf
+            + ' AND backup_finish_date <= DATEADD(hh, 2, ''' + CAST(CONVERT(DATETIME, RPOWorstCaseBackupSetPriorFinishTime, 102) AS NVARCHAR(100)) + ''') ' + @crlf
+            + ' ORDER BY backup_finish_date;'
+            + @MoreInfoFooter;
+
+
+/* RTO */
+INSERT INTO #RTORecoveryPoints(database_name, database_guid, log_last_lsn)
+    SELECT database_name, database_guid, MAX(last_lsn) AS log_last_lsn
+    FROM msdb.dbo.backupset bLastLog
+    WHERE type = 'L'
+    AND bLastLog.backup_finish_date >= @StartTime
+    GROUP BY database_name, database_guid;
+
+/* Find the most recent full backups for those logs */
+UPDATE #RTORecoveryPoints
+    SET log_backup_set_id = bLog.backup_set_id
+        ,full_backup_set_id = bLastFull.backup_set_id
+        ,full_last_lsn = bLastFull.last_lsn
+        ,full_backup_set_uuid = bLastFull.backup_set_uuid
+    FROM #RTORecoveryPoints rp
+    INNER JOIN msdb.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name
+    INNER JOIN msdb.dbo.backupset bLastFull ON bLog.database_guid = bLastFull.database_guid AND bLog.database_name = bLastFull.database_name
+        AND bLog.first_lsn > bLastFull.last_lsn
+        AND bLastFull.type = 'D'
+
+    LEFT OUTER JOIN msdb.dbo.backupset bLaterFulls ON bLastFull.database_guid = bLaterFulls.database_guid AND bLastFull.database_name = bLaterFulls.database_name
+        AND bLastFull.last_lsn < bLaterFulls.last_lsn
+        AND bLaterFulls.first_lsn < bLog.last_lsn
+        AND bLaterFulls.type = 'D'
+
+    WHERE bLaterFulls.backup_set_id IS NULL;
+
+/* Add any full backups in the StartDate range that weren't part of the above log backup chain */
+INSERT INTO #RTORecoveryPoints(database_name, database_guid, full_backup_set_id, full_last_lsn, full_backup_set_uuid)
+    SELECT bFull.database_name, bFull.database_guid, bFull.backup_set_id, bFull.last_lsn, bFull.backup_set_uuid
+    FROM msdb.dbo.backupset bFull
+    LEFT OUTER JOIN #RTORecoveryPoints rp ON bFull.backup_set_uuid = rp.full_backup_set_uuid
+    WHERE bFull.type = 'D' 
+        AND bFull.backup_finish_date IS NOT NULL
+        AND rp.full_backup_set_uuid IS NULL
+        AND bFull.backup_finish_date >= @StartTime;
+
+/* Fill out the most recent log for that full, but before the next full */
+UPDATE rp
+    SET log_last_lsn = (SELECT MAX(last_lsn) FROM msdb.dbo.backupset bLog WHERE bLog.first_lsn >= rp.full_last_lsn AND bLog.first_lsn <= rpNextFull.full_last_lsn AND bLog.type = 'L')
+FROM #RTORecoveryPoints rp
+    INNER JOIN #RTORecoveryPoints rpNextFull ON rp.database_guid = rpNextFull.database_guid AND rp.database_name = rpNextFull.database_name
+        AND rp.full_last_lsn < rpNextFull.full_last_lsn
+    LEFT OUTER JOIN #RTORecoveryPoints rpEarlierFull ON rp.database_guid = rpEarlierFull.database_guid AND rp.database_name = rpEarlierFull.database_name
+        AND rp.full_last_lsn < rpEarlierFull.full_last_lsn
+        AND rpNextFull.full_last_lsn > rpEarlierFull.full_last_lsn
+    WHERE rpEarlierFull.full_backup_set_id IS NULL;
+
+/* Fill out a diff in that range */
+UPDATE #RTORecoveryPoints
+    SET diff_last_lsn = (SELECT TOP 1 bDiff.last_lsn FROM msdb.dbo.backupset bDiff
+                            WHERE rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name
+                                AND bDiff.type = 'I'
+                                AND bDiff.last_lsn < rp.log_last_lsn
+                                AND rp.full_backup_set_uuid = bDiff.differential_base_guid
+                                ORDER BY bDiff.last_lsn DESC)
+    FROM #RTORecoveryPoints rp
+    WHERE diff_last_lsn IS NULL;
+
+/* Get time & size totals for full & diff */
+UPDATE #RTORecoveryPoints
+    SET full_time_seconds = DATEDIFF(ss,bFull.backup_start_date, bFull.backup_finish_date)
+    , full_file_size_mb = bFull.backup_size / 1048576.0
+    , diff_backup_set_id = bDiff.backup_set_id
+    , diff_time_seconds = DATEDIFF(ss,bDiff.backup_start_date, bDiff.backup_finish_date)
+    , diff_file_size_mb = bDiff.backup_size / 1048576.0
+FROM #RTORecoveryPoints rp
+INNER JOIN msdb.dbo.backupset bFull ON rp.database_guid = bFull.database_guid AND rp.database_name = bFull.database_name AND rp.full_last_lsn = bFull.last_lsn
+LEFT OUTER JOIN msdb.dbo.backupset bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.last_lsn IS NOT NULL;
+
+
+/* Get time & size totals for logs */
+WITH LogTotals AS (SELECT rp.id, log_time_seconds = SUM(DATEDIFF(ss,bLog.backup_start_date, bLog.backup_finish_date))
+    , log_file_size = SUM(bLog.backup_size)
+    , SUM(1) AS log_backups
+        FROM #RTORecoveryPoints rp
+            INNER JOIN msdb.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = 'L'
+            AND bLog.first_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
+            AND bLog.first_lsn <= rp.log_last_lsn
+        GROUP BY rp.id
+)
+UPDATE #RTORecoveryPoints
+    SET log_time_seconds = lt.log_time_seconds
+    , log_file_size_mb = lt.log_file_size / 1048576.0
+    , log_backups = lt.log_backups
+FROM #RTORecoveryPoints rp
+    INNER JOIN LogTotals lt ON rp.id = lt.id;
+
+WITH WorstCases AS (SELECT rp.*
+  FROM #RTORecoveryPoints rp
+    LEFT OUTER JOIN #RTORecoveryPoints rpNewer ON rp.database_guid = rpNewer.database_guid AND rp.database_name = rpNewer.database_name AND rp.full_last_lsn < rpNewer.full_last_lsn AND rpNewer.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
+  WHERE rp.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
+    /* OR  rp.rto_worst_case_time_seconds = (SELECT TOP 1 rto_worst_case_time_seconds FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_time_seconds DESC) */
+  AND rpNewer.database_guid IS NULL
+)
+UPDATE #Backups
+		SET RTOWorstCaseMinutes = wc.rto_worst_case_time_seconds / 60.0
+        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
+FROM #Backups b
+INNER JOIN WorstCases wc ON b.database_guid = wc.database_guid AND b.database_name = wc.database_name
+
+
+
+	SELECT b.*
+	  FROM #Backups b
+      ORDER BY b.database_name;
 
 	DROP TABLE #Backups;
 END
