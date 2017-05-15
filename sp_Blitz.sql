@@ -3716,8 +3716,8 @@ IF @ProductVersionMajor >= 10
                     	LEFT OUTER JOIN msdb.dbo.sysjobhistory AS sjh 
                     		ON j.job_id = sjh.job_id 
                     		AND step.step_id = sjh.step_id
-                    		AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
-                    		AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
+                    		AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
+                    		AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
 						WHERE [c].[value]('(@dts:ObjectName)', 'VARCHAR(128)') = 'Shrink Database Task'
 
 						END
@@ -5668,8 +5668,8 @@ IF @ProductVersionMajor >= 10
 										LEFT OUTER JOIN msdb.dbo.sysjobhistory AS sjh 
 										    ON j.job_id = sjh.job_id 
 										    AND step.step_id = sjh.step_id
-										    AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
-										    AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
+										    AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
+										    AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
 								WHERE   step.command LIKE N'%SHRINKDATABASE%'
 										OR step.command LIKE N'%SHRINKFILE%'
 					END
