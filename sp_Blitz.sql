@@ -3701,10 +3701,8 @@ IF @ProductVersionMajor >= 10
 						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.' AS [Details] 
 						FROM [maintenance_plan_steps] [mps]
 							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
-                        join sysmaintplan_plans as smp 
-                            on [mps].[id] = smp.id
-                    	join sysmaintplan_subplans as sms 
-                    		on smp.id = sms.plan_id 
+                    	join msdb.dbo.sysmaintplan_subplans as sms 
+                    		on mps.id = sms.plan_id 
                     	JOIN msdb.dbo.sysjobs j 
                     		on sms.job_id = j.job_id
                     	LEFT OUTER JOIN msdb.dbo.sysjobsteps AS step
