@@ -658,6 +658,7 @@ SELECT
 FROM   msdb.dbo.backupset AS b
 WHERE b.recovery_model <> 'BULK-LOGGED'
 GROUP BY b.database_name
+HAVING COUNT(DISTINCT b.recovery_model) > 4
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
