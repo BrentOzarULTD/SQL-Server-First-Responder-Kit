@@ -249,9 +249,8 @@ CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
 							 	ORDER BY bs1.backup_finish_date DESC, bs1.backup_set_id DESC 
 							 ) bsPrior
 							 WHERE bs.backup_finish_date > @StartTime
-							 OPTION(RECOMPILE);
 							 
-							 CREATE CLUSTERED INDEX cx_sucker ON #backup_gaps (database_name, database_guid, backup_set_id, backup_finish_date, backup_gap_seconds);
+							 CREATE CLUSTERED INDEX cx_backup_gaps ON #backup_gaps (database_name, database_guid, backup_set_id, backup_finish_date, backup_gap_seconds);
 							 
 							 WITH max_gaps AS (
 							 SELECT g.database_name, g.database_guid, g.backup_set_id, g.backup_set_id_prior, g.backup_finish_date_prior, 
@@ -488,7 +487,9 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 										SET RTOWorstCaseMinutes = wc.rto_worst_case_time_seconds / 60.0
 								        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
 								FROM #Backups b
-								INNER JOIN WorstCases wc ON b.database_guid = wc.database_guid AND b.database_name = wc.database_name;
+								INNER JOIN WorstCases wc 
+								ON b.database_guid = wc.database_guid 
+									AND b.database_name = wc.database_name;
 								'
 
 	IF @Debug = 1
