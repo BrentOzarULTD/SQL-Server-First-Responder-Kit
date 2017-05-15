@@ -9,7 +9,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzBackups]
 	@RestoreSpeedDiffMBps INT = NULL,
 	@RestoreSpeedLogMBps INT = NULL,
 	@Debug TINYINT = 0,
-    @VersionDate DATETIME = NULL OUTPUT
+    @VersionDate DATE = NULL OUTPUT
 WITH RECOMPILE
 AS
 	BEGIN
@@ -664,6 +664,16 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	WHERE b.recovery_model <> 'BULK-LOGGED'
 	GROUP BY b.database_name
 	HAVING COUNT(DISTINCT b.recovery_model) > 4;
+
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT
+		2147483647 AS [CheckId],
+		2147483647 AS [Priority],
+		'From Your Community Volunteers' AS [DatabaseName],
+		'sp_BlitzBackups Version: ' + @Version + ', Version Date: ' + CONVERT(VARCHAR(30), @VersionDate) + '.' AS [Finding],
+		'Thanks for using our stored procedure. We hope you find it useful! Check out our other free SQL Server scripts at firstresponderkit.org!' AS [Warning]
+
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
