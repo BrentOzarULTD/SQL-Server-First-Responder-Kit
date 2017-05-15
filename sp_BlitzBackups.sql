@@ -164,6 +164,17 @@ CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
     ,log_backups INT
 );
 
+CREATE TABLE #Warnings
+(
+    Id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+    CheckId INT,
+    Priority INT,
+    DatabaseName VARCHAR(128),
+    Finding VARCHAR(256),
+    Warning VARCHAR(8000)
+);
+
+
 	RAISERROR('Inserting to #Backups', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
@@ -503,7 +514,160 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	  FROM #Backups b
       ORDER BY b.database_name;
 
-	DROP TABLE #Backups;
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	1 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Non-Agent backups taken' AS [Finding], 
+	'The database ' + QUOTENAME(b.database_name) + ' has been backed up by ' + QUOTENAME(b.user_name) + ' ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE  b.user_name NOT LIKE '%Agent%' --Agent handles most backups, can expand or change depending on what we find out there
+GROUP BY b.database_name, b.user_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	2 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Compatibility level changing' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has changed compatibility levels ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + ' times.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+GROUP BY b.database_name
+HAVING COUNT(DISTINCT b.compatibility_level) > 2 --Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	3 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Password backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has been backed up with a password ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times. Who has the password?' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_password_protected = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	4 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Snapshot backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' snapshot backups. This message is purely informational.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_snapshot = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	5 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Read only state backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in a read-only state. This can be normal if it''s a secondary, but a bit odd otherwise.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_readonly = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	6 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Single user mode backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in single-user mode. This is really weird! Make sure your backup process doesn''t include a mode change anywhere.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_single_user = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	7 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'No CHECKSUMS' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times without CHECKSUMS in the past 30 days. CHECKSUMS can help alert you to corruption errors.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.has_backup_checksums = 0
+AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	8 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Damaged backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. ' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_damaged = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	9 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Damaged backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. ' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.is_damaged = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	10 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Encrypted backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' ' + b.encryptor_type + ' backups, and the last time a certificate was backed up is ' 
+	+ CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.encryptor_type IS NOT NULL
+GROUP BY b.database_name, b.encryptor_type
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	11 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Bulk logged backups' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' backups with bulk logged data. This can make point in time recovery awkward. ' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.has_bulk_logged_data = 1
+GROUP BY b.database_name
+
+INSERT #Warnings (
+    CheckId, Priority, DatabaseName, Finding, Warning )
+SELECT 
+	12 AS CheckId,
+	100 AS [Priority],
+	b.database_name AS [Database Name],
+	'Recovery model switched' AS [Finding],
+	'The database ' + QUOTENAME(b.database_name) + ' has changed recovery models from between FULL and SIMPLE ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + ' times. This breaks the log chain and is generally a bad idea.' AS [Warning]
+FROM   msdb.dbo.backupset AS b
+WHERE b.recovery_model <> 'BULK-LOGGED'
+GROUP BY b.database_name
+HAVING COUNT(DISTINCT b.recovery_model) > 1
+
+SELECT w.Id, w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
+FROM #Warnings AS w
+ORDER BY w.Priority, w.CheckId
+
+DROP TABLE #Backups, #Warnings;
+
+
 END
 END
 GO
