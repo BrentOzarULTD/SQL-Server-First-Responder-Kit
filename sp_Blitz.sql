@@ -3703,10 +3703,6 @@ IF @ProductVersionMajor >= 10
 							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
                     	join msdb.dbo.sysmaintplan_subplans as sms 
                     		on mps.id = sms.plan_id 
-                        join sysmaintplan_plans as smp 
-                            on [mps].[id] = smp.id
-                    	join sysmaintplan_subplans as sms 
-                    		on smp.id = sms.plan_id 
                     	JOIN msdb.dbo.sysjobs j 
                     		on sms.job_id = j.job_id
                     	LEFT OUTER JOIN msdb.dbo.sysjobsteps AS step
