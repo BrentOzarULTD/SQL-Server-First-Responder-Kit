@@ -514,6 +514,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	  FROM #Backups b
       ORDER BY b.database_name;
 
+/*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -523,9 +524,10 @@ SELECT
 	'Non-Agent backups taken' AS [Finding], 
 	'The database ' + QUOTENAME(b.database_name) + ' has been backed up by ' + QUOTENAME(b.user_name) + ' ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times.' AS [Warning]
 FROM   msdb.dbo.backupset AS b
-WHERE  b.user_name NOT LIKE '%Agent%' --Agent handles most backups, can expand or change depending on what we find out there
+WHERE  b.user_name NOT LIKE '%Agent%' 
 GROUP BY b.database_name, b.user_name
 
+/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -536,8 +538,9 @@ SELECT
 	'The database ' + QUOTENAME(b.database_name) + ' has changed compatibility levels ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + ' times.' AS [Warning]
 FROM   msdb.dbo.backupset AS b
 GROUP BY b.database_name
-HAVING COUNT(DISTINCT b.compatibility_level) > 2 --Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)
+HAVING COUNT(DISTINCT b.compatibility_level) > 2
 
+/*Looking for password protected backups. This hasn't been a popular option ever, and was largely replaced by encrypted backups, but it's simple to check for.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -550,6 +553,7 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.is_password_protected = 1
 GROUP BY b.database_name
 
+/*Looking for snapshot backups. There are legit reasons for these, but we should flag them so the questions get asked. What questions? Good question.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -562,6 +566,7 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.is_snapshot = 1
 GROUP BY b.database_name
 
+/*It's fine to take backups of read only databases, but it's not always necessary (there's no new data, after all).*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -574,6 +579,7 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.is_readonly = 1
 GROUP BY b.database_name
 
+/*So, I've come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -586,6 +592,7 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.is_single_user = 1
 GROUP BY b.database_name
 
+/*C'mon, it's 2017. Take your backups with CHECKSUMS, people.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -599,6 +606,7 @@ WHERE b.has_backup_checksums = 0
 AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
 GROUP BY b.database_name
 
+/*Damaged is a Black Flag album. You don't want your backups to be like a Black Flag album. */
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
@@ -606,27 +614,16 @@ SELECT
 	100 AS [Priority],
 	b.database_name AS [Database Name],
 	'Damaged backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. ' AS [Warning]
+	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. This is done by specifying CONTINUE_AFTER_ERROR in your BACKUP commands.' AS [Warning]
 FROM   msdb.dbo.backupset AS b
 WHERE b.is_damaged = 1
 GROUP BY b.database_name
 
+/*Checking for encrypted backups and the last backup of the encryption key.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
 	9 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Damaged backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. ' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_damaged = 1
-GROUP BY b.database_name
-
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	10 AS CheckId,
 	100 AS [Priority],
 	b.database_name AS [Database Name],
 	'Encrypted backups' AS [Finding],
@@ -636,10 +633,11 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.encryptor_type IS NOT NULL
 GROUP BY b.database_name, b.encryptor_type
 
+/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
-	11 AS CheckId,
+	10 AS CheckId,
 	100 AS [Priority],
 	b.database_name AS [Database Name],
 	'Bulk logged backups' AS [Finding],
@@ -648,10 +646,11 @@ FROM   msdb.dbo.backupset AS b
 WHERE b.has_bulk_logged_data = 1
 GROUP BY b.database_name
 
+/*Looking for recovery model being switched between FULL and SIMPLE, because it's a bad practice.*/
 INSERT #Warnings (
     CheckId, Priority, DatabaseName, Finding, Warning )
 SELECT 
-	12 AS CheckId,
+	11 AS CheckId,
 	100 AS [Priority],
 	b.database_name AS [Database Name],
 	'Recovery model switched' AS [Finding],
@@ -659,7 +658,6 @@ SELECT
 FROM   msdb.dbo.backupset AS b
 WHERE b.recovery_model <> 'BULK-LOGGED'
 GROUP BY b.database_name
-HAVING COUNT(DISTINCT b.recovery_model) > 1
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
