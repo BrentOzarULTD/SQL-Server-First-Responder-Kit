@@ -3698,7 +3698,8 @@ IF @ProductVersionMajor >= 10
 						'Performance' AS [FindingsGroup] ,
 						'Shrink Database Step In Maintenance Plan' AS [Finding] ,
 						'https://BrentOzar.com/go/autoshrink' AS [URL] ,									  
-						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.' AS [Details] 
+						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.'  
+						+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS [Details]
 						FROM [maintenance_plan_steps] [mps]
 							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
                     	join msdb.dbo.sysmaintplan_subplans as sms 
