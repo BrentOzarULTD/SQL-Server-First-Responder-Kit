@@ -1,5 +1,5 @@
 IF OBJECT_ID('dbo.sp_BlitzBackups') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;')
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;');
 GO
 ALTER PROCEDURE [dbo].[sp_BlitzBackups]
     @Help TINYINT = 0 ,
@@ -85,83 +85,88 @@ AS
 	*/';
 ELSE
 BEGIN
-	DECLARE @StringToExecute NVARCHAR(4000)
-		,@ProductVersion NVARCHAR(128)
-		,@ProductVersionMajor DECIMAL(10,2)
-		,@ProductVersionMinor DECIMAL(10,2)
-		,@StartTime DATETIME2
-		,@ResultText NVARCHAR(MAX)
-		,@crlf NVARCHAR(2)
-        ,@MoreInfoHeader NVARCHAR(100)
-        ,@MoreInfoFooter NVARCHAR(100);
+DECLARE @StringToExecute NVARCHAR(4000), 
+		@ProductVersion NVARCHAR(128), 
+		@ProductVersionMajor DECIMAL(10, 2),
+        @ProductVersionMinor DECIMAL(10, 2), 
+		@StartTime DATETIME2, @ResultText NVARCHAR(MAX), 
+		@crlf NVARCHAR(2),
+        @MoreInfoHeader NVARCHAR(100), 
+		@MoreInfoFooter NVARCHAR(100);
 
-	IF @HoursBack > 0 SET @HoursBack = @HoursBack * -1;
+IF @HoursBack > 0
+    SET @HoursBack = @HoursBack * -1;
 
-	SELECT @crlf = NCHAR(13) + NCHAR(10)
-		, @StartTime = DATEADD(hh, @HoursBack, GETDATE())
-        , @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf
-        , @MoreInfoFooter = @crlf + ' -- ?>';
+SELECT  @crlf = NCHAR(13) + NCHAR(10), 
+		@StartTime = DATEADD(hh, @HoursBack, GETDATE()),
+        @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + ' -- ?>';
 
-	CREATE TABLE #Backups (id INT IDENTITY(1,1)
-		,database_name NVARCHAR(128)
-		,database_guid UNIQUEIDENTIFIER
-		,RPOWorstCaseMinutes DECIMAL(18,1)
-		,RTOWorstCaseMinutes DECIMAL(18,1)
-		,RPOWorstCaseBackupSetID INT
-		,RPOWorstCaseBackupSetFinishTime DATETIME
-		,RPOWorstCaseBackupSetIDPrior INT
-		,RPOWorstCaseBackupSetPriorFinishTime DATETIME
-        ,RPOWorstCaseMoreInfoQuery XML
-		,RTOWorstCaseBackupFileSizeMB DECIMAL(18,2)
-        ,RTOWorstCaseMoreInfoQuery XML
-		,FullMBpsAvg DECIMAL(18,2)
-		,FullMBpsMin DECIMAL(18,2)
-		,FullMBpsMax DECIMAL(18,2)
-		,FullSizeMBAvg DECIMAL(18,2)
-		,FullSizeMBMin DECIMAL(18,2)
-		,FullSizeMBMax DECIMAL(18,2)
-		,FullCompressedSizeMBAvg DECIMAL(18,2)
-		,FullCompressedSizeMBMin DECIMAL(18,2)
-		,FullCompressedSizeMBMax DECIMAL(18,2)
-		,DiffMBpsAvg DECIMAL(18,2)
-		,DiffMBpsMin DECIMAL(18,2)
-		,DiffMBpsMax DECIMAL(18,2)
-		,DiffSizeMBAvg DECIMAL(18,2)
-		,DiffSizeMBMin DECIMAL(18,2)
-		,DiffSizeMBMax DECIMAL(18,2)
-		,DiffCompressedSizeMBAvg DECIMAL(18,2)
-		,DiffCompressedSizeMBMin DECIMAL(18,2)
-		,DiffCompressedSizeMBMax DECIMAL(18,2)
-		,LogMBpsAvg DECIMAL(18,2)
-		,LogMBpsMin DECIMAL(18,2)
-		,LogMBpsMax DECIMAL(18,2)
-		,LogSizeMBAvg DECIMAL(18,2)
-		,LogSizeMBMin DECIMAL(18,2)
-		,LogSizeMBMax DECIMAL(18,2)
-		,LogCompressedSizeMBAvg DECIMAL(18,2)
-		,LogCompressedSizeMBMin DECIMAL(18,2)
-		,LogCompressedSizeMBMax DECIMAL(18,2)
-		);
+CREATE TABLE #Backups
+(
+    id INT IDENTITY(1, 1),
+    database_name NVARCHAR(128),
+    database_guid UNIQUEIDENTIFIER,
+    RPOWorstCaseMinutes DECIMAL(18, 1),
+    RTOWorstCaseMinutes DECIMAL(18, 1),
+    RPOWorstCaseBackupSetID INT,
+    RPOWorstCaseBackupSetFinishTime DATETIME,
+    RPOWorstCaseBackupSetIDPrior INT,
+    RPOWorstCaseBackupSetPriorFinishTime DATETIME,
+    RPOWorstCaseMoreInfoQuery XML,
+    RTOWorstCaseBackupFileSizeMB DECIMAL(18, 2),
+    RTOWorstCaseMoreInfoQuery XML,
+    FullMBpsAvg DECIMAL(18, 2),
+    FullMBpsMin DECIMAL(18, 2),
+    FullMBpsMax DECIMAL(18, 2),
+    FullSizeMBAvg DECIMAL(18, 2),
+    FullSizeMBMin DECIMAL(18, 2),
+    FullSizeMBMax DECIMAL(18, 2),
+    FullCompressedSizeMBAvg DECIMAL(18, 2),
+    FullCompressedSizeMBMin DECIMAL(18, 2),
+    FullCompressedSizeMBMax DECIMAL(18, 2),
+    DiffMBpsAvg DECIMAL(18, 2),
+    DiffMBpsMin DECIMAL(18, 2),
+    DiffMBpsMax DECIMAL(18, 2),
+    DiffSizeMBAvg DECIMAL(18, 2),
+    DiffSizeMBMin DECIMAL(18, 2),
+    DiffSizeMBMax DECIMAL(18, 2),
+    DiffCompressedSizeMBAvg DECIMAL(18, 2),
+    DiffCompressedSizeMBMin DECIMAL(18, 2),
+    DiffCompressedSizeMBMax DECIMAL(18, 2),
+    LogMBpsAvg DECIMAL(18, 2),
+    LogMBpsMin DECIMAL(18, 2),
+    LogMBpsMax DECIMAL(18, 2),
+    LogSizeMBAvg DECIMAL(18, 2),
+    LogSizeMBMin DECIMAL(18, 2),
+    LogSizeMBMax DECIMAL(18, 2),
+    LogCompressedSizeMBAvg DECIMAL(18, 2),
+    LogCompressedSizeMBMin DECIMAL(18, 2),
+    LogCompressedSizeMBMax DECIMAL(18, 2)
+);
 
-CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
-	,database_name NVARCHAR(128)
-	,database_guid UNIQUEIDENTIFIER
-    ,rto_worst_case_size_mb AS (COALESCE(log_file_size_mb,0) + COALESCE(diff_file_size_mb,0) + COALESCE(full_file_size_mb,0))
-    ,rto_worst_case_time_seconds AS (COALESCE(log_time_seconds,0) + COALESCE(diff_time_seconds,0) + COALESCE(full_time_seconds,0))
-    ,full_backup_set_id INT
-    ,full_last_lsn NUMERIC(25,0)
-    ,full_backup_set_uuid UNIQUEIDENTIFIER
-    ,full_time_seconds BIGINT
-    ,full_file_size_mb DECIMAL(18,2)
-    ,diff_backup_set_id INT
-    ,diff_last_lsn NUMERIC(25,0)
-    ,diff_time_seconds BIGINT
-    ,diff_file_size_mb DECIMAL(18,2)
-    ,log_backup_set_id INT
-    ,log_last_lsn NUMERIC(25,0)
-    ,log_time_seconds BIGINT
-    ,log_file_size_mb DECIMAL(18,2)
-    ,log_backups INT
+CREATE TABLE #RTORecoveryPoints
+(
+    id INT IDENTITY(1, 1),
+    database_name NVARCHAR(128),
+    database_guid UNIQUEIDENTIFIER,
+    rto_worst_case_size_mb AS
+        ( COALESCE(log_file_size_mb, 0) + COALESCE(diff_file_size_mb, 0) + COALESCE(full_file_size_mb, 0)),
+    rto_worst_case_time_seconds AS
+        ( COALESCE(log_time_seconds, 0) + COALESCE(diff_time_seconds, 0) + COALESCE(full_time_seconds, 0)),
+    full_backup_set_id INT,
+    full_last_lsn NUMERIC(25, 0),
+    full_backup_set_uuid UNIQUEIDENTIFIER,
+    full_time_seconds BIGINT,
+    full_file_size_mb DECIMAL(18, 2),
+    diff_backup_set_id INT,
+    diff_last_lsn NUMERIC(25, 0),
+    diff_time_seconds BIGINT,
+    diff_file_size_mb DECIMAL(18, 2),
+    log_backup_set_id INT,
+    log_last_lsn NUMERIC(25, 0),
+    log_time_seconds BIGINT,
+    log_file_size_mb DECIMAL(18, 2),
+    log_backups INT
 );
 
 CREATE TABLE #Warnings
@@ -177,7 +182,7 @@ CREATE TABLE #Warnings
 
 	RAISERROR('Inserting to #Backups', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute = @StringToExecute + 'WITH Backups AS (SELECT bs.database_name, bs.database_guid, bs.type AS backup_type ' + @crlf
 		+ ' , MBpsAvg = CAST(AVG(( bs.backup_size / ( CASE WHEN DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) = 0 THEN 1 ELSE DATEDIFF(ss, bs.backup_start_date, bs.backup_finish_date) END ) / 1048576 )) AS INT) ' + @crlf
@@ -188,7 +193,7 @@ CREATE TABLE #Warnings
 		+ ' , SizeMBMax = MAX(backup_size / 1048576.0) ' + @crlf
 		+ ' , CompressedSizeMBAvg = AVG(compressed_backup_size / 1048576.0) ' + @crlf
 		+ ' , CompressedSizeMBMin = MIN(compressed_backup_size / 1048576.0) ' + @crlf
-		+ ' , CompressedSizeMBMax = MAX(compressed_backup_size / 1048576.0) ' + @crlf
+		+ ' , CompressedSizeMBMax = MAX(compressed_backup_size / 1048576.0) ' + @crlf;
 
 
 	SET @StringToExecute = @StringToExecute + ' FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bs ' + @crlf
@@ -235,14 +240,14 @@ CREATE TABLE #Warnings
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
     
     /* FIXFIX Tune this */
 
 	RAISERROR('Updating #Backups with worst RPO case', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							 SELECT  bs.database_name, bs.database_guid, bs.backup_set_id, bsPrior.backup_set_id AS backup_set_id_prior,
@@ -279,11 +284,11 @@ CREATE TABLE #Warnings
 								INNER JOIN max_gaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
 								LEFT OUTER JOIN max_gaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.max_backup_gap_seconds < bgBigger.max_backup_gap_seconds
 								WHERE bgBigger.backup_set_id IS NULL;
-								'
+								';
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 	RAISERROR('Updating #Backups with worst RPO case queries', 0, 1) WITH NOWAIT;
 
@@ -303,7 +308,7 @@ CREATE TABLE #Warnings
 RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, log_last_lsn)
@@ -312,18 +317,18 @@ RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 							 WHERE type = ''L''
 							 AND bLastLog.backup_finish_date >= @StartTime
 							 GROUP BY database_name, database_guid;
-							'
+							';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
+		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 /* Find the most recent full backups for those logs */
 
 RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							 UPDATE #RTORecoveryPoints
@@ -348,18 +353,18 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 							     AND bLaterFulls.first_lsn < bLasted.last_lsn
 							     AND bLaterFulls.type = ''D''
 							 WHERE bLaterFulls.backup_set_id IS NULL;
-							 '
+							 ';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 /* Add any full backups in the StartDate range that weren't part of the above log backup chain */
 
 RAISERROR('Add any full backups in the StartDate range that weren''t part of the above log backup chain', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, full_backup_set_id, full_last_lsn, full_backup_set_uuid)
@@ -370,18 +375,18 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 							     AND bFull.backup_finish_date IS NOT NULL
 							     AND rp.full_backup_set_uuid IS NULL
 							     AND bFull.backup_finish_date >= @StartTime;
-							'
+							';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		EXEC sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
+		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 /* Fill out the most recent log for that full, but before the next full */
 
 RAISERROR('Fill out the most recent log for that full, but before the next full', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							UPDATE rp
@@ -393,18 +398,18 @@ RAISERROR('Fill out the most recent log for that full, but before the next full'
 						        AND rp.full_last_lsn < rpEarlierFull.full_last_lsn
 						        AND rpNextFull.full_last_lsn > rpEarlierFull.full_last_lsn
 						    WHERE rpEarlierFull.full_backup_set_id IS NULL;
-							'
+							';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 /* Fill out a diff in that range */
 
 RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							UPDATE #RTORecoveryPoints
@@ -416,18 +421,18 @@ RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 							                            ORDER BY bDiff.last_lsn DESC)
 							FROM #RTORecoveryPoints rp
 							WHERE diff_last_lsn IS NULL;
-							'
+							';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 /* Get time & size totals for full & diff */
 
 RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							UPDATE #RTORecoveryPoints
@@ -439,19 +444,19 @@ RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 							FROM #RTORecoveryPoints rp
 							INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bFull ON rp.database_guid = bFull.database_guid AND rp.database_name = bFull.database_name AND rp.full_last_lsn = bFull.last_lsn
 							LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.last_lsn IS NOT NULL;
-							'
+							';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 	
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 
 /* Get time & size totals for logs */
 
 RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							WITH LogTotals AS (
@@ -470,16 +475,16 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 								    , log_backups = lt.log_backups
 								FROM #RTORecoveryPoints rp
 								    INNER JOIN LogTotals lt ON rp.id = lt.id;
-									'
+									';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
-	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
 							WITH WorstCases AS (
@@ -501,12 +506,12 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 								INNER JOIN WorstCases wc 
 								ON b.database_guid = wc.database_guid 
 									AND b.database_name = wc.database_name;
-								'
+								';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute
+	EXEC sys.sp_executesql @StringToExecute;
 
 RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
@@ -515,158 +520,158 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
       ORDER BY b.database_name;
 
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	1 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Non-Agent backups taken' AS [Finding], 
-	'The database ' + QUOTENAME(b.database_name) + ' has been backed up by ' + QUOTENAME(b.user_name) + ' ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE  b.user_name NOT LIKE '%Agent%' 
-GROUP BY b.database_name, b.user_name
-
-/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	2 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Compatibility level changing' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has changed compatibility levels ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + ' times.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-GROUP BY b.database_name
-HAVING COUNT(DISTINCT b.compatibility_level) > 2
-
-/*Looking for password protected backups. This hasn't been a popular option ever, and was largely replaced by encrypted backups, but it's simple to check for.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	3 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Password backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has been backed up with a password ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times. Who has the password?' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_password_protected = 1
-GROUP BY b.database_name
-
-/*Looking for snapshot backups. There are legit reasons for these, but we should flag them so the questions get asked. What questions? Good question.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	4 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Snapshot backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' snapshot backups. This message is purely informational.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_snapshot = 1
-GROUP BY b.database_name
-
-/*It's fine to take backups of read only databases, but it's not always necessary (there's no new data, after all).*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	5 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Read only state backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in a read-only state. This can be normal if it''s a secondary, but a bit odd otherwise.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_readonly = 1
-GROUP BY b.database_name
-
-/*So, I've come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	6 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Single user mode backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in single-user mode. This is really weird! Make sure your backup process doesn''t include a mode change anywhere.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_single_user = 1
-GROUP BY b.database_name
-
-/*C'mon, it's 2017. Take your backups with CHECKSUMS, people.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	7 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'No CHECKSUMS' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times without CHECKSUMS in the past 30 days. CHECKSUMS can help alert you to corruption errors.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.has_backup_checksums = 0
-AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
-GROUP BY b.database_name
-
-/*Damaged is a Black Flag album. You don't want your backups to be like a Black Flag album. */
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	8 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Damaged backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. This is done by specifying CONTINUE_AFTER_ERROR in your BACKUP commands.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.is_damaged = 1
-GROUP BY b.database_name
-
-/*Checking for encrypted backups and the last backup of the encryption key.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	9 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Encrypted backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' ' + b.encryptor_type + ' backups, and the last time a certificate was backed up is ' 
-	+ CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.encryptor_type IS NOT NULL
-GROUP BY b.database_name, b.encryptor_type
-
-/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	10 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Bulk logged backups' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' backups with bulk logged data. This can make point in time recovery awkward. ' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.has_bulk_logged_data = 1
-GROUP BY b.database_name
-
-/*Looking for recovery model being switched between FULL and SIMPLE, because it's a bad practice.*/
-INSERT #Warnings (
-    CheckId, Priority, DatabaseName, Finding, Warning )
-SELECT 
-	11 AS CheckId,
-	100 AS [Priority],
-	b.database_name AS [Database Name],
-	'Recovery model switched' AS [Finding],
-	'The database ' + QUOTENAME(b.database_name) + ' has changed recovery models from between FULL and SIMPLE ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + ' times. This breaks the log chain and is generally a bad idea.' AS [Warning]
-FROM   msdb.dbo.backupset AS b
-WHERE b.recovery_model <> 'BULK-LOGGED'
-GROUP BY b.database_name
-HAVING COUNT(DISTINCT b.recovery_model) > 4
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		1 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Non-Agent backups taken' AS [Finding], 
+		'The database ' + QUOTENAME(b.database_name) + ' has been backed up by ' + QUOTENAME(b.user_name) + ' ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE  b.user_name NOT LIKE '%Agent%' 
+	GROUP BY b.database_name, b.user_name;
+	
+	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		2 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Compatibility level changing' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has changed compatibility levels ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + ' times.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	GROUP BY b.database_name
+	HAVING COUNT(DISTINCT b.compatibility_level) > 2;
+	
+	/*Looking for password protected backups. This hasn't been a popular option ever, and was largely replaced by encrypted backups, but it's simple to check for.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		3 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Password backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has been backed up with a password ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times. Who has the password?' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.is_password_protected = 1
+	GROUP BY b.database_name;
+	
+	/*Looking for snapshot backups. There are legit reasons for these, but we should flag them so the questions get asked. What questions? Good question.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		4 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Snapshot backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' snapshot backups. This message is purely informational.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.is_snapshot = 1
+	GROUP BY b.database_name;
+	
+	/*It's fine to take backups of read only databases, but it's not always necessary (there's no new data, after all).*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		5 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Read only state backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in a read-only state. This can be normal if it''s a secondary, but a bit odd otherwise.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.is_readonly = 1
+	GROUP BY b.database_name;
+	
+	/*So, I've come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		6 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Single user mode backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in single-user mode. This is really weird! Make sure your backup process doesn''t include a mode change anywhere.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.is_single_user = 1
+	GROUP BY b.database_name;
+	
+	/*C'mon, it's 2017. Take your backups with CHECKSUMS, people.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		7 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'No CHECKSUMS' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times without CHECKSUMS in the past 30 days. CHECKSUMS can help alert you to corruption errors.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.has_backup_checksums = 0
+	AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
+	GROUP BY b.database_name;
+	
+	/*Damaged is a Black Flag album. You don't want your backups to be like a Black Flag album. */
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		8 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Damaged backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. This is done by specifying CONTINUE_AFTER_ERROR in your BACKUP commands.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.is_damaged = 1
+	GROUP BY b.database_name;
+	
+	/*Checking for encrypted backups and the last backup of the encryption key.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		9 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Encrypted backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' ' + b.encryptor_type + ' backups, and the last time a certificate was backed up is ' 
+		+ CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.encryptor_type IS NOT NULL
+	GROUP BY b.database_name, b.encryptor_type;
+	
+	/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		10 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Bulk logged backups' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' backups with bulk logged data. This can make point in time recovery awkward. ' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.has_bulk_logged_data = 1
+	GROUP BY b.database_name;
+	
+	/*Looking for recovery model being switched between FULL and SIMPLE, because it's a bad practice.*/
+	INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+	SELECT 
+		11 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		'Recovery model switched' AS [Finding],
+		'The database ' + QUOTENAME(b.database_name) + ' has changed recovery models from between FULL and SIMPLE ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + ' times. This breaks the log chain and is generally a bad idea.' AS [Warning]
+	FROM   msdb.dbo.backupset AS b
+	WHERE b.recovery_model <> 'BULK-LOGGED'
+	GROUP BY b.database_name
+	HAVING COUNT(DISTINCT b.recovery_model) > 4;
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
-ORDER BY w.Priority, w.CheckId
+ORDER BY w.Priority, w.CheckId;
 
 DROP TABLE #Backups, #Warnings;
 
 
-END
-END
+END;
+END;
 GO
