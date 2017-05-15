@@ -219,7 +219,7 @@ CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
 		+ ' FROM Backups bF ' + @crlf
 		+ ' LEFT OUTER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
 		+ ' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bD.database_guid AND bL.backup_type = ''L''' + @crlf
-		+ ' WHERE bF.backup_type = ''D''; ';
+		+ ' WHERE bF.backup_type = ''D''; ' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -233,7 +233,8 @@ CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'SELECT  bs.database_name, bs.database_guid, bs.backup_set_id, bsPrior.backup_set_id AS backup_set_id_prior,
+	SET @StringToExecute += '
+							 SELECT  bs.database_name, bs.database_guid, bs.backup_set_id, bsPrior.backup_set_id AS backup_set_id_prior,
 							         bs.backup_finish_date, bsPrior.backup_finish_date AS backup_finish_date_prior,
 							         DATEDIFF(ss, bsPrior.backup_finish_date, bs.backup_finish_date) AS backup_gap_seconds
 							 INTO #backup_gaps
@@ -267,7 +268,8 @@ CREATE TABLE #RTORecoveryPoints (id INT IDENTITY(1,1)
 								FROM #Backups b
 								INNER JOIN max_gaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
 								LEFT OUTER JOIN max_gaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.max_backup_gap_seconds < bgBigger.max_backup_gap_seconds
-								WHERE bgBigger.backup_set_id IS NULL;'
+								WHERE bgBigger.backup_set_id IS NULL;
+								'
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
@@ -293,12 +295,14 @@ RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'INSERT INTO #RTORecoveryPoints(database_name, database_guid, log_last_lsn)
-							SELECT database_name, database_guid, MAX(last_lsn) AS log_last_lsn
-							FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLastLog
-							WHERE type = ''L''
-							AND bLastLog.backup_finish_date >= @StartTime
-							GROUP BY database_name, database_guid;'
+	SET @StringToExecute += '
+							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, log_last_lsn)
+							 SELECT database_name, database_guid, MAX(last_lsn) AS log_last_lsn
+							 FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLastLog
+							 WHERE type = ''L''
+							 AND bLastLog.backup_finish_date >= @StartTime
+							 GROUP BY database_name, database_guid;
+							'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -311,21 +315,30 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'UPDATE #RTORecoveryPoints
-							SET log_backup_set_id = bLog.backup_set_id
-							    ,full_backup_set_id = bLastFull.backup_set_id
-							    ,full_last_lsn = bLastFull.last_lsn
-							    ,full_backup_set_uuid = bLastFull.backup_set_uuid
-							FROM #RTORecoveryPoints rp
-							INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name
-							INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLastFull ON bLog.database_guid = bLastFull.database_guid AND bLog.database_name = bLastFull.database_name
-							    AND bLog.first_lsn > bLastFull.last_lsn
-							    AND bLastFull.type = ''D''
-							LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLaterFulls ON bLastFull.database_guid = bLaterFulls.database_guid AND bLastFull.database_name = bLaterFulls.database_name
-							    AND bLastFull.last_lsn < bLaterFulls.last_lsn
-							    AND bLaterFulls.first_lsn < bLog.last_lsn
-							    AND bLaterFulls.type = ''D''
-							WHERE bLaterFulls.backup_set_id IS NULL;'
+	SET @StringToExecute += '
+							 UPDATE #RTORecoveryPoints
+							 SET log_backup_set_id = bLasted.backup_set_id
+							     ,full_backup_set_id = bLasted.backup_set_id
+							     ,full_last_lsn = bLasted.last_lsn
+							     ,full_backup_set_uuid = bLasted.backup_set_uuid
+							 FROM #RTORecoveryPoints rp
+							 		CROSS APPLY (
+							 				SELECT TOP 1 bLog.backup_set_id AS backup_set_id_log, bLastFull.backup_set_id, bLastFull.last_lsn, bLastFull.backup_set_uuid, bLastFull.database_guid, bLastFull.database_name
+							 				FROM  ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLog 
+							 				INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLastFull 
+							 					ON bLog.database_guid = bLastFull.database_guid 
+							 					AND bLog.database_name = bLastFull.database_name
+							 					AND bLog.first_lsn > bLastFull.last_lsn
+							 					AND bLastFull.type = ''D''
+							 				WHERE rp.database_guid = bLog.database_guid 
+							 					AND rp.database_name = bLog.database_name
+							 			) bLasted
+							 LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLaterFulls ON bLasted.database_guid = bLaterFulls.database_guid AND bLasted.database_name = bLaterFulls.database_name
+							     AND bLasted.last_lsn < bLaterFulls.last_lsn
+							     AND bLaterFulls.first_lsn < bLasted.last_lsn
+							     AND bLaterFulls.type = ''D''
+							 WHERE bLaterFulls.backup_set_id IS NULL;
+							 '
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -338,14 +351,16 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'INSERT INTO #RTORecoveryPoints(database_name, database_guid, full_backup_set_id, full_last_lsn, full_backup_set_uuid)
-							SELECT bFull.database_name, bFull.database_guid, bFull.backup_set_id, bFull.last_lsn, bFull.backup_set_uuid
-							FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bFull
-							LEFT OUTER JOIN #RTORecoveryPoints rp ON bFull.backup_set_uuid = rp.full_backup_set_uuid
-							WHERE bFull.type = ''D''
-							    AND bFull.backup_finish_date IS NOT NULL
-							    AND rp.full_backup_set_uuid IS NULL
-							    AND bFull.backup_finish_date >= @StartTime;'
+	SET @StringToExecute += '
+							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, full_backup_set_id, full_last_lsn, full_backup_set_uuid)
+							 SELECT bFull.database_name, bFull.database_guid, bFull.backup_set_id, bFull.last_lsn, bFull.backup_set_uuid
+							 FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bFull
+							 LEFT OUTER JOIN #RTORecoveryPoints rp ON bFull.backup_set_uuid = rp.full_backup_set_uuid
+							 WHERE bFull.type = ''D''
+							     AND bFull.backup_finish_date IS NOT NULL
+							     AND rp.full_backup_set_uuid IS NULL
+							     AND bFull.backup_finish_date >= @StartTime;
+							'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -358,7 +373,8 @@ RAISERROR('Fill out the most recent log for that full, but before the next full'
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'UPDATE rp
+	SET @StringToExecute += '
+							UPDATE rp
 						    SET log_last_lsn = (SELECT MAX(last_lsn) FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLog WHERE bLog.first_lsn >= rp.full_last_lsn AND bLog.first_lsn <= rpNextFull.full_last_lsn AND bLog.type = ''L'')
 							FROM #RTORecoveryPoints rp
 						    INNER JOIN #RTORecoveryPoints rpNextFull ON rp.database_guid = rpNextFull.database_guid AND rp.database_name = rpNextFull.database_name
@@ -366,7 +382,8 @@ RAISERROR('Fill out the most recent log for that full, but before the next full'
 						    LEFT OUTER JOIN #RTORecoveryPoints rpEarlierFull ON rp.database_guid = rpEarlierFull.database_guid AND rp.database_name = rpEarlierFull.database_name
 						        AND rp.full_last_lsn < rpEarlierFull.full_last_lsn
 						        AND rpNextFull.full_last_lsn > rpEarlierFull.full_last_lsn
-						    WHERE rpEarlierFull.full_backup_set_id IS NULL;'
+						    WHERE rpEarlierFull.full_backup_set_id IS NULL;
+							'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -379,7 +396,8 @@ RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'UPDATE #RTORecoveryPoints
+	SET @StringToExecute += '
+							UPDATE #RTORecoveryPoints
 							SET diff_last_lsn = (SELECT TOP 1 bDiff.last_lsn FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bDiff
 							                        WHERE rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name
 							                            AND bDiff.type = ''I''
@@ -387,7 +405,8 @@ RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 							                            AND rp.full_backup_set_uuid = bDiff.differential_base_guid
 							                            ORDER BY bDiff.last_lsn DESC)
 							FROM #RTORecoveryPoints rp
-							WHERE diff_last_lsn IS NULL;'
+							WHERE diff_last_lsn IS NULL;
+							'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -400,7 +419,8 @@ RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'UPDATE #RTORecoveryPoints
+	SET @StringToExecute += '
+							UPDATE #RTORecoveryPoints
 							    SET full_time_seconds = DATEDIFF(ss,bFull.backup_start_date, bFull.backup_finish_date)
 							    , full_file_size_mb = bFull.backup_size / 1048576.0
 							    , diff_backup_set_id = bDiff.backup_set_id
@@ -408,7 +428,8 @@ RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 							    , diff_file_size_mb = bDiff.backup_size / 1048576.0
 							FROM #RTORecoveryPoints rp
 							INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bFull ON rp.database_guid = bFull.database_guid AND rp.database_name = bFull.database_name AND rp.full_last_lsn = bFull.last_lsn
-							LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.last_lsn IS NOT NULL;'
+							LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.last_lsn IS NOT NULL;
+							'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -422,21 +443,24 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'WITH LogTotals AS (SELECT rp.id, log_time_seconds = SUM(DATEDIFF(ss,bLog.backup_start_date, bLog.backup_finish_date))
-											    , log_file_size = SUM(bLog.backup_size)
-											    , SUM(1) AS log_backups
-											        FROM #RTORecoveryPoints rp
-											            INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
-											            AND bLog.first_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
-											            AND bLog.first_lsn <= rp.log_last_lsn
-											        GROUP BY rp.id
-											)
-											UPDATE #RTORecoveryPoints
-											    SET log_time_seconds = lt.log_time_seconds
-											    , log_file_size_mb = lt.log_file_size / 1048576.0
-											    , log_backups = lt.log_backups
-											FROM #RTORecoveryPoints rp
-											    INNER JOIN LogTotals lt ON rp.id = lt.id;'
+	SET @StringToExecute += '
+							WITH LogTotals AS (
+								 SELECT rp.id, log_time_seconds = SUM(DATEDIFF(ss,bLog.backup_start_date, bLog.backup_finish_date))
+								    , log_file_size = SUM(bLog.backup_size)
+								    , SUM(1) AS log_backups
+								        FROM #RTORecoveryPoints rp
+								            INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
+								            AND bLog.first_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
+								            AND bLog.first_lsn <= rp.log_last_lsn
+								        GROUP BY rp.id
+								)
+								UPDATE #RTORecoveryPoints
+								    SET log_time_seconds = lt.log_time_seconds
+								    , log_file_size_mb = lt.log_file_size / 1048576.0
+								    , log_backups = lt.log_backups
+								FROM #RTORecoveryPoints rp
+								    INNER JOIN LogTotals lt ON rp.id = lt.id;
+									'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -447,22 +471,25 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf
 
-	SET @StringToExecute += 'WITH WorstCases AS (SELECT rp.*
-							  FROM #RTORecoveryPoints rp
-							    LEFT OUTER JOIN #RTORecoveryPoints rpNewer 
-									ON rp.database_guid = rpNewer.database_guid 
-									AND rp.database_name = rpNewer.database_name 
-									AND rp.full_last_lsn < rpNewer.full_last_lsn 
-									AND rpNewer.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s	WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
-							  WHERE rp.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
-							    /* OR  rp.rto_worst_case_time_seconds = (SELECT TOP 1 rto_worst_case_time_seconds FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_time_seconds DESC) */
-							  AND rpNewer.database_guid IS NULL
-							)
-							UPDATE #Backups
-									SET RTOWorstCaseMinutes = wc.rto_worst_case_time_seconds / 60.0
-							        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
-							FROM #Backups b
-							INNER JOIN WorstCases wc ON b.database_guid = wc.database_guid AND b.database_name = wc.database_name;'
+	SET @StringToExecute += '
+							WITH WorstCases AS (
+								SELECT rp.*
+								  FROM #RTORecoveryPoints rp
+								    LEFT OUTER JOIN #RTORecoveryPoints rpNewer 
+										ON rp.database_guid = rpNewer.database_guid 
+										AND rp.database_name = rpNewer.database_name 
+										AND rp.full_last_lsn < rpNewer.full_last_lsn 
+										AND rpNewer.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s	WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
+								  WHERE rp.rto_worst_case_size_mb = (SELECT TOP 1 rto_worst_case_size_mb FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_size_mb DESC)
+								    /* OR  rp.rto_worst_case_time_seconds = (SELECT TOP 1 rto_worst_case_time_seconds FROM #RTORecoveryPoints s WHERE rp.database_guid = s.database_guid AND rp.database_name = s.database_name ORDER BY rto_worst_case_time_seconds DESC) */
+								  AND rpNewer.database_guid IS NULL
+								)
+								UPDATE #Backups
+										SET RTOWorstCaseMinutes = wc.rto_worst_case_time_seconds / 60.0
+								        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
+								FROM #Backups b
+								INNER JOIN WorstCases wc ON b.database_guid = wc.database_guid AND b.database_name = wc.database_name;
+								'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
