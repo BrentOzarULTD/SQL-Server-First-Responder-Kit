@@ -661,7 +661,7 @@ WHERE b.recovery_model <> 'BULK-LOGGED'
 GROUP BY b.database_name
 HAVING COUNT(DISTINCT b.recovery_model) > 1
 
-SELECT w.Id, w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
+SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
 ORDER BY w.Priority, w.CheckId
 
