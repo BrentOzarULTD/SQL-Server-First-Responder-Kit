@@ -85,7 +85,7 @@ AS
 	*/';
 ELSE
 BEGIN
-DECLARE @StringToExecute NVARCHAR(4000), 
+DECLARE @StringToExecute NVARCHAR(MAX), 
 		@ProductVersion NVARCHAR(128), 
 		@ProductVersionMajor DECIMAL(10, 2),
         @ProductVersionMinor DECIMAL(10, 2), 
@@ -520,154 +520,244 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
       ORDER BY b.database_name;
 
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
-	INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += 'SELECT 
 		1 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Non-Agent backups taken' AS [Finding], 
-		'The database ' + QUOTENAME(b.database_name) + ' has been backed up by ' + QUOTENAME(b.user_name) + ' ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
-	WHERE  b.user_name NOT LIKE '%Agent%' 
-	GROUP BY b.database_name, b.user_name;
-	
-	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It's possible someone may have changed up, had CE problems, and then changed back)*/
-	INSERT #Warnings (
+		''Non-Agent backups taken'' AS [Finding], 
+		''The database '' + QUOTENAME(b.database_name) + '' has been backed up by '' + QUOTENAME(b.user_name) + '' '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+	WHERE  b.user_name NOT LIKE ''%Agent%'' 
+	GROUP BY b.database_name, b.user_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It''s possible someone may have changed up, had CE problems, and then changed back)*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		2 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Compatibility level changing' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has changed compatibility levels ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + ' times.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Compatibility level changing'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has changed compatibility levels '' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.compatibility_level)) + '' times.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	GROUP BY b.database_name
-	HAVING COUNT(DISTINCT b.compatibility_level) > 2;
-	
-	/*Looking for password protected backups. This hasn't been a popular option ever, and was largely replaced by encrypted backups, but it's simple to check for.*/
-	INSERT #Warnings (
+	HAVING COUNT(DISTINCT b.compatibility_level) > 2;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*Looking for password protected backups. This hasn''t been a popular option ever, and was largely replaced by encrypted backups, but it''s simple to check for.*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		3 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Password backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has been backed up with a password ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times. Who has the password?' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Password backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has been backed up with a password '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times. Who has the password?'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.is_password_protected = 1
-	GROUP BY b.database_name;
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for snapshot backups. There are legit reasons for these, but we should flag them so the questions get asked. What questions? Good question.*/
-	INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '		SELECT 
 		4 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Snapshot backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' snapshot backups. This message is purely informational.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Snapshot backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' snapshot backups. This message is purely informational.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.is_snapshot = 1
-	GROUP BY b.database_name;
-	
-	/*It's fine to take backups of read only databases, but it's not always necessary (there's no new data, after all).*/
-	INSERT #Warnings (
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*It''s fine to take backups of read only databases, but it''s not always necessary (there''s no new data, after all).*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		5 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Read only state backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in a read-only state. This can be normal if it''s a secondary, but a bit odd otherwise.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Read only state backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has been backed up '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times while in a read-only state. This can be normal if it''''s a secondary, but a bit odd otherwise.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.is_readonly = 1
-	GROUP BY b.database_name;
-	
-	/*So, I've come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
-	INSERT #Warnings (
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*So, I''ve come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		6 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Single user mode backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times while in single-user mode. This is really weird! Make sure your backup process doesn''t include a mode change anywhere.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Single user mode backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has been backed up '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times while in single-user mode. This is really weird! Make sure your backup process doesn''''t include a mode change anywhere.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.is_single_user = 1
-	GROUP BY b.database_name;
-	
-	/*C'mon, it's 2017. Take your backups with CHECKSUMS, people.*/
-	INSERT #Warnings (
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*C''mon, it''s 2017. Take your backups with CHECKSUMS, people.*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		7 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'No CHECKSUMS' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has been backed up ' + CONVERT(VARCHAR(10), COUNT(*)) + ' times without CHECKSUMS in the past 30 days. CHECKSUMS can help alert you to corruption errors.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''No CHECKSUMS'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has been backed up '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times without CHECKSUMS in the past 30 days. CHECKSUMS can help alert you to corruption errors.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.has_backup_checksums = 0
 	AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
-	GROUP BY b.database_name;
-	
-	/*Damaged is a Black Flag album. You don't want your backups to be like a Black Flag album. */
-	INSERT #Warnings (
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*Damaged is a Black Flag album. You don''t want your backups to be like a Black Flag album. */
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		8 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Damaged backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' damaged backups taken without stopping to throw an error. This is done by specifying CONTINUE_AFTER_ERROR in your BACKUP commands.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Damaged backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' damaged backups taken without stopping to throw an error. This is done by specifying CONTINUE_AFTER_ERROR in your BACKUP commands.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.is_damaged = 1
-	GROUP BY b.database_name;
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Checking for encrypted backups and the last backup of the encryption key.*/
-	INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		9 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Encrypted backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' ' + b.encryptor_type + ' backups, and the last time a certificate was backed up is ' 
-		+ CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Encrypted backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' '' + b.encryptor_type + '' backups, and the last time a certificate was backed up is '' 
+		+ CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE ''##%'')) + ''.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.encryptor_type IS NOT NULL
-	GROUP BY b.database_name, b.encryptor_type;
+	GROUP BY b.database_name, b.encryptor_type;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
-	INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		10 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Bulk logged backups' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has had ' + CONVERT(VARCHAR(10), COUNT(*)) + ' backups with bulk logged data. This can make point in time recovery awkward. ' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
+		''Bulk logged backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups with bulk logged data. This can make point in time recovery awkward. '' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.has_bulk_logged_data = 1
-	GROUP BY b.database_name;
-	
-	/*Looking for recovery model being switched between FULL and SIMPLE, because it's a bad practice.*/
-	INSERT #Warnings (
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT 
+		EXEC sys.sp_executesql @StringToExecute;
+	
+	/*Looking for recovery model being switched between FULL and SIMPLE, because it''s a bad practice.*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '	SELECT 
 		11 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
-		'Recovery model switched' AS [Finding],
-		'The database ' + QUOTENAME(b.database_name) + ' has changed recovery models from between FULL and SIMPLE ' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + ' times. This breaks the log chain and is generally a bad idea.' AS [Warning]
-	FROM   msdb.dbo.backupset AS b
-	WHERE b.recovery_model <> 'BULK-LOGGED'
+		''Recovery model switched'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has changed recovery models from between FULL and SIMPLE '' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + '' times. This breaks the log chain and is generally a bad idea.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+	WHERE b.recovery_model <> ''BULK-LOGGED''
 	GROUP BY b.database_name
-	HAVING COUNT(DISTINCT b.recovery_model) > 4;
+	HAVING COUNT(DISTINCT b.recovery_model) > 4;' + @crlf;
 
-	INSERT #Warnings (
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
-	SELECT
+		EXEC sys.sp_executesql @StringToExecute;
+
+/*Insert thank you stuff last*/
+		INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+
+		SELECT
 		2147483647 AS [CheckId],
 		2147483647 AS [Priority],
 		'From Your Community Volunteers' AS [DatabaseName],
