@@ -179,8 +179,11 @@ CREATE TABLE #Recoverability
 		LastFullBackupSize BIGINT,
 		LastFullBackupDate DATETIME,
 		AvgFullBackupThroughut DECIMAL (18,2),
+		AvgFullBackupDurationSeconds INT,
 		AvgDiffBackupThroughput DECIMAL (18,2),
+		AvgDiffBackupDurationSeconds INT,
 		AvgLogBackupThroughput DECIMAL (18,2),
+		AvgLogBackupDurationSeconds INT,
 		MaxDiffSize BIGINT,
 		AvgDiffSize BIGINT,
 		MaxLogSize BIGINT,
@@ -597,30 +600,39 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 							UPDATE r
 							SET r.AvgFullBackupThroughut = ca_full.AvgFullSpeed,
 								r.AvgDiffBackupThroughput = ca_diff.AvgDiffSpeed,
-								r.AvgLogBackupThroughput = ca_log.AvgLogSpeed
+								r.AvgLogBackupThroughput = ca_log.AvgLogSpeed,
+								r.AvgFullBackupDurationSeconds = AvgFullDuration,
+								r.AvgDiffBackupDurationSeconds = AvgDiffDuration,
+								r.AvgLogBackupDurationSeconds = AvgLogDuration
 							FROM #Recoverability AS r
 							OUTER APPLY (
-								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgFullSpeed
+								SELECT b.database_name, 
+									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgFullSpeed,
+									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgFullDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND b.type = ''D'' 
-								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
 										) ca_full
 							OUTER APPLY (
-								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgDiffSpeed
+								SELECT b.database_name, 
+									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgDiffSpeed,
+									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgDiffDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND b.type = ''I'' 
-								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
 										) ca_diff
 							OUTER APPLY (
-								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgLogSpeed
+								SELECT b.database_name, 
+									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgLogSpeed,
+									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgLogDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND b.type = ''L''
-								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
 										) ca_log;'
 
