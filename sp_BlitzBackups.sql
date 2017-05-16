@@ -172,22 +172,19 @@ CREATE TABLE #RTORecoveryPoints
 CREATE TABLE #Recoverability
 	(
 		Id INT IDENTITY ,
-		DatabaseId INT,
-		DatabaseName NVARCHAR(256),
-		RecoveryModel NVARCHAR(60),
-		VLFs BIGINT,
-		DBCCLastFinished VARCHAR(50),
-		FirstFullBackupSize INT,
+		DatabaseName NVARCHAR(128),
+		LastBackupRecoveryModel NVARCHAR(60),
+		FirstFullBackupSize BIGINT,
 		FirstFullBackupDate DATETIME,
-		LastFullBackupSize INT,
+		LastFullBackupSize BIGINT,
 		LastFullBackupDate DATETIME,
 		AvgFullBackupThroughut DECIMAL (18,2),
 		AvgDiffBackupThroughput DECIMAL (18,2),
 		AvgLogBackupThroughput DECIMAL (18,2),
-		MaxDiffSize INT,
-		AvgDiffSize INT,
-		MaxLogSize INT,
-		AvgLogSizeInt INT
+		MaxDiffSize BIGINT,
+		AvgDiffSize BIGINT,
+		MaxLogSize BIGINT,
+		AvgLogSize BIGINT
 	);
 
 CREATE TABLE #Warnings
@@ -263,8 +260,6 @@ CREATE TABLE #Warnings
 
 	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
-    
-    /* FIXFIX Tune this */
 
 	RAISERROR('Updating #Backups with worst RPO case', 0, 1) WITH NOWAIT;
 
@@ -534,11 +529,149 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	EXEC sys.sp_executesql @StringToExecute;
 
+/*Populating Recoverability*/
+
+
+	/*Get distinct list of databases*/
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '
+							 SELECT DISTINCT b.database_name AS [DatabaseName]
+							 FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b;'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	INSERT #Recoverability ( DatabaseName )
+	EXEC sys.sp_executesql @StringToExecute;
+
+
+	/*Find most recent recovery model, backup size, and backup date*/
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += 	'
+								UPDATE r
+								SET r.LastBackupRecoveryModel = ca.recovery_model,
+									r.LastFullBackupSize = ca.backup_size,
+									r.LastFullBackupDate = ca.backup_finish_date
+								FROM #Recoverability r
+									CROSS APPLY (
+										SELECT TOP 1 b.recovery_model, b.backup_size, b.backup_finish_date
+										FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+										WHERE r.DatabaseName = b.database_name
+										AND b.type = ''D''
+										ORDER BY b.backup_finish_date DESC
+												) ca;'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	EXEC sys.sp_executesql @StringToExecute;
+
+	/*Find first backup size and date*/
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '
+							UPDATE r
+							SET r.FirstFullBackupSize = ca.backup_size,
+								r.FirstFullBackupDate = ca.backup_finish_date
+							FROM #Recoverability r
+								CROSS APPLY (
+									SELECT TOP 1 b.backup_size, b.backup_finish_date
+									FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+									WHERE r.DatabaseName = b.database_name 
+									AND b.type = ''D''
+									ORDER BY b.backup_finish_date ASC
+											) ca;'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	EXEC sys.sp_executesql @StringToExecute;
+
+
+	/*Find average backup throughputs for full, diff, and log*/
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '
+							UPDATE r
+							SET r.AvgFullBackupThroughut = ca_full.AvgFullSpeed,
+								r.AvgDiffBackupThroughput = ca_diff.AvgDiffSpeed,
+								r.AvgLogBackupThroughput = ca_log.AvgLogSpeed
+							FROM #Recoverability AS r
+							OUTER APPLY (
+								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgFullSpeed
+								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
+								WHERE r.DatabaseName = b.database_name
+								AND b.type = ''D'' 
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								GROUP BY b.database_name
+										) ca_full
+							OUTER APPLY (
+								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgDiffSpeed
+								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
+								WHERE r.DatabaseName = b.database_name
+								AND b.type = ''I'' 
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								GROUP BY b.database_name
+										) ca_diff
+							OUTER APPLY (
+								SELECT b.database_name, CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgLogSpeed
+								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
+								WHERE r.DatabaseName = b.database_name
+								AND b.type = ''L''
+								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 1 
+								GROUP BY b.database_name
+										) ca_log;'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	EXEC sys.sp_executesql @StringToExecute;
+
+
+	/*Find max and avg diff and log sizes*/
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += '
+							UPDATE r
+							 SET r.MaxDiffSize = diffs.max_diff_size,
+							 	 r.AvgDiffSize = diffs.avg_diff_size,
+							 	 r.MaxLogSize = logs.max_log_size,
+							 	 r.AvgLogSize = logs.avg_log_size
+							 FROM #Recoverability AS r
+							 OUTER APPLY (
+							 	SELECT b.database_name, MAX(b.backup_size) AS max_diff_size, AVG(b.backup_size) AS avg_diff_size
+							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+							 	WHERE r.DatabaseName = b.database_name
+							 	AND b.type = ''I''
+							 	GROUP BY b.database_name
+							 			) AS diffs
+							 OUTER APPLY (
+							 	SELECT b.database_name, MAX(b.backup_size) AS max_log_size, AVG(b.backup_size) AS avg_log_size
+							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+							 	WHERE r.DatabaseName = b.database_name
+							 	AND b.type = ''L''
+							 	GROUP BY b.database_name
+							 			) AS logs;'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	EXEC sys.sp_executesql @StringToExecute;
+
+
+/*End populating Recoverability*/
+
 RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
-	SELECT b.*
-	  FROM #Backups b
-      ORDER BY b.database_name;
+	SELECT   b.*
+		FROM     #Backups AS b
+		ORDER BY b.database_name;
+
+	SELECT   *
+		FROM     #Recoverability AS r
+		ORDER BY r.DatabaseName
 
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
 
@@ -557,8 +690,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings (CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It''s possible someone may have changed up, had CE problems, and then changed back)*/
@@ -578,8 +710,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for password protected backups. This hasn''t been a popular option ever, and was largely replaced by encrypted backups, but it''s simple to check for.*/
@@ -599,8 +730,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for snapshot backups. There are legit reasons for these, but we should flag them so the questions get asked. What questions? Good question.*/
@@ -620,8 +750,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*It''s fine to take backups of read only databases, but it''s not always necessary (there''s no new data, after all).*/
@@ -641,8 +770,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*So, I''ve come across people who think they need to change their database to single user mode to take a backup. Or that doing that will help something. I just need to know, here.*/
@@ -662,8 +790,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*C''mon, it''s 2017. Take your backups with CHECKSUMS, people.*/
@@ -684,8 +811,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Damaged is a Black Flag album. You don''t want your backups to be like a Black Flag album. */
@@ -705,8 +831,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Checking for encrypted backups and the last backup of the encryption key.*/
@@ -727,8 +852,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
@@ -748,8 +872,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
 	/*Looking for recovery model being switched between FULL and SIMPLE, because it''s a bad practice.*/
@@ -770,8 +893,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 
 	/*Looking for uncompressed backups.*/
@@ -792,14 +914,12 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 
 
 /*Insert thank you stuff last*/
-		INSERT #Warnings (
-	    CheckId, Priority, DatabaseName, Finding, Warning )
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 
 		SELECT
 		2147483647 AS [CheckId],
@@ -813,7 +933,7 @@ SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
 ORDER BY w.Priority, w.CheckId;
 
-DROP TABLE #Backups, #Warnings;
+DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints
 
 
 END;
