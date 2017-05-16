@@ -169,6 +169,27 @@ CREATE TABLE #RTORecoveryPoints
     log_backups INT
 );
 
+CREATE TABLE #Recoverability
+	(
+		Id INT IDENTITY ,
+		DatabaseId INT,
+		DatabaseName NVARCHAR(256),
+		RecoveryModel NVARCHAR(60),
+		VLFs BIGINT,
+		DBCCLastFinished VARCHAR(50),
+		FirstFullBackupSize INT,
+		FirstFullBackupDate DATETIME,
+		LastFullBackupSize INT,
+		LastFullBackupDate DATETIME,
+		AvgFullBackupThroughut DECIMAL (18,2),
+		AvgDiffBackupThroughput DECIMAL (18,2),
+		AvgLogBackupThroughput DECIMAL (18,2),
+		MaxDiffSize INT,
+		AvgDiffSize INT,
+		MaxLogSize INT,
+		AvgLogSizeInt INT
+	);
+
 CREATE TABLE #Warnings
 (
     Id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
@@ -275,14 +296,14 @@ CREATE TABLE #Warnings
 							 GROUP BY g.database_name, g.database_guid, g.backup_set_id, g.backup_set_id_prior, g.backup_finish_date_prior,  g.backup_finish_date
 												)
 							UPDATE #Backups
-								SET RPOWorstCaseMinutes = bg.max_backup_gap_seconds / 60.0
-							        ,  RPOWorstCaseBackupSetID = bg.backup_set_id
+								SET   RPOWorstCaseMinutes = bg.max_backup_gap_seconds / 60.0
+							        , RPOWorstCaseBackupSetID = bg.backup_set_id
 									, RPOWorstCaseBackupSetFinishTime = bg.backup_finish_date
 									, RPOWorstCaseBackupSetIDPrior = bg.backup_set_id_prior
 									, RPOWorstCaseBackupSetPriorFinishTime = bg.backup_finish_date_prior
 								FROM #Backups b
-								INNER JOIN max_gaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
-								LEFT OUTER JOIN max_gaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.max_backup_gap_seconds < bgBigger.max_backup_gap_seconds
+								INNER HASH JOIN max_gaps bg ON b.database_name = bg.database_name AND b.database_guid = bg.database_guid
+								LEFT OUTER HASH JOIN max_gaps bgBigger ON bg.database_name = bgBigger.database_name AND bg.database_guid = bgBigger.database_guid AND bg.max_backup_gap_seconds < bgBigger.max_backup_gap_seconds
 								WHERE bgBigger.backup_set_id IS NULL;
 								';
 	IF @Debug = 1
@@ -753,6 +774,29 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	    CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 
+	/*Looking for uncompressed backups.*/
+
+	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+	SET @StringToExecute += 'SELECT 
+		12 AS CheckId,
+		100 AS [Priority],
+		b.database_name AS [Database Name],
+		''Uncompressed backups'' AS [Finding],
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' uncompressed backups in the last 30 days. This is a free way to save time and space. And SPACETIME.'' AS [Warning]
+	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+	WHERE backup_size = compressed_backup_size AND type = ''D''
+	AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
+	GROUP BY b.database_name;' + @crlf;
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+		INSERT #Warnings (
+	    CheckId, Priority, DatabaseName, Finding, Warning )
+		EXEC sys.sp_executesql @StringToExecute;
+
+
 /*Insert thank you stuff last*/
 		INSERT #Warnings (
 	    CheckId, Priority, DatabaseName, Finding, Warning )
@@ -762,7 +806,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		2147483647 AS [Priority],
 		'From Your Community Volunteers' AS [DatabaseName],
 		'sp_BlitzBackups Version: ' + @Version + ', Version Date: ' + CONVERT(VARCHAR(30), @VersionDate) + '.' AS [Finding],
-		'Thanks for using our stored procedure. We hope you find it useful! Check out our other free SQL Server scripts at firstresponderkit.org!' AS [Warning]
+		'Thanks for using our stored procedure. We hope you find it useful! Check out our other free SQL Server scripts at firstresponderkit.org!' AS [Warning];
 
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
