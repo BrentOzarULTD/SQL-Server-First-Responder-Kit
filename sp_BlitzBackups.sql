@@ -544,7 +544,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		2 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -565,7 +565,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		3 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -586,7 +586,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '		SELECT 
+	SET @StringToExecute += 'SELECT 
 		4 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -607,7 +607,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		5 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -628,7 +628,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		6 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -649,7 +649,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		7 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -671,7 +671,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		8 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -692,7 +692,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		9 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -714,7 +714,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		10 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -735,7 +735,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '	SELECT 
+	SET @StringToExecute += 'SELECT 
 		11 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
