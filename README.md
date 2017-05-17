@@ -17,6 +17,7 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
    - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
+ - [sp_BlitzBackups](#sp-blitzbackups)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -209,7 +210,7 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 [*Back to top*](#header1)
 
 =======
-## DatabaseRestore: Easier Multi-File Restores
+## sp_DatabaseRestore: Easier Multi-File Restores
 
 If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
 
@@ -226,6 +227,24 @@ Parameters include:
 * @RunRecovery
 
 For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
+>>>>>>> refs/remotes/origin/dev
+
+<<<<<<< HEAD
+[*Back to top*](#header1)
+
+=======
+## sp_BlitzBackups
+
+Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
+
+Parameters include:
+
+* @HoursBack -- How many hours into backup history you want to go
+* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name
+* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
+* @RestoreSpeedDiffMBps -- Nothing yet
+* @RestoreSpeedLogMBps -- Nothing yet
+	
 >>>>>>> refs/remotes/origin/dev
 
 ## Parameters Common to Many of the Stored Procedures
