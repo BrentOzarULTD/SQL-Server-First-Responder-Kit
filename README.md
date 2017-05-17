@@ -233,7 +233,7 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 [*Back to top*](#header1)
 
 =======
-## sp_BlitzBackups
+## sp_BlitzBackups(#sp-blitzbackups)
 
 Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
 
