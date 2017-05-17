@@ -541,7 +541,10 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 								  AND rpNewer.database_guid IS NULL
 								)
 								UPDATE #Backups
-										SET RTOWorstCaseMinutes = wc.rto_worst_case_time_seconds / 60.0
+										SET RTOWorstCaseMinutes = CASE WHEN @RestoreSpeedFullMBps IS NULL 
+																	   THEN wc.rto_worst_case_time_seconds / 60.0
+																	   ELSE @RestoreSpeedFullMBps / wc.rto_worst_case_size_mb
+																	   END
 								        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
 								FROM #Backups b
 								INNER JOIN WorstCases wc 
@@ -552,7 +555,9 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute, N'@RestoreSpeedFullMBps INT', @RestoreSpeedFullMBps;
+
+
 
 /*Populating Recoverability*/
 
