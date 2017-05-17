@@ -173,12 +173,13 @@ CREATE TABLE #Recoverability
 	(
 		Id INT IDENTITY ,
 		DatabaseName NVARCHAR(128),
+		DatabaseGUID UNIQUEIDENTIFIER,
 		LastBackupRecoveryModel NVARCHAR(60),
 		FirstFullBackupSize BIGINT,
 		FirstFullBackupDate DATETIME,
 		LastFullBackupSize BIGINT,
 		LastFullBackupDate DATETIME,
-		AvgFullBackupThroughut DECIMAL (18,2),
+		AvgFullBackupThroughput DECIMAL (18,2),
 		AvgFullBackupDurationSeconds INT,
 		AvgDiffBackupThroughput DECIMAL (18,2),
 		AvgDiffBackupDurationSeconds INT,
@@ -189,6 +190,27 @@ CREATE TABLE #Recoverability
 		MaxLogSize BIGINT,
 		AvgLogSize BIGINT
 	);
+
+CREATE TABLE #Trending
+(
+    DatabaseName NVARCHAR(128),
+	DatabaseGUID UNIQUEIDENTIFIER,
+    [0] DECIMAL(18, 2),
+    [-1] DECIMAL(18, 2),
+    [-2] DECIMAL(18, 2),
+    [-3] DECIMAL(18, 2),
+    [-4] DECIMAL(18, 2),
+    [-5] DECIMAL(18, 2),
+    [-6] DECIMAL(18, 2),
+    [-7] DECIMAL(18, 2),
+    [-8] DECIMAL(18, 2),
+    [-9] DECIMAL(18, 2),
+    [-10] DECIMAL(18, 2),
+    [-11] DECIMAL(18, 2),
+    [-12] DECIMAL(18, 2)
+);
+
+
 
 CREATE TABLE #Warnings
 (
@@ -539,13 +561,13 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += '
-							 SELECT DISTINCT b.database_name AS [DatabaseName]
+							 SELECT DISTINCT b.database_name, database_guid
 							 FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	INSERT #Recoverability ( DatabaseName )
+	INSERT #Recoverability ( DatabaseName, DatabaseGUID )
 	EXEC sys.sp_executesql @StringToExecute;
 
 
@@ -562,6 +584,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 										SELECT TOP 1 b.recovery_model, b.backup_size, b.backup_finish_date
 										FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 										WHERE r.DatabaseName = b.database_name
+										AND r.DatabaseGUID = b.database_guid
 										AND b.type = ''D''
 										ORDER BY b.backup_finish_date DESC
 												) ca;'
@@ -583,6 +606,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 									SELECT TOP 1 b.backup_size, b.backup_finish_date
 									FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 									WHERE r.DatabaseName = b.database_name 
+									AND r.DatabaseGUID = b.database_guid
 									AND b.type = ''D''
 									ORDER BY b.backup_finish_date ASC
 											) ca;'
@@ -598,7 +622,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += '
 							UPDATE r
-							SET r.AvgFullBackupThroughut = ca_full.AvgFullSpeed,
+							SET r.AvgFullBackupThroughput = ca_full.AvgFullSpeed,
 								r.AvgDiffBackupThroughput = ca_diff.AvgDiffSpeed,
 								r.AvgLogBackupThroughput = ca_log.AvgLogSpeed,
 								r.AvgFullBackupDurationSeconds = AvgFullDuration,
@@ -611,6 +635,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgFullDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''D'' 
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
@@ -621,6 +646,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgDiffDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''I'' 
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
@@ -631,6 +657,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgLogDuration
 								FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''L''
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
 								GROUP BY b.database_name
@@ -656,6 +683,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 							 	SELECT b.database_name, MAX(b.backup_size) AS max_diff_size, AVG(b.backup_size) AS avg_diff_size
 							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
 							 	AND b.type = ''I''
 							 	GROUP BY b.database_name
 							 			) AS diffs
@@ -663,6 +691,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 							 	SELECT b.database_name, MAX(b.backup_size) AS max_log_size, AVG(b.backup_size) AS avg_log_size
 							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
 							 	AND b.type = ''L''
 							 	GROUP BY b.database_name
 							 			) AS logs;'
@@ -672,6 +701,53 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	EXEC sys.sp_executesql @StringToExecute;
 
+/*Trending*/
+
+SET @StringToExecute = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
+
+SET @StringToExecute +='
+	SELECT  p.DatabaseName,
+			p.DatabaseGUID,
+			p.[0],
+			p.[-1],
+			p.[-2],
+			p.[-3],
+			p.[-4],
+			p.[-5],
+			p.[-6],
+			p.[-7],
+			p.[-8],
+			p.[-9],
+			p.[-10],
+			p.[-11],
+			p.[-12]
+		FROM ( SELECT b.database_name AS DatabaseName,
+					  b.database_guid AS DatabaseGUID,
+					  DATEDIFF(MONTH, @StartTime, b.backup_start_date) AS MonthsAgo ,
+					  CONVERT(DECIMAL(18, 2), AVG(bf.file_size / 1048576.0)) AS AvgSizeMB
+				FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b 
+				INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupfile AS bf
+				ON b.backup_set_id = bf.backup_set_id
+				WHERE b.database_name NOT IN ( ''master'', ''msdb'', ''model'', ''tempdb'' )
+				AND bf.file_type = ''D''
+				AND b.backup_start_date >= DATEADD(YEAR, -1, @StartTime)
+				AND b.backup_start_date <= SYSDATETIME()
+				GROUP BY b.database_name,
+						 b.database_guid,	
+						 DATEDIFF(mm, @StartTime, b.backup_start_date)
+			 ) AS bckstat PIVOT ( SUM(bckstat.AvgSizeMB) FOR bckstat.MonthsAgo IN ( [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] ) ) AS p
+		ORDER BY p.DatabaseName;
+		'
+
+	IF @Debug = 1
+		PRINT @StringToExecute;
+
+	INSERT #Trending ( DatabaseName, DatabaseGUID, [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] )
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
+
+
+
+/*End Trending*/
 
 /*End populating Recoverability*/
 
@@ -681,9 +757,14 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		FROM     #Backups AS b
 		ORDER BY b.database_name;
 
-	SELECT   *
-		FROM     #Recoverability AS r
+	SELECT   r.*,
+             t.[0], t.[-1], t.[-2], t.[-3], t.[-4], t.[-5], t.[-6], t.[-7], t.[-8], t.[-9], t.[-10], t.[-11], t.[-12]
+		FROM #Recoverability AS r
+		JOIN #Trending t
+		ON r.DatabaseName = t.DatabaseName
+		AND r.DatabaseGUID = t.DatabaseGUID	
 		ORDER BY r.DatabaseName
+
 
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
 
