@@ -185,10 +185,11 @@ CREATE TABLE #Recoverability
 		AvgDiffBackupDurationSeconds INT,
 		AvgLogBackupThroughput DECIMAL (18,2),
 		AvgLogBackupDurationSeconds INT,
-		MaxDiffSize BIGINT,
+		AvgFullSize BIGINT,
 		AvgDiffSize BIGINT,
-		MaxLogSize BIGINT,
-		AvgLogSize BIGINT
+		AvgLogSize BIGINT,
+		IsBigDiff AS CASE WHEN (AvgFullSize - AvgDiffSize) * .01 > .40 THEN 1 ELSE 0 END,
+		IsBigLog AS CASE WHEN (AvgFullSize - AvgLogSize) * .01 > .20 THEN 1 ELSE 0 END
 	);
 
 CREATE TABLE #Trending
@@ -679,13 +680,20 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += '
 							UPDATE r
-							 SET r.MaxDiffSize = diffs.max_diff_size,
+							 SET r.AvgFullSize = fulls.avg_full_size,
 							 	 r.AvgDiffSize = diffs.avg_diff_size,
-							 	 r.MaxLogSize = logs.max_log_size,
 							 	 r.AvgLogSize = logs.avg_log_size
 							 FROM #Recoverability AS r
 							 OUTER APPLY (
-							 	SELECT b.database_name, MAX(b.backup_size) AS max_diff_size, AVG(b.backup_size) AS avg_diff_size
+							 	SELECT b.database_name, AVG(b.backup_size) AS avg_full_size
+							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+							 	WHERE r.DatabaseName = b.database_name
+								AND r.DatabaseGUID = b.database_guid
+							 	AND b.type = ''D''
+							 	GROUP BY b.database_name
+							 			) AS fulls
+							 OUTER APPLY (
+							 	SELECT b.database_name, AVG(b.backup_size) AS avg_diff_size
 							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
@@ -693,7 +701,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 							 	GROUP BY b.database_name
 							 			) AS diffs
 							 OUTER APPLY (
-							 	SELECT b.database_name, MAX(b.backup_size) AS max_log_size, AVG(b.backup_size) AS avg_log_size
+							 	SELECT b.database_name, AVG(b.backup_size) AS avg_log_size
 							 	FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
@@ -1014,6 +1022,27 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
+
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
+		SELECT
+			13 AS CheckId,
+			100 AS Priority,
+			r.DatabaseName as [DatabaseName],
+			'Big Diffs' AS [Finding],
+			'On average, Differential backups for this database are >=40% of the size of the average Full backup.' AS [Warning]
+			FROM #Recoverability AS r
+			WHERE r.IsBigDiff = 1
+
+		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
+		SELECT
+			13 AS CheckId,
+			100 AS Priority,
+			r.DatabaseName as [DatabaseName],
+			'Big Logs' AS [Finding],
+			'On average, Log backups for this database are >=20% of the size of the average Full backup.' AS [Warning]
+			FROM #Recoverability AS r
+			WHERE r.IsBigLog = 1
+
 
 
 /*Insert thank you stuff last*/
