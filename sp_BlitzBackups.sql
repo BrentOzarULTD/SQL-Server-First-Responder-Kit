@@ -973,10 +973,11 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 								''Encrypted backups'' AS [Finding],
 								''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' '' + b.encryptor_type + '' backups, and the last time a certificate was backed up is '
 								+ CASE WHEN LOWER(@MSDBName) <> N'msdb'
-									THEN + N'...well, that information is on another server, anyway. AS [Warning]'
+									THEN + N'...well, that information is on another server, anyway.'' AS [Warning]'
 									ELSE + CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '. AS [Warning]'
 									END + 
-							N'FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
+							N'
+							FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							WHERE b.encryptor_type IS NOT NULL
 							GROUP BY b.database_name, b.encryptor_type;' + @crlf;
 
@@ -1210,15 +1211,54 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-		SET @StringToExecute += 'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@MSDBName) + '.dbo.backupset' + @crlf;
-		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, media_set_id,
-									backup_finish_date, compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
+		SET @StringToExecute += N'	
+									DECLARE
+										@HighestDateProcessed DATETIME = ''19000101'',
+										@NextDateMax DATETIME,
+										@RC INT = 1,
+										@msg NVARCHAR(4000) = N'''';
+									
+									RAISERROR(''Starting insert loop'', 0, 1) WITH NOWAIT;
+
+									WHILE (@RC > 0)
+									BEGIN
+									
+										SELECT @NextDateMax = MIN(b.backup_start_date)
+										FROM msdb.dbo.backupset b
+										WHERE NOT EXISTS (
+											SELECT 1 
+											FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+											WHERE b.backup_set_uuid = b2.backup_set_uuid
+														)
+										AND b.backup_start_date > @HighestDateProcessed
+										
+									SET @msg = N''Inserting data for '' + CONVERT(NVARCHAR(30), @HighestDateProcessed) + '' through '' +  + CONVERT(NVARCHAR(30), @NextDateMax) + ''.''
+									RAISERROR(@msg, 0, 1) WITH NOWAIT
+										
+										
+										'
+
+		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset' + @crlf;
+		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
+									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data)' + @crlf;
-		SET @StringToExecute +=N'SELECT TOP 1000 database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, media_set_id,
-										backup_finish_date, compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
-										is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data'  + @crlf;
-		SET @StringToExecute +=N'FROM msdb.dbo.backupset b'  + @crlf;
-		SET @StringToExecute +=N'WHERE 1=1'  + @crlf;
+		SET @StringToExecute +=N'SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
+									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
+									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data'  + @crlf;
+		SET @StringToExecute +=N'FROM msdb.dbo.backupset b
+								 WHERE 1=1
+								 AND b.backup_start_date >= @HighestDateProcessed
+								 AND b.backup_start_date < DATEADD(MINUTE, 10, @NextDateMax)'  + @crlf;
+
+
+		SET @StringToExecute +=N'
+								 SET @RC = @@ROWCOUNT;
+								 SET @HighestDateProcessed = @NextDateMax;									
+								 
+								SET @msg = N''Inserted '' + CONVERT(NVARCHAR(30), @RC) + '' rows for ''+ CONVERT(NVARCHAR(30), @HighestDateProcessed) + '' through '' +  + CONVERT(NVARCHAR(30), @NextDateMax) + ''.''
+								RAISERROR(@msg, 0, 1) WITH NOWAIT
+								 
+								 END'  + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
