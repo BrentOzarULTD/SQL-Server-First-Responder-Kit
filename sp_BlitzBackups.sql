@@ -13,7 +13,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzBackups]
 	@PushBackupHistoryToListener BIT = 0,
 	@WriteBackupsToListenerName NVARCHAR(256) = NULL,
     @WriteBackupsToDatabaseName NVARCHAR(256) = NULL,
-    @WriteBackupsLastHours INT = 24,
+    @WriteBackupsLastHours INT = 168,
 	@WriteBackupsBatchSize INT = 5000,
     @VersionDate DATE = NULL OUTPUT
 WITH RECOMPILE
@@ -102,6 +102,9 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 
 IF @HoursBack > 0
     SET @HoursBack = @HoursBack * -1;
+
+IF	@WriteBackupsLastHours > 0
+    SET @WriteBackupsLastHours = @WriteBackupsLastHours * -1;
 
 SELECT  @crlf = NCHAR(13) + NCHAR(10), 
 		@StartTime = DATEADD(hh, @HoursBack, GETDATE()),
@@ -1213,29 +1216,38 @@ END
 
 		SET @StringToExecute += N'	
 									DECLARE
-										@HighestDateProcessed DATETIME = ''19000101'',
-										@NextDateMax DATETIME,
+										@StartDate DATETIME = DATEADD(HOUR, @i_WriteBackupsLastHours, SYSDATETIME()),
+										@StartDateNext DATETIME,
 										@RC INT = 1,
 										@msg NVARCHAR(4000) = N'''';
 									
+									SELECT @StartDate = MIN(b.backup_start_date)
+									FROM msdb.dbo.backupset b
+									WHERE b.backup_start_date >= @StartDate
+									AND  NOT EXISTS (
+													SELECT 1 
+													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+													WHERE b.backup_set_uuid = b2.backup_set_uuid
+													AND b.backup_start_date >= @StartDate
+													)
+
+									SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
+
 									RAISERROR(''Starting insert loop'', 0, 1) WITH NOWAIT;
 
-									WHILE (@RC > 0)
+									WHILE EXISTS (
+												SELECT 1
+												FROM msdb.dbo.backupset b
+												WHERE NOT EXISTS (
+													SELECT 1 
+													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+													WHERE b.backup_set_uuid = b2.backup_set_uuid
+																)
+												)
 									BEGIN
-									
-										SELECT @NextDateMax = MIN(b.backup_start_date)
-										FROM msdb.dbo.backupset b
-										WHERE NOT EXISTS (
-											SELECT 1 
-											FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
-											WHERE b.backup_set_uuid = b2.backup_set_uuid
-														)
-										AND b.backup_start_date > @HighestDateProcessed
 										
-									SET @msg = N''Inserting data for '' + CONVERT(NVARCHAR(30), @HighestDateProcessed) + '' through '' +  + CONVERT(NVARCHAR(30), @NextDateMax) + ''.''
-									RAISERROR(@msg, 0, 1) WITH NOWAIT
-										
-										
+									SET @msg = N''Inserting data for '' + CONVERT(NVARCHAR(30), @StartDate) + '' through '' +  + CONVERT(NVARCHAR(30), @StartDateNext) + ''.''
+									RAISERROR(@msg, 0, 1) WITH NOWAIT																			
 										'
 
 		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset' + @crlf;
@@ -1247,23 +1259,30 @@ END
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data'  + @crlf;
 		SET @StringToExecute +=N'FROM msdb.dbo.backupset b
 								 WHERE 1=1
-								 AND b.backup_start_date >= @HighestDateProcessed
-								 AND b.backup_start_date < DATEADD(MINUTE, 10, @NextDateMax)'  + @crlf;
+								 AND b.backup_start_date >= @StartDate
+								 AND b.backup_start_date < @StartDateNext
+								 AND NOT EXISTS (
+										SELECT 1 
+										FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+										WHERE b.backup_set_uuid = b2.backup_set_uuid
+													)'  + @crlf;
 
 
 		SET @StringToExecute +=N'
 								 SET @RC = @@ROWCOUNT;
-								 SET @HighestDateProcessed = @NextDateMax;									
-								 
-								SET @msg = N''Inserted '' + CONVERT(NVARCHAR(30), @RC) + '' rows for ''+ CONVERT(NVARCHAR(30), @HighestDateProcessed) + '' through '' +  + CONVERT(NVARCHAR(30), @NextDateMax) + ''.''
+								 								
+								SET @msg = N''Inserted '' + CONVERT(NVARCHAR(30), @RC) + '' rows for ''+ CONVERT(NVARCHAR(30), @StartDate) + '' through '' + CONVERT(NVARCHAR(30), @StartDateNext) + ''.''
 								RAISERROR(@msg, 0, 1) WITH NOWAIT
 								 
+								 SET @StartDate = @StartDateNext;
+								 SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
+
 								 END'  + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sp_executesql @StringToExecute;
+	EXEC sp_executesql @StringToExecute, N'@i_WriteBackupsLastHours INT', @i_WriteBackupsLastHours = @WriteBackupsLastHours;
 
 		--Columns we use from backupset
 		--database_name, database_guid, backup_set_id, full_backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, compressed_backup_size, recovery_model, first_lsn, last_lsn, user_name, compatibility_level, is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data
