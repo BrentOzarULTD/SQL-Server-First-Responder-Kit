@@ -798,7 +798,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	SELECT   r.*,
              t.[0], t.[-1], t.[-2], t.[-3], t.[-4], t.[-5], t.[-6], t.[-7], t.[-8], t.[-9], t.[-10], t.[-11], t.[-12]
 		FROM #Recoverability AS r
-		JOIN #Trending t
+		LEFT JOIN #Trending t
 		ON r.DatabaseName = t.DatabaseName
 		AND r.DatabaseGUID = t.DatabaseGUID	
 		ORDER BY r.DatabaseName
@@ -1283,14 +1283,6 @@ END
 		PRINT @StringToExecute;
 
 	EXEC sp_executesql @StringToExecute, N'@i_WriteBackupsLastHours INT', @i_WriteBackupsLastHours = @WriteBackupsLastHours;
-
-		--Columns we use from backupset
-		--database_name, database_guid, backup_set_id, full_backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, compressed_backup_size, recovery_model, first_lsn, last_lsn, user_name, compatibility_level, is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data
-
-		--Columns we use from backupfile 
-		--backup_set_id, file_type,  
-
-
 
 END;
 
