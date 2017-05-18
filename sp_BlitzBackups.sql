@@ -188,8 +188,8 @@ CREATE TABLE #Recoverability
 		AvgFullSize BIGINT,
 		AvgDiffSize BIGINT,
 		AvgLogSize BIGINT,
-		IsBigDiff AS CASE WHEN (AvgFullSize - AvgDiffSize) * .01 > .40 THEN 1 ELSE 0 END,
-		IsBigLog AS CASE WHEN (AvgFullSize - AvgLogSize) * .01 > .20 THEN 1 ELSE 0 END
+		IsBigDiff AS CASE WHEN (AvgFullSize - AvgDiffSize) * .01 > .40 AND (AvgFullSize > 1073741824)  THEN 1 ELSE 0 END,
+		IsBigLog AS CASE WHEN (AvgFullSize - AvgLogSize) * .01 > .20 AND (AvgFullSize > 1073741824) THEN 1 ELSE 0 END
 	);
 
 CREATE TABLE #Trending
@@ -542,10 +542,24 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 								  AND rpNewer.database_guid IS NULL
 								)
 								UPDATE #Backups
-										SET RTOWorstCaseMinutes = CASE WHEN @RestoreSpeedFullMBps IS NULL 
-																	   THEN wc.rto_worst_case_time_seconds / 60.0
-																	   ELSE @RestoreSpeedFullMBps / wc.rto_worst_case_size_mb
-																	   END
+										SET RTOWorstCaseMinutes = 
+                                                                    /* Fulls */
+                                                                    (CASE WHEN @RestoreSpeedFullMBps IS NULL 
+																	   THEN wc.full_time_seconds / 60.0
+																	   ELSE @RestoreSpeedFullMBps / wc.full_file_size_mb
+																	   END)
+
+                                                                    /* Diffs, which might not have been taken */
+                                                                    + (CASE WHEN @RestoreSpeedDiffMBps IS NOT NULL AND wc.diff_file_size_mb IS NOT NULL
+                                                                        THEN @RestoreSpeedDiffMBps / wc.diff_file_size_mb
+                                                                        ELSE COALESCE(wc.diff_time_seconds,0) / 60.0
+                                                                        END)
+
+                                                                    /* Logs, which might not have been taken */
+                                                                    + (CASE WHEN @RestoreSpeedLogMBps IS NOT NULL AND wc.log_file_size_mb IS NOT NULL
+                                                                        THEN @RestoreSpeedLogMBps / wc.log_file_size_mb
+                                                                        ELSE COALESCE(wc.log_time_seconds,0) / 60.0
+                                                                        END)
 								        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
 								FROM #Backups b
 								INNER JOIN WorstCases wc 
@@ -556,7 +570,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute, N'@RestoreSpeedFullMBps INT', @RestoreSpeedFullMBps;
+	EXEC sys.sp_executesql @StringToExecute, N'@RestoreSpeedFullMBps INT, @RestoreSpeedDiffMBps INT, @RestoreSpeedLogMBps INT', @RestoreSpeedFullMBps, @RestoreSpeedDiffMBps, @RestoreSpeedLogMBps;
 
 
 
@@ -790,7 +804,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		''Non-Agent backups taken'' AS [Finding], 
 		''The database '' + QUOTENAME(b.database_name) + '' has been backed up by '' + QUOTENAME(b.user_name) + '' '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
-	WHERE  b.user_name NOT LIKE ''%Agent%'' 
+	WHERE  b.user_name NOT LIKE ''%Agent%'' AND b.user_name NOT LIKE ''%AGENT%'' 
 	GROUP BY b.database_name, b.user_name;' + @crlf;
 
 	IF @Debug = 1
