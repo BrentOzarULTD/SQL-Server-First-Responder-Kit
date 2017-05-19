@@ -14,7 +14,6 @@ ALTER PROCEDURE [dbo].[sp_BlitzBackups]
 	@WriteBackupsToListenerName NVARCHAR(256) = NULL,
     @WriteBackupsToDatabaseName NVARCHAR(256) = NULL,
     @WriteBackupsLastHours INT = 168,
-	@WriteBackupsBatchSize INT = 5000,
     @VersionDate DATE = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -1248,16 +1247,20 @@ END
 										
 									SET @msg = N''Inserting data for '' + CONVERT(NVARCHAR(30), @StartDate) + '' through '' +  + CONVERT(NVARCHAR(30), @StartDateNext) + ''.''
 									RAISERROR(@msg, 0, 1) WITH NOWAIT																			
+										
 										'
 
-		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset' + @crlf;
+		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset
+									' 
 		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data)' + @crlf;
-		SET @StringToExecute +=N'SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
+		SET @StringToExecute +=N'
+									SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data'  + @crlf;
-		SET @StringToExecute +=N'FROM msdb.dbo.backupset b
+		SET @StringToExecute +=N'
+								 FROM msdb.dbo.backupset b
 								 WHERE 1=1
 								 AND b.backup_start_date >= @StartDate
 								 AND b.backup_start_date < @StartDateNext
