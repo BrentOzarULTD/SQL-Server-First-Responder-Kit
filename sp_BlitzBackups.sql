@@ -1100,14 +1100,14 @@ DECLARE @RemoteCheck TABLE (c INT NULL);
 
 /*
 	@AGName NVARCHAR(256) NULL,
-	@MSDBName NVARCHAR(256) = 'msdb',
+	@WriteBackupsToDatabaseName NVARCHAR(256) = 'msdb',
 	@WriteBackupsToListenerName NVARCHAR(256),
     @WriteBackupsToDatabaseName NVARCHAR(256),
     @WriteBackupsLastHours INT = 24,
 	@WriteBackupsBatchSize INT = 5000,
 */
 
-IF LOWER(@MSDBName) = N'msdb'
+IF LOWER(@WriteBackupsToDatabaseName) = N'msdb'
 	BEGIN
 	RAISERROR('We can''t write to the real msdb, we have to write to a fake msdb.', 0, 1) WITH NOWAIT
 	RETURN;
@@ -1149,17 +1149,17 @@ END
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.master.sys.databases d WHERE d.name = @i_MSDBName;'
+							+ QUOTENAME(@WriteBackupsToListenerName) + '.master.sys.databases d WHERE d.name = @i_WriteBackupsToDatabaseName;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
 	INSERT @RemoteCheck (c)
-	EXEC sp_executesql @StringToExecute, N'@i_MSDBName NVARCHAR(256)', @i_MSDBName = @MSDBName;
+	EXEC sp_executesql @StringToExecute, N'@i_MSDBName NVARCHAR(256)', @i_WriteBackupsToDatabaseName = @WriteBackupsToDatabaseName;
 
 	IF @@ROWCOUNT = 0
 		BEGIN
-		SET @msg = N'The database ' + @MSDBName + N' doesn''t appear to exist on that server.'
+		SET @msg = N'The database ' + @WriteBackupsToDatabaseName + N' doesn''t appear to exist on that server.'
 		RAISERROR(@msg, 0, 1) WITH NOWAIT
 		RETURN;
 		END
@@ -1168,7 +1168,7 @@ END
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@MSDBName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';'
+							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1178,25 +1178,7 @@ END
 
 	IF @@ROWCOUNT = 0
 		BEGIN
-		SET @msg = N'The database ' + @MSDBName + N' doesn''t appear to have a table called dbo.backupset in it.'
-		RAISERROR(@msg, 0, 1) WITH NOWAIT
-		RETURN;
-		END
-
-	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
-
-	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@MSDBName) + '.sys.tables WHERE NAME = ''backupfile'' AND SCHEMA_NAME(schema_id) = ''dbo'';'
-
-	IF @Debug = 1
-		PRINT @StringToExecute;
-
-	INSERT @RemoteCheck (c)
-	EXEC sp_executesql @StringToExecute;
-
-	IF @@ROWCOUNT = 0
-		BEGIN
-		SET @msg = N'The database ' + @MSDBName + N' doesn''t appear to have a table called dbo.backupfile in it.'
+		SET @msg = N'The database ' + @WriteBackupsToDatabaseName + N' doesn''t appear to have a table called dbo.backupset in it.'
 		RAISERROR(@msg, 0, 1) WITH NOWAIT
 		RETURN;
 		END
@@ -1225,7 +1207,7 @@ END
 									WHERE b.backup_start_date >= @StartDate
 									AND  NOT EXISTS (
 													SELECT 1 
-													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
 													AND b.backup_start_date >= @StartDate
 													)
@@ -1239,7 +1221,7 @@ END
 												FROM msdb.dbo.backupset b
 												WHERE NOT EXISTS (
 													SELECT 1 
-													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
 																)
 												)
@@ -1250,7 +1232,7 @@ END
 										
 										'
 
-		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset
+		SET @StringToExecute += N'INSERT ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
 									' 
 		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
@@ -1266,7 +1248,7 @@ END
 								 AND b.backup_start_date < @StartDateNext
 								 AND NOT EXISTS (
 										SELECT 1 
-										FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@MSDBName) + N'.dbo.backupset b2
+										FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 										WHERE b.backup_set_uuid = b2.backup_set_uuid
 													)'  + @crlf;
 
