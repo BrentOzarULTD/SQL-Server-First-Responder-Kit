@@ -1262,13 +1262,15 @@ END
 		CREATE NONCLUSTERED INDEX ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[backupsetDatabaseName] ON [dbo].[backupset] ([database_name] ASC ) INCLUDE ([backup_set_id], [media_set_id]) 
 		END
 
+		RAISERROR(''Table and indexes created! You''re welcome!'', 0, 1) WITH NOWAIT
+
 		'
 
 		EXEC sp_executesql @StringToExecute;
 
 		END
 
-		RAISERROR('All tests passed, beginning inserts', 0, 1) WITH NOWAIT;
+		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
 		RAISERROR(@crlf, 0, 1) WITH NOWAIT;
 
 		/*
