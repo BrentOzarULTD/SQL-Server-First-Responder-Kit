@@ -17,6 +17,7 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
    - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
+ - [sp_BlitzBackups](#sp-blitzbackups)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -209,7 +210,7 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 [*Back to top*](#header1)
 
 =======
-## DatabaseRestore: Easier Multi-File Restores
+## sp_DatabaseRestore: Easier Multi-File Restores
 
 If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
 
@@ -219,13 +220,50 @@ Parameters include:
 * @RestoreDatabaseName
 * @BackupPathFull
 * @BackupPathLog
-* @MoveFiles, @MOveDataDrive, @MoveLogDrive
+* @MoveFiles, @MoveDataDrive, @MoveLogDrive
 * @TestRestore
 * @RunCheckDB
 * @ContinueLogs
 * @RunRecovery
 
 For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
+>>>>>>> refs/remotes/origin/dev
+
+<<<<<<< HEAD
+[*Back to top*](#header1)
+
+=======
+## sp_BlitzBackups
+
+Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
+
+Parameters include:
+
+* @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
+* @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
+* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
+* @RestoreSpeedDiffMBps -- Nothing yet
+* @RestoreSpeedLogMBps -- Nothing yet
+
+* @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
+* @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
+* @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.
+* @WriteBackupsLastHours -- How many hours in the past you want to move data for. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+
+An example run of sp_BlitzBackups to push data looks like this:
+
+```
+EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
+                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
+                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
+                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
+```
+
+In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by Michael J. Swart (michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
+
+The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
+	
 >>>>>>> refs/remotes/origin/dev
 
 ## Parameters Common to Many of the Stored Procedures
