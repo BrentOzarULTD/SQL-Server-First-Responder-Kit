@@ -1175,7 +1175,7 @@ END
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
+							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE name = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
 							' + @crlf;
 
 	IF @Debug = 1
@@ -1199,7 +1199,7 @@ END
 								 WHERE 1 = 2
 								 ' + @crlf;
 		
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
@@ -1228,7 +1228,7 @@ END
 		END
 		'
 
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''PK[_][_]%'' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''PK[_][_]%'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
@@ -1255,7 +1255,7 @@ END
 		END
 		'
 
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetuuid'' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetuuid'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
@@ -1282,7 +1282,7 @@ END
 		END
 		'
 
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetMediaSetId'' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetMediaSetId'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
@@ -1309,7 +1309,7 @@ END
 		END
 		'
 
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDate'' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDate'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
@@ -1337,16 +1337,16 @@ END
 
 		'
 
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDatabaseName'' ) AT ' + @WriteBackupsToListenerName + N';'
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDatabaseName'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
 	
 	IF @Debug = 1
 		PRINT @InnerStringToExecute;		
 		
 		EXEC sp_executesql @InnerStringToExecute
 
+		RAISERROR('Table and indexes created! You''re welcome!', 0, 1) WITH NOWAIT
 		END
 
-		RAISERROR('Table and indexes created! You''re welcome!', 0, 1) WITH NOWAIT
 
 		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
 		RAISERROR(@crlf, 0, 1) WITH NOWAIT;
