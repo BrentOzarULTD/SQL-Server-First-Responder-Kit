@@ -1374,10 +1374,19 @@ END
 													SELECT 1 
 													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
-													AND b.backup_start_date >= @StartDate
+													AND b2.backup_start_date >= @StartDate
 													)
 
 									SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
+
+								 IF
+									( @StartDate IS NULL )
+										BEGIN
+											SET @msg = N''No data to move, exiting.''
+											RAISERROR(@msg, 0, 1) WITH NOWAIT	
+
+											RETURN;
+										END
 
 									RAISERROR(''Starting insert loop'', 0, 1) WITH NOWAIT;
 
@@ -1431,8 +1440,14 @@ END
 
 								 IF
 									( @StartDate > SYSDATETIME() )
+										BEGIN
+											
+											SET @msg = N''No more data to move, exiting.''
+											RAISERROR(@msg, 0, 1) WITH NOWAIT	
+											
 											BREAK;
 
+										END
 								 END'  + @crlf;
 
 	IF @Debug = 1
