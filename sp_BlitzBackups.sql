@@ -1427,6 +1427,10 @@ END
 								 SET @StartDate = @StartDateNext;
 								 SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
 
+								 IF
+									( @StartDate > SYSDATETIME() )
+											BREAK;
+
 								 END'  + @crlf;
 
 	IF @Debug = 1
