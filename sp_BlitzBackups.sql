@@ -1388,6 +1388,7 @@ END
 													SELECT 1 
 													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
+													AND b2.backup_start_date >= @StartDate
 																)
 												)
 									BEGIN
@@ -1415,6 +1416,7 @@ END
 										SELECT 1 
 										FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 										WHERE b.backup_set_uuid = b2.backup_set_uuid
+										AND b2.backup_start_date >= @StartDate
 													)'  + @crlf;
 
 
