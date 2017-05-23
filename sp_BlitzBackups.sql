@@ -738,52 +738,53 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 		PRINT @StringToExecute;
 
 	EXEC sys.sp_executesql @StringToExecute;
+	
+/*Trending - only works if backupfile is populated, which means in msdb */
+IF @MSDBName = 'msdb'
+BEGIN
+	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
 
-/*Trending*/
+	SET @StringToExecute += N'
+							SELECT  p.DatabaseName,
+									p.DatabaseGUID,
+									p.[0],
+									p.[-1],
+									p.[-2],
+									p.[-3],
+									p.[-4],
+									p.[-5],
+									p.[-6],
+									p.[-7],
+									p.[-8],
+									p.[-9],
+									p.[-10],
+									p.[-11],
+									p.[-12]
+								FROM ( SELECT b.database_name AS DatabaseName,
+											  b.database_guid AS DatabaseGUID,
+											  DATEDIFF(MONTH, @StartTime, b.backup_start_date) AS MonthsAgo ,
+											  CONVERT(DECIMAL(18, 2), AVG(bf.file_size / 1048576.0)) AS AvgSizeMB
+										FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b 
+										INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupfile AS bf
+										ON b.backup_set_id = bf.backup_set_id
+										WHERE b.database_name NOT IN ( ''master'', ''msdb'', ''model'', ''tempdb'' )
+										AND bf.file_type = ''D''
+										AND b.backup_start_date >= DATEADD(YEAR, -1, @StartTime)
+										AND b.backup_start_date <= SYSDATETIME()
+										GROUP BY b.database_name,
+												 b.database_guid,	
+												 DATEDIFF(mm, @StartTime, b.backup_start_date)
+									 ) AS bckstat PIVOT ( SUM(bckstat.AvgSizeMB) FOR bckstat.MonthsAgo IN ( [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] ) ) AS p
+								ORDER BY p.DatabaseName;
+								'
 
-SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
+		IF @Debug = 1
+			PRINT @StringToExecute;
 
-SET @StringToExecute += N'
-						SELECT  p.DatabaseName,
-								p.DatabaseGUID,
-								p.[0],
-								p.[-1],
-								p.[-2],
-								p.[-3],
-								p.[-4],
-								p.[-5],
-								p.[-6],
-								p.[-7],
-								p.[-8],
-								p.[-9],
-								p.[-10],
-								p.[-11],
-								p.[-12]
-							FROM ( SELECT b.database_name AS DatabaseName,
-										  b.database_guid AS DatabaseGUID,
-										  DATEDIFF(MONTH, @StartTime, b.backup_start_date) AS MonthsAgo ,
-										  CONVERT(DECIMAL(18, 2), AVG(bf.file_size / 1048576.0)) AS AvgSizeMB
-									FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b 
-									INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupfile AS bf
-									ON b.backup_set_id = bf.backup_set_id
-									WHERE b.database_name NOT IN ( ''master'', ''msdb'', ''model'', ''tempdb'' )
-									AND bf.file_type = ''D''
-									AND b.backup_start_date >= DATEADD(YEAR, -1, @StartTime)
-									AND b.backup_start_date <= SYSDATETIME()
-									GROUP BY b.database_name,
-											 b.database_guid,	
-											 DATEDIFF(mm, @StartTime, b.backup_start_date)
-								 ) AS bckstat PIVOT ( SUM(bckstat.AvgSizeMB) FOR bckstat.MonthsAgo IN ( [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] ) ) AS p
-							ORDER BY p.DatabaseName;
-							'
+		INSERT #Trending ( DatabaseName, DatabaseGUID, [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] )
+		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
-	IF @Debug = 1
-		PRINT @StringToExecute;
-
-	INSERT #Trending ( DatabaseName, DatabaseGUID, [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] )
-	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
-
-
+END
 
 /*End Trending*/
 
