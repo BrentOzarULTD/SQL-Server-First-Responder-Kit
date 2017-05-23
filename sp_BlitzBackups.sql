@@ -90,7 +90,8 @@ AS
 	*/';
 ELSE
 BEGIN
-DECLARE @StringToExecute NVARCHAR(MAX), 
+DECLARE @StringToExecute NVARCHAR(MAX) = N'', 
+		@InnerStringToExecute NVARCHAR(MAX) = N'',
 		@ProductVersion NVARCHAR(128), 
 		@ProductVersionMajor DECIMAL(10, 2),
         @ProductVersionMinor DECIMAL(10, 2), 
@@ -1107,6 +1108,12 @@ DECLARE @RemoteCheck TABLE (c INT NULL);
 	@WriteBackupsBatchSize INT = 5000,
 */
 
+IF @WriteBackupsToDatabaseName IS NULL
+	BEGIN
+	RAISERROR('@WriteBackupsToDatabaseName can''t be NULL.', 0, 1) WITH NOWAIT
+	RETURN;
+	END
+
 IF LOWER(@WriteBackupsToDatabaseName) = N'msdb'
 	BEGIN
 	RAISERROR('We can''t write to the real msdb, we have to write to a fake msdb.', 0, 1) WITH NOWAIT
@@ -1168,7 +1175,8 @@ END
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';'
+							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
+							' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1178,20 +1186,29 @@ END
 
 	IF @@ROWCOUNT = 0
 		BEGIN
+
 		SET @msg = N'The database ' + @WriteBackupsToDatabaseName + N' doesn''t appear to have a table called dbo.backupset in it.'
 		RAISERROR(@msg, 0, 1) WITH NOWAIT
 		RAISERROR('Don''t worry, we''ll create it for you!', 0, 1) WITH NOWAIT
 		
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-		SET @StringToExecute += 'SELECT TOP 1 *
-								 INTO ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
-								 FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.msdb.dbo.backupset
+		SET @StringToExecute += N'SELECT TOP 1 *
+								 INTO ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
+								 FROM ' + N'msdb.dbo.backupset
 								 WHERE 1 = 2
-								 '
-		EXEC sp_executesql @StringToExecute;
+								 ' + @crlf;
+		
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
 
 		RAISERROR('We''ll even make the indexes!', 0, 1) WITH NOWAIT
+
+		/*Checking for and creating the PK/CX*/
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
@@ -1199,76 +1216,137 @@ END
 		
 		IF NOT EXISTS (
 		SELECT t.name, i.name
-		FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
-		JOIN ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
 		ON t.object_id = i.object_id
-		WHERE t.name = ''backupset''
-		AND i.name LIKE ''PK[_][_]%''
+		WHERE t.name = ?
+		AND i.name LIKE ?
 		)
 
 		BEGIN
-		ALTER TABLE ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD PRIMARY KEY CLUSTERED ([backup_set_id] ASC)
+		ALTER TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD PRIMARY KEY CLUSTERED ([backup_set_id] ASC)
 		END
+		'
 
-		IF NOT EXISTS (
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''PK[_][_]%'' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+
+
+		/*Checking for and creating index on backup_set_uuid*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
 		SELECT t.name, i.name
-		FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
-		JOIN ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
 		ON t.object_id = i.object_id
-		WHERE t.name = ''backupset''
-		AND i.name = ''backupsetuuid''
+		WHERE t.name = ?
+		AND i.name = ?
 		)
 
 		BEGIN
-		CREATE NONCLUSTERED INDEX ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[backupsetuuid] ON [dbo].[backupset] ([backup_set_uuid] ASC)
+		CREATE NONCLUSTERED INDEX [backupsetuuid] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([backup_set_uuid] ASC)
 		END
+		'
 
-		IF NOT EXISTS (
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetuuid'' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute		
+		
+		
+		
+		/*Checking for and creating index on media_set_id*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
 		SELECT t.name, i.name
-		FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
-		JOIN ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
 		ON t.object_id = i.object_id
-		WHERE t.name = ''backupset''
-		AND i.name = ''backupsetMediaSetId''
+		WHERE t.name = ?
+		AND i.name = ?
 		)
 
 		BEGIN
-		CREATE NONCLUSTERED INDEX ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[backupsetMediaSetId] ON [dbo].[backupset] ([media_set_id] ASC)
+		CREATE NONCLUSTERED INDEX [backupsetMediaSetId] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([media_set_id] ASC)
 		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetMediaSetId'' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+		
 				
-		IF NOT EXISTS (
+				
+		/*Checking for and creating index on backup_finish_date*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
 		SELECT t.name, i.name
-		FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
-		JOIN ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
 		ON t.object_id = i.object_id
-		WHERE t.name = ''backupset''
-		AND i.name = ''backupsetDate''
+		WHERE t.name = ?
+		AND i.name = ?
 		)
 
 		BEGIN
-		CREATE NONCLUSTERED INDEX ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[backupsetDate] ON [dbo].[backupset] ([backup_finish_date] ASC)
+		CREATE NONCLUSTERED INDEX [backupsetDate] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([backup_finish_date] ASC)
 		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDate'' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+
 			
-		IF NOT EXISTS (
+		/*Checking for and creating index on database_name*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
 		SELECT t.name, i.name
-		FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
-		JOIN ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
 		ON t.object_id = i.object_id
-		WHERE t.name = ''backupset''
-		AND i.name = ''backupsetDatabaseName''
+		WHERE t.name = ?
+		AND i.name = ?
 		)
 
 		BEGIN				
-		CREATE NONCLUSTERED INDEX ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[backupsetDatabaseName] ON [dbo].[backupset] ([database_name] ASC ) INCLUDE ([backup_set_id], [media_set_id]) 
+		CREATE NONCLUSTERED INDEX [backupsetDatabaseName] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([database_name] ASC ) INCLUDE ([backup_set_id], [media_set_id]) 
 		END
-
-		RAISERROR(''Table and indexes created! You''re welcome!'', 0, 1) WITH NOWAIT
 
 		'
 
-		EXEC sp_executesql @StringToExecute;
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDatabaseName'' ) AT ' + @WriteBackupsToListenerName + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
 
 		END
+
+		RAISERROR('Table and indexes created! You''re welcome!', 0, 1) WITH NOWAIT
 
 		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
 		RAISERROR(@crlf, 0, 1) WITH NOWAIT;
