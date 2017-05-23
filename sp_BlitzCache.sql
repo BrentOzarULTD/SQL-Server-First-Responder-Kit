@@ -201,6 +201,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		table_dml BIT,
 		long_running_low_cpu BIT,
 		low_cost_high_cpu BIT,
+		old_stats BIT, 
+		mod_stats BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -868,6 +870,8 @@ BEGIN
 		table_dml BIT,
 		long_running_low_cpu BIT,
 		low_cost_high_cpu BIT,
+		old_stats BIT, 
+		mod_stats BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2517,6 +2521,7 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+/* 2012+ only */
 IF @v >= 11
 BEGIN
 
@@ -2548,6 +2553,7 @@ BEGIN
 
 END
 
+/* 2014+ only */
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2561,6 +2567,7 @@ BEGIN
 	OPTION (RECOMPILE) ;
 END ;
 
+/* 2016+ only */
 IF @v >= 13
 BEGIN
     RAISERROR('Checking for row level security in 2016 only', 0, 1) WITH NOWAIT;
@@ -2574,6 +2581,51 @@ BEGIN
 	AND statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 	OPTION (RECOMPILE) ;
 END ;
+
+/* 2017+ only */
+IF @v >= 14
+BEGIN
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+SELECT qp.QueryHash,
+	   qp.SqlHandle,
+	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
+	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
+	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
+	   x.c.value('@Statistics', 'NVARCHAR(256)') AS [Statistics], 
+	   x.c.value('@Table', 'NVARCHAR(256)') AS [Table], 
+	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
+	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
+INTO #stats_agg
+FROM #query_plan AS qp
+CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
+
+WITH  old_stats AS (
+	SELECT sa.SqlHandle, MIN(sa.LastUpdate) AS oldest_update, AVG(sa.ModificationCount) AS avg_mods
+	FROM #stats_agg AS sa
+	GROUP BY sa.SqlHandle
+	HAVING MIN(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+)
+UPDATE b
+SET old_stats = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN old_stats os
+ON b.SqlHandle = os.SqlHandle
+
+WITH mod_stats AS (
+	SELECT sa.SqlHandle, MIN(sa.LastUpdate) AS oldest_update, AVG(sa.ModificationCount) AS avg_mods
+	FROM #stats_agg AS sa
+	GROUP BY sa.SqlHandle
+	HAVING AVG(sa.ModificationCount) >= 100000
+)
+UPDATE b
+SET mod_stats = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN old_stats os
+ON b.SqlHandle = os.SqlHandle
+
+
+END
 
 -- query level checks
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
@@ -2939,7 +2991,7 @@ SELECT  DISTINCT
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
 				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END + 
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
+				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4130,6 +4182,8 @@ BEGIN
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 END
+
+RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
 AllSorts:
