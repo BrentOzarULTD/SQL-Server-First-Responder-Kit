@@ -2103,10 +2103,10 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 unparameterized_query AS (
 	SELECT s.QueryHash,
 		   unparameterized_query = CASE WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 1 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
-                                     WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
-                                          statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
-                                END
+                                             statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList/p:ColumnReference') = 0 THEN 1
+                                        WHEN statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/p:QueryPlan/p:ParameterList') = 0 AND
+                                             statement.exist('//p:StmtSimple[@StatementOptmLevel[.="FULL"]]/*/p:RelOp/descendant::p:ScalarOperator/p:Identifier/p:ColumnReference[contains(@Column, "@")]') = 1 THEN 1
+                                   END
 	FROM #statements AS s
 			)
 UPDATE b
@@ -2124,8 +2124,8 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 index_dml AS (
 	SELECT	s.QueryHash,	
 			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]') = 1 THEN 1
-								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
-								 END
+							 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
+						END
 	FROM    #statements s
 			)
 	UPDATE b
@@ -2163,7 +2163,7 @@ SELECT  DISTINCT
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryPlanHash
 INTO #plan_cost
-FROM    #statements s
+FROM #statements s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
 OPTION (RECOMPILE);
@@ -2222,6 +2222,7 @@ UPDATE b
 SET b.QueryPlanCost = 0.0
 FROM ##bou_BlitzCacheProcs b
 WHERE b.QueryPlanCost IS NULL
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
@@ -2600,19 +2601,20 @@ INTO #stats_agg
 FROM #query_plan AS qp
 CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
 
-RAISERROR('Checking for', 0, 1) WITH NOWAIT;
+RAISERROR('Checking for stale stats', 0, 1) WITH NOWAIT;
 WITH  stale_stats AS (
 	SELECT sa.SqlHandle
 	FROM #stats_agg AS sa
 	GROUP BY sa.SqlHandle
-	HAVING MIN(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
 	AND AVG(sa.ModificationCount) >= 100000
 )
 UPDATE b
 SET stale_stats = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN stale_stats os
-ON b.SqlHandle = os.SqlHandle;
+ON b.SqlHandle = os.SqlHandle
+AND b.SPID = @@SPID;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 aj AS (
@@ -2626,7 +2628,8 @@ UPDATE b
 SET b.is_adaptive = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN aj
-ON b.SqlHandle = aj.SqlHandle;
+ON b.SqlHandle = aj.SqlHandle
+AND b.SPID = @@SPID;
 
 END
 
@@ -2847,10 +2850,8 @@ RAISERROR('Checking for forced parameterization and cursors.', 0, 1) WITH NOWAIT
 
 /* Set options checks */
 UPDATE p
-       SET is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1
-       END ,
-       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 
-       END ,
+       SET is_forced_parameterized = CASE WHEN (CAST(pa.value AS INT) & 131072 = 131072) THEN 1 END ,
+       is_forced_plan = CASE WHEN (CAST(pa.value AS INT) & 4 = 4) THEN 1 END ,
        SetOptions = SUBSTRING(
                     CASE WHEN (CAST(pa.value AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
                     CASE WHEN (CAST(pa.value AS INT) & 8 = 8) THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
@@ -2934,10 +2935,10 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', an Adaptive Join was used -- cool.' ELSE '' END				   
+				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
                   , 2, 200000) 
 WHERE SPID = @@SPID
-				  OPTION (RECOMPILE) ;
+OPTION (RECOMPILE) ;
 
 
 RAISERROR('Populating Warnings column for stored procedures', 0, 1) WITH NOWAIT;
@@ -2998,7 +2999,7 @@ SELECT  DISTINCT
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END + 
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', an Adaptive Join was used -- cool.' ELSE '' END
+				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3010,6 +3011,7 @@ FROM ##bou_BlitzCacheProcs AS b
 JOIN statement_warnings s
 ON b.SqlHandle = s.SqlHandle
 WHERE QueryType LIKE 'Procedure or Function%'
+AND SPID = @@SPID
 OPTION(RECOMPILE);
 
 RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;	
@@ -4103,7 +4105,7 @@ BEGIN
   					AND SPID = @@SPID)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     51,
+                     52,
                      150,
                      'Biblical Statistics',
                      'Statistics used in queries are >7 days old with >100k modifications',
@@ -4116,13 +4118,34 @@ BEGIN
   					AND SPID = @@SPID)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     51,
+                     53,
                      150,
                      'Adaptive joins',
-                     'This isn''t good or bad, I just want to find out if it''s happening.',
+                     'This is pretty cool -- you''re living in the future.',
                      'No URL yet',
-                     'Joe Sack rules.') ;
-					 
+                     'Joe Sack rules.') ;					 
+
+		IF @v >= 14
+			BEGIN	
+
+				INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+				SELECT 
+				@@SPID,
+				999,
+				200,
+				'Database Level Statistics',
+				'The database ' + sa.[Database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.LastUpdate))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.ModificationCount)) + ' modifications on average.' AS [Finding],
+				'' AS URL,
+				'Consider updating statistics more frequently,' AS [Details]
+				FROM #stats_agg AS sa
+				GROUP BY sa.[Database]
+				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+				AND AVG(sa.ModificationCount) >= 100000
+
+
+			END 
+
+
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
                    WHERE (p.percent_24 > 0)
@@ -4132,7 +4155,7 @@ BEGIN
                     999,
                     254,
                     'Plan Cache Information',
-                    'You have ' + CONVERT(NVARCHAR(10), p.percent_24) + '% plans created in the past 24 hours, ' + CONVERT(NVARCHAR(10), p.percent_4) + '% created in the past 4 hours, and ' + CONVERT(NVARCHAR(10), p.percent_1) + '% created in the past 1 hour.',
+                    'You have ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_24, 0)) + '% plans created in the past 24 hours, ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_4, 0)) + '% created in the past 4 hours, and ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_1, 0)) + '% created in the past 1 hour.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
@@ -4163,10 +4186,10 @@ BEGIN
                     999,
                     255,
                     'Plan Cache Information',
-                    'Your plan cache has ' + CONVERT(NVARCHAR(10), p.total_plan_stubs) + ' plan stubs, with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
+                    'Your plan cache has ' + CONVERT(NVARCHAR(10), ISNULL(p.total_plan_stubs, 0)) + ' plan stubs, with an average age of ' + CONVERT(NVARCHAR(10),ISNULL(p.avg_plan_age, 0)) + ' minutes.',
                     'https://www.brentozar.com/blitz/poison-wait-detected/',
                     'A high number of plan stubs may result in CMEMTHREAD waits, which you have ' 
-						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (dows.wait_time_ms / 60000.)) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
+						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (ISNULL(dows.wait_time_ms / 60000., 0))) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
 			FROM   #plan_stubs_warning p	;			
 		
 		IF @v >= 11
@@ -4185,6 +4208,7 @@ BEGIN
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 		END 
 
+
         IF NOT EXISTS (SELECT 1/0
 					   FROM   ##bou_BlitzCacheResults AS bcr
                        WHERE  bcr.Priority = 2147483647
@@ -4198,27 +4222,8 @@ BEGIN
                     'http://FirstResponderKit.org',
                     'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + CONVERT(NVARCHAR(30), @VersionDate) + '.') ;
 	
-	END            
+		END            
     
-		IF @v >= 14
-		BEGIN	
-
-		INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-		SELECT 
-		@@SPID,
-		53,
-		250,
-		'Database Level Statistics',
-		'The database ' + sa.[Database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MIN(sa.LastUpdate))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.ModificationCount)) + ' modifications on average.' AS [Finding],
-		'' AS URL,
-		'Consider updating statistics more frequently,' AS [Details]
-		FROM #stats_agg AS sa
-		GROUP BY sa.[Database]
-		HAVING MIN(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
-		AND AVG(sa.ModificationCount) >= 100000
-
-
-		END 
 	
     SELECT  Priority,
             FindingsGroup,
