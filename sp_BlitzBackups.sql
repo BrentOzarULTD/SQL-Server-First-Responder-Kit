@@ -809,7 +809,14 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += N'SELECT 
+	SET @StringToExecute += N'
+							WITH common_people AS (
+									SELECT TOP 1 b.user_name, COUNT_BIG(*) AS Records
+									FROM dbo.backupset AS b
+									GROUP BY b.user_name
+									ORDER BY Records DESC
+													)								
+								SELECT 
 								1 AS CheckId,
 								100 AS [Priority],
 								b.database_name AS [Database Name],
@@ -817,7 +824,13 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 								''The database '' + QUOTENAME(b.database_name) + '' has been backed up by '' + QUOTENAME(b.user_name) + '' '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times.'' AS [Warning]
 							FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							WHERE  b.user_name NOT LIKE ''%Agent%'' AND b.user_name NOT LIKE ''%AGENT%'' 
-							GROUP BY b.database_name, b.user_name;' + @crlf;
+							AND NOT EXISTS (
+											SELECT 1
+											FROM common_people AS cp
+											WHERE cp.user_name = b.user_name
+											)
+							GROUP BY b.database_name, b.user_name
+							HAVING COUNT(*) > 1;' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
