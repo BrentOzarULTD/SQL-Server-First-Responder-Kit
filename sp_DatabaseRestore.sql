@@ -1,3 +1,4 @@
+
 /*
 EXEC dbo.sp_DatabaseRestore 
 	@Database = 'LogShipMe', 
@@ -35,8 +36,7 @@ EXEC dbo.sp_DatabaseRestore
 	@RestoreDiff = 1,
 	@ContinueLogs = 0, 
 	@RunRecovery = 1;
-
--- 
+ 
 EXEC dbo.sp_DatabaseRestore 
 	@Database = 'LogShipMe', 
 	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
@@ -48,6 +48,28 @@ EXEC dbo.sp_DatabaseRestore
 	@TestRestore = 1,
 	@RunCheckDB = 1,
 	@Debug = 0;
+
+--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
+EXEC dbo.sp_DatabaseRestore 
+	@Database = 'DBA', 
+	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
+	@BackupPathDiff = '\\StorageServer\LogShipMe\DIFF\',
+	@BackupPathLog = '\\StorageServer\LogShipMe\LOG\', 
+	@RestoreDiff = 1,
+	@ContinueLogs = 0, 
+	@RunRecovery = 1,
+	@StopAt = '20170508201501',
+	@Debug = 1;
+
+Variables:
+
+@RestoreDiff - This variable is a flag for whether or not the script is expecting to restore differentials
+@StopAt - This variable is used to restore transaction logs to a specific date and time.  The format must be in YYYYMMDDHHMMSS.  The time is in military format.
+
+About Debug Modes:
+
+There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
+has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
 */
 
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
@@ -57,7 +79,7 @@ GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128), @RestoreDatabaseName NVARCHAR(128) = NULL, @BackupPathFull NVARCHAR(MAX), @BackupPathDiff NVARCHAR(MAX), @BackupPathLog NVARCHAR(MAX),
 	  @MoveFiles bit = 0, @MoveDataDrive NVARCHAR(260) = NULL, @MoveLogDrive NVARCHAR(260) = NULL, @TestRestore bit = 0, @RunCheckDB bit = 0, @RestoreDiff bit = 0,
-	  @ContinueLogs bit = 0, @RunRecovery bit = 0, @Debug INT = 0, @VersionDate DATETIME = NULL OUTPUT
+	  @ContinueLogs bit = 0, @RunRecovery bit = 0, @Debug INT = 0, @VersionDate DATETIME = NULL OUTPUT, @StopAt VARCHAR(14) = NULL
 AS
 SET NOCOUNT ON;
 
@@ -65,7 +87,7 @@ SET NOCOUNT ON;
 	SET @Version = '5.3';
 	SET @VersionDate = '20170501';
 
-DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0), @DiffLastLSN NUMERIC(25, 0);
+DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @LastDiffBackupDateTime NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0), @DiffLastLSN NUMERIC(25, 0);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
 
 IF @RestoreDatabaseName IS NULL
@@ -215,9 +237,12 @@ BEGIN
 	PRINT @sql;
   
   EXECUTE (@sql);
-	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0); Commented out for testing
-	SELECT @BackupDateTime = RIGHT(@LastFullBackup, 19)
+
+    --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
+	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '')
+
 	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
+
   IF @Debug = 2
 	PRINT @BackupDateTime                                                
 END;
@@ -245,8 +270,11 @@ FROM @FileList
 WHERE BackupFile LIKE '%.bak'
     AND
     BackupFile LIKE '%'+@Database+'%';
+	--set the @BackupDateTime so that it can be used for comparisons
+	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '')
+	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '')
 
-IF @RestoreDiff = 1 AND @BackupDateTime < RIGHT(@LastDiffBackup, 19)
+IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 BEGIN
 	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathDiff + @LastDiffBackup+ ''' WITH NORECOVERY'+CHAR(13);
 	PRINT @sql;
@@ -259,9 +287,9 @@ BEGIN
 	PRINT @sql;
   
   EXECUTE (@sql);
-	--DECLARE @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0);
-	SELECT @BackupDateTime = RIGHT(@LastDiffBackup, 19)
-	SELECT @DiffLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 5;                                                  
+  --set the @BackupDateTime to the date time on the most recent differential	
+  SET @BackupDateTime = @LastDiffBackupDateTime
+  SELECT @DiffLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 5;                                                  
 END;
 
 --Clear out table variables for translogs
@@ -270,15 +298,29 @@ DELETE FROM @FileList;
 SET @cmd = 'DIR /b "'+ @BackupPathLog + '"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
---check for log backups 
+--check for log backups
+IF(@StopAt IS NULL)
+BEGIN 
 DECLARE BackupFiles CURSOR FOR
 	SELECT BackupFile
 	FROM @FileList
 	WHERE BackupFile LIKE '%.trn'
 	  AND BackupFile LIKE '%'+@Database+'%'
-	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND LEFT(RIGHT(BackupFile, 19), 15) >= @BackupDateTime))
+	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
 	  ORDER BY BackupFile;
 OPEN BackupFiles;
+END
+ELSE
+BEGIN
+DECLARE BackupFiles CURSOR FOR
+	SELECT BackupFile
+	FROM @FileList
+	WHERE BackupFile LIKE '%.trn'
+	  AND BackupFile LIKE '%'+@Database+'%'
+	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
+	  ORDER BY BackupFile;
+OPEN BackupFiles;
+END
 DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
