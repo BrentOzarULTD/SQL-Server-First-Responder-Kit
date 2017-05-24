@@ -201,6 +201,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		table_dml BIT,
 		long_running_low_cpu BIT,
 		low_cost_high_cpu BIT,
+		stale_stats BIT, 
+		is_adaptive BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -868,6 +870,8 @@ BEGIN
 		table_dml BIT,
 		long_running_low_cpu BIT,
 		low_cost_high_cpu BIT,
+		stale_stats BIT, 
+		is_adaptive BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2517,6 +2521,7 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+/* 2012+ only */
 IF @v >= 11
 BEGIN
 
@@ -2548,6 +2553,7 @@ BEGIN
 
 END
 
+/* 2014+ only */
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2561,6 +2567,7 @@ BEGIN
 	OPTION (RECOMPILE) ;
 END ;
 
+/* 2016+ only */
 IF @v >= 13
 BEGIN
     RAISERROR('Checking for row level security in 2016 only', 0, 1) WITH NOWAIT;
@@ -2574,6 +2581,54 @@ BEGIN
 	AND statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 	OPTION (RECOMPILE) ;
 END ;
+
+/* 2017+ only */
+IF @v >= 14
+BEGIN
+
+RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+SELECT qp.SqlHandle,
+	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
+	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
+	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
+	   x.c.value('@Statistics', 'NVARCHAR(256)') AS [Statistics], 
+	   x.c.value('@Table', 'NVARCHAR(256)') AS [Table], 
+	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
+	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
+INTO #stats_agg
+FROM #query_plan AS qp
+CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
+
+RAISERROR('Checking for', 0, 1) WITH NOWAIT;
+WITH  stale_stats AS (
+	SELECT sa.SqlHandle
+	FROM #stats_agg AS sa
+	GROUP BY sa.SqlHandle
+	HAVING MIN(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+	AND AVG(sa.ModificationCount) >= 100000
+)
+UPDATE b
+SET stale_stats = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN stale_stats os
+ON b.SqlHandle = os.SqlHandle;
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+aj AS (
+	SELECT 
+			SqlHandle
+	FROM #relop AS r
+	CROSS APPLY r.relop.nodes('//p:RelOp') x(c)
+	WHERE x.c.exist('@IsAdaptive[.=1]') = 1
+)
+UPDATE b
+SET b.is_adaptive = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN aj
+ON b.SqlHandle = aj.SqlHandle;
+
+END
 
 -- query level checks
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
@@ -2877,7 +2932,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
 				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END +
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END
+				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
+				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
+				  CASE WHEN is_adaptive = 1 THEN + ', an Adaptive Join was used -- cool.' ELSE '' END				   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 				  OPTION (RECOMPILE) ;
@@ -2939,7 +2996,9 @@ SELECT  DISTINCT
 				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
 				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END + 
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + 'Long Running With Low CPU' ELSE '' END
+				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END + 
+				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
+				  CASE WHEN is_adaptive = 1 THEN + ', an Adaptive Join was used -- cool.' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3311,7 +3370,9 @@ BEGIN
 				  CASE WHEN index_dml = 1 THEN '', 48'' ELSE '''' END +
 				  CASE WHEN table_dml = 1 THEN '', 49'' ELSE '''' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN '', 50'' ELSE '''' END +
-				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51'' ELSE '''' END
+				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51'' ELSE '''' END + 
+				  CASE WHEN stale_stats = 1 THEN '', 52'' ELSE '''' END +
+				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -4035,6 +4096,32 @@ BEGIN
                      'You have a low cost query that uses a lot of CPU',
                      'No URL yet',
                      'This can be a sign of functions or Dynamic SQL that calls black-box code.') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.stale_stats = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     51,
+                     150,
+                     'Biblical Statistics',
+                     'Statistics used in queries are >7 days old with >100k modifications',
+                     'No URL yet',
+                     'Ever heard of updating statistics?') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_adaptive = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     51,
+                     150,
+                     'Adaptive joins',
+                     'This isn''t good or bad, I just want to find out if it''s happening.',
+                     'No URL yet',
+                     'Joe Sack rules.') ;
 					 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
@@ -4113,6 +4200,26 @@ BEGIN
 	
 	END            
     
+		IF @v >= 14
+		BEGIN	
+
+		INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT 
+		@@SPID,
+		53,
+		250,
+		'Database Level Statistics',
+		'The database ' + sa.[Database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MIN(sa.LastUpdate))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.ModificationCount)) + ' modifications on average.' AS [Finding],
+		'' AS URL,
+		'Consider updating statistics more frequently,' AS [Details]
+		FROM #stats_agg AS sa
+		GROUP BY sa.[Database]
+		HAVING MIN(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+		AND AVG(sa.ModificationCount) >= 100000
+
+
+		END 
+	
     SELECT  Priority,
             FindingsGroup,
             Finding,
@@ -4130,6 +4237,8 @@ BEGIN
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 END
+
+RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
 AllSorts:
