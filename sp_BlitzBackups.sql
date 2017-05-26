@@ -231,6 +231,12 @@ CREATE TABLE #Warnings
     Warning VARCHAR(8000)
 );
 
+IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = @MSDBName)
+	BEGIN
+	RAISERROR('@MSDBName was specified, but the database does not exist.', 0, 1) WITH NOWAIT;
+	RETURN;
+	END
+
 IF @PushBackupHistoryToListener = 1
 GOTO PushBackupHistoryToListener
 
@@ -289,7 +295,7 @@ GOTO PushBackupHistoryToListener
 		+ N' , bL.CompressedSizeMBMax AS LogCompressedSizeMBMax ' + @crlf
 		+ N' FROM Backups bF ' + @crlf
 		+ N' LEFT OUTER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
-		+ N' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bD.database_guid AND bL.backup_type = ''L''' + @crlf
+		+ N' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bL.database_guid AND bL.backup_type = ''L''' + @crlf
 		+ N' WHERE bF.backup_type = ''D''; ' + @crlf;
 
 	IF @Debug = 1
