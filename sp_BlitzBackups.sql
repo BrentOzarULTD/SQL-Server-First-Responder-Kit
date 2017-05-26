@@ -90,7 +90,8 @@ AS
 	*/';
 ELSE
 BEGIN
-DECLARE @StringToExecute NVARCHAR(MAX), 
+DECLARE @StringToExecute NVARCHAR(MAX) = N'', 
+		@InnerStringToExecute NVARCHAR(MAX) = N'',
 		@ProductVersion NVARCHAR(128), 
 		@ProductVersionMajor DECIMAL(10, 2),
         @ProductVersionMinor DECIMAL(10, 2), 
@@ -230,6 +231,12 @@ CREATE TABLE #Warnings
     Warning VARCHAR(8000)
 );
 
+IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = @MSDBName)
+	BEGIN
+	RAISERROR('@MSDBName was specified, but the database does not exist.', 0, 1) WITH NOWAIT;
+	RETURN;
+	END
+
 IF @PushBackupHistoryToListener = 1
 GOTO PushBackupHistoryToListener
 
@@ -288,7 +295,7 @@ GOTO PushBackupHistoryToListener
 		+ N' , bL.CompressedSizeMBMax AS LogCompressedSizeMBMax ' + @crlf
 		+ N' FROM Backups bF ' + @crlf
 		+ N' LEFT OUTER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
-		+ N' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bD.database_guid AND bL.backup_type = ''L''' + @crlf
+		+ N' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bL.database_guid AND bL.backup_type = ''L''' + @crlf
 		+ N' WHERE bF.backup_type = ''D''; ' + @crlf;
 
 	IF @Debug = 1
@@ -737,52 +744,53 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 		PRINT @StringToExecute;
 
 	EXEC sys.sp_executesql @StringToExecute;
+	
+/*Trending - only works if backupfile is populated, which means in msdb */
+IF @MSDBName = 'msdb'
+BEGIN
+	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
 
-/*Trending*/
+	SET @StringToExecute += N'
+							SELECT  p.DatabaseName,
+									p.DatabaseGUID,
+									p.[0],
+									p.[-1],
+									p.[-2],
+									p.[-3],
+									p.[-4],
+									p.[-5],
+									p.[-6],
+									p.[-7],
+									p.[-8],
+									p.[-9],
+									p.[-10],
+									p.[-11],
+									p.[-12]
+								FROM ( SELECT b.database_name AS DatabaseName,
+											  b.database_guid AS DatabaseGUID,
+											  DATEDIFF(MONTH, @StartTime, b.backup_start_date) AS MonthsAgo ,
+											  CONVERT(DECIMAL(18, 2), AVG(bf.file_size / 1048576.0)) AS AvgSizeMB
+										FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b 
+										INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupfile AS bf
+										ON b.backup_set_id = bf.backup_set_id
+										WHERE b.database_name NOT IN ( ''master'', ''msdb'', ''model'', ''tempdb'' )
+										AND bf.file_type = ''D''
+										AND b.backup_start_date >= DATEADD(YEAR, -1, @StartTime)
+										AND b.backup_start_date <= SYSDATETIME()
+										GROUP BY b.database_name,
+												 b.database_guid,	
+												 DATEDIFF(mm, @StartTime, b.backup_start_date)
+									 ) AS bckstat PIVOT ( SUM(bckstat.AvgSizeMB) FOR bckstat.MonthsAgo IN ( [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] ) ) AS p
+								ORDER BY p.DatabaseName;
+								'
 
-SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
+		IF @Debug = 1
+			PRINT @StringToExecute;
 
-SET @StringToExecute += N'
-						SELECT  p.DatabaseName,
-								p.DatabaseGUID,
-								p.[0],
-								p.[-1],
-								p.[-2],
-								p.[-3],
-								p.[-4],
-								p.[-5],
-								p.[-6],
-								p.[-7],
-								p.[-8],
-								p.[-9],
-								p.[-10],
-								p.[-11],
-								p.[-12]
-							FROM ( SELECT b.database_name AS DatabaseName,
-										  b.database_guid AS DatabaseGUID,
-										  DATEDIFF(MONTH, @StartTime, b.backup_start_date) AS MonthsAgo ,
-										  CONVERT(DECIMAL(18, 2), AVG(bf.file_size / 1048576.0)) AS AvgSizeMB
-									FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b 
-									INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupfile AS bf
-									ON b.backup_set_id = bf.backup_set_id
-									WHERE b.database_name NOT IN ( ''master'', ''msdb'', ''model'', ''tempdb'' )
-									AND bf.file_type = ''D''
-									AND b.backup_start_date >= DATEADD(YEAR, -1, @StartTime)
-									AND b.backup_start_date <= SYSDATETIME()
-									GROUP BY b.database_name,
-											 b.database_guid,	
-											 DATEDIFF(mm, @StartTime, b.backup_start_date)
-								 ) AS bckstat PIVOT ( SUM(bckstat.AvgSizeMB) FOR bckstat.MonthsAgo IN ( [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] ) ) AS p
-							ORDER BY p.DatabaseName;
-							'
+		INSERT #Trending ( DatabaseName, DatabaseGUID, [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] )
+		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
-	IF @Debug = 1
-		PRINT @StringToExecute;
-
-	INSERT #Trending ( DatabaseName, DatabaseGUID, [0], [-1], [-2], [-3], [-4], [-5], [-6], [-7], [-8], [-9], [-10], [-11], [-12] )
-	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
-
-
+END
 
 /*End Trending*/
 
@@ -803,11 +811,20 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		ORDER BY r.DatabaseName
 
 
+RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
+
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += N'SELECT 
+	SET @StringToExecute += N'
+							WITH common_people AS (
+									SELECT TOP 1 b.user_name, COUNT_BIG(*) AS Records
+									FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
+									GROUP BY b.user_name
+									ORDER BY Records DESC
+													)								
+								SELECT 
 								1 AS CheckId,
 								100 AS [Priority],
 								b.database_name AS [Database Name],
@@ -815,7 +832,13 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 								''The database '' + QUOTENAME(b.database_name) + '' has been backed up by '' + QUOTENAME(b.user_name) + '' '' + CONVERT(VARCHAR(10), COUNT(*)) + '' times.'' AS [Warning]
 							FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							WHERE  b.user_name NOT LIKE ''%Agent%'' AND b.user_name NOT LIKE ''%AGENT%'' 
-							GROUP BY b.database_name, b.user_name;' + @crlf;
+							AND NOT EXISTS (
+											SELECT 1
+											FROM common_people AS cp
+											WHERE cp.user_name = b.user_name
+											)
+							GROUP BY b.database_name, b.user_name
+							HAVING COUNT(*) > 1;' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1051,6 +1074,8 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 
+RAISERROR('Rules analysis starting on temp tables', 0, 1) WITH NOWAIT;
+
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		SELECT
 			13 AS CheckId,
@@ -1083,6 +1108,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		'sp_BlitzBackups Version: ' + @Version + ', Version Date: ' + CONVERT(VARCHAR(30), @VersionDate) + '.' AS [Finding],
 		'Thanks for using our stored procedure. We hope you find it useful! Check out our other free SQL Server scripts at firstresponderkit.org!' AS [Warning];
 
+RAISERROR('Rules analysis finished', 0, 1) WITH NOWAIT;
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
@@ -1095,6 +1121,8 @@ RETURN;
 
 PushBackupHistoryToListener:
 
+RAISERROR('Pushing backup history to listener', 0, 1) WITH NOWAIT;
+
 DECLARE @msg NVARCHAR(4000) = N'';
 DECLARE @RemoteCheck TABLE (c INT NULL);
 
@@ -1106,6 +1134,12 @@ DECLARE @RemoteCheck TABLE (c INT NULL);
     @WriteBackupsLastHours INT = 24,
 	@WriteBackupsBatchSize INT = 5000,
 */
+
+IF @WriteBackupsToDatabaseName IS NULL
+	BEGIN
+	RAISERROR('@WriteBackupsToDatabaseName can''t be NULL.', 0, 1) WITH NOWAIT
+	RETURN;
+	END
 
 IF LOWER(@WriteBackupsToDatabaseName) = N'msdb'
 	BEGIN
@@ -1155,7 +1189,7 @@ END
 		PRINT @StringToExecute;
 
 	INSERT @RemoteCheck (c)
-	EXEC sp_executesql @StringToExecute, N'@i_MSDBName NVARCHAR(256)', @i_WriteBackupsToDatabaseName = @WriteBackupsToDatabaseName;
+	EXEC sp_executesql @StringToExecute, N'@i_WriteBackupsToDatabaseName NVARCHAR(256)', @i_WriteBackupsToDatabaseName = @WriteBackupsToDatabaseName;
 
 	IF @@ROWCOUNT = 0
 		BEGIN
@@ -1168,7 +1202,8 @@ END
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE NAME = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';'
+							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE name = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
+							' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1178,12 +1213,169 @@ END
 
 	IF @@ROWCOUNT = 0
 		BEGIN
+
 		SET @msg = N'The database ' + @WriteBackupsToDatabaseName + N' doesn''t appear to have a table called dbo.backupset in it.'
 		RAISERROR(@msg, 0, 1) WITH NOWAIT
-		RETURN;
+		RAISERROR('Don''t worry, we''ll create it for you!', 0, 1) WITH NOWAIT
+		
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+
+		SET @StringToExecute += N'SELECT TOP 1 *
+								 INTO ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
+								 FROM ' + N'msdb.dbo.backupset
+								 WHERE 1 = 2
+								 ' + @crlf;
+		
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+		RAISERROR('We''ll even make the indexes!', 0, 1) WITH NOWAIT
+
+		/*Checking for and creating the PK/CX*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += '
+		
+		IF NOT EXISTS (
+		SELECT t.name, i.name
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		ON t.object_id = i.object_id
+		WHERE t.name = ?
+		AND i.name LIKE ?
+		)
+
+		BEGIN
+		ALTER TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD PRIMARY KEY CLUSTERED ([backup_set_id] ASC)
+		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''PK[_][_]%'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+
+
+		/*Checking for and creating index on backup_set_uuid*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
+		SELECT t.name, i.name
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		ON t.object_id = i.object_id
+		WHERE t.name = ?
+		AND i.name = ?
+		)
+
+		BEGIN
+		CREATE NONCLUSTERED INDEX [backupsetuuid] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([backup_set_uuid] ASC)
+		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetuuid'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute		
+		
+		
+		
+		/*Checking for and creating index on media_set_id*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
+		SELECT t.name, i.name
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		ON t.object_id = i.object_id
+		WHERE t.name = ?
+		AND i.name = ?
+		)
+
+		BEGIN
+		CREATE NONCLUSTERED INDEX [backupsetMediaSetId] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([media_set_id] ASC)
+		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetMediaSetId'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+		
+				
+				
+		/*Checking for and creating index on backup_finish_date*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
+		SELECT t.name, i.name
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		ON t.object_id = i.object_id
+		WHERE t.name = ?
+		AND i.name = ?
+		)
+
+		BEGIN
+		CREATE NONCLUSTERED INDEX [backupsetDate] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([backup_finish_date] ASC)
+		END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDate'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+
+			
+		/*Checking for and creating index on database_name*/
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += 'IF NOT EXISTS (
+		SELECT t.name, i.name
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
+		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
+		ON t.object_id = i.object_id
+		WHERE t.name = ?
+		AND i.name = ?
+		)
+
+		BEGIN				
+		CREATE NONCLUSTERED INDEX [backupsetDatabaseName] ON ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ([database_name] ASC ) INCLUDE ([backup_set_id], [media_set_id]) 
 		END
 
-		RAISERROR('All tests passed, beginning inserts', 0, 1) WITH NOWAIT;
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''backupsetDatabaseName'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+		RAISERROR('Table and indexes created! You''re welcome!', 0, 1) WITH NOWAIT
+		END
+
+
+		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
 		RAISERROR(@crlf, 0, 1) WITH NOWAIT;
 
 		/*
@@ -1209,10 +1401,19 @@ END
 													SELECT 1 
 													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
-													AND b.backup_start_date >= @StartDate
+													AND b2.backup_start_date >= @StartDate
 													)
 
 									SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
+
+								 IF
+									( @StartDate IS NULL )
+										BEGIN
+											SET @msg = N''No data to move, exiting.''
+											RAISERROR(@msg, 0, 1) WITH NOWAIT	
+
+											RETURN;
+										END
 
 									RAISERROR(''Starting insert loop'', 0, 1) WITH NOWAIT;
 
@@ -1223,6 +1424,7 @@ END
 													SELECT 1 
 													FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 													WHERE b.backup_set_uuid = b2.backup_set_uuid
+													AND b2.backup_start_date >= @StartDate
 																)
 												)
 									BEGIN
@@ -1250,6 +1452,7 @@ END
 										SELECT 1 
 										FROM ' + QUOTENAME(@WriteBackupsToListenerName) + N'.' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset b2
 										WHERE b.backup_set_uuid = b2.backup_set_uuid
+										AND b2.backup_start_date >= @StartDate
 													)'  + @crlf;
 
 
@@ -1262,6 +1465,16 @@ END
 								 SET @StartDate = @StartDateNext;
 								 SET @StartDateNext = DATEADD(MINUTE, 10, @StartDate);
 
+								 IF
+									( @StartDate > SYSDATETIME() )
+										BEGIN
+											
+											SET @msg = N''No more data to move, exiting.''
+											RAISERROR(@msg, 0, 1) WITH NOWAIT	
+											
+											BREAK;
+
+										END
 								 END'  + @crlf;
 
 	IF @Debug = 1
