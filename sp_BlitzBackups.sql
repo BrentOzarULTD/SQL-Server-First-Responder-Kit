@@ -805,6 +805,8 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		ORDER BY r.DatabaseName
 
 
+RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
+
 /*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
@@ -812,7 +814,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 	SET @StringToExecute += N'
 							WITH common_people AS (
 									SELECT TOP 1 b.user_name, COUNT_BIG(*) AS Records
-									FROM dbo.backupset AS b
+									FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 									GROUP BY b.user_name
 									ORDER BY Records DESC
 													)								
@@ -1066,6 +1068,8 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 
+RAISERROR('Rules analysis starting on temp tables', 0, 1) WITH NOWAIT;
+
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		SELECT
 			13 AS CheckId,
@@ -1098,6 +1102,7 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		'sp_BlitzBackups Version: ' + @Version + ', Version Date: ' + CONVERT(VARCHAR(30), @VersionDate) + '.' AS [Finding],
 		'Thanks for using our stored procedure. We hope you find it useful! Check out our other free SQL Server scripts at firstresponderkit.org!' AS [Warning];
 
+RAISERROR('Rules analysis finished', 0, 1) WITH NOWAIT;
 
 SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
@@ -1109,6 +1114,8 @@ DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints
 RETURN;
 
 PushBackupHistoryToListener:
+
+RAISERROR('Pushing backup history to listener', 0, 1) WITH NOWAIT;
 
 DECLARE @msg NVARCHAR(4000) = N'';
 DECLARE @RemoteCheck TABLE (c INT NULL);
