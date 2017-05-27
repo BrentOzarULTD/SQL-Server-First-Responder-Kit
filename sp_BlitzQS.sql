@@ -46,8 +46,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.3';
-SET @VersionDate = '20170501';
+SET @Version = '1.0';
+SET @VersionDate = '20170601';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'',
@@ -700,15 +700,14 @@ ON qsq.query_id = qsp.query_id
 WHERE    1 = 1
        AND qsq.is_internal_query = 0
 	   AND qsp.query_plan IS NOT NULL
-'
+	  '
 
 SET @sql_select += @sql_where
 
 SET @sql_select += 
-				N'
-				GROUP BY CONVERT(DATE, qsrs.last_execution_time)
-				OPTION(RECOMPILE);
-				'
+			N'GROUP BY CONVERT(DATE, qsrs.last_execution_time)
+					OPTION(RECOMPILE);
+			'
 
 IF @Debug = 1
 	PRINT @sql_select
@@ -754,13 +753,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+	AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_duration DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_duration DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -795,13 +795,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_cpu_time DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_cpu_time DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -836,13 +837,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_logical_io_reads DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_reads DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -878,13 +880,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_physical_io_reads DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_physical_io_reads DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -920,13 +923,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_logical_io_writes DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_writes DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -962,13 +966,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_query_max_used_memory DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_query_max_used_memory DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -1004,13 +1009,14 @@ ON qsq.query_id = qsp.query_id
 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-'
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					ORDER BY qsrs.avg_rowcount DESC
+SET @sql_select +=  N'ORDER BY qsrs.avg_rowcount DESC
 					OPTION(RECOMPILE);
 					'
 
@@ -1085,12 +1091,13 @@ ON qsrs.plan_id = wp.plan_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
 WHERE    1 = 1
-'
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION(RECOMPILE);
 					'
 
 IF @Debug = 1
@@ -1133,12 +1140,14 @@ ON qsqt.query_text_id = qsq.query_text_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
 WHERE    1 = 1
-'
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION(RECOMPILE);
 					'
 
 IF @Debug = 1
@@ -1207,12 +1216,14 @@ ON qsqt.query_text_id = qsq.query_text_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
 WHERE    1 = 1
-'
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select +=  '
-					OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION(RECOMPILE);
 					'
 
 IF @Debug = 1
@@ -1249,11 +1260,15 @@ JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
-WHERE 1 = 1'
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
+	'
 
 SET @sql_select += @sql_where
 
-SET @sql_select += 'GROUP BY wp.query_id
+SET @sql_select += N'GROUP BY wp.query_id
 					HAVING COUNT(qsp.plan_id) > 1
 					) AS x
 					ON ww.query_id = x.query_id
