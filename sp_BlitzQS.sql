@@ -1933,7 +1933,7 @@ OPTION (RECOMPILE);
 
 END 
 
-RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
+RAISERROR(N'Filling in object nam column where NULL', 0, 1) WITH NOWAIT;
 UPDATE wm
 SET wm.proc_or_function_name = N'Statement'
 FROM #working_metrics AS wm
@@ -1980,8 +1980,8 @@ RAISERROR(N'This dumb thing', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
 SET    frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END ,
-		near_parallel = CASE WHEN b.query_cost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
-		long_running = CASE WHEN wm.avg_duration > @long_running_query_warning_seconds THEN 1
+	   near_parallel = CASE WHEN b.query_cost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
+	   long_running = CASE WHEN wm.avg_duration > @long_running_query_warning_seconds THEN 1
 						   WHEN wm.max_duration > @long_running_query_warning_seconds THEN 1
                            WHEN wm.avg_cpu_time > @long_running_query_warning_seconds THEN 1
                            WHEN wm.max_cpu_time > @long_running_query_warning_seconds THEN 1 END,
@@ -2081,7 +2081,6 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
 				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
 				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
-				  --CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
 				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
@@ -2106,105 +2105,6 @@ SET    b.warnings = SUBSTRING(
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE) ;
-
-
-RAISERROR('Populating Warnings column for stored procedures', 0, 1) WITH NOWAIT;
-WITH statement_warnings AS 
-	(
-SELECT  DISTINCT
-		sql_handle,
-		warnings = SUBSTRING(
-                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
-                  CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
-                  CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
-                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
-                  CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
-                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), ( SELECT SUM(b2.missing_index_count) 
-																										FROM #working_warnings b2 
-																										JOIN #working_metrics AS wm2 
-																										ON b2.plan_id = wm2.plan_id 
-																										AND b2.query_id = wm2.query_id
-																										WHERE b2.sql_handle = b.sql_handle 
-																										AND b2.query_hash IS NOT NULL) ) + ' function(s)' ELSE '' END + 
-                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), ( SELECT SUM(b2.unmatched_index_count) 
-																											FROM #working_warnings b2 
-																											JOIN #working_metrics AS wm2 
-																											ON b2.plan_id = wm2.plan_id 
-																											AND b2.query_id = wm2.query_id
-																											WHERE b2.sql_handle = b.sql_handle 
-																											AND b2.query_hash IS NOT NULL) ) + ' function(s)' ELSE '' END +                 
-                  CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
-				  ELSE '' END +
-                  CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
-                  CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
-                  CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
-                  CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
-                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
-                  CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
-                  CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
-                  CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
-                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
-				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
-				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
-				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
-				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), ( SELECT SUM(b2.function_count) 
-																						FROM #working_warnings b2 
-																						JOIN #working_metrics AS wm2 
-																						ON b2.plan_id = wm2.plan_id 
-																						AND b2.query_id = wm2.query_id
-																						WHERE b2.sql_handle = b.sql_handle 
-																						AND b2.query_hash IS NOT NULL) ) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), ( SELECT SUM(b2.clr_function_count) 
-																							FROM #working_warnings b2 
-																							JOIN #working_metrics AS wm2 
-																							ON b2.plan_id = wm2.plan_id 
-																							AND b2.query_id = wm2.query_id
-																							WHERE b2.sql_handle = b.sql_handle 
-																							AND b2.query_hash IS NOT NULL) ) + ' function(s)' ELSE '' END + 
-				 -- CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
-				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
-				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
-				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
-				  CASE WHEN is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
-				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
-				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
-				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
-				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
-				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
-				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
-				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
-				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
-				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
-				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END +
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
-				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END + 
-				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END + 
-				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END
-                  , 2, 200000) 
-FROM #working_warnings b
-JOIN #working_metrics AS wm
-ON b.plan_id = wm.plan_id
-AND b.query_id = wm.query_id
-AND wm.proc_or_function_name LIKE 'Statement (parent%'
-	)
-UPDATE b
-SET b.warnings = s.warnings
-FROM #working_warnings AS b
-JOIN #working_metrics AS wm
-ON b.plan_id = wm.plan_id
-AND b.query_id = wm.query_id
-JOIN statement_warnings s
-ON b.sql_handle = s.sql_handle
-WHERE wm.proc_or_function_name LIKE 'Procedure or Function%'
-OPTION(RECOMPILE);
 
  
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
@@ -2994,34 +2894,35 @@ BEGIN
 
 END	
 
-/*
-Table content debugging
+IF @Debug = 1	
+BEGIN
+--Table content debugging
 
-SELECT *
+SELECT '#working_metrics' AS table_name, *
 FROM #working_metrics AS wm
 OPTION(RECOMPILE);
 
-SELECT *
+SELECT '#working_plan_text' AS table_name, *
 FROM #working_plan_text AS wpt
 OPTION(RECOMPILE);
 
-SELECT *
+SELECT '#working_warnings' AS table_name, *
 FROM #working_warnings AS ww
 OPTION(RECOMPILE);
 
-SELECT *
+SELECT '#statements' AS table_name, *
 FROM #statements AS s
 OPTION(RECOMPILE);
 
-SELECT *
+SELECT '#query_plan' AS table_name, *
 FROM #query_plan AS qp
 OPTION(RECOMPILE);
 
-SELECT *
+SELECT '#relop' AS table_name, *
 FROM #relop AS r
 OPTION(RECOMPILE);
 
-*/
+END 
 
 /*
 Ways to run this thing
