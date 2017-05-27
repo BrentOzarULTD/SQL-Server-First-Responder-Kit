@@ -8,19 +8,19 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
-DECLARE @msg NVARCHAR(MAX) = N''
+DECLARE @msg NVARCHAR(MAX) = N'';
 
 IF  (
 	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
 	) < 13
 BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933)
-	PRINT @msg
-	RETURN
-END
+	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
 
 IF OBJECT_ID('dbo.sp_BlitzQS') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_BlitzQS AS RETURN 0;')
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzQS AS RETURN 0;');
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzQS
@@ -66,7 +66,7 @@ DECLARE /*Variables for the variable Gods*/
 		@cr NVARCHAR(1) = NCHAR(13),
 		@lf NVARCHAR(1) = NCHAR(10),
 		@tab NVARCHAR(1) = NCHAR(9),
-		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)'
+		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)';
 
 
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -127,20 +127,20 @@ IF @Help = 1
 	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
-	'
+	';
 	RETURN;
 
-END
+END;
 
 /*Making sure your version is copasetic*/
 IF  (
 	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
 	) < 13
 BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933)
-	PRINT @msg
-	RETURN
-END
+	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
 
 /*Making sure at least one database uses QS*/
 IF  (
@@ -153,10 +153,10 @@ IF  (
 	AND is_distributor = 0
 	) = 0
 BEGIN
-	SELECT @msg = 'You don''t currently have any databases with QS enabled.' + REPLICATE(CHAR(13), 7933)
-	PRINT @msg
-	RETURN
-END
+	SELECT @msg = 'You don''t currently have any databases with QS enabled.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
 
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
@@ -171,7 +171,7 @@ BEGIN
 	BEGIN
 	   RAISERROR('@DatabaseName cannot be NULL', 0, 1) WITH	NOWAIT;
 	   RETURN;
-	END
+	END;
 
 	/*Does the database exist?*/
 	RAISERROR('Making sure @DatabaseName exists', 0, 1) WITH	NOWAIT;
@@ -179,7 +179,7 @@ BEGIN
 	BEGIN
 	   RAISERROR('The @DatabaseName you specified does not exist. Please check the name and try again.', 0, 1) WITH	NOWAIT;
 	   RETURN;
-	END
+	END;
 
 	/*Is it online?*/
 	RAISERROR('Making sure databasename is online', 0, 1) WITH	NOWAIT;
@@ -187,7 +187,7 @@ BEGIN
 	BEGIN
 	   RAISERROR('The @DatabaseName you specified is not readable. Please check the name and try again. Better yet, check your server.', 0, 1);
 	   RETURN;
-	END
+	END;
 
 	/*Does it have Query Store enabled?*/
 	RAISERROR('Making sure @DatabaseName has Query Store enabled', 0, 1) WITH	NOWAIT;
@@ -205,9 +205,9 @@ BEGIN
 	BEGIN
 	   RAISERROR('The @DatabaseName you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
 	   RETURN;
-	END
+	END;
 
-END
+END;
 
 /*Making sure top is set to something if NULL*/
 IF ( @Top IS NULL )
@@ -221,7 +221,7 @@ IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
   BEGIN
   RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
   SET @QueryFilter = 'all';
-  END
+  END;
 
 /*
 These are the temp tables we use
@@ -270,7 +270,7 @@ CREATE TABLE #working_plans
 /*
 These are the gathered metrics we get from query store to generate some warnings and help you find your worst offenders
 */
-DROP TABLE IF EXISTS #working_metrics
+DROP TABLE IF EXISTS #working_metrics;
 
 CREATE TABLE #working_metrics (
     database_name NVARCHAR(256),
@@ -548,7 +548,7 @@ CREATE TABLE #trace_flags (
 );
 
 
-DROP TABLE IF EXISTS #warning_results	
+DROP TABLE IF EXISTS #warning_results;	
 
 CREATE TABLE #warning_results (
     ID INT IDENTITY(1,1),
@@ -568,105 +568,105 @@ IF (@StartDate IS NULL AND @EndDate IS NULL)
 	BEGIN
 	RAISERROR(N'@StartDate and @EndDate are NULL, checking last 7 days', 0, 1) WITH NOWAIT;
 	SET @sql_where += ' AND qsrs.last_execution_time >= DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))
-					  '
-	END
+					  ';
+	END;
 --Hey, that's nice of me
 IF @StartDate IS NOT NULL
 	BEGIN 
 	RAISERROR(N'Setting start date filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND qsrs.last_execution_time >= @sp_StartDate 
-					   '
-	END 
+					   ';
+	END; 
 --Alright, sensible
 IF @EndDate IS NOT NULL 
 	BEGIN 
 	RAISERROR(N'Setting end date filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND qsrs.last_execution_time < @sp_EndDate 
-					   '
-    END
+					   ';
+    END;
 --C'mon, why would you do that?
 IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 	BEGIN 
 	RAISERROR(N'Setting reasonable start date filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND qsrs.last_execution_time < DATEADD(DAY, -7, @sp_EndDate) 
-					   '
-    END
+					   ';
+    END;
 --Jeez, abusive
 IF (@StartDate IS NOT NULL AND @EndDate IS NULL)
 	BEGIN 
 	RAISERROR(N'Setting reasonable end date filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND qsrs.last_execution_time < DATEADD(DAY, 7, @sp_StartDate) 
-					   '
-    END
+					   ';
+    END;
 
 --I care about minimum execution counts
 IF @MinimumExecutionCount IS NOT NULL 
 	BEGIN 
 	RAISERROR(N'Setting execution filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND qsrs.count_executions >= @sp_MinimumExecutionCount 
-					   '
-    END
+					   ';
+    END;
 
 --You care about stored proc names
 IF @StoredProcName IS NOT NULL 
 	BEGIN 
 	RAISERROR(N'Setting stored proc filter', 0, 1) WITH NOWAIT;
 	SET @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName 
-					   '
-    END
+					   ';
+    END;
 
 --I will always love you, but hopefully this query will eventually end
 IF @DurationFilter IS NOT NULL
     BEGIN 
 	RAISERROR(N'Setting duration filter', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND (qsrs.avg_duration / 1000.) >= @sp_MinDuration 
-					    ' 
-	END 
+					    '; 
+	END; 
 
 --I don't know why you'd go looking for failed queries, but hey
 IF (@Failed = 0 OR @Failed IS NULL)
     BEGIN 
 	RAISERROR(N'Setting failed query filter to 0', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsrs.execution_type = 0 
-					    ' 
-	END 
+					    '; 
+	END; 
 IF (@Failed = 1)
     BEGIN 
 	RAISERROR(N'Setting failed query filter to 3, 4', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsrs.execution_type IN (3, 4) 
-					    ' 
-	END  
+					    '; 
+	END;  
 
 --These query filters allow you to look for everything, statements, or stored procs
 IF (LOWER(@QueryFilter) = N'all')
     BEGIN 
 	RAISERROR(N'No query filter necessary filter', 0, 1) WITH NOWAIT;
-	SET  @sql_where += N'' 
-	END 
+	SET  @sql_where += N''; 
+	END; 
 IF (LOWER(@QueryFilter) LIKE N'sta%')
     BEGIN 
 	RAISERROR(N'Looking for statements only', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsq.object_id IS NULL
 						  OR qsq.object_id = 0
-					    ' 
-	END 
+					    '; 
+	END; 
 IF (LOWER(@QueryFilter) LIKE N'pro%')
     BEGIN 
 	RAISERROR(N'Looking for procs only', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) IS NOT NULL
-					    ' 
-	END 
+					    '; 
+	END; 
 
 
 IF @Debug = 1
 	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
-	PRINT @sql_where
+	PRINT @sql_where;
 
 IF @ExportToExcel = 1	
 	BEGIN
 	RAISERROR(N'Exporting to Excel, hiding summary', 0, 1) WITH NOWAIT;
-	SET @HideSummary = 1
-	END
+	SET @HideSummary = 1;
+	END;
 
 /*
 This is our grouped interval query.
@@ -682,7 +682,7 @@ By default, it looks at queries:
 
 RAISERROR(N'Gathering intervals', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flate_date,
          MIN(DATEADD(HOUR, DATEDIFF(HOUR, 0, qsrs.last_execution_time), 0)) AS start_range,
@@ -703,17 +703,17 @@ ON qsq.query_id = qsp.query_id
 WHERE    1 = 1
        AND qsq.is_internal_query = 0
 	   AND qsp.query_plan IS NOT NULL
-	  '
+	  ';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select += 
 			N'GROUP BY CONVERT(DATE, qsrs.last_execution_time)
 					OPTION(RECOMPILE);
-			'
+			';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 INSERT #grouped_interval WITH (TABLOCK)
 		( flate_date, start_range, end_range, total_avg_duration_ms, 
@@ -736,7 +736,7 @@ They insert into the #working_plans table
 
 RAISERROR(N'Gathering longest duration plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH duration_max
 AS ( SELECT   TOP 1 
@@ -762,16 +762,16 @@ WHERE    1 = 1
 	AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_duration DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -781,7 +781,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest cpu plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH cpu_max
 AS ( SELECT   TOP 1 
@@ -807,16 +807,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_cpu_time DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -826,7 +826,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest logical read plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_reads_max
 AS ( SELECT   TOP 1 
@@ -852,16 +852,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_reads DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -871,7 +871,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest physical read plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH physical_read_max
 AS ( SELECT   TOP 1 
@@ -897,16 +897,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_physical_io_reads DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -917,7 +917,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest write plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_writes_max
 AS ( SELECT   TOP 1 
@@ -943,16 +943,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_writes DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -963,7 +963,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest memory use plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH memory_max
 AS ( SELECT   TOP 1 
@@ -989,16 +989,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_query_max_used_memory DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -1009,7 +1009,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
 AS ( SELECT   TOP 1 
@@ -1035,16 +1035,16 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_rowcount DESC
 					OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -1100,7 +1100,7 @@ This gathers data for the #working_metrics table
 
 RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.query_id,
        object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) AS proc_or_function_name,
@@ -1124,15 +1124,15 @@ ON qsp.plan_id = wp.plan_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 INSERT #working_metrics WITH (TABLOCK)
 		( database_name, plan_id, query_id, 
@@ -1150,13 +1150,18 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
+
+UPDATE #working_metrics
+SET proc_or_function_name = N'Statement'
+WHERE proc_or_function_name IS NULL
+
 /*
 This gathers data for the #working_plan_text table
 */
 
 RAISERROR(N'Gathering working plans', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name,  wp.plan_id, wp.query_id,
 	   qsp.plan_group_id, qsp.engine_version, qsp.compatibility_level, qsp.query_plan_hash, TRY_CONVERT(XML, qsp.query_plan), qsp.is_online_index_plan, qsp.is_trivial_plan, 
@@ -1177,15 +1182,15 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 INSERT #working_plan_text WITH (TABLOCK)
 		( database_name, plan_id, query_id, 
@@ -1204,7 +1209,7 @@ This gets us context settings for our queries and adds it to the #working_plan_t
 
 RAISERROR(N'Gathering context settings', 0, 1) WITH NOWAIT;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 UPDATE wp
 SET wp.context_settings = SUBSTRING(
@@ -1222,12 +1227,16 @@ ON wp.query_id = qsq.query_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_context_settings AS qcs
 ON qcs.context_settings_id = qsq.context_settings_id
 OPTION(RECOMPILE);
-'
+';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
-EXEC sys.sp_executesql  @stmt = @sql_select
+EXEC sys.sp_executesql  @stmt = @sql_select;
+
+DELETE w
+FROM #working_plan_text AS w
+WHERE query_sql_text LIKE '(@_msparam_%'
 
 
 /*
@@ -1250,7 +1259,7 @@ RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
 
 UPDATE b
 SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
-FROM #working_plan_text AS b
+FROM #working_plan_text AS b;
 
 IF (@SkipXML = 0)
 BEGIN
@@ -1262,9 +1271,9 @@ This sets up the #working_warnings table with the IDs we're interested in so we 
 RAISERROR(N'Populate working warnings table with gathered plans', 0, 1) WITH NOWAIT;
 
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
-SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle, wm.proc_or_function_name
+SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
@@ -1275,25 +1284,22 @@ JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
-JOIN #working_metrics wm
-ON wm.plan_id = wp.plan_id
-   AND wm.query_id = wp.query_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'OPTION(RECOMPILE);
-					'
+					';
 
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 INSERT #working_warnings  WITH (TABLOCK)
-	( plan_id, query_id, query_hash, sql_handle, proc_or_function_name )
+	( plan_id, query_id, query_hash, sql_handle )
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -1307,8 +1313,18 @@ Thanks, Query Store
 */
 
 RAISERROR(N'Checking for multiple plans', 0, 1) WITH NOWAIT;
+UPDATE w
+SET    w.proc_or_function_name = ISNULL(wm.proc_or_function_name, N'Statement')
+FROM   #working_warnings AS w
+JOIN   #working_metrics AS wm
+ON w.plan_id = wm.plan_id
+   AND w.query_id = wm.query_id;
 
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+
+
+RAISERROR(N'Checking for multiple plans', 0, 1) WITH NOWAIT;
+
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 UPDATE ww
 SET ww.plan_multiple_plans = 1
@@ -1330,18 +1346,18 @@ WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
 	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
-	'
+	';
 
-SET @sql_select += @sql_where
+SET @sql_select += @sql_where;
 
 SET @sql_select += N'GROUP BY wp.query_id
 					HAVING COUNT(qsp.plan_id) > 1
 					) AS x
 					ON ww.query_id = x.query_id
 					OPTION(RECOMPILE);
-					'
+					';
 IF @Debug = 1
-	PRINT @sql_select
+	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -1910,7 +1926,7 @@ SELECT qp.sql_handle,
 	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
 	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
 FROM #query_plan AS qp
-CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
+CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c);
 
 
 RAISERROR('Checking for stale stats', 0, 1) WITH NOWAIT;
@@ -1944,7 +1960,7 @@ JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
 
-END 
+END; 
 
 
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
@@ -1956,13 +1972,6 @@ FROM    #query_plan qp
 JOIN #working_warnings AS b
 ON b.query_hash = qp.query_hash
 OPTION (RECOMPILE);
-
-
-RAISERROR(N'Filling in object name column where NULL', 0, 1) WITH NOWAIT;
-UPDATE wm
-SET wm.proc_or_function_name = N'Statement'
-FROM #working_metrics AS wm
-WHERE proc_or_function_name IS NULL
 
 
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
@@ -2024,7 +2033,7 @@ ON b.plan_id = wm.plan_id
 AND b.query_id = wm.query_id
 OPTION (RECOMPILE) ;
 
-END
+END;
 
 
 RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
@@ -2073,7 +2082,7 @@ SET parameter_sniffing_symptoms =
 				CASE WHEN last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN last_dop > 1 THEN ', Parallel last run' ELSE '' END 
 	, 2, 200000) 
-FROM #working_metrics AS b
+FROM #working_metrics AS b;
 
 
 IF @SkipXML = 0
@@ -2145,7 +2154,7 @@ SET b.warnings = 'No warnings detected.'
 FROM #working_warnings AS b
 WHERE b.warnings = '' OR b.warnings IS NULL
 OPTION (RECOMPILE);
-END
+END;
 
 IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
@@ -2168,7 +2177,7 @@ AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
 
-END
+END;
 
 IF (@Failed = 1 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
@@ -2191,7 +2200,7 @@ AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
 
-END
+END;
 
 IF (@ExportToExcel = 1 AND @SkipXML = 0)
 BEGIN
@@ -2218,7 +2227,7 @@ AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
 
-END
+END;
 
 IF (@ExportToExcel = 0 AND @SkipXML = 1)
 BEGIN
@@ -2238,7 +2247,7 @@ AND wpt.query_id = wm.query_id
 ORDER BY wm.avg_cpu_time DESC
 OPTION(RECOMPILE);
 
-END
+END;
 
 
 IF (@ExportToExcel = 0 AND @HideSummary = 0 AND @SkipXML = 0)
@@ -2892,7 +2901,7 @@ BEGIN
 				FROM #stats_agg AS sa
 				GROUP BY sa.[database]
 				HAVING MAX(sa.last_update) <= DATEADD(DAY, -7, SYSDATETIME())
-				AND AVG(sa.modification_count) >= 100000
+				AND AVG(sa.modification_count) >= 100000;
 
 		
         IF EXISTS (SELECT 1/0
@@ -2940,7 +2949,7 @@ BEGIN
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 
-END	
+END;	
 
 IF @Debug = 1	
 BEGIN
@@ -2977,7 +2986,7 @@ SELECT '#plan_cost' AS table_name,  *
 FROM #plan_cost AS pc
 OPTION(RECOMPILE);
 
-END 
+END; 
 
 /*
 Ways to run this thing
