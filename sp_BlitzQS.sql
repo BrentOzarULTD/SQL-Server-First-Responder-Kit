@@ -2108,6 +2108,7 @@ OPTION (RECOMPILE) ;
 
  
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
+
 UPDATE b
 SET b.warnings = 'No warnings detected.'
 FROM #working_warnings AS b
@@ -2117,6 +2118,7 @@ END
 
 IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
+
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2132,10 +2134,12 @@ ON wpt.plan_id = wm.plan_id
 AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
+
 END
 
 IF (@Failed = 1 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
+
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2151,10 +2155,12 @@ ON wpt.plan_id = wm.plan_id
 AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
+
 END
 
 IF (@ExportToExcel = 1 AND @SkipXML = 0)
 BEGIN
+
 UPDATE #working_plan_text
 SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_text)),' ','<>'),'><',''),'<>',' '), 1, 31000)
 OPTION(RECOMPILE);
@@ -2174,6 +2180,7 @@ ON wpt.plan_id = wm.plan_id
 AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
+
 END
 
 IF (@ExportToExcel = 0 AND @SkipXML = 1)
@@ -2920,6 +2927,14 @@ OPTION(RECOMPILE);
 
 SELECT '#relop' AS table_name, *
 FROM #relop AS r
+OPTION(RECOMPILE);
+
+SELECT '#plan_cost' AS table_name,  * 
+FROM #plan_cost AS pc
+OPTION(RECOMPILE);
+
+SELECT '#proc_costs' AS table_name,  *
+FROM #proc_costs AS pc
 OPTION(RECOMPILE);
 
 END 
