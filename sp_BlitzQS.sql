@@ -2865,28 +2865,40 @@ END
 /*
 Ways to run this thing
 
+--Debug
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Debug = 1
 
+--Get the top 1
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Debug = 1
-												 
+
+--Use a StartDate												 
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170527', @Debug = 1
-												 
+				
+--Use an EndDate												 
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @EndDate = '20170527', @Debug = 1
-												 
+				
+--Use Both												 
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170526', @EndDate = '20170527', @Debug = 1
-												 
+
+--Set a minimum execution count												 
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10, @Debug = 1
 
+Set a duration minimum
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5, @Debug = 1
 
+--Look for a stored procedure name (that doesn't exist!)
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah', @Debug = 1
 
+--Look for a stored procedure name that does (at least On My Computer®)
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended', @Debug = 1
 
+--Look for failed queries
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1, @Debug = 1
 
+--Look for statements 
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'sta', @Debug = 1
 
+--Look for stored procs
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'pro', @Debug = 1
 
 */
