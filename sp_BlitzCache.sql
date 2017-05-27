@@ -2546,6 +2546,7 @@ BEGIN
 	WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 	AND SPID = @@SPID
 	AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
+	AND ##bou_BlitzCacheProcs.is_parallel IS NULL
 	OPTION (RECOMPILE);
 	
 	
@@ -2626,7 +2627,8 @@ SET stale_stats = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN stale_stats os
 ON b.SqlHandle = os.SqlHandle
-AND b.SPID = @@SPID;
+AND b.SPID = @@SPID
+OPTION (RECOMPILE);
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 aj AS (
@@ -2641,7 +2643,8 @@ SET b.is_adaptive = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN aj
 ON b.SqlHandle = aj.SqlHandle
-AND b.SPID = @@SPID;
+AND b.SPID = @@SPID
+OPTION (RECOMPILE) ;
 
 END
 
