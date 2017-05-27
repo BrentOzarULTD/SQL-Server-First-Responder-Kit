@@ -33,7 +33,6 @@ ALTER PROCEDURE dbo.sp_BlitzQS
     @DurationFilter DECIMAL(38,4) = NULL ,
     @StoredProcName NVARCHAR(128) = NULL,
 	@Failed BIT = 0,
-    @QueryFilter NVARCHAR(10) = 'ALL' ,
     @ExportToExcel BIT = 0,
     @HideSummary BIT = 0 ,
 	@SkipXML BIT = 0,
@@ -215,13 +214,6 @@ IF ( @Top IS NULL )
          SET @Top = 3;
    END;
 
-SET @QueryFilter = LOWER(@QueryFilter);
-
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
-  BEGIN
-  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
-  SET @QueryFilter = 'all';
-  END;
 
 /*
 These are the temp tables we use
@@ -636,27 +628,6 @@ IF (@Failed = 1)
 	SET  @sql_where += N' AND qsrs.execution_type IN (3, 4) 
 					    '; 
 	END;  
-
---These query filters allow you to look for everything, statements, or stored procs
-IF (LOWER(@QueryFilter) = N'all')
-    BEGIN 
-	RAISERROR(N'No query filter necessary filter', 0, 1) WITH NOWAIT;
-	SET  @sql_where += N''; 
-	END; 
-IF (LOWER(@QueryFilter) LIKE N'sta%')
-    BEGIN 
-	RAISERROR(N'Looking for statements only', 0, 1) WITH NOWAIT;
-	SET  @sql_where += N' AND qsq.object_id IS NULL
-						  OR qsq.object_id = 0
-					    '; 
-	END; 
-IF (LOWER(@QueryFilter) LIKE N'pro%')
-    BEGIN 
-	RAISERROR(N'Looking for procs only', 0, 1) WITH NOWAIT;
-	SET  @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) IS NOT NULL
-					    '; 
-	END; 
-
 
 IF @Debug = 1
 	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
@@ -3021,11 +2992,6 @@ EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'Us
 --Look for failed queries
 EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1, @Debug = 1
 
---Look for statements 
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'sta', @Debug = 1
-
---Look for stored procs
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'pro', @Debug = 1
 
 */
 
