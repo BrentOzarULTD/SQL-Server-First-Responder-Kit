@@ -2925,6 +2925,8 @@ OPTION(RECOMPILE);
 
 
 /*
+Table content debugging
+
 SELECT *
 FROM #working_metrics AS wm
 OPTION(RECOMPILE);
@@ -2932,8 +2934,6 @@ OPTION(RECOMPILE);
 SELECT *
 FROM #working_plan_text AS wpt
 OPTION(RECOMPILE);
-
-
 
 SELECT *
 FROM #working_warnings AS ww
@@ -2943,17 +2943,45 @@ SELECT *
 FROM #statements AS s
 OPTION(RECOMPILE);
 
-
 SELECT *
 FROM #query_plan AS qp
 OPTION(RECOMPILE);
-
 
 SELECT *
 FROM #relop AS r
 OPTION(RECOMPILE);
 
 */
+
+/*
+Ways to run this thing
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Debug = 1
+												 
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170527', @Debug = 1
+												 
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @EndDate = '20170527', @Debug = 1
+												 
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170526', @EndDate = '20170527', @Debug = 1
+												 
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10, @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5, @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah', @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended', @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1, @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'sta', @Debug = 1
+
+EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @QueryFilter = 'pro', @Debug = 1
+
+*/
+
 
 
 END;
