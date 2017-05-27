@@ -1391,6 +1391,9 @@ OPTION(RECOMPILE);
 /*
 This looks for cursors
 */
+
+RAISERROR(N'Checking for cursors', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.is_cursor = 1
 FROM   #working_warnings AS ww
@@ -1414,6 +1417,9 @@ ON ww.plan_id = wp.plan_id
 OPTION(RECOMPILE);
 
 /*This looks for old CE*/
+
+RAISERROR(N'Checking for legacy CE', 0, 1) WITH NOWAIT;
+
 UPDATE w
 SET w.downlevel_estimator = 1
 FROM #working_warnings AS w
@@ -1426,6 +1432,9 @@ WHERE PARSENAME(wpt.engine_version, 4) < PARSENAME(CONVERT(VARCHAR(128), SERVERP
 
 
 /*This looks for trivial plans*/
+
+RAISERROR(N'Checking for trivial plans', 0, 1) WITH NOWAIT;
+
 UPDATE w
 SET w.is_trivial = 1
 FROM #working_warnings AS w
@@ -1439,6 +1448,9 @@ AND wpt.is_trivial_plan = 1;
 /*
 This parses the XML from our top plans into smaller chunks for easier consumption
 */
+
+RAISERROR(N'Begin XML nodes parsing', 0, 1) WITH NOWAIT;
+
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )	
 	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
@@ -1515,6 +1527,7 @@ index_dml AS (
 	WHERE i.index_dml = 1
 	OPTION (RECOMPILE);
 
+
 RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 table_dml AS (
@@ -1563,6 +1576,7 @@ WITH pc AS (
 
 /*End plan cost calculations*/
 
+
 RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
@@ -1573,6 +1587,7 @@ ON  qp.sql_handle = b.sql_handle
 AND query_plan.exist('/p:QueryPlan/p:Warnings') = 1
 OPTION (RECOMPILE);
 
+
 RAISERROR(N'Checking for implicit conversion', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
@@ -1582,6 +1597,7 @@ JOIN #working_warnings b
 ON  qp.sql_handle = b.sql_handle
 AND query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1
 OPTION (RECOMPILE);
+
 
 RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1600,6 +1616,7 @@ SET	   b.warning_no_join_predicate = x.warning_no_join_predicate,
 FROM #working_warnings b
 JOIN x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
+
 
 RAISERROR(N'Checking for table variables', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1636,6 +1653,7 @@ FROM #working_warnings b
 JOIN x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
+
 RAISERROR(N'Checking for expensive key lookups', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
@@ -1649,6 +1667,7 @@ FROM   #relop r
 WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE) ;
+
 
 RAISERROR(N'Checking for expensive remote queries', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1664,6 +1683,7 @@ WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE) ;
 
+
 RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
@@ -1678,6 +1698,7 @@ FROM   #relop r
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE) ;
+
 
 RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1755,6 +1776,7 @@ CROSS APPLY r.relop.nodes('/p:RelOp/p:Filter/p:Predicate/p:ScalarOperator/p:Comp
 ) x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
+
 RAISERROR(N'Checking modification queries that hit lots of indexes', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),	
 IndexOps AS 
@@ -1806,6 +1828,7 @@ SET b.index_insert_count = iops.index_insert_count,
 FROM #working_warnings AS b
 JOIN iops ON  iops.sql_handle = b.sql_handle
 OPTION(RECOMPILE);
+
 
 RAISERROR(N'Checking for Spatial index use', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1859,9 +1882,12 @@ ON s.query_hash = b.query_hash
 WHERE statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 OPTION (RECOMPILE) ;
 
+
 IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
 
 BEGIN
+
+RAISERROR(N'Beginning 2017 specfic checks', 0, 1) WITH NOWAIT;
 
 RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1894,6 +1920,8 @@ JOIN stale_stats os
 ON b.sql_handle = os.sql_handle
 OPTION (RECOMPILE) ;
 
+
+RAISERROR(N'Checking for Adaptive Joins', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 aj AS (
 	SELECT r.sql_handle
@@ -1908,6 +1936,9 @@ JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
 
+END 
+
+
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
@@ -1918,13 +1949,13 @@ JOIN #working_warnings AS b
 ON b.query_hash = qp.query_hash
 OPTION (RECOMPILE);
 
-END 
 
-RAISERROR(N'Filling in object nam column where NULL', 0, 1) WITH NOWAIT;
+RAISERROR(N'Filling in object name column where NULL', 0, 1) WITH NOWAIT;
 UPDATE wm
 SET wm.proc_or_function_name = N'Statement'
 FROM #working_metrics AS wm
 WHERE proc_or_function_name IS NULL
+
 
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1962,7 +1993,9 @@ JOIN #trace_flags tf
 ON tf.sql_handle = b.sql_handle 
 OPTION(RECOMPILE);
 
-RAISERROR(N'This dumb thing', 0, 1) WITH NOWAIT;
+
+
+RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
@@ -1984,6 +2017,9 @@ AND b.query_id = wm.query_id
 OPTION (RECOMPILE) ;
 
 END
+
+
+RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
 
 UPDATE b
 SET parameter_sniffing_symptoms = 
@@ -2106,6 +2142,8 @@ END
 IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
 
+RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
+
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2127,6 +2165,8 @@ END
 IF (@Failed = 1 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
 
+RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
+
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2147,6 +2187,8 @@ END
 
 IF (@ExportToExcel = 1 AND @SkipXML = 0)
 BEGIN
+
+RAISERROR(N'Returning results for Excel export', 0, 1) WITH NOWAIT;
 
 UPDATE #working_plan_text
 SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_text)),' ','<>'),'><',''),'<>',' '), 1, 31000)
@@ -2172,6 +2214,9 @@ END
 
 IF (@ExportToExcel = 0 AND @SkipXML = 1)
 BEGIN
+
+RAISERROR(N'Returning results for skipped XML', 0, 1) WITH NOWAIT;
+
 SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2184,6 +2229,7 @@ ON wpt.plan_id = wm.plan_id
 AND wpt.query_id = wm.query_id
 ORDER BY wm.avg_cpu_time DESC
 OPTION(RECOMPILE);
+
 END
 
 
@@ -2890,6 +2936,9 @@ END
 
 IF @Debug = 1	
 BEGIN
+
+RAISERROR(N'Returning debugging data from temp tables', 0, 1) WITH NOWAIT;
+
 --Table content debugging
 
 SELECT '#working_metrics' AS table_name, *
