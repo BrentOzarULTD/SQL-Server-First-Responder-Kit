@@ -8,6 +8,17 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
+DECLARE @msg NVARCHAR(MAX) = N''
+
+IF  (
+	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
+	) < 13
+BEGIN
+	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933)
+	PRINT @msg
+	RETURN
+END
+
 IF OBJECT_ID('dbo.sp_BlitzQS') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzQS AS RETURN 0;')
 GO
@@ -559,6 +570,7 @@ CREATE TABLE #warning_results (
 --If they're both NULL, we'll just look at the last 7 days
 IF (@StartDate IS NULL AND @EndDate IS NULL)
 	BEGIN
+	RAISERROR(N'@StartDate and @EndDate are NULL, checking last 7 days', 0, 1) WITH NOWAIT;
 	SET @sql_where += ' AND qsrs.last_execution_time >= DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))
 					  '
 	END
@@ -618,13 +630,13 @@ IF @DurationFilter IS NOT NULL
 --I don't know why you'd go looking for failed queries, but hey
 IF (@Failed = 0 OR @Failed IS NULL)
     BEGIN 
-	RAISERROR(N'Setting failed query filter', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Setting failed query filter to 0', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsrs.execution_type = 0 
 					    ' 
 	END 
 IF (@Failed = 1)
     BEGIN 
-	RAISERROR(N'Setting failed query filter', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Setting failed query filter to 3, 4', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsrs.execution_type IN (3, 4) 
 					    ' 
 	END  
@@ -639,17 +651,19 @@ IF (LOWER(@QueryFilter) LIKE N'sta%')
     BEGIN 
 	RAISERROR(N'Looking for statements only', 0, 1) WITH NOWAIT;
 	SET  @sql_where += N' AND qsq.object_id IS NULL
+						  OR qsq.object_id = 0
 					    ' 
 	END 
 IF (LOWER(@QueryFilter) LIKE N'pro%')
     BEGIN 
 	RAISERROR(N'Looking for procs only', 0, 1) WITH NOWAIT;
-	SET  @sql_where += N' AND qsq.object_id IS NOT NULL
+	SET  @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) IS NOT NULL
 					    ' 
 	END 
 
 
 IF @Debug = 1
+	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
 	PRINT @sql_where
 
 /*
