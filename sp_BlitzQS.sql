@@ -403,6 +403,7 @@ CREATE TABLE #working_warnings(
     query_id BIGINT,
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
+	proc_or_function_name NVARCHAR(256),
 	plan_multiple_plans BIT,
     is_forced_plan BIT,
     is_forced_parameterized BIT,
@@ -517,16 +518,6 @@ DROP TABLE IF EXISTS #plan_cost;
 
 CREATE TABLE #plan_cost (
 	query_plan_cost DECIMAL(18,2),
-	sql_handle VARBINARY(64),
-	query_hash BINARY(8),
-	query_plan_hash BINARY (8)
-);
-
-
-DROP TABLE IF EXISTS #proc_costs
-
-CREATE TABLE #proc_costs (
-	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64)
 );
 
@@ -1218,7 +1209,7 @@ This sets up the #working_warnings table with the IDs we're interested in so we 
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
-SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
+SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle, wm.proc_or_function_name
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
@@ -1229,6 +1220,9 @@ JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
 ON qsqt.query_text_id = qsq.query_text_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
+JOIN #working_metrics wm
+ON wm.plan_id = wp.plan_id
+   AND wm.query_id = wp.query_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
@@ -1244,7 +1238,7 @@ IF @Debug = 1
 	PRINT @sql_select
 
 INSERT #working_warnings  WITH (TABLOCK)
-	( plan_id, query_id, query_hash, sql_handle )
+	( plan_id, query_id, query_hash, sql_handle, proc_or_function_name )
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -1483,13 +1477,10 @@ table_dml AS (
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #plan_cost WITH (TABLOCK)
-	( query_plan_cost, sql_handle, query_hash, query_plan_hash )
-
+	( query_plan_cost, sql_handle )
 SELECT  DISTINCT
 		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
-		s.sql_handle,
-		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS query_hash,
-		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS query_plan_hash
+		s.sql_handle
 FROM    #statements s
 OUTER APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
@@ -1498,81 +1489,17 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.query_hash, pc.query_plan_hash
+	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle
 	FROM #plan_cost AS pc
-	GROUP BY pc.query_hash, pc.query_plan_hash
-)
+	GROUP BY pc.sql_handle
+	)
 	UPDATE b
 		SET b.query_cost = ISNULL(pc.queryplancostsum, 0)
 		FROM  #working_warnings AS b
-		JOIN #working_metrics AS wm
-		ON b.plan_id = wm.plan_id
-		AND b.query_id = wm.query_id
-		JOIN #working_plan_text AS wpt
-		ON b.plan_id = wpt.plan_id
-		AND b.query_id = wpt.query_id
 		JOIN pc
-		ON pc.query_hash = b.query_hash
-		OR pc.query_plan_hash = wpt.query_plan_hash
-		WHERE wm.proc_or_function_name IS NULL
+		ON pc.sql_handle = b.sql_handle
 	OPTION (RECOMPILE);
 
-
-IF EXISTS (
-	SELECT 1
-	FROM #working_metrics AS wm
-	WHERE wm.proc_or_function_name IS NOT NULL
-			)
-
-BEGIN
-
-RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-, query_cost AS (
-  SELECT
-	DISTINCT
-    statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') AS subtreecost,
-	s.sql_handle
-  FROM #statements AS s
-)
-, querycost_update AS (
-  SELECT
-	SUM(qc.subtreecost) OVER (PARTITION BY sql_handle) plantotalquery,
-    qc.sql_handle
-  FROM query_cost qc
-)
-INSERT #proc_costs (query_plan_cost, sql_handle)
-SELECT qcu.plantotalquery, sql_handle
-FROM querycost_update AS qcu
-JOIN #working_plan_text AS wpt
-ON wpt.statement_sql_handle = qcu.sql_handle
-JOIN #working_metrics AS wm
-ON wm.plan_id = wpt.plan_id
-AND wm.query_id = wpt.query_id
-WHERE wm.proc_or_function_name IS NULL
-
-UPDATE b
-    SET b.query_cost = ca.query_plan_cost
-FROM #working_warnings AS b
-JOIN #working_metrics AS wm
-ON b.plan_id = wm.plan_id
-AND b.query_id = wm.query_id
-CROSS APPLY (
-		SELECT TOP 1 query_plan_cost 
-		FROM #proc_costs qcu 
-		WHERE qcu.sql_handle = b.sql_handle 
-		ORDER BY query_plan_cost DESC
-) ca
-WHERE wm.proc_or_function_name IS NOT NULL
-OPTION (RECOMPILE);
-
-END
-
-UPDATE b
-SET b.query_cost = 0.0
-FROM #working_warnings b
-WHERE b.query_cost IS NULL
-OPTION (RECOMPILE);
 
 /*End plan cost calculations*/
 
@@ -2931,10 +2858,6 @@ OPTION(RECOMPILE);
 
 SELECT '#plan_cost' AS table_name,  * 
 FROM #plan_cost AS pc
-OPTION(RECOMPILE);
-
-SELECT '#proc_costs' AS table_name,  *
-FROM #proc_costs AS pc
 OPTION(RECOMPILE);
 
 END 
