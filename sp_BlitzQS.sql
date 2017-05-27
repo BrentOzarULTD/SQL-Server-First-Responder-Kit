@@ -78,9 +78,7 @@ WHERE  c.name = 'min memory per query (KB)';
 /*Help section.*/
 IF @Help = 1
 	BEGIN
-		SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
-		RETURN;
-
+	SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 
 	PRINT '
 	sp_BlitzQS from http://FirstResponderKit.org
@@ -128,6 +126,8 @@ IF @Help = 1
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
 	'
+	RETURN;
+
 END
 
 /*Making sure your version is copasetic*/
