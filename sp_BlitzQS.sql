@@ -1,4 +1,18 @@
-ALTER PROCEDURE [dbo].[sp_BlitzQS]
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET STATISTICS IO OFF;
+SET STATISTICS TIME OFF;
+GO
+
+IF OBJECT_ID('dbo.sp_BlitzQS') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzQS AS RETURN 0;')
+GO
+
+ALTER PROCEDURE dbo.sp_BlitzQS
     @Help BIT = 0,
     @DatabaseName NVARCHAR(128) = NULL ,
     @Top INT = 3,
@@ -55,7 +69,55 @@ IF @Help = 1
 	BEGIN
 		SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 		RETURN;
-	END
+
+
+	PRINT '
+	sp_BlitzQS from http://FirstResponderKit.org
+		
+	This script displays your most resource-intensive queries from the Query Store,
+	and points to ways you can tune these queries to make them faster.
+	
+	
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
+	
+	Known limitations of this version:
+	 - This query will not run on SQL Server versions less than 2016.
+	 - @ExportToExcel is not functional yet.
+	- @HideSummary is not functional yet.
+
+	Unknown limitations of this version:
+	 - Could be tickling
+	
+	Changes - for the full list of improvements and fixes in this version, see:
+	https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+	
+	
+	
+	MIT License
+	
+	Copyright (c) 2016 Brent Ozar Unlimited
+	
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+	
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+	
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+	'
+END
 
 /*Making sure your version is copasetic*/
 IF  (
