@@ -166,7 +166,7 @@ SET @DatabaseName = LTRIM(RTRIM(@DatabaseName));
 BEGIN	
 	
 	/*Did you set @DatabaseName?*/
-	RAISERROR('Making sure databasename isn''t NULL', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure @DatabaseName isn''t NULL', 0, 1) WITH	NOWAIT;
 	IF (@DatabaseName IS NULL)
 	BEGIN
 	   RAISERROR('@DatabaseName cannot be NULL', 0, 1) WITH	NOWAIT;
@@ -174,10 +174,10 @@ BEGIN
 	END
 
 	/*Does the database exist?*/
-	RAISERROR('Making sure databasename exists', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure @DatabaseName exists', 0, 1) WITH	NOWAIT;
 	IF ((DB_ID(@DatabaseName)) IS NULL)
 	BEGIN
-	   RAISERROR('The database you specified does not exist. Please check the name and try again.', 0, 1) WITH	NOWAIT;
+	   RAISERROR('The @DatabaseName you specified does not exist. Please check the name and try again.', 0, 1) WITH	NOWAIT;
 	   RETURN;
 	END
 
@@ -185,12 +185,12 @@ BEGIN
 	RAISERROR('Making sure databasename is online', 0, 1) WITH	NOWAIT;
 	IF (DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
 	BEGIN
-	   RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 0, 1);
+	   RAISERROR('The @DatabaseName you specified is not readable. Please check the name and try again. Better yet, check your server.', 0, 1);
 	   RETURN;
 	END
 
 	/*Does it have Query Store enabled?*/
-	RAISERROR('Making sure database has Query Store enabled', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure @DatabaseName has Query Store enabled', 0, 1) WITH	NOWAIT;
 	IF 	
 		((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
 	AND		
@@ -203,7 +203,7 @@ BEGIN
 			AND DB_NAME(d.database_id) = @DatabaseName
 		) IS NULL
 	BEGIN
-	   RAISERROR('The database you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
+	   RAISERROR('The @DatabaseName you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
 	   RETURN;
 	END
 
@@ -212,7 +212,7 @@ END
 /*Making sure top is set to something if NULL*/
 IF ( @Top IS NULL )
    BEGIN
-         SET @Top = 2;
+         SET @Top = 3;
    END;
 
 SET @QueryFilter = LOWER(@QueryFilter);
@@ -231,6 +231,9 @@ These are the temp tables we use
 /*
 This one holds the grouped data that helps use figure out which periods to examine
 */
+
+RAISERROR(N'Creating temp tables', 0, 1) WITH NOWAIT;
+
 DROP TABLE IF EXISTS #grouped_interval;
 
 CREATE TABLE #grouped_interval
@@ -677,6 +680,7 @@ By default, it looks at queries:
 
 */
 
+RAISERROR(N'Gathering intervals', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
@@ -729,6 +733,9 @@ They insert into the #working_plans table
 */
 
 /*Get longest duration plans*/
+
+RAISERROR(N'Gathering longest duration plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH duration_max
@@ -771,6 +778,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 /*Get longest cpu plans*/
+
+RAISERROR(N'Gathering highest cpu plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH cpu_max
@@ -813,6 +823,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 /*Get highest logical read plans*/
+
+RAISERROR(N'Gathering highest logical read plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH logical_reads_max
@@ -855,6 +868,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 /*Get highest physical read plans*/
+
+RAISERROR(N'Gathering highest physical read plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH physical_read_max
@@ -898,6 +914,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 /*Get highest logical write plans*/
+
+RAISERROR(N'Gathering highest write plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH logical_writes_max
@@ -941,6 +960,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 /*Get highest memory use plans*/
+
+RAISERROR(N'Gathering highest memory use plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH memory_max
@@ -984,6 +1006,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 /*Get highest memory use plans*/
+
+RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 WITH rowcount_max
@@ -1032,6 +1057,9 @@ This rolls up the different patterns we find before deduplicating.
 The point of this is so we know if a query was gathered by one or more of the search queries
 
 */
+
+RAISERROR(N'Updating patterns', 0, 1) WITH NOWAIT;
+
 WITH patterns AS (
 SELECT wp.plan_id, wp.query_id,
 	   pattern_path = STUFF((SELECT DISTINCT N', ' + wp2.pattern
@@ -1053,6 +1081,9 @@ OPTION(RECOMPILE);
 /*
 This dedupes out results so we don't double-work the same plan
 */
+
+RAISERROR(N'Deduplicating gathered plans', 0, 1) WITH NOWAIT;
+
 WITH dedupe AS (
 SELECT * , ROW_NUMBER() OVER (PARTITION BY wp.plan_id ORDER BY wp.plan_id) AS dupes
 FROM #working_plans AS wp
@@ -1066,6 +1097,8 @@ OPTION(RECOMPILE);
 /*
 This gathers data for the #working_metrics table
 */
+
+RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
@@ -1120,6 +1153,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 /*
 This gathers data for the #working_plan_text table
 */
+
+RAISERROR(N'Gathering working plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name,  wp.plan_id, wp.query_id,
@@ -1165,6 +1201,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 /*
 This gets us context settings for our queries and adds it to the #working_plan_text table
 */
+
+RAISERROR(N'Gathering context settings', 0, 1) WITH NOWAIT;
+
 UPDATE wp
 SET wp.context_settings = SUBSTRING(
 					    CASE WHEN (CAST(qcs.set_options AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
@@ -1186,6 +1225,9 @@ OPTION(RECOMPILE);
 /*
 This adds the patterns we found from each interval to the #working_plan_text table
 */
+
+RAISERROR(N'Add patterns to working plans', 0, 1) WITH NOWAIT;
+
 UPDATE wpt
 SET wpt.pattern = wp.pattern
 FROM #working_plans AS wp
@@ -1195,6 +1237,9 @@ AND wpt.query_id = wp.query_id
 OPTION(RECOMPILE);
 
 /*This cleans up query text a bit*/
+
+RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
+
 UPDATE b
 SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
 FROM #working_plan_text AS b
@@ -1205,6 +1250,8 @@ BEGIN
 /*
 This sets up the #working_warnings table with the IDs we're interested in so we can tie warnings back to them 
 */
+
+RAISERROR(N'Populate working warnings table with gathered plans', 0, 1) WITH NOWAIT;
 
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
@@ -1250,6 +1297,9 @@ This and several of the following queries all replaced XML parsing to find plan 
 
 Thanks, Query Store
 */
+
+RAISERROR(N'Checking for multiple plans', 0, 1) WITH NOWAIT;
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
 UPDATE ww
@@ -1292,6 +1342,9 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 /*
 This looks for forced plans
 */
+
+RAISERROR(N'Checking for forced plans', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.is_forced_plan = 1
 FROM   #working_warnings AS ww
@@ -1305,6 +1358,9 @@ OPTION(RECOMPILE);
 /*
 This looks for forced parameterization
 */
+
+RAISERROR(N'Checking for forced parameterization', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.is_forced_parameterized = 1
 FROM   #working_warnings AS ww
@@ -1318,6 +1374,9 @@ OPTION(RECOMPILE);
 /*
 This looks for unparameterized queries
 */
+
+RAISERROR(N'Checking for unparameterized plans', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.unparameterized_query = 1
 FROM   #working_warnings AS ww
@@ -1325,6 +1384,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'None'
+   AND ww.proc_or_function_name IS NOT NULL
 OPTION(RECOMPILE);
 
 
