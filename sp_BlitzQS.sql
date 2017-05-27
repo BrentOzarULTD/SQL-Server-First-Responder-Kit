@@ -1204,22 +1204,30 @@ This gets us context settings for our queries and adds it to the #working_plan_t
 
 RAISERROR(N'Gathering context settings', 0, 1) WITH NOWAIT;
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+SET @sql_select += N'
 UPDATE wp
 SET wp.context_settings = SUBSTRING(
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 1 = 1) THEN ', ANSI_PADDING' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 8 = 8) THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 16 = 16) THEN ', ANSI_WARNINGS' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 32 = 32) THEN ', ANSI_NULLS' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 64 = 64) THEN ', QUOTED_IDENTIFIER' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 4096 = 4096) THEN ', ARITH_ABORT' ELSE '' END +
-					    CASE WHEN (CAST(qcs.set_options AS INT) & 8192 = 8191) THEN ', NUMERIC_ROUNDABORT' ELSE '' END 
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 1 = 1) THEN '', ANSI_PADDING'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 8 = 8) THEN '', CONCAT_NULL_YIELDS_NULL'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 16 = 16) THEN '', ANSI_WARNINGS'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 32 = 32) THEN '', ANSI_NULLS'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 64 = 64) THEN '', QUOTED_IDENTIFIER'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 4096 = 4096) THEN '', ARITH_ABORT'' ELSE '''' END +
+					    CASE WHEN (CAST(qcs.set_options AS INT) & 8192 = 8191) THEN '', NUMERIC_ROUNDABORT'' ELSE '''' END 
 					    , 2, 200000)
 FROM #working_plan_text wp
-JOIN   StackOverflow.sys.query_store_query AS qsq
+JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
 ON wp.query_id = qsq.query_id
-JOIN   StackOverflow.sys.query_context_settings AS qcs
+JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_context_settings AS qcs
 ON qcs.context_settings_id = qsq.context_settings_id
 OPTION(RECOMPILE);
+'
+
+IF @Debug = 1
+	PRINT @sql_select
+
+EXEC sys.sp_executesql  @stmt = @sql_select
 
 
 /*
