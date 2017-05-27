@@ -36,6 +36,7 @@ ALTER PROCEDURE dbo.sp_BlitzQS
     @QueryFilter NVARCHAR(10) = 'ALL' ,
     @ExportToExcel BIT = 0,
     @HideSummary BIT = 0 ,
+	@SkipXML BIT = 0,
 	@Debug BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -62,6 +63,9 @@ DECLARE /*Variables for the variable Gods*/
 		@memory_grant_warning_percent INT = 10,
 		@ctp INT,
 		@min_memory_per_query INT,
+		@cr NVARCHAR(1) = NCHAR(13),
+		@lf NVARCHAR(1) = NCHAR(10),
+		@tab NVARCHAR(1) = NCHAR(9),
 		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)'
 
 
@@ -93,8 +97,6 @@ IF @Help = 1
 	
 	Known limitations of this version:
 	 - This query will not run on SQL Server versions less than 2016.
-	 - @ExportToExcel is not functional yet.
-	- @HideSummary is not functional yet.
 
 	Unknown limitations of this version:
 	 - Could be tickling
@@ -666,6 +668,12 @@ IF @Debug = 1
 	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
 	PRINT @sql_where
 
+IF @ExportToExcel = 1	
+	BEGIN
+	RAISERROR(N'Exporting to Excel, hiding summary', 0, 1) WITH NOWAIT;
+	SET @HideSummary = 1
+	END
+
 /*
 This is our grouped interval query.
 
@@ -1196,6 +1204,13 @@ ON wpt.plan_id = wp.plan_id
 AND wpt.query_id = wp.query_id
 OPTION(RECOMPILE);
 
+/*This cleans up query text a bit*/
+UPDATE b
+SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
+FROM #working_plan_text AS b
+
+IF (@SkipXML = 0)
+BEGIN
 
 /*
 This sets up the #working_warnings table with the IDs we're interested in so we can tie warnings back to them 
@@ -1995,6 +2010,8 @@ ON b.plan_id = wm.plan_id
 AND b.query_id = wm.query_id
 OPTION (RECOMPILE) ;
 
+END
+
 UPDATE b
 SET parameter_sniffing_symptoms = 
 	SUBSTRING(  
@@ -2042,16 +2059,8 @@ SET parameter_sniffing_symptoms =
 FROM #working_metrics AS b
 
 
-/*
-
-
-	avg_dop DECIMAL(38,2),
-	last_dop DECIMAL(38,2),
-	min_dop DECIMAL(38,2),
-	max_dop DECIMAL(38,2),
-
-
-*/
+IF @SkipXML = 0
+BEGIN 
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 /* Populate warnings */
@@ -2124,7 +2133,6 @@ SELECT  DISTINCT
                   CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
-                  --CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), ( SELECT SUM(b2.missing_index_count) 
 																										FROM #working_warnings b2 
 																										JOIN #working_metrics AS wm2 
@@ -2212,16 +2220,17 @@ ON b.sql_handle = s.sql_handle
 WHERE wm.proc_or_function_name LIKE 'Procedure or Function%'
 OPTION(RECOMPILE);
 
-  
+ 
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
 UPDATE b
 SET b.warnings = 'No warnings detected.'
 FROM #working_warnings AS b
 WHERE b.warnings = '' OR b.warnings IS NULL
 OPTION (RECOMPILE);
+END
 
-
-
+IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
+BEGIN
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -2237,9 +2246,69 @@ ON wpt.plan_id = wm.plan_id
 AND wpt.query_id = wm.query_id
 ORDER BY ww.query_cost DESC
 OPTION(RECOMPILE);
+END
+
+IF (@Failed = 1 AND @ExportToExcel = 0 AND @SkipXML = 0)
+BEGIN
+SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
+	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+FROM #working_plan_text AS wpt
+JOIN #working_warnings AS ww
+ON wpt.plan_id = ww.plan_id
+AND wpt.query_id = ww.query_id
+JOIN #working_metrics AS wm
+ON wpt.plan_id = wm.plan_id
+AND wpt.query_id = wm.query_id
+ORDER BY ww.query_cost DESC
+OPTION(RECOMPILE);
+END
+
+IF (@ExportToExcel = 1 AND @SkipXML = 0)
+BEGIN
+UPDATE #working_plan_text
+SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_text)),' ','<>'),'><',''),'<>',' '), 1, 31000)
+OPTION(RECOMPILE);
+
+SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
+	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+FROM #working_plan_text AS wpt
+JOIN #working_warnings AS ww
+ON wpt.plan_id = ww.plan_id
+AND wpt.query_id = ww.query_id
+JOIN #working_metrics AS wm
+ON wpt.plan_id = wm.plan_id
+AND wpt.query_id = wm.query_id
+ORDER BY ww.query_cost DESC
+OPTION(RECOMPILE);
+END
+
+IF (@ExportToExcel = 0 AND @SkipXML = 1)
+BEGIN
+SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
+	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
+	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+FROM #working_plan_text AS wpt
+JOIN #working_metrics AS wm
+ON wpt.plan_id = wm.plan_id
+AND wpt.query_id = wm.query_id
+ORDER BY wm.avg_cpu_time DESC
+OPTION(RECOMPILE);
+END
 
 
-
+IF (@ExportToExcel = 0 AND @HideSummary = 0 AND @SkipXML = 0)
+BEGIN
         RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
         /* Build summary data */
@@ -2937,7 +3006,7 @@ OPTION(RECOMPILE);
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
 
-
+END	
 
 /*
 Table content debugging
