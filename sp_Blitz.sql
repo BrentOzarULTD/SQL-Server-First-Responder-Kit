@@ -626,7 +626,7 @@ AS
 										AND d.name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 															FROM  #SkipChecks
-															WHERE CheckID IS NULL )
+															WHERE CheckID IS NULL OR CheckID = 1)
 										/*
 										The above NOT IN filters out the databases we're not supposed to check.
 										*/
@@ -683,7 +683,7 @@ AS
 										AND d.name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 															FROM  #SkipChecks
-															WHERE CheckID IS NULL )
+															WHERE CheckID IS NULL OR CheckID = 2)
 										AND NOT EXISTS ( SELECT *
 														 FROM   msdb.dbo.backupset b
 														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -1091,7 +1091,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 12)
 					END
 
 
@@ -1121,7 +1121,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL);
+														  WHERE CheckID IS NULL OR CheckID = 13);
 					END
 
 
@@ -1149,7 +1149,7 @@ AS
 					  FROM sys.databases
 					  WHERE page_verify_option < 2
 					  AND name <> ''tempdb''
-					  and name not in (select distinct DatabaseName from #SkipChecks) OPTION (RECOMPILE);'
+					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 14) OPTION (RECOMPILE);'
 								EXECUTE(@StringToExecute)
 							END;
 					END
@@ -1181,7 +1181,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 15)
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -1210,7 +1210,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 16)
 					END
 
 
@@ -1240,7 +1240,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 17)
 					END
 
 
@@ -1269,7 +1269,7 @@ AS
 								WHERE   is_parameterization_forced = 1
 										AND name NOT IN ( SELECT  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 18)
 					END
 
 
@@ -1299,7 +1299,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 20)
 					END
 
 
@@ -1328,7 +1328,7 @@ AS
 					  (''Database ['' + [name] + ''] has Transparent Data Encryption enabled.  Make absolutely sure you have backed up the certificate and private key, or else you will not be able to restore this database.'') AS Details
 					  FROM sys.databases
 					  WHERE is_encrypted = 1
-					  and name not in (select distinct DatabaseName from #SkipChecks) OPTION (RECOMPILE);'
+					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 21) OPTION (RECOMPILE);'
 								EXECUTE(@StringToExecute)
 							END;
 					END
@@ -1692,7 +1692,8 @@ AS
 										AND DB_NAME(database_id) NOT IN (
 										SELECT DISTINCT
 												DatabaseName
-										FROM    #SkipChecks )
+										FROM    #SkipChecks
+										WHERE CheckID IS NULL OR CheckID = 26 )
 					END
 
 
@@ -2334,7 +2335,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL);
+														  WHERE CheckID IS NULL OR CheckID = 55);
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -2440,7 +2441,7 @@ AS
 								WHERE   name NOT IN ( SELECT DISTINCT
 																DatabaseName
 													  FROM      #SkipChecks 
-													  WHERE CheckID IS NULL)
+													  WHERE CheckID IS NULL OR CheckID = 62)
 										AND compatibility_level <= 90
 					END
 
@@ -3016,7 +3017,7 @@ AS
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
 											                        FROM    #SkipChecks 
-																	WHERE CheckID IS NULL)
+																	WHERE CheckID IS NULL OR CheckID = 148)
 	                        END
 
                         /* Reliability - Database Files Stored in Azure */
@@ -3046,7 +3047,7 @@ AS
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
 											                        FROM    #SkipChecks 
-																	WHERE CheckID IS NULL)
+																	WHERE CheckID IS NULL OR CheckID = 149)
 	                        END
 
 
@@ -4324,7 +4325,7 @@ IF @ProductVersionMajor >= 10
 								        WHERE   name NOT IN ( SELECT DISTINCT
 																        DatabaseName
 													          FROM      #SkipChecks 
-													          WHERE CheckID IS NULL)
+													          WHERE CheckID IS NULL OR CheckID = 19)
 										        AND is_published = 1
 										        OR is_subscribed = 1
 										        OR is_merge_published = 1
@@ -4695,7 +4696,7 @@ IF @ProductVersionMajor >= 10
 																AND dbname NOT IN ( SELECT DISTINCT
 																						  DatabaseName
 																					FROM  #SkipChecks 
-																					WHERE CheckID IS NULL)
+																					WHERE CheckID IS NULL OR CheckID = 72)
 												DROP TABLE #partdb
 											END
 
@@ -4903,7 +4904,7 @@ IF @ProductVersionMajor >= 10
 									FROM [?].sys.database_scoped_configurations dsc 
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
 									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (dsc.value = def.default_value OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
-									LEFT OUTER JOIN #SkipChecks sk ON def.CheckID = sk.CheckID AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
+									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
 									 OPTION (RECOMPILE);';
 					        END
@@ -5360,7 +5361,7 @@ IF @ProductVersionMajor >= 10
 																  DatabaseName
 																FROM
 																  #SkipChecks 
-																WHERE CheckID IS NULL)
+																WHERE CheckID IS NULL OR CheckID = 68)
 											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 																  -14,
 																  CURRENT_TIMESTAMP)
@@ -5525,7 +5526,8 @@ IF @ProductVersionMajor >= 10
 										AND DB_NAME(a.database_id) NOT IN (
 										SELECT DISTINCT
 												DatabaseName
-										FROM    #SkipChecks )
+										FROM    #SkipChecks 
+										WHERE CheckID = 75 OR CheckID IS NULL)
 										AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
 										AND a.size > ( SELECT   SUM(CAST(b.size AS BIGINT))
 													   FROM     sys.master_files b
@@ -5565,7 +5567,7 @@ IF @ProductVersionMajor >= 10
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 76)
 										AND collation_name <> ( SELECT
 																  collation_name
 																FROM
@@ -5601,10 +5603,9 @@ IF @ProductVersionMajor >= 10
 								FROM    sys.databases dSnap
 										INNER JOIN sys.databases dOriginal ON dSnap.source_database_id = dOriginal.database_id
 																  AND dSnap.name NOT IN (
-																  SELECT DISTINCT
-																  DatabaseName
-																  FROM
-																  #SkipChecks )
+																  SELECT DISTINCT DatabaseName
+																  FROM #SkipChecks 
+																  WHERE CheckID = 77 OR CheckID IS NULL)
 					END
 
 				IF NOT EXISTS ( SELECT  1
