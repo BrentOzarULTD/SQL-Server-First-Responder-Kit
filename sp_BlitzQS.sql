@@ -863,7 +863,6 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
-
 /*Get highest physical read plans*/
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 SET @sql_select += N'
@@ -1387,9 +1386,7 @@ AND wpt.is_trivial_plan = 1;
 This parses the XML from our top plans into smaller chunks for easier consumption
 */
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements WITH (TABLOCK)
-	( plan_id, query_id, query_hash, sql_handle, statement )
-	
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )	
 	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
@@ -1399,8 +1396,7 @@ INSERT #statements WITH (TABLOCK)
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements ( plan_id, query_id, query_hash, sql_handle, statement )
-
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )
 	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
@@ -1410,16 +1406,14 @@ INSERT #statements ( plan_id, query_id, query_hash, sql_handle, statement )
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #query_plan ( plan_id, query_id, query_hash, sql_handle, query_plan )
-
+INSERT #query_plan WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, query_plan )
 SELECT  s.plan_id, s.query_id, s.query_hash, s.sql_handle, q.n.query('.') AS query_plan
 FROM    #statements AS s
         CROSS APPLY s.statement.nodes('//p:QueryPlan') AS q(n) 
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #relop ( plan_id, query_id, query_hash, sql_handle, relop)
-
+INSERT #relop WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, relop)
 SELECT  qp.plan_id, qp.query_id, qp.query_hash, qp.sql_handle, q.n.query('.') AS relop
 FROM    #query_plan qp
         CROSS APPLY qp.query_plan.nodes('//p:RelOp') AS q(n) 
@@ -1455,8 +1449,8 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 index_dml AS (
 	SELECT	s.query_hash,	
 			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]') = 1 THEN 1
-								 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
-								 END
+							 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
+							 END
 	FROM    #statements s
 			)
 	UPDATE b
@@ -1868,7 +1862,7 @@ WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
 OPTION (RECOMPILE) ;
 
 
-RAISERROR('Checking for row level security in 2016 only', 0, 1) WITH NOWAIT;
+RAISERROR('Checking for row level security only', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
 SET  b.is_row_level = 1
@@ -1877,6 +1871,10 @@ JOIN #statements s
 ON s.query_hash = b.query_hash 
 WHERE statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 OPTION (RECOMPILE) ;
+
+IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
+
+BEGIN
 
 RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -1933,25 +1931,13 @@ JOIN #working_warnings AS b
 ON b.query_hash = qp.query_hash
 OPTION (RECOMPILE);
 
+END 
+
 RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
 UPDATE wm
 SET wm.proc_or_function_name = N'Statement'
 FROM #working_metrics AS wm
 WHERE proc_or_function_name IS NULL
-
-UPDATE  wm
-SET     wm.proc_or_function_name = wm.proc_or_function_name + ' (parent ' +
-                    + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
-                    + '.'
-                    + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + ')'
-FROM    #working_metrics AS wm
-JOIN	#working_plan_text AS wpt
-ON wm.plan_id = wpt.plan_id
-AND wm.query_id = wpt.query_id
-JOIN sys.dm_exec_procedure_stats s 
-ON wpt.statement_sql_handle = s.sql_handle
-WHERE   wm.proc_or_function_name = N'Statement'
-OPTION (RECOMPILE) ;
 
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
