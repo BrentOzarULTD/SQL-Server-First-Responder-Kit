@@ -81,6 +81,7 @@ WHERE  c.name = 'min memory per query (KB)';
 /*Help section.*/
 IF @Help = 1
 	BEGIN
+	
 	SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 
 	PRINT '
@@ -132,30 +133,26 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  (
-	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
-	) < 13
-BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
-	PRINT @msg;
-	RETURN;
-END;
+IF  ( SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13
+	BEGIN
+		SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+		PRINT @msg;
+		RETURN;
+	END;
 
 /*Making sure at least one database uses QS*/
-IF  (
-	SELECT COUNT(*)
-	FROM sys.databases AS d
-	WHERE d.is_query_store_on = 1
-	AND user_access_desc='MULTI_USER'
-	AND state_desc = 'ONLINE'
-	AND name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
-	AND is_distributor = 0
-	) = 0
-BEGIN
-	SELECT @msg = 'You don''t currently have any databases with QS enabled.' + REPLICATE(CHAR(13), 7933);
-	PRINT @msg;
-	RETURN;
-END;
+IF  (	SELECT COUNT(*)
+		FROM sys.databases AS d
+		WHERE d.is_query_store_on = 1
+		AND user_access_desc='MULTI_USER'
+		AND state_desc = 'ONLINE'
+		AND name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
+		AND is_distributor = 0 ) = 0
+	BEGIN
+		SELECT @msg = 'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
+		PRINT @msg;
+		RETURN;
+	END;
 
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
@@ -193,14 +190,12 @@ BEGIN
 	IF 	
 		((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
 	AND		
-		( 
-			SELECT DB_NAME(d.database_id)
+		(   SELECT DB_NAME(d.database_id)
 			FROM sys.databases AS d
 			WHERE d.is_query_store_on = 1
 			AND user_access_desc='MULTI_USER'
 			AND state_desc = 'ONLINE'
-			AND DB_NAME(d.database_id) = @DatabaseName
-		) IS NULL
+			AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
 	BEGIN
 	   RAISERROR('The @DatabaseName you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
 	   RETURN;
@@ -211,7 +206,7 @@ END;
 /*Making sure top is set to something if NULL*/
 IF ( @Top IS NULL )
    BEGIN
-         SET @Top = 3;
+       SET @Top = 3;
    END;
 
 
@@ -241,7 +236,7 @@ CREATE TABLE #grouped_interval
     total_avg_query_max_used_memory_mb DECIMAL(38, 2) NULL,
     total_rowcount DECIMAL(38, 2) NULL,
     total_count_executions BIGINT NULL,
-	INDEX ix_dates CLUSTERED (start_range, end_range)
+	INDEX gi_ix_dates CLUSTERED (start_range, end_range)
 );
 
 
@@ -255,7 +250,7 @@ CREATE TABLE #working_plans
     plan_id BIGINT,
     query_id BIGINT,
 	pattern NVARCHAR(256),
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX wp_ix_ids CLUSTERED (plan_id, query_id)
 );
 
 
@@ -343,7 +338,7 @@ CREATE TABLE #working_metrics (
 	total_query_max_used_memory AS avg_query_max_used_memory * count_executions,
 	total_rowcount AS avg_rowcount * count_executions,
 	xpm AS NULLIF(count_executions, 0) / NULLIF(DATEDIFF(MINUTE, first_execution_time, last_execution_time), 0),
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX wm_ix_ids CLUSTERED (plan_id, query_id, query_hash)
 );
 
 
@@ -384,7 +379,7 @@ CREATE TABLE #working_plan_text (
 	context_settings NVARCHAR(512),
 	/*This is from #working_plans*/
 	pattern NVARCHAR(512)
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX wpt_ix_ids CLUSTERED (plan_id, query_id, query_plan_hash)
 ); 
 
 
@@ -466,7 +461,7 @@ CREATE TABLE #working_warnings(
 	stale_stats BIT,
 	is_adaptive BIT,
     warnings NVARCHAR(4000)
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
 
@@ -481,7 +476,7 @@ CREATE TABLE #statements (
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
 	statement XML,
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX s_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
 
@@ -493,7 +488,7 @@ CREATE TABLE #query_plan (
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
 	query_plan XML,
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX qp_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
 
@@ -505,7 +500,7 @@ CREATE TABLE #relop (
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
 	relop XML,
-	INDEX ix_ids CLUSTERED (plan_id, query_id)
+	INDEX ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
 
@@ -513,21 +508,24 @@ DROP TABLE IF EXISTS #plan_cost;
 
 CREATE TABLE #plan_cost (
 	query_plan_cost DECIMAL(18,2),
-	sql_handle VARBINARY(64)
+	sql_handle VARBINARY(64),
+	INDEX px_ix_ids CLUSTERED (sql_handle)
 );
 
 
 DROP TABLE IF EXISTS #stats_agg;
 
-CREATE TABLE #stats_agg (
-sql_handle VARBINARY(64),
-last_update DATETIME2,
-modification_count DECIMAL(38,2),
-sampling_percent DECIMAL(38,2),
-[statistics] NVARCHAR(256),
-[table] NVARCHAR(256),
-[schema] NVARCHAR(256),
-[database] NVARCHAR(256)
+CREATE TABLE #stats_agg
+(
+    sql_handle VARBINARY(64),
+    last_update DATETIME2,
+    modification_count DECIMAL(38, 2),
+    sampling_percent DECIMAL(38, 2),
+    [statistics] NVARCHAR(256),
+    [table] NVARCHAR(256),
+    [schema] NVARCHAR(256),
+    [database] NVARCHAR(256),
+	INDEX sa_ix_ids CLUSTERED (sql_handle)
 );
 
 
@@ -536,14 +534,15 @@ DROP TABLE IF EXISTS #trace_flags;
 CREATE TABLE #trace_flags (
 	sql_handle VARBINARY(54),
 	global_trace_flags NVARCHAR(4000),
-	session_trace_flags NVARCHAR(4000)
+	session_trace_flags NVARCHAR(4000),
+	INDEX tf_ix_ids CLUSTERED (sql_handle)
 );
 
 
 DROP TABLE IF EXISTS #warning_results;	
 
 CREATE TABLE #warning_results (
-    ID INT IDENTITY(1,1),
+    ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
     CheckID INT,
     Priority TINYINT,
     FindingsGroup NVARCHAR(50),
@@ -633,9 +632,9 @@ IF @Debug = 1
 	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
 	PRINT @sql_where;
 
-IF @ExportToExcel = 1	
+IF (@ExportToExcel = 1 OR @SkipXML = 1)	
 	BEGIN
-	RAISERROR(N'Exporting to Excel, hiding summary', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Exporting to Excel or skipping XML, hiding summary', 0, 1) WITH NOWAIT;
 	SET @HideSummary = 1;
 	END;
 
@@ -1050,7 +1049,7 @@ OPTION(RECOMPILE);
 
 
 /*
-This dedupes out results so we don't double-work the same plan
+This dedupes our results so we hopefully don't double-work the same plan
 */
 
 RAISERROR(N'Deduplicating gathered plans', 0, 1) WITH NOWAIT;
@@ -1204,10 +1203,6 @@ IF @Debug = 1
 	PRINT @sql_select;
 
 EXEC sys.sp_executesql  @stmt = @sql_select;
-
-DELETE w
-FROM #working_plan_text AS w
-WHERE query_sql_text LIKE '(@_msparam_%'
 
 
 /*
@@ -1897,7 +1892,8 @@ SELECT qp.sql_handle,
 	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
 	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
 FROM #query_plan AS qp
-CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c);
+CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
+OPTION (RECOMPILE);
 
 
 RAISERROR('Checking for stale stats', 0, 1) WITH NOWAIT;
@@ -1913,7 +1909,7 @@ SET b.stale_stats = 1
 FROM #working_warnings AS b
 JOIN stale_stats os
 ON b.sql_handle = os.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for Adaptive Joins', 0, 1) WITH NOWAIT;
@@ -2137,7 +2133,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 ON wpt.plan_id = ww.plan_id
@@ -2187,7 +2183,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 ON wpt.plan_id = ww.plan_id
@@ -2210,7 +2206,7 @@ SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
 FROM #working_plan_text AS wpt
 JOIN #working_metrics AS wm
 ON wpt.plan_id = wm.plan_id
