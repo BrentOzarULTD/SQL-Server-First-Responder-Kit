@@ -1144,22 +1144,57 @@ RAISERROR(@msg, 0, 1) WITH NOWAIT
 This gathers data for the #working_metrics table
 */
 
+
 RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.query_id,
        object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) AS proc_or_function_name,
-	   qsq.batch_sql_handle, qsq.query_hash, qsq.query_parameterization_type_desc, qsq.count_compiles, qsq.avg_compile_duration, 
-	   qsq.last_compile_duration, qsq.avg_bind_duration, qsq.last_bind_duration, qsq.avg_bind_cpu_time, qsq.last_bind_cpu_time, 
-	   qsq.avg_optimize_duration, qsq.last_optimize_duration, qsq.avg_optimize_cpu_time, qsq.last_optimize_cpu_time, qsq.avg_compile_memory_kb, 
-	   qsq.last_compile_memory_kb, qsrs.execution_type_desc, qsrs.first_execution_time, qsrs.last_execution_time, qsrs.count_executions, 
-	   qsrs.avg_duration, qsrs.last_duration, qsrs.min_duration, qsrs.max_duration, qsrs.avg_cpu_time, qsrs.last_cpu_time, qsrs.min_cpu_time, 
-	   qsrs.max_cpu_time, qsrs.avg_logical_io_reads, qsrs.last_logical_io_reads, qsrs.min_logical_io_reads, qsrs.max_logical_io_reads, 
-	   qsrs.avg_logical_io_writes, qsrs.last_logical_io_writes, qsrs.min_logical_io_writes, qsrs.max_logical_io_writes, qsrs.avg_physical_io_reads, 
-	   qsrs.last_physical_io_reads, qsrs.min_physical_io_reads, qsrs.max_physical_io_reads, qsrs.avg_clr_time, qsrs.last_clr_time, qsrs.min_clr_time, 
-	   qsrs.max_clr_time, qsrs.avg_dop, qsrs.last_dop, qsrs.min_dop, qsrs.max_dop, qsrs.avg_query_max_used_memory, qsrs.last_query_max_used_memory, 
-	   qsrs.min_query_max_used_memory, qsrs.max_query_max_used_memory, qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount
+	   qsq.batch_sql_handle, qsq.query_hash, qsq.query_parameterization_type_desc, qsq.count_compiles, 
+	   (qsq.avg_compile_duration / 1000.), 
+	   (qsq.last_compile_duration / 1000.), 
+	   (qsq.avg_bind_duration / 1000.), 
+	   (qsq.last_bind_duration / 1000.), 
+	   (qsq.avg_bind_cpu_time / 1000.), 
+	   (qsq.last_bind_cpu_time / 1000.), 
+	   (qsq.avg_optimize_duration / 1000.), 
+	   (qsq.last_optimize_duration / 1000.), 
+	   (qsq.avg_optimize_cpu_time / 1000.), 
+	   (qsq.last_optimize_cpu_time / 1000.), 
+	   (qsq.avg_compile_memory_kb / 1024.), 
+	   (qsq.last_compile_memory_kb / 1024.), 
+	   qsrs.execution_type_desc, qsrs.first_execution_time, qsrs.last_execution_time, qsrs.count_executions, 
+	   (qsrs.avg_duration / 1000.), 
+	   (qsrs.last_duration / 1000.),
+	   (qsrs.min_duration / 1000.), 
+	   (qsrs.max_duration / 1000.), 
+	   (qsrs.avg_cpu_time / 1000.), 
+	   (qsrs.last_cpu_time / 1000.), 
+	   (qsrs.min_cpu_time / 1000.), 
+	   (qsrs.max_cpu_time / 1000.), 
+	   ((qsrs.avg_logical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.last_logical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.min_logical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.max_logical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.avg_logical_io_writes * 8 ) / 1024.), 
+	   ((qsrs.last_logical_io_writes * 8 ) / 1024.), 
+	   ((qsrs.min_logical_io_writes * 8 ) / 1024.), 
+	   ((qsrs.max_logical_io_writes * 8 ) / 1024.), 
+	   ((qsrs.avg_physical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.last_physical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.min_physical_io_reads * 8 ) / 1024.), 
+	   ((qsrs.max_physical_io_reads * 8 ) / 1024.), 
+	   (qsrs.avg_clr_time / 1000.), 
+	   (qsrs.last_clr_time / 1000.), 
+	   (qsrs.min_clr_time / 1000.), 
+	   (qsrs.max_clr_time / 1000.), 
+	   qsrs.avg_dop, qsrs.last_dop, qsrs.min_dop, qsrs.max_dop, 
+	   ((qsrs.avg_query_max_used_memory * 8 ) / 1024.), 
+	   ((qsrs.last_query_max_used_memory * 8 ) / 1024.), 
+	   ((qsrs.min_query_max_used_memory * 8 ) / 1024.), 
+	   ((qsrs.max_query_max_used_memory * 8 ) / 1024.), 
+	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
 ON wp.query_id = qsq.query_id
@@ -1206,6 +1241,7 @@ WHERE proc_or_function_name IS NULL
 This gathers data for the #working_plan_text table
 */
 
+
 RAISERROR(N'Gathering working plans', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
@@ -1213,7 +1249,9 @@ SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name,  wp.plan_id, wp.query_id,
 	   qsp.plan_group_id, qsp.engine_version, qsp.compatibility_level, qsp.query_plan_hash, TRY_CONVERT(XML, qsp.query_plan), qsp.is_online_index_plan, qsp.is_trivial_plan, 
 	   qsp.is_parallel_plan, qsp.is_forced_plan, qsp.is_natively_compiled, qsp.force_failure_count, qsp.last_force_failure_reason_desc, qsp.count_compiles, 
-	   qsp.initial_compile_start_time, qsp.last_compile_start_time, qsp.last_execution_time, qsp.avg_compile_duration, qsp.last_compile_duration, 
+	   qsp.initial_compile_start_time, qsp.last_compile_start_time, qsp.last_execution_time, 
+	   (qsp.avg_compile_duration / 1000.), 
+	   (qsp.last_compile_duration / 1000.), 
 	   qsqt.query_sql_text, qsqt.statement_sql_handle, qsqt.is_part_of_encrypted_module, qsqt.has_restricted_text
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
@@ -2142,43 +2180,43 @@ UPDATE b
 SET parameter_sniffing_symptoms = 
 	SUBSTRING(  
 				/*Duration*/
-				CASE WHEN (min_duration / 1000.) * 10000 < (avg_duration / 1000.) THEN ', Fast sometimes' ELSE '' END +
-				CASE WHEN (max_duration / 1000.) > (avg_duration / 1000.) * 10000 THEN ', Slow sometimes' ELSE '' END +
-				CASE WHEN (last_duration / 1000.) * 10000 < (avg_duration / 1000.)  THEN ', Fast last run' ELSE '' END +
-				CASE WHEN (last_duration / 1000.) > (avg_duration / 1000.) * 10000 THEN ', Slow last run' ELSE '' END +
+				CASE WHEN (min_duration * 10000) < (avg_duration) THEN ', Fast sometimes' ELSE '' END +
+				CASE WHEN (max_duration) > (avg_duration * 10000) THEN ', Slow sometimes' ELSE '' END +
+				CASE WHEN (last_duration * 10000) < (avg_duration)  THEN ', Fast last run' ELSE '' END +
+				CASE WHEN (last_duration) > (avg_duration * 10000) THEN ', Slow last run' ELSE '' END +
 				/*CPU*/
-				CASE WHEN (min_cpu_time / 1000. / avg_dop) * 10000 < (avg_cpu_time / 1000. / avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
-				CASE WHEN (max_cpu_time / 1000. / max_dop) > (avg_cpu_time / 1000. / avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
-				CASE WHEN (last_cpu_time / 1000. / last_dop) * 10000 < (avg_cpu_time / 1000. / avg_dop)  THEN ', Low CPU last run' ELSE '' END +
-				CASE WHEN (last_cpu_time / 1000. / last_dop) > (avg_cpu_time / 1000. / avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
+				CASE WHEN (min_cpu_time / avg_dop) * 10000 < (avg_cpu_time / avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
+				CASE WHEN (max_cpu_time / max_dop) > (avg_cpu_time / avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
+				CASE WHEN (last_cpu_time / last_dop) * 10000 < (avg_cpu_time / avg_dop)  THEN ', Low CPU last run' ELSE '' END +
+				CASE WHEN (last_cpu_time / last_dop) > (avg_cpu_time / avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
 				/*Logical Reads*/
-				CASE WHEN (min_logical_io_reads * 8 / 1024.) * 10000 < (avg_logical_io_reads * 8 / 1024.) THEN ', Low reads sometimes' ELSE '' END +
-				CASE WHEN (max_logical_io_reads * 8 / 1024.) > (avg_logical_io_reads * 8 / 1024.) * 10000 THEN ', High reads sometimes' ELSE '' END +
-				CASE WHEN (last_logical_io_reads * 8 / 1024.) * 10000 < (avg_logical_io_reads * 8 / 1024.)  THEN ', Low reads last run' ELSE '' END +
-				CASE WHEN (last_logical_io_reads * 8 / 1024.) > (avg_logical_io_reads * 8 / 1024.) * 10000 THEN ', High reads last run' ELSE '' END +
+				CASE WHEN (min_logical_io_reads * 10000) < (avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
+				CASE WHEN (max_logical_io_reads) > (avg_logical_io_reads * 10000) THEN ', High reads sometimes' ELSE '' END +
+				CASE WHEN (last_logical_io_reads * 10000) < (avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
+				CASE WHEN (last_logical_io_reads) > (avg_logical_io_reads * 10000) THEN ', High reads last run' ELSE '' END +
 				/*Logical Writes*/
-				CASE WHEN (min_logical_io_writes * 8 / 1024.) * 10000 < (avg_logical_io_writes * 8 / 1024.) THEN ', Low writes sometimes' ELSE '' END +
-				CASE WHEN (max_logical_io_writes * 8 / 1024.) > (avg_logical_io_writes * 8 / 1024.) * 10000 THEN ', High writes sometimes' ELSE '' END +
-				CASE WHEN (last_logical_io_writes * 8 / 1024.) * 10000 < (avg_logical_io_writes * 8 / 1024.)  THEN ', Low writes last run' ELSE '' END +
-				CASE WHEN (last_logical_io_writes * 8 / 1024.) > (avg_logical_io_writes * 8 / 1024.) * 10000 THEN ', High writes last run' ELSE '' END +
+				CASE WHEN (min_logical_io_writes * 10000) < (avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
+				CASE WHEN (max_logical_io_writes) > (avg_logical_io_writes * 10000) THEN ', High writes sometimes' ELSE '' END +
+				CASE WHEN (last_logical_io_writes * 10000) < (avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
+				CASE WHEN (last_logical_io_writes) > (avg_logical_io_writes * 10000) THEN ', High writes last run' ELSE '' END +
 				/*Physical Reads*/
-				CASE WHEN (min_physical_io_reads * 8 / 1024.) * 10000 < (avg_physical_io_reads * 8 / 1024.) THEN ', Low physical reads sometimes' ELSE '' END +
-				CASE WHEN (max_physical_io_reads * 8 / 1024.) > (avg_physical_io_reads * 8 / 1024.) * 10000 THEN ', High physical reads sometimes' ELSE '' END +
-				CASE WHEN (last_physical_io_reads * 8 / 1024.) * 10000 < (avg_physical_io_reads * 8 / 1024.)  THEN ', Low physical reads last run' ELSE '' END +
-				CASE WHEN (last_physical_io_reads * 8 / 1024.) > (avg_physical_io_reads * 8 / 1024.) * 10000 THEN ', High physical reads last run' ELSE '' END +
+				CASE WHEN (min_physical_io_reads * 10000) < (avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
+				CASE WHEN (max_physical_io_reads) > (avg_physical_io_reads * 10000) THEN ', High physical reads sometimes' ELSE '' END +
+				CASE WHEN (last_physical_io_reads * 10000) < (avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
+				CASE WHEN (last_physical_io_reads) > (avg_physical_io_reads * 10000) THEN ', High physical reads last run' ELSE '' END +
 				/*Memory*/
-				CASE WHEN (min_query_max_used_memory * 8 / 1024.) * 10000 < (avg_query_max_used_memory * 8 / 1024.) THEN ', Low memory sometimes' ELSE '' END +
-				CASE WHEN (max_query_max_used_memory * 8 / 1024.) > (avg_query_max_used_memory * 8 / 1024.) * 10000 THEN ', High memory sometimes' ELSE '' END +
-				CASE WHEN (last_query_max_used_memory * 8 / 1024.) * 10000 < (avg_query_max_used_memory * 8 / 1024.)  THEN ', Low memory last run' ELSE '' END +
-				CASE WHEN (last_query_max_used_memory * 8 / 1024.) > (avg_query_max_used_memory * 8 / 1024.) * 10000 THEN ', High memory last run' ELSE '' END +
+				CASE WHEN (min_query_max_used_memory * 10000) < (avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
+				CASE WHEN (max_query_max_used_memory) > (avg_query_max_used_memory * 10000) THEN ', High memory sometimes' ELSE '' END +
+				CASE WHEN (last_query_max_used_memory * 10000) < (avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
+				CASE WHEN (last_query_max_used_memory) > (avg_query_max_used_memory * 10000) THEN ', High memory last run' ELSE '' END +
 				/*Duration*/
-				CASE WHEN min_rowcount  * 10000 < avg_rowcount THEN ', Fast sometimes' ELSE '' END +
-				CASE WHEN max_rowcount  > avg_rowcount * 10000 THEN ', Slow sometimes' ELSE '' END +
-				CASE WHEN last_rowcount * 10000 < avg_rowcount  THEN ', Fast last run' ELSE '' END +
-				CASE WHEN last_rowcount > avg_rowcount * 10000 THEN ', Slow last run' ELSE '' END +
+				CASE WHEN min_rowcount * 10000 < avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
+				CASE WHEN max_rowcount > avg_rowcount * 10000 THEN ', High row count sometimes' ELSE '' END +
+				CASE WHEN last_rowcount * 10000 < avg_rowcount  THEN ', Low row count run' ELSE '' END +
+				CASE WHEN last_rowcount > avg_rowcount * 10000 THEN ', High row count last run' ELSE '' END +
 				/*DOP*/
 				CASE WHEN min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
-				CASE WHEN max_dop  > 1 THEN ', Parallel sometimes' ELSE '' END +
+				CASE WHEN max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
 				CASE WHEN last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN last_dop > 1 THEN ', Parallel last run' ELSE '' END 
 	, 2, 200000) 
