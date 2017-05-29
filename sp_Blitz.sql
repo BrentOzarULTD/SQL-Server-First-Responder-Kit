@@ -3692,7 +3692,7 @@ IF @ProductVersionMajor >= 10
 						-- Job has history and was executed in the last 30 days
 						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
 						    100
-						ELSE -- no job history (implicit) or job not run in the past 30 days OR Job disabled OR Job Schedule disabled
+						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
 					        200
 						END AS Priority,
 						'Performance' AS [FindingsGroup] ,
@@ -5643,12 +5643,12 @@ IF @ProductVersionMajor >= 10
 								  URL ,
 								  Details
 								)
-								SELECT  DISTINCT 79 AS CheckID ,
+								SELECT  79 AS CheckID ,
 										-- sp_Blitz Issue #776
 										-- Job has history and was executed in the last 30 days OR Job is enabled AND Job Schedule is enabled
                 						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
                 						    100
-                						ELSE -- no job history (implicit) or job not run in the past 30 days OR Job disabled OR Job Schedule disabled
+                						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
             						        200
                 						END AS Priority,
 										'Performance' AS FindingsGroup ,
