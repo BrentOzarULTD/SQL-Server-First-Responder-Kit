@@ -14,16 +14,16 @@ IF  (
 	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
 	) < 13
 BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
 
-IF OBJECT_ID('dbo.sp_BlitzQS') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_BlitzQS AS RETURN 0;');
+IF OBJECT_ID('dbo.sp_BlitzQueryStore') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzQueryStore AS RETURN 0;');
 GO
 
-ALTER PROCEDURE dbo.sp_BlitzQS
+ALTER PROCEDURE dbo.sp_BlitzQueryStore
     @Help BIT = 0,
     @DatabaseName NVARCHAR(128) = NULL ,
     @Top INT = 3,
@@ -50,9 +50,9 @@ SET @Version = '1.0';
 SET @VersionDate = '20170601';
 
 DECLARE /*Variables for the variable Gods*/
-		@msg NVARCHAR(MAX) = N'',
-		@sql_select NVARCHAR(MAX) = N'',
-		@sql_where NVARCHAR(MAX) = N'',
+		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
+		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
+		@sql_where NVARCHAR(MAX) = N'', -- Used to hold WHERE clause for dynamic SQL
 		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.),
 		@execution_threshold INT = 1000,
 		@parameter_sniffing_warning_pct TINYINT = 30,
@@ -85,7 +85,7 @@ IF @Help = 1
 	SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 
 	PRINT '
-	sp_BlitzQS from http://FirstResponderKit.org
+	sp_BlitzQueryStore from http://FirstResponderKit.org
 		
 	This script displays your most resource-intensive queries from the Query Store,
 	and points to ways you can tune these queries to make them faster.
@@ -135,7 +135,7 @@ END;
 /*Making sure your version is copasetic*/
 IF  ( SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13
 	BEGIN
-		SELECT @msg = 'Sorry, sp_BlitzQS doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+		SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
 		RETURN;
 	END;
@@ -211,6 +211,27 @@ IF ( @Top IS NULL )
 
 
 /*
+This section determines if you have the Query Store wait stats DMV
+*/
+
+RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
+
+DECLARE @out INT,
+		@waitstats BIT,
+		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'';',
+		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
+
+EXEC sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
+
+SELECT @waitstats = CASE @out WHEN 0 THEN 0 ELSE 1 END
+
+SET @msg = N'Wait stats DMV ' + CASE @waitstats 
+									WHEN 0 THEN N' does not exist, skipping.'
+									WHEN 1 THEN N' exists, will analyze.'
+							   END;
+RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+/*
 These are the temp tables we use
 */
 
@@ -259,7 +280,8 @@ These are the gathered metrics we get from query store to generate some warnings
 */
 DROP TABLE IF EXISTS #working_metrics;
 
-CREATE TABLE #working_metrics (
+CREATE TABLE #working_metrics 
+(
     database_name NVARCHAR(256),
 	plan_id BIGINT,
     query_id BIGINT,
@@ -347,7 +369,8 @@ This is where we store some additional metrics, along with the query plan and te
 */
 DROP TABLE IF EXISTS #working_plan_text;
 
-CREATE TABLE #working_plan_text (
+CREATE TABLE #working_plan_text 
+(
 	database_name NVARCHAR(256),
     plan_id BIGINT,
     query_id BIGINT,
@@ -388,7 +411,8 @@ This is where we store warnings that we generate from the XML and metrics
 */
 DROP TABLE IF EXISTS #working_warnings;
 
-CREATE TABLE #working_warnings(
+CREATE TABLE #working_warnings 
+(
     plan_id BIGINT,
     query_id BIGINT,
 	query_hash BINARY(8),
@@ -465,12 +489,57 @@ CREATE TABLE #working_warnings(
 );
 
 
+DROP TABLE IF EXISTS #worker_wait_stats;
+
+CREATE TABLE #worker_wait_stats
+(
+    plan_id BIGINT,
+    query_id BIGINT,
+	runtime_stats_interval_id BIGINT,
+	wait_category TINYINT,
+	wait_category_desc NVARCHAR(256),
+	total_query_wait_time_ms BIGINT,
+	avg_query_wait_time_ms	 DECIMAL(38, 2),
+	last_query_wait_time_ms	BIGINT,
+	min_query_wait_time_ms	BIGINT,
+	max_query_wait_time_ms	BIGINT,
+	wait_category_mapped AS CASE wait_category
+								WHEN 0  THEN N'UNKNOWN'
+								WHEN 1  THEN N'SOS_SCHEDULER_YIELD'
+								WHEN 2  THEN N'THREADPOOL'
+								WHEN 3  THEN N'LCK_M_%'
+								WHEN 4  THEN N'LATCH_%'
+								WHEN 5  THEN N'PAGELATCH_%'
+								WHEN 6  THEN N'PAGEIOLATCH_%'
+								WHEN 7  THEN N'RESOURCE_SEMAPHORE_QUERY_COMPILE'
+								WHEN 8  THEN N'CLR%, SQLCLR%'
+								WHEN 9  THEN N'DBMIRROR%'
+								WHEN 10 THEN N'	XACT%, DTC%, TRAN_MARKLATCH_%, MSQL_XACT_%, TRANSACTION_MUTEX'
+								WHEN 11 THEN N'	SLEEP_%, LAZYWRITER_SLEEP, SQLTRACE_BUFFER_FLUSH, SQLTRACE_INCREMENTAL_FLUSH_SLEEP, SQLTRACE_WAIT_ENTRIES, FT_IFTS_SCHEDULER_IDLE_WAIT, XE_DISPATCHER_WAIT, REQUEST_FOR_DEADLOCK_SEARCH, LOGMGR_QUEUE, ONDEMAND_TASK_QUEUE, CHECKPOINT_QUEUE, XE_TIMER_EVENT'
+								WHEN 12 THEN N'PREEMPTIVE_%'
+								WHEN 13 THEN N'BROKER_% (but not BROKER_RECEIVE_WAITFOR)'
+								WHEN 14 THEN N'	LOGMGR, LOGBUFFER, LOGMGR_RESERVE_APPEND, LOGMGR_FLUSH, LOGMGR_PMM_LOG, CHKPT, WRITELOG'
+								WHEN 15 THEN N'ASYNC_NETWORK_IO, NET_WAITFOR_PACKET, PROXY_NETWORK_IO, EXTERNAL_SCRIPT_NETWORK_IOF'
+								WHEN 16 THEN N'CXPACKET, EXCHANGE'
+								WHEN 17 THEN N'RESOURCE_SEMAPHORE, CMEMTHREAD, CMEMPARTITIONED, EE_PMOLOCK, MEMORY_ALLOCATION_EXT, RESERVED_MEMORY_ALLOCATION_EXT, MEMORY_GRANT_UPDATE'
+								WHEN 18 THEN N'WAITFOR, WAIT_FOR_RESULTS, BROKER_RECEIVE_WAITFOR'
+								WHEN 19 THEN N'TRACEWRITE, SQLTRACE_LOCK, SQLTRACE_FILE_BUFFER, SQLTRACE_FILE_WRITE_IO_COMPLETION, SQLTRACE_FILE_READ_IO_COMPLETION, SQLTRACE_PENDING_BUFFER_WRITERS, SQLTRACE_SHUTDOWN, QUERY_TRACEOUT, TRACE_EVTNOTIFF'
+								WHEN 20 THEN N'FT_RESTART_CRAWL, FULLTEXT GATHERER, MSSEARCH, FT_METADATA_MUTEX, FT_IFTSHC_MUTEX, FT_IFTSISM_MUTEX, FT_IFTS_RWLOCK, FT_COMPROWSET_RWLOCK, FT_MASTER_MERGE, FT_PROPERTYLIST_CACHE, FT_MASTER_MERGE_COORDINATOR, PWAIT_RESOURCE_SEMAPHORE_FT_PARALLEL_QUERY_SYNC'
+								WHEN 21 THEN N'ASYNC_IO_COMPLETION, IO_COMPLETION, BACKUPIO, WRITE_COMPLETION, IO_QUEUE_LIMIT, IO_RETRY'
+								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
+								WHEN 23 THEN N'	LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
+							END,
+    INDEX wws_ix_ids CLUSTERED ( plan_id, query_id )
+);
+
+
 /*
 The next three tables hold plan XML parsed out to different degrees 
 */
 DROP TABLE IF EXISTS #statements;
 
-CREATE TABLE #statements (
+CREATE TABLE #statements 
+(
     plan_id BIGINT,
     query_id BIGINT,
 	query_hash BINARY(8),
@@ -482,7 +551,8 @@ CREATE TABLE #statements (
 
 DROP TABLE IF EXISTS #query_plan;
 
-CREATE TABLE #query_plan (
+CREATE TABLE #query_plan 
+(
     plan_id BIGINT,
     query_id BIGINT,
 	query_hash BINARY(8),
@@ -494,7 +564,8 @@ CREATE TABLE #query_plan (
 
 DROP TABLE IF EXISTS #relop;
 
-CREATE TABLE #relop (
+CREATE TABLE #relop 
+(
     plan_id BIGINT,
     query_id BIGINT,
 	query_hash BINARY(8),
@@ -506,7 +577,8 @@ CREATE TABLE #relop (
 
 DROP TABLE IF EXISTS #plan_cost;
 
-CREATE TABLE #plan_cost (
+CREATE TABLE #plan_cost 
+(
 	query_plan_cost DECIMAL(18,2),
 	sql_handle VARBINARY(64),
 	INDEX px_ix_ids CLUSTERED (sql_handle)
@@ -531,7 +603,8 @@ CREATE TABLE #stats_agg
 
 DROP TABLE IF EXISTS #trace_flags;
 
-CREATE TABLE #trace_flags (
+CREATE TABLE #trace_flags 
+(
 	sql_handle VARBINARY(54),
 	global_trace_flags NVARCHAR(4000),
 	session_trace_flags NVARCHAR(4000),
@@ -541,7 +614,8 @@ CREATE TABLE #trace_flags (
 
 DROP TABLE IF EXISTS #warning_results;	
 
-CREATE TABLE #warning_results (
+CREATE TABLE #warning_results 
+(
     ID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
     CheckID INT,
     Priority TINYINT,
@@ -1062,7 +1136,8 @@ DELETE dedupe
 WHERE dedupe.dupes > 1
 OPTION(RECOMPILE);
 
-
+SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_ids.'
+RAISERROR(@msg, 0, 1) WITH NOWAIT
 
 /*
 This gathers data for the #working_metrics table
@@ -2959,34 +3034,34 @@ END;
 Ways to run this thing
 
 --Debug
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Debug = 1
 
 --Get the top 1
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @Debug = 1
 
 --Use a StartDate												 
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170527', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170527', @Debug = 1
 				
 --Use an EndDate												 
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @EndDate = '20170527', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @EndDate = '20170527', @Debug = 1
 				
 --Use Both												 
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170526', @EndDate = '20170527', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170526', @EndDate = '20170527', @Debug = 1
 
 --Set a minimum execution count												 
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10, @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10, @Debug = 1
 
 Set a duration minimum
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5, @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5, @Debug = 1
 
 --Look for a stored procedure name (that doesn't exist!)
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah', @Debug = 1
 
 --Look for a stored procedure name that does (at least On My Computer®)
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended', @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended', @Debug = 1
 
 --Look for failed queries
-EXEC sp_BlitzQS @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1, @Debug = 1
+EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1, @Debug = 1
 
 
 */
