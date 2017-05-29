@@ -3157,6 +3157,88 @@ BEGIN
                     '',
                     'Plans in Query Store aren''t in other DMVs, which means we can''t get some information about them.') ;
 
+			/*
+			Return worsts
+			*/
+			WITH worsts AS (
+			SELECT gi.flat_date,
+			       gi.start_range,
+			       gi.end_range,
+			       gi.total_avg_duration_ms,
+			       gi.total_avg_cpu_time_ms,
+			       gi.total_avg_logical_io_reads_mb,
+			       gi.total_avg_physical_io_reads_mb,
+			       gi.total_avg_logical_io_writes_mb,
+			       gi.total_avg_query_max_used_memory_mb,
+			       gi.total_rowcount,
+				   CONVERT(NVARCHAR(20), gi.flat_date) AS worst_date,
+				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN ' midnight '
+						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am '
+						WHEN DATEPART(HOUR, gi.start_range) > 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range) -12) + 'pm '
+						END AS worst_start_time,
+				   CASE WHEN DATEPART(HOUR, gi.end_range) = 0 THEN ' midnight '
+						WHEN DATEPART(HOUR, gi.end_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.end_range)) + 'am '
+						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm '
+						END AS worst_end_time
+			FROM   #grouped_interval AS gi
+			), 
+				duration_worst AS (
+			SELECT TOP 1 'Your worst duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_duration_ms DESC
+				), 
+				cpu_worst AS (
+			SELECT TOP 1 'Your worst cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_cpu_time_ms DESC
+				), 
+				logical_reads_worst AS (
+			SELECT TOP 1 'Your worst logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_logical_io_reads_mb DESC
+				), 
+				physical_reads_worst AS (
+			SELECT TOP 1 'Your worst physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_physical_io_reads_mb DESC
+				), 
+				logical_writes_worst AS (
+			SELECT TOP 1 'Your worst logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_logical_io_writes_mb DESC
+				), 
+				memory_worst AS (
+			SELECT TOP 1 'Your worst memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_query_max_used_memory_mb DESC
+				), 
+				rowcount_worst AS (
+			SELECT TOP 1 'Your worst row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_rowcount DESC
+				)
+			INSERT #warning_results ( CheckID, Priority, FindingsGroup, Finding, URL, Details )
+			SELECT 1002, 255, 'Worsts', 'Worst Duration', 'N/A', msg
+			FROM duration_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst CPU', 'N/A', msg
+			FROM cpu_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Logical Reads', 'N/A', msg
+			FROM logical_reads_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Physical Reads', 'N/A', msg
+			FROM physical_reads_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Logical Writes', 'N/A', msg
+			FROM logical_writes_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Memory', 'N/A', msg
+			FROM memory_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Row Counts', 'N/A', msg
+			FROM rowcount_worst
+
 
         IF NOT EXISTS (SELECT 1/0
 					   FROM   #warning_results AS bcr
@@ -3188,6 +3270,7 @@ BEGIN
             CheckID
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
+
 
 
 END;	
