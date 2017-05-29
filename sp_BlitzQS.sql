@@ -1318,7 +1318,8 @@ RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
 
 UPDATE b
 SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
-FROM #working_plan_text AS b;
+FROM #working_plan_text AS b
+OPTION(RECOMPILE);
 
 
 /*This populates #working_wait_stats when available*/
@@ -1329,21 +1330,24 @@ BEGIN
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
-SELECT   plan_id,
-         wait_category,
-         wait_category_desc,
-         SUM(total_query_wait_time_ms) AS total_query_wait_time_ms,
-         SUM(avg_query_wait_time_ms) AS avg_query_wait_time_ms,
-         SUM(last_query_wait_time_ms) AS last_query_wait_time_ms,
-         SUM(min_query_wait_time_ms) AS min_query_wait_time_ms,
-         SUM(max_query_wait_time_ms) AS max_query_wait_time_ms
+SELECT   qws.plan_id,
+         qws.wait_category,
+         qws.wait_category_desc,
+         SUM(qws.total_query_wait_time_ms) AS total_query_wait_time_ms,
+         SUM(qws.avg_query_wait_time_ms) AS avg_query_wait_time_ms,
+         SUM(qws.last_query_wait_time_ms) AS last_query_wait_time_ms,
+         SUM(qws.min_query_wait_time_ms) AS min_query_wait_time_ms,
+         SUM(qws.max_query_wait_time_ms) AS max_query_wait_time_ms
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_wait_stats qws
 JOIN #working_plans AS wp
 ON qws.plan_id = wp.plan_id
-GROUP BY plan_id, wait_category, wait_category_desc
-HAVING SUM(min_query_wait_time_ms) >= 5;
+GROUP BY qws.plan_id, qws.wait_category, qws.wait_category_desc
+HAVING SUM(qws.min_query_wait_time_ms) >= 5
 OPTION(RECOMPILE);
 '
+
+IF @Debug = 1
+	PRINT @sql_select;
 
 INSERT #working_wait_stats WITH (TABLOCK)
 		( plan_id, wait_category, wait_category_desc, total_query_wait_time_ms, avg_query_wait_time_ms, last_query_wait_time_ms, min_query_wait_time_ms, max_query_wait_time_ms )
