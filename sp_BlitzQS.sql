@@ -404,7 +404,8 @@ CREATE TABLE #working_plan_text
 	/*This is from query_context_settings*/
 	context_settings NVARCHAR(512),
 	/*This is from #working_plans*/
-	pattern NVARCHAR(512)
+	pattern NVARCHAR(512),
+	top_three_waits NVARCHAR(MAX),
 	INDEX wpt_ix_ids CLUSTERED (plan_id, query_id, query_plan_hash)
 ); 
 
@@ -487,6 +488,8 @@ CREATE TABLE #working_warnings
 	low_cost_high_cpu BIT,
 	stale_stats BIT,
 	is_adaptive BIT,
+	is_slow_plan BIT,
+	is_compile_more BIT,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -1366,6 +1369,9 @@ IF @waitstats = 1
 
 BEGIN
 
+RAISERROR(N'Collecting wait stats info', 0, 1) WITH NOWAIT;
+
+
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT   qws.plan_id,
@@ -1392,7 +1398,38 @@ INSERT #working_wait_stats WITH (TABLOCK)
 
 EXEC sys.sp_executesql  @stmt = @sql_select;
 
+/*This updates #working_plan_text with the top three waits from the wait stats DMV*/
+
+RAISERROR(N'Update working_plan_text with top three waits', 0, 1) WITH NOWAIT;
+
+
+UPDATE wpt
+SET wpt.top_three_waits = x.top_three_waits 
+FROM #working_plan_text AS wpt
+JOIN (
+	SELECT wws.plan_id,
+		   top_three_waits = STUFF((SELECT TOP 3 N', ' + wws2.wait_category_desc + N' (' + CONVERT(NVARCHAR(20), SUM(CONVERT(BIGINT, wws2.avg_query_wait_time_ms))) + N' ms) '
+										FROM #working_wait_stats AS wws2
+										WHERE wws.plan_id = wws2.plan_id
+										GROUP BY wws2.wait_category_desc
+										ORDER BY SUM(wws2.avg_query_wait_time_ms) DESC
+										FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')							
+	FROM #working_wait_stats AS wws
+	GROUP BY plan_id
+) AS x 
+ON x.plan_id = wpt.plan_id
+OPTION(RECOMPILE);
+
 END
+
+
+UPDATE #working_plan_text
+SET top_three_waits = CASE 
+						WHEN compatibility_level < 140 THEN 'The query store waits stats DMV is only available in 2017+'
+						ELSE N'No Significant waits detected!'
+						END
+WHERE top_three_waits IS NULL
+
 
 IF (@SkipXML = 0)
 BEGIN
@@ -1600,6 +1637,37 @@ ON w.plan_id = wpt.plan_id
 AND w.query_id = wpt.query_id
 AND wpt.is_trivial_plan = 1;
 
+/*Plans that compile 2x more than they execute*/
+
+RAISERROR(N'Checking for plans that compile 2x more than they execute', 0, 1) WITH NOWAIT;
+
+UPDATE ww
+SET    ww.is_compile_more = 1
+FROM   #working_warnings AS ww
+JOIN   #working_metrics AS wm
+ON ww.plan_id = wm.plan_id
+   AND ww.query_id = wm.query_id
+   AND wm.count_compiles > (wm.count_executions * 2)
+OPTION(RECOMPILE);
+
+/*Plans that compile 2x more than they execute*/
+
+RAISERROR(N'Checking for plans that take more than 5 seconds to bind, compile, or optimize', 0, 1) WITH NOWAIT;
+
+UPDATE ww
+SET    ww.is_slow_plan = 1
+FROM   #working_warnings AS ww
+JOIN   #working_metrics AS wm
+ON ww.plan_id = wm.plan_id
+   AND ww.query_id = wm.query_id
+   AND (wm.avg_bind_duration > 5000
+		OR 
+		wm.avg_compile_duration > 5000
+		OR
+		wm.avg_optimize_duration > 5000
+		OR 
+		wm.avg_optimize_cpu_time > 5000)
+OPTION(RECOMPILE);
 
 
 /*
@@ -2300,7 +2368,7 @@ BEGIN
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
@@ -2323,7 +2391,7 @@ BEGIN
 RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
@@ -2350,7 +2418,7 @@ SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_tex
 OPTION(RECOMPILE);
 
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
@@ -2373,7 +2441,7 @@ BEGIN
 RAISERROR(N'Returning results for skipped XML', 0, 1) WITH NOWAIT;
 
 SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
