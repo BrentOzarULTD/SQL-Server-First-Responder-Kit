@@ -492,13 +492,11 @@ CREATE TABLE #working_warnings
 );
 
 
-DROP TABLE IF EXISTS #worker_wait_stats;
+DROP TABLE IF EXISTS #working_wait_stats;
 
-CREATE TABLE #worker_wait_stats
+CREATE TABLE #working_wait_stats
 (
     plan_id BIGINT,
-    query_id BIGINT,
-	runtime_stats_interval_id BIGINT,
 	wait_category TINYINT,
 	wait_category_desc NVARCHAR(256),
 	total_query_wait_time_ms BIGINT,
@@ -532,7 +530,7 @@ CREATE TABLE #worker_wait_stats
 								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
 								WHEN 23 THEN N'	LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
 							END,
-    INDEX wws_ix_ids CLUSTERED ( plan_id, query_id )
+    INDEX wws_ix_ids CLUSTERED ( plan_id)
 );
 
 
@@ -1321,6 +1319,38 @@ RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
 UPDATE b
 SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
 FROM #working_plan_text AS b;
+
+
+/*This populates #working_wait_stats when available*/
+
+IF @waitstats = 1
+
+BEGIN
+
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+SELECT   plan_id,
+         wait_category,
+         wait_category_desc,
+         SUM(total_query_wait_time_ms) AS total_query_wait_time_ms,
+         SUM(avg_query_wait_time_ms) AS avg_query_wait_time_ms,
+         SUM(last_query_wait_time_ms) AS last_query_wait_time_ms,
+         SUM(min_query_wait_time_ms) AS min_query_wait_time_ms,
+         SUM(max_query_wait_time_ms) AS max_query_wait_time_ms
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_wait_stats qws
+JOIN #working_plans AS wp
+ON qws.plan_id = wp.plan_id
+GROUP BY plan_id, wait_category, wait_category_desc
+HAVING SUM(min_query_wait_time_ms) >= 5;
+OPTION(RECOMPILE);
+'
+
+INSERT #working_wait_stats WITH (TABLOCK)
+		( plan_id, wait_category, wait_category_desc, total_query_wait_time_ms, avg_query_wait_time_ms, last_query_wait_time_ms, min_query_wait_time_ms, max_query_wait_time_ms )
+
+EXEC sys.sp_executesql  @stmt = @sql_select;
+
+END
 
 IF (@SkipXML = 0)
 BEGIN
@@ -3047,6 +3077,10 @@ OPTION(RECOMPILE);
 
 SELECT '#working_warnings' AS table_name, *
 FROM #working_warnings AS ww
+OPTION(RECOMPILE);
+
+SELECT '#working_wait_stats' AS table_name, *
+FROM #working_wait_stats wws
 OPTION(RECOMPILE);
 
 SELECT '#statements' AS table_name, *
