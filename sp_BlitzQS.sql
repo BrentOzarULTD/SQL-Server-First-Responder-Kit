@@ -1205,6 +1205,7 @@ JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
 ON qsrs.plan_id = wp.plan_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
+AND qsp.query_id = wp.query_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
@@ -2373,7 +2374,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time  ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2401,7 +2402,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2433,7 +2434,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2461,7 +2462,7 @@ SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
@@ -3187,6 +3188,7 @@ BEGIN
             CheckID
     ORDER BY Priority ASC, CheckID ASC
     OPTION (RECOMPILE);
+
 
 END;	
 
