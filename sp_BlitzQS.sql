@@ -246,7 +246,7 @@ DROP TABLE IF EXISTS #grouped_interval;
 
 CREATE TABLE #grouped_interval
 (
-    flate_date DATE NULL,
+    flat_date DATE NULL,
     start_range DATETIME NULL,
     end_range DATETIME NULL,
     total_avg_duration_ms DECIMAL(38, 2) NULL,
@@ -395,6 +395,7 @@ CREATE TABLE #working_plan_text
 	last_compile_duration BIGINT,
 	min_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
 	max_used_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
+	percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100.),
 	/*These are from query_store_query*/
 	query_sql_text NVARCHAR(MAX),
 	statement_sql_handle VARBINARY(64),
@@ -730,7 +731,7 @@ RAISERROR(N'Gathering intervals', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
-SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flate_date,
+SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flat_date,
          MIN(DATEADD(HOUR, DATEDIFF(HOUR, 0, qsrs.last_execution_time), 0)) AS start_range,
          MAX(DATEADD(HOUR, DATEDIFF(HOUR, 0, qsrs.last_execution_time) + 1, 0)) AS end_range,
          SUM(qsrs.avg_duration / 1000.) / SUM(qsrs.count_executions) AS total_avg_duration_ms,
@@ -762,7 +763,7 @@ IF @Debug = 1
 	PRINT @sql_select;
 
 INSERT #grouped_interval WITH (TABLOCK)
-		( flate_date, start_range, end_range, total_avg_duration_ms, 
+		( flat_date, start_range, end_range, total_avg_duration_ms, 
 		  total_avg_cpu_time_ms, total_avg_logical_io_reads_mb, total_avg_physical_io_reads_mb, 
 		  total_avg_logical_io_writes_mb, total_avg_query_max_used_memory_mb, total_rowcount, total_count_executions )
 EXEC sys.sp_executesql  @stmt = @sql_select, 
