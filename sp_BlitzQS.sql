@@ -218,7 +218,7 @@ RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
 
 DECLARE @out INT,
 		@waitstats BIT,
-		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'';',
+		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION(RECOMPILE);',
 		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
 
 EXEC sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
@@ -393,6 +393,8 @@ CREATE TABLE #working_plan_text
 	last_execution_time DATETIME2,
 	avg_compile_duration DECIMAL(38,2),
 	last_compile_duration BIGINT,
+	min_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
+	max_used_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
 	/*These are from query_store_query*/
 	query_sql_text NVARCHAR(MAX),
 	statement_sql_handle VARBINARY(64),
@@ -1200,6 +1202,7 @@ UPDATE #working_metrics
 SET proc_or_function_name = N'Statement'
 WHERE proc_or_function_name IS NULL
 
+
 /*
 This gathers data for the #working_plan_text table
 */
@@ -1247,6 +1250,22 @@ INSERT #working_plan_text WITH (TABLOCK)
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
+
+
+
+RAISERROR(N'Checking dm_exec_query_stats for memory grant info', 0, 1) WITH NOWAIT;
+WITH max_mem
+AS ( SELECT   deqs.sql_handle, MAX(deqs.min_grant_kb) AS min_grant_kb, MAX(deqs.max_used_grant_kb) AS max_used_grant_kb
+     FROM     sys.dm_exec_query_stats AS deqs
+     GROUP BY deqs.sql_handle )
+UPDATE wpt
+SET    wpt.min_grant_kb = deqs.min_grant_kb,
+       wpt.max_used_grant_kb = deqs.max_used_grant_kb
+FROM   #working_plan_text AS wpt
+JOIN   max_mem AS deqs
+ON wpt.statement_sql_handle = deqs.sql_handle
+OPTION(RECOMPILE);
+
 
 /*
 This gets us context settings for our queries and adds it to the #working_plan_text table
