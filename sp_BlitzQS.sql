@@ -2367,20 +2367,25 @@ BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
+WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
-ON wpt.plan_id = ww.plan_id
-AND wpt.query_id = ww.query_id
+	ON wpt.plan_id = ww.plan_id
+	AND wpt.query_id = ww.query_id
 JOIN #working_metrics AS wm
-ON wpt.plan_id = wm.plan_id
-AND wpt.query_id = wm.query_id
-ORDER BY ww.query_cost DESC
+	ON wpt.plan_id = wm.plan_id
+	AND wpt.query_id = wm.query_id
+)
+SELECT *
+FROM x
+WHERE x.rn = 1
+ORDER BY x.query_cost DESC
 OPTION(RECOMPILE);
 
 END;
@@ -2390,20 +2395,25 @@ BEGIN
 
 RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
+WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
-ON wpt.plan_id = ww.plan_id
-AND wpt.query_id = ww.query_id
+	ON wpt.plan_id = ww.plan_id
+	AND wpt.query_id = ww.query_id
 JOIN #working_metrics AS wm
-ON wpt.plan_id = wm.plan_id
-AND wpt.query_id = wm.query_id
-ORDER BY ww.query_cost DESC
+	ON wpt.plan_id = wm.plan_id
+	AND wpt.query_id = wm.query_id
+)
+SELECT *
+FROM x
+WHERE x.rn = 1
+ORDER BY x.query_cost DESC
 OPTION(RECOMPILE);
 
 END;
@@ -2417,20 +2427,25 @@ UPDATE #working_plan_text
 SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_text)),' ','<>'),'><',''),'<>',' '), 1, 31000)
 OPTION(RECOMPILE);
 
+WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
-ON wpt.plan_id = ww.plan_id
-AND wpt.query_id = ww.query_id
+	ON wpt.plan_id = ww.plan_id
+	AND wpt.query_id = ww.query_id
 JOIN #working_metrics AS wm
-ON wpt.plan_id = wm.plan_id
-AND wpt.query_id = wm.query_id
-ORDER BY ww.query_cost DESC
+	ON wpt.plan_id = wm.plan_id
+	AND wpt.query_id = wm.query_id
+)
+SELECT *
+FROM x
+WHERE x.rn = 1
+ORDER BY x.query_cost DESC
 OPTION(RECOMPILE);
 
 END;
@@ -2440,17 +2455,22 @@ BEGIN
 
 RAISERROR(N'Returning results for skipped XML', 0, 1) WITH NOWAIT;
 
+WITH x AS (
 SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id  ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_metrics AS wm
-ON wpt.plan_id = wm.plan_id
-AND wpt.query_id = wm.query_id
-ORDER BY wm.avg_cpu_time DESC
+	ON wpt.plan_id = wm.plan_id
+	AND wpt.query_id = wm.query_id
+)
+SELECT *
+FROM x
+WHERE x.rn = 1
+ORDER BY x.avg_cpu_time DESC
 OPTION(RECOMPILE);
 
 END;
@@ -3191,6 +3211,22 @@ OPTION(RECOMPILE);
 
 SELECT '#working_wait_stats' AS table_name, *
 FROM #working_wait_stats wws
+OPTION(RECOMPILE);
+
+SELECT '#grouped_interval' AS table_name, *
+FROM #grouped_interval
+OPTION(RECOMPILE);
+
+SELECT '#working_plans' AS table_name, *
+FROM #working_plans
+OPTION(RECOMPILE);
+
+SELECT '#stats_agg' AS table_name, *
+FROM #stats_agg
+OPTION(RECOMPILE);
+
+SELECT '#trace_flags' AS table_name, *
+FROM #trace_flags
 OPTION(RECOMPILE);
 
 SELECT '#statements' AS table_name, *
