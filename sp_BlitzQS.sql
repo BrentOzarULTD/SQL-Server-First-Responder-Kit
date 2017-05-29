@@ -2087,12 +2087,16 @@ SET    frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END ,
 	   is_key_lookup_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND key_lookup_cost >= b.query_cost * .5 THEN 1 END,
 	   is_sort_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND sort_cost >= b.query_cost * .5 THEN 1 END,
 	   is_remote_query_expensive = CASE WHEN remote_query_cost >= b.query_cost * .05 THEN 1 END,
+	   is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
 	   long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
 	   low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
 AND b.query_id = wm.query_id
+JOIN #working_plan_text AS wpt
+ON b.plan_id = wpt.plan_id
+AND b.query_id = wpt.query_id
 OPTION (RECOMPILE) ;
 
 END;
@@ -2978,6 +2982,19 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #working_plan_text AS p
+                   WHERE  p.min_grant_kb IS NULL
+				   )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (
+                    1001,
+                    255,
+                    'Plans not in cache',
+                    'We checked sys.dm_exec_query_stats for memory grant info',
+                    '',
+                    'Plans in Query Store aren''t in other DMVs, which means we can''t get some information about them.') ;
 
 
         IF NOT EXISTS (SELECT 1/0
