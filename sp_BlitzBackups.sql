@@ -999,7 +999,7 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 								''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' '' + b.encryptor_type + '' backups, and the last time a certificate was backed up is '
 								+ CASE WHEN LOWER(@MSDBName) <> N'msdb'
 									THEN + N'...well, that information is on another server, anyway.'' AS [Warning]'
-									ELSE + CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '. AS [Warning]'
+									ELSE + CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + N'.'' AS [Warning]'
 									END + 
 							N'
 							FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
