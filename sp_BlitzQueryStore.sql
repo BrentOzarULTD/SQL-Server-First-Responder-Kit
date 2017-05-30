@@ -65,6 +65,8 @@ DECLARE /*Variables for the variable Gods*/
 		@cr NVARCHAR(1) = NCHAR(13),
 		@lf NVARCHAR(1) = NCHAR(10),
 		@tab NVARCHAR(1) = NCHAR(9),
+		@error_severity INT,
+		@error_state INT,
 		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)';
 
 
@@ -145,10 +147,10 @@ IF  ( SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION'))
 IF  (	SELECT COUNT(*)
 		FROM sys.databases AS d
 		WHERE d.is_query_store_on = 1
-		AND user_access_desc='MULTI_USER'
-		AND state_desc = 'ONLINE'
-		AND name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
-		AND is_distributor = 0 ) = 0
+		AND d.user_access_desc='MULTI_USER'
+		AND d.state_desc = 'ONLINE'
+		AND d.name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
+		AND d.is_distributor = 0 ) = 0
 	BEGIN
 		SELECT @msg = 'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
@@ -194,8 +196,8 @@ BEGIN
 		(   SELECT DB_NAME(d.database_id)
 			FROM sys.databases AS d
 			WHERE d.is_query_store_on = 1
-			AND user_access_desc='MULTI_USER'
-			AND state_desc = 'ONLINE'
+			AND d.user_access_desc='MULTI_USER'
+			AND d.state_desc = 'ONLINE'
 			AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
 	BEGIN
 	   RAISERROR('The @DatabaseName you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
@@ -222,9 +224,9 @@ DECLARE @out INT,
 		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
 		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
 
-EXEC sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
+EXEC sys.sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
 
-SELECT @waitstats = CASE @out WHEN 0 THEN 0 ELSE 1 END
+SELECT @waitstats = CASE @out WHEN 0 THEN 0 ELSE 1 END;
 
 SET @msg = N'Wait stats DMV ' + CASE @waitstats 
 									WHEN 0 THEN N' does not exist, skipping.'
@@ -739,6 +741,12 @@ By default, it looks at queries:
 
 */
 
+IF @sql_where IS NOT NULL
+BEGIN TRY
+	BEGIN
+
+	RAISERROR(N'Populating temp tables', 0, 1) WITH NOWAIT;
+
 RAISERROR(N'Gathering intervals', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
@@ -1192,8 +1200,8 @@ DELETE dedupe
 WHERE dedupe.dupes > 1
 OPTION (RECOMPILE);
 
-SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_ids.'
-RAISERROR(@msg, 0, 1) WITH NOWAIT
+SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_ids.';
+RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 /*
 This gathers data for the #working_metrics table
@@ -1298,7 +1306,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 UPDATE #working_metrics
 SET proc_or_function_name = N'Statement'
-WHERE proc_or_function_name IS NULL
+WHERE proc_or_function_name IS NULL;
 
 
 /*
@@ -1430,7 +1438,7 @@ OPTION (RECOMPILE);
 RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
 
 UPDATE b
-SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
+SET b.query_sql_text = REPLACE(REPLACE(REPLACE(b.query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
 FROM #working_plan_text AS b
 OPTION (RECOMPILE);
 
@@ -1460,7 +1468,7 @@ ON qws.plan_id = wp.plan_id
 GROUP BY qws.plan_id, qws.wait_category, qws.wait_category_desc
 HAVING SUM(qws.min_query_wait_time_ms) >= 5
 OPTION (RECOMPILE);
-'
+';
 
 IF @Debug = 1
 	PRINT @sql_select;
@@ -1493,12 +1501,12 @@ JOIN (
 										ORDER BY SUM(wws2.avg_query_wait_time_ms) DESC
 										FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')							
 	FROM #working_wait_stats AS wws
-	GROUP BY plan_id
+	GROUP BY wws.plan_id
 ) AS x 
 ON x.plan_id = wpt.plan_id
 OPTION (RECOMPILE);
 
-END
+END;
 
 /*End wait stats population*/
 
@@ -1507,10 +1515,31 @@ SET top_three_waits = CASE
 						WHEN compatibility_level < 140 THEN 'The query store waits stats DMV is only available in 2017+'
 						ELSE N'No Significant waits detected!'
 						END
-WHERE top_three_waits IS NULL
+WHERE top_three_waits IS NULL;
 
+END;
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
 
 IF (@SkipXML = 0)
+BEGIN TRY 
 BEGIN
 
 /*
@@ -1762,6 +1791,7 @@ ON ww.plan_id = wm.plan_id
 OPTION (RECOMPILE);
 
 
+
 /*
 This parses the XML from our top plans into smaller chunks for easier consumption
 */
@@ -1812,22 +1842,22 @@ OPTION (RECOMPILE);
 RAISERROR(N'Performing compile timeout checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET     compile_timeout = 1 
+SET     b.compile_timeout = 1 
 FROM    #statements s
 JOIN #working_warnings AS b
 ON  s.query_hash = b.query_hash
-WHERE statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1
+WHERE s.statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="TimeOut"]') = 1
 OPTION (RECOMPILE);
 
 
 RAISERROR(N'Performing compile memory limit exceeded checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET     compile_memory_limit_exceeded = 1 
+SET     b.compile_memory_limit_exceeded = 1 
 FROM    #statements s
 JOIN #working_warnings AS b
 ON  s.query_hash = b.query_hash
-WHERE statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1
+WHERE s.statement.exist('/p:StmtSimple/@StatementOptmEarlyAbortReason[.="MemoryLimitExceeded"]') = 1
 OPTION (RECOMPILE);
 
 
@@ -1835,8 +1865,8 @@ RAISERROR(N'Performing index DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 index_dml AS (
 	SELECT	s.query_hash,	
-			index_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]') = 1 THEN 1
-							 WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
+			index_dml = CASE WHEN s.statement.exist('//p:StmtSimple/@StatementType[.="CREATE INDEX"]') = 1 THEN 1
+							 WHEN s.statement.exist('//p:StmtSimple/@StatementType[.="DROP INDEX"]') = 1 THEN 1
 							 END
 	FROM    #statements s
 			)
@@ -1853,8 +1883,8 @@ RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 table_dml AS (
 	SELECT s.query_hash,			
-		   table_dml = CASE WHEN statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]') = 1 THEN 1
-							WHEN statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]') = 1 THEN 1
+		   table_dml = CASE WHEN s.statement.exist('//p:StmtSimple/@StatementType[.="CREATE TABLE"]') = 1 THEN 1
+							WHEN s.statement.exist('//p:StmtSimple/@StatementType[.="DROP OBJECT"]') = 1 THEN 1
 							END
 		 FROM #statements AS s
 		 )
@@ -1873,11 +1903,11 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 INSERT #plan_cost WITH (TABLOCK)
 	( query_plan_cost, sql_handle )
 SELECT  DISTINCT
-		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
+		s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
 		s.sql_handle
 FROM    #statements s
 OUTER APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
-WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
+WHERE s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
 OPTION (RECOMPILE);
 
 
@@ -1901,11 +1931,11 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for plan warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
-SET plan_warnings = 1
+SET b.plan_warnings = 1
 FROM    #query_plan qp
 JOIN #working_warnings b
 ON  qp.sql_handle = b.sql_handle
-AND query_plan.exist('/p:QueryPlan/p:Warnings') = 1
+AND qp.query_plan.exist('/p:QueryPlan/p:Warnings') = 1
 OPTION (RECOMPILE);
 
 
@@ -1916,7 +1946,7 @@ SET b.implicit_conversions = 1
 FROM    #query_plan qp
 JOIN #working_warnings b
 ON  qp.sql_handle = b.sql_handle
-AND query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1
+AND qp.query_plan.exist('/p:QueryPlan/p:Warnings/p:PlanAffectingConvert/@Expression[contains(., "CONVERT_IMPLICIT")]') = 1
 OPTION (RECOMPILE);
 
 
@@ -1983,9 +2013,9 @@ FROM #working_warnings b
 JOIN (
 SELECT 
        r.sql_handle,
-	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS key_lookup_cost
+	   r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS key_lookup_cost
 FROM   #relop r
-WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
+WHERE r.relop.exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -1993,14 +2023,14 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for expensive remote queries', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET remote_query_cost = x.remote_query_cost
+SET b.remote_query_cost = x.remote_query_cost
 FROM #working_warnings b
 JOIN (
 SELECT 
        r.sql_handle,
-	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
+	   r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop r
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
+WHERE r.relop.exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -2008,15 +2038,15 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET sort_cost = (x.sort_io + x.sort_cpu) 
+SET b.sort_cost = (x.sort_io + x.sort_cpu) 
 FROM #working_warnings b
 JOIN (
 SELECT 
        r.sql_handle,
-	   relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
-	   relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
+	   r.relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
+	   r.relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
 FROM   #relop r
-WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+WHERE r.relop.exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -2181,14 +2211,14 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for ColumnStore queries operating in Row Mode instead of Batch Mode', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET columnstore_row_mode = x.is_row_mode
+SET b.columnstore_row_mode = x.is_row_mode
 FROM #working_warnings AS b
 JOIN (
 SELECT 
        r.sql_handle,
-	   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
+	   r.relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
 FROM   #relop r
-WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+WHERE r.relop.exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -2200,7 +2230,7 @@ SET  b.is_row_level = 1
 FROM #working_warnings b
 JOIN #statements s 
 ON s.query_hash = b.query_hash 
-WHERE statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
+WHERE s.statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 OPTION (RECOMPILE);
 
 
@@ -2264,8 +2294,8 @@ END;
 RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE  b
-SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
-		unmatched_index_count = query_plan.value('count(//p:QueryPlan/p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') 
+SET     b.missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
+		b.unmatched_index_count = query_plan.value('count(//p:QueryPlan/p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') 
 FROM    #query_plan qp
 JOIN #working_warnings AS b
 ON b.query_hash = qp.query_hash
@@ -2314,18 +2344,18 @@ RAISERROR(N'General query dispositions: frequent executions, long running, etc.'
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET    frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END ,
-	   near_parallel = CASE WHEN b.query_cost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
-	   long_running = CASE WHEN wm.avg_duration > @long_running_query_warning_seconds THEN 1
+SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END ,
+	   b.near_parallel = CASE WHEN b.query_cost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
+	   b.long_running = CASE WHEN wm.avg_duration > @long_running_query_warning_seconds THEN 1
 						   WHEN wm.max_duration > @long_running_query_warning_seconds THEN 1
                            WHEN wm.avg_cpu_time > @long_running_query_warning_seconds THEN 1
                            WHEN wm.max_cpu_time > @long_running_query_warning_seconds THEN 1 END,
-	   is_key_lookup_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND key_lookup_cost >= b.query_cost * .5 THEN 1 END,
-	   is_sort_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND sort_cost >= b.query_cost * .5 THEN 1 END,
-	   is_remote_query_expensive = CASE WHEN remote_query_cost >= b.query_cost * .05 THEN 1 END,
-	   is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
-	   long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
-	   low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END
+	   b.is_key_lookup_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
+	   b.is_sort_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
+	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
+	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
+	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
+	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
@@ -2335,129 +2365,163 @@ ON b.plan_id = wpt.plan_id
 AND b.query_id = wpt.query_id
 OPTION (RECOMPILE);
 
-END;
-
-
-RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
-
-UPDATE b
-SET parameter_sniffing_symptoms = 
-	SUBSTRING(  
-				/*Duration*/
-				CASE WHEN (min_duration * 10000) < (avg_duration) THEN ', Fast sometimes' ELSE '' END +
-				CASE WHEN (max_duration) > (avg_duration * 10000) THEN ', Slow sometimes' ELSE '' END +
-				CASE WHEN (last_duration * 10000) < (avg_duration)  THEN ', Fast last run' ELSE '' END +
-				CASE WHEN (last_duration) > (avg_duration * 10000) THEN ', Slow last run' ELSE '' END +
-				/*CPU*/
-				CASE WHEN (min_cpu_time / avg_dop) * 10000 < (avg_cpu_time / avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
-				CASE WHEN (max_cpu_time / max_dop) > (avg_cpu_time / avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
-				CASE WHEN (last_cpu_time / last_dop) * 10000 < (avg_cpu_time / avg_dop)  THEN ', Low CPU last run' ELSE '' END +
-				CASE WHEN (last_cpu_time / last_dop) > (avg_cpu_time / avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
-				/*Logical Reads*/
-				CASE WHEN (min_logical_io_reads * 10000) < (avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
-				CASE WHEN (max_logical_io_reads) > (avg_logical_io_reads * 10000) THEN ', High reads sometimes' ELSE '' END +
-				CASE WHEN (last_logical_io_reads * 10000) < (avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
-				CASE WHEN (last_logical_io_reads) > (avg_logical_io_reads * 10000) THEN ', High reads last run' ELSE '' END +
-				/*Logical Writes*/
-				CASE WHEN (min_logical_io_writes * 10000) < (avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
-				CASE WHEN (max_logical_io_writes) > (avg_logical_io_writes * 10000) THEN ', High writes sometimes' ELSE '' END +
-				CASE WHEN (last_logical_io_writes * 10000) < (avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
-				CASE WHEN (last_logical_io_writes) > (avg_logical_io_writes * 10000) THEN ', High writes last run' ELSE '' END +
-				/*Physical Reads*/
-				CASE WHEN (min_physical_io_reads * 10000) < (avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
-				CASE WHEN (max_physical_io_reads) > (avg_physical_io_reads * 10000) THEN ', High physical reads sometimes' ELSE '' END +
-				CASE WHEN (last_physical_io_reads * 10000) < (avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
-				CASE WHEN (last_physical_io_reads) > (avg_physical_io_reads * 10000) THEN ', High physical reads last run' ELSE '' END +
-				/*Memory*/
-				CASE WHEN (min_query_max_used_memory * 10000) < (avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
-				CASE WHEN (max_query_max_used_memory) > (avg_query_max_used_memory * 10000) THEN ', High memory sometimes' ELSE '' END +
-				CASE WHEN (last_query_max_used_memory * 10000) < (avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
-				CASE WHEN (last_query_max_used_memory) > (avg_query_max_used_memory * 10000) THEN ', High memory last run' ELSE '' END +
-				/*Duration*/
-				CASE WHEN min_rowcount * 10000 < avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
-				CASE WHEN max_rowcount > avg_rowcount * 10000 THEN ', High row count sometimes' ELSE '' END +
-				CASE WHEN last_rowcount * 10000 < avg_rowcount  THEN ', Low row count run' ELSE '' END +
-				CASE WHEN last_rowcount > avg_rowcount * 10000 THEN ', High row count last run' ELSE '' END +
-				/*DOP*/
-				CASE WHEN min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
-				CASE WHEN max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
-				CASE WHEN last_dop = 1  THEN ', Serial last run' ELSE '' END +
-				CASE WHEN last_dop > 1 THEN ', Parallel last run' ELSE '' END 
-	, 2, 200000) 
-FROM #working_metrics AS b
-OPTION (RECOMPILE);
-
-
-IF @SkipXML = 0
-BEGIN 
-
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 /* Populate warnings */
 UPDATE b
 SET    b.warnings = SUBSTRING(
-                  CASE WHEN warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
-                  CASE WHEN compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
-                  CASE WHEN compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
-                  CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
-                  CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
-                  CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
-                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS NVARCHAR(3)) + ')' ELSE '' END +
-                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS NVARCHAR(3)) + ')' ELSE '' END +                  
-                  CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+                  CASE WHEN b.warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
+                  CASE WHEN b.compile_timeout = 1 THEN ', Compilation Timeout' ELSE '' END +
+                  CASE WHEN b.compile_memory_limit_exceeded = 1 THEN ', Compile Memory Limit Exceeded' ELSE '' END +
+                  CASE WHEN b.is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
+                  CASE WHEN b.is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
+                  CASE WHEN b.unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
+                  CASE WHEN b.missing_index_count > 0 THEN ', Missing Indexes (' + CAST(b.missing_index_count AS NVARCHAR(3)) + ')' ELSE '' END +
+                  CASE WHEN b.unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(b.unmatched_index_count AS NVARCHAR(3)) + ')' ELSE '' END +                  
+                  CASE WHEN b.is_cursor = 1 THEN ', Cursor' 
+							+ CASE WHEN b.is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
+							+ CASE WHEN b.is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
 				  ELSE '' END +
-                  CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
-                  CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
-                  CASE WHEN frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
-                  CASE WHEN plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
-                  CASE WHEN parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
-                  CASE WHEN long_running = 1 THEN ', Long Running Query' ELSE '' END +
-                  CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
-                  CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
-                  CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
-				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
-				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
-				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
-				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
-				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), function_count) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), clr_function_count) + ' CLR function(s)' ELSE '' END + 
-				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
-				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
-				  CASE WHEN relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
-				  CASE WHEN is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
-				  CASE WHEN backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
-				  CASE WHEN forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
-				  CASE WHEN forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
-				  CASE WHEN forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
-				  CASE WHEN columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
-				  CASE WHEN is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
-				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
-				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
-				  CASE WHEN index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
-				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
-				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END + 
-				  CASE WHEN index_dml = 1 THEN ', Index DML' ELSE '' END +
-				  CASE WHEN table_dml = 1 THEN ', Table DML' ELSE '' END +
-				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
-				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
-				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
+                  CASE WHEN b.is_parallel = 1 THEN ', Parallel' ELSE '' END +
+                  CASE WHEN b.near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
+                  CASE WHEN b.frequent_execution = 1 THEN ', Frequent Execution' ELSE '' END +
+                  CASE WHEN b.plan_warnings = 1 THEN ', Plan Warnings' ELSE '' END +
+                  CASE WHEN b.parameter_sniffing = 1 THEN ', Parameter Sniffing' ELSE '' END +
+                  CASE WHEN b.long_running = 1 THEN ', Long Running Query' ELSE '' END +
+                  CASE WHEN b.downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
+                  CASE WHEN b.implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
+                  CASE WHEN b.plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN b.is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
+				  CASE WHEN b.is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
+				  CASE WHEN b.is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
+				  CASE WHEN b.is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
+				  CASE WHEN b.trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + b.trace_flags_session ELSE '' END +
+				  CASE WHEN b.is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
+				  CASE WHEN b.function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), b.function_count) + ' function(s)' ELSE '' END + 
+				  CASE WHEN b.clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), b.clr_function_count) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN b.is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
+				  CASE WHEN b.no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
+				  CASE WHEN b.relop_warnings = 1 THEN ', Operator Warnings' ELSE '' END  + 
+				  CASE WHEN b.is_table_scan = 1 THEN ', Table Scans' ELSE '' END  + 
+				  CASE WHEN b.backwards_scan = 1 THEN ', Backwards Scans' ELSE '' END  + 
+				  CASE WHEN b.forced_index = 1 THEN ', Forced Indexes' ELSE '' END  + 
+				  CASE WHEN b.forced_seek = 1 THEN ', Forced Seeks' ELSE '' END  + 
+				  CASE WHEN b.forced_scan = 1 THEN ', Forced Scans' ELSE '' END  +
+				  CASE WHEN b.columnstore_row_mode = 1 THEN ', ColumnStore Row Mode ' ELSE '' END +
+				  CASE WHEN b.is_computed_scalar = 1 THEN ', Computed Column UDF ' ELSE '' END  +
+				  CASE WHEN b.is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
+				  CASE WHEN b.is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
+				  CASE WHEN b.index_ops >= 5 THEN ', >= 5 Indexes Modified' ELSE '' END +
+				  CASE WHEN b.is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
+				  CASE WHEN b.is_spatial = 1 THEN ', Spatial Index' ELSE '' END + 
+				  CASE WHEN b.index_dml = 1 THEN ', Index DML' ELSE '' END +
+				  CASE WHEN b.table_dml = 1 THEN ', Table DML' ELSE '' END +
+				  CASE WHEN b.low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
+				  CASE WHEN b.long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
+				  CASE WHEN b.stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
+				  CASE WHEN b.is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
 
- 
-RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
+
+END;
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure generating warnings.', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
+
+
+BEGIN TRY 
+BEGIN 
+
+RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
 
 UPDATE b
-SET b.warnings = 'No warnings detected.'
-FROM #working_warnings AS b
-WHERE b.warnings = '' OR b.warnings IS NULL
+SET b.parameter_sniffing_symptoms = 
+	SUBSTRING(  
+				/*Duration*/
+				CASE WHEN (b.min_duration * 10000) < (b.avg_duration) THEN ', Fast sometimes' ELSE '' END +
+				CASE WHEN (b.max_duration) > (b.avg_duration * 10000) THEN ', Slow sometimes' ELSE '' END +
+				CASE WHEN (b.last_duration * 10000) < (b.avg_duration)  THEN ', Fast last run' ELSE '' END +
+				CASE WHEN (b.last_duration) > (b.avg_duration * 10000) THEN ', Slow last run' ELSE '' END +
+				/*CPU*/
+				CASE WHEN (b.min_cpu_time / b.avg_dop) * 10000 < (b.avg_cpu_time / b.avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
+				CASE WHEN (b.max_cpu_time / b.max_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) * 10000 < (b.avg_cpu_time / b.avg_dop)  THEN ', Low CPU last run' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
+				/*Logical Reads*/
+				CASE WHEN (b.min_logical_io_reads * 10000) < (b.avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads * 10000) < (b.avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads last run' ELSE '' END +
+				/*Logical Writes*/
+				CASE WHEN (b.min_logical_io_writes * 10000) < (b.avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes * 10000) < (b.avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes last run' ELSE '' END +
+				/*Physical Reads*/
+				CASE WHEN (b.min_physical_io_reads * 10000) < (b.avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads * 10000) < (b.avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads last run' ELSE '' END +
+				/*Memory*/
+				CASE WHEN (b.min_query_max_used_memory * 10000) < (b.avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
+				CASE WHEN (b.max_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory sometimes' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory * 10000) < (b.avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory last run' ELSE '' END +
+				/*Duration*/
+				CASE WHEN b.min_rowcount * 10000 < b.avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
+				CASE WHEN b.max_rowcount > b.avg_rowcount * 10000 THEN ', High row count sometimes' ELSE '' END +
+				CASE WHEN b.last_rowcount * 10000 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
+				CASE WHEN b.last_rowcount > b.avg_rowcount * 10000 THEN ', High row count last run' ELSE '' END +
+				/*DOP*/
+				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
+				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
+				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
+				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END 
+	, 2, 200000) 
+FROM #working_metrics AS b
 OPTION (RECOMPILE);
+
 END;
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure analyzing parameter sniffing', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
+
+BEGIN TRY 
+
+BEGIN 
 
 IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
@@ -2572,6 +2636,29 @@ OPTION (RECOMPILE);
 
 END;
 
+END;
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure returning results', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
+
+BEGIN TRY 
+BEGIN 
 
 IF (@ExportToExcel = 0 AND @HideSummary = 0 AND @SkipXML = 0)
 BEGIN
@@ -2689,7 +2776,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings p
-                   WHERE  near_parallel = 1
+                   WHERE  p.near_parallel = 1
 				   )
             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (
@@ -2702,7 +2789,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings p
-                   WHERE  plan_warnings = 1
+                   WHERE  p.plan_warnings = 1
 				   )
             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (
@@ -2715,7 +2802,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings p
-                   WHERE  long_running = 1
+                   WHERE  p.long_running = 1
 				   )
             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (
@@ -2756,7 +2843,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM #working_warnings p
-                   WHERE implicit_conversions = 1
+                   WHERE p.implicit_conversions = 1
 				   )
             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (
@@ -3314,25 +3401,25 @@ BEGIN
 			ORDER BY worsts.total_rowcount DESC
 				)
 			INSERT #warning_results ( CheckID, Priority, FindingsGroup, Finding, URL, Details )
-			SELECT 1002, 255, 'Worsts', 'Worst Duration', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Duration', 'N/A', duration_worst.msg
 			FROM duration_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst CPU', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst CPU', 'N/A', cpu_worst.msg
 			FROM cpu_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Logical Reads', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Logical Reads', 'N/A', logical_reads_worst.msg
 			FROM logical_reads_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Physical Reads', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Physical Reads', 'N/A', physical_reads_worst.msg
 			FROM physical_reads_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Logical Writes', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Logical Writes', 'N/A', logical_writes_worst.msg
 			FROM logical_writes_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Memory', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Memory', 'N/A', memory_worst.msg
 			FROM memory_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Row Counts', 'N/A', msg
+			SELECT 1002, 255, 'Worsts', 'Worst Row Counts', 'N/A', rowcount_worst.msg
 			FROM rowcount_worst
 			OPTION (RECOMPILE);
 
@@ -3371,7 +3458,31 @@ BEGIN
 
 END;	
 
+END;
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure returning warnings', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
+
 IF @Debug = 1	
+
+BEGIN TRY 
+
 BEGIN
 
 RAISERROR(N'Returning debugging data from temp tables', 0, 1) WITH NOWAIT;
@@ -3427,6 +3538,26 @@ FROM #plan_cost AS pc
 OPTION (RECOMPILE);
 
 END; 
+
+END TRY
+BEGIN CATCH
+        RAISERROR (N'Failure returning debug temp tables', 0,1) WITH NOWAIT;
+
+        IF @sql_select IS NOT NULL
+        BEGIN
+            SET @msg= 'Last @sql_select: ' + @sql_select;
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
+
+        SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
+        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        
+        
+        WHILE @@trancount > 0 
+            ROLLBACK;
+
+        RETURN;
+END CATCH;
 
 /*
 Ways to run this thing
