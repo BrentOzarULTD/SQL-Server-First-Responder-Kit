@@ -3305,9 +3305,9 @@ BEGIN
 				999,
 				200,
 				'Database Level Statistics',
-				'The database ' + sa.[database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.last_update))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.modification_count)) + ' modifications on average.' AS [Finding],
+				'The database ' + sa.[database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.last_update))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.modification_count)) + ' modifications on average.' AS Finding,
 				'' AS URL,
-				'Consider updating statistics more frequently,' AS [Details]
+				'Consider updating statistics more frequently,' AS Details
 				FROM #stats_agg AS sa
 				GROUP BY sa.[database]
 				HAVING MAX(sa.last_update) <= DATEADD(DAY, -7, SYSDATETIME())
