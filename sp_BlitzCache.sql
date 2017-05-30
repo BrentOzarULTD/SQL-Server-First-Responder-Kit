@@ -2134,7 +2134,8 @@ index_dml AS (
 	JOIN index_dml i
 	ON i.QueryHash = b.QueryHash
 	WHERE i.index_dml = 1
-	AND b.SPID = @@SPID;
+	AND b.SPID = @@SPID
+	OPTION (RECOMPILE);
 
 RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
@@ -2151,7 +2152,8 @@ table_dml AS (
 	JOIN table_dml t
 	ON t.QueryHash = b.QueryHash
 	WHERE t.table_dml = 1
-	AND b.SPID = @@SPID;
+	AND b.SPID = @@SPID
+	OPTION (RECOMPILE);
 
 
 --Gather costs
@@ -2182,6 +2184,14 @@ WITH pc AS (
 		OR b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
 	OPTION (RECOMPILE);
+
+IF EXISTS (
+SELECT 1
+FROM ##bou_BlitzCacheProcs AS b
+WHERE b.QueryType LIKE 'Procedure%'
+)
+
+BEGIN
 
 RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2217,6 +2227,8 @@ CROSS APPLY (
 WHERE b.QueryType LIKE 'Procedure%'
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
+
+END
 
 UPDATE b
 SET b.QueryPlanCost = 0.0
@@ -2534,6 +2546,7 @@ BEGIN
 	WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 	AND SPID = @@SPID
 	AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
+	AND ##bou_BlitzCacheProcs.is_parallel IS NULL
 	OPTION (RECOMPILE);
 	
 	
@@ -2614,7 +2627,8 @@ SET stale_stats = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN stale_stats os
 ON b.SqlHandle = os.SqlHandle
-AND b.SPID = @@SPID;
+AND b.SPID = @@SPID
+OPTION (RECOMPILE);
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 aj AS (
@@ -2629,7 +2643,8 @@ SET b.is_adaptive = 1
 FROM ##bou_BlitzCacheProcs b
 JOIN aj
 ON b.SqlHandle = aj.SqlHandle
-AND b.SPID = @@SPID;
+AND b.SPID = @@SPID
+OPTION (RECOMPILE) ;
 
 END
 
