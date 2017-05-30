@@ -235,30 +235,7 @@ SET @msg = N'Wait stats DMV ' + CASE @waitstats
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 
-IF @StoredProcName IS NOT NULL
-	BEGIN 
-	
-	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StoredProcName NVARCHAR(128), @i_out INT OUTPUT';
-	
-	SET @sql = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query qsq WHERE object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName ';
-	
-	EXEC sys.sp_executesql @sql, @proc_params, @sp_StoredProcName = @StoredProcName, @i_out = @out OUTPUT;
-	
-	IF @out = 0
-		BEGIN	
-	
-		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N'. Try removing schema prefixes. If it was executed from a different database context, try searching there instead.'
-		RAISERROR(@msg, 0, 1) WITH NOWAIT;
-	
-		RETURN;
-	
-		END 
-	
-	END 
-
-
-
-
+ 
 /*
 These are the temp tables we use
 */
@@ -753,6 +730,45 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 	RAISERROR(N'Exporting to Excel or skipping XML, hiding summary', 0, 1) WITH NOWAIT;
 	SET @HideSummary = 1;
 	END;
+
+
+IF @StoredProcName IS NOT NULL
+	BEGIN 
+	
+	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2(7), @sp_EndDate DATETIME2(7), @sp_StoredProcName NVARCHAR(128), @i_out INT OUTPUT';
+	
+	SET @sql = N'SELECT @i_out = COUNT(*) 
+				 FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query qsq 
+				 WHERE object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName 
+				 AND qsq.last_execution_time >= @sp_StartDate
+				 AND qsq.last_execution_time < @sp_EndDate';
+	
+	EXEC sys.sp_executesql @sql, 
+						   @proc_params, 
+						   @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_StoredProcName = @StoredProcName, @i_out = @out OUTPUT;
+	
+	IF @out = 0
+		BEGIN	
+		
+		PRINT @StoredProcName
+		PRINT @DatabaseName
+		PRINT @StartDate
+		PRINT @EndDate
+
+		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + ' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
+					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.'
+		RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers]
+	
+		RETURN;
+	
+		END 
+	
+	END
+
+
+
 
 /*
 This is our grouped interval query.
