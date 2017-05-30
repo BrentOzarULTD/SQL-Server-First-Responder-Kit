@@ -110,6 +110,10 @@ SELECT  @crlf = NCHAR(13) + NCHAR(10),
 		@StartTime = DATEADD(hh, @HoursBack, GETDATE()),
         @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + ' -- ?>';
 
+SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
+SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
+       @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2);
+
 CREATE TABLE #Backups
 (
     id INT IDENTITY(1, 1),
@@ -989,6 +993,11 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 	
 	/*Checking for encrypted backups and the last backup of the encryption key.*/
 
+	/*2014 ONLY*/
+
+IF @ProductVersionMajor >= 12
+	BEGIN
+
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += N'SELECT 
@@ -999,7 +1008,7 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 								''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' '' + b.encryptor_type + '' backups, and the last time a certificate was backed up is '
 								+ CASE WHEN LOWER(@MSDBName) <> N'msdb'
 									THEN + N'...well, that information is on another server, anyway.'' AS [Warning]'
-									ELSE + CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + '. AS [Warning]'
+									ELSE + CONVERT(VARCHAR(30), (SELECT MAX(c.pvt_key_last_backup_date) FROM sys.certificates AS c WHERE c.name NOT LIKE '##%')) + N'.'' AS [Warning]'
 									END + 
 							N'
 							FROM   ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
@@ -1011,6 +1020,8 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
+	
+	END
 	
 	/*Looking for backups that have BULK LOGGED data in them -- this can screw up point in time LOG recovery.*/
 
@@ -1233,6 +1244,36 @@ END
 		
 		EXEC sp_executesql @InnerStringToExecute
 
+		/*We need to add the encryptor column if it doesn't exist, in case someone wants to push data from  a 2014 instance to a 2012 repo.*/
+
+
+		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
+		
+		SET @StringToExecute += '
+		
+		IF NOT EXISTS (
+		SELECT 1
+		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.column AS c
+		WHERE OBJECT_NAME(c.object_id) = ?
+		AND c.name = ?
+		)
+
+			BEGIN
+			
+				ALTER TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD [encryptor_type] NVARCHAR(32)
+			
+			END
+		'
+
+		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''encryptor_type'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
+	
+	IF @Debug = 1
+		PRINT @InnerStringToExecute;		
+		
+		EXEC sp_executesql @InnerStringToExecute
+
+
+
 		RAISERROR('We''ll even make the indexes!', 0, 1) WITH NOWAIT
 
 		/*Checking for and creating the PK/CX*/
@@ -1438,11 +1479,18 @@ END
 									' 
 		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
-									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data)' + @crlf;
+									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
+																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
+																																				ELSE + N', has_bulk_logged_data)' + @crlf
+																																				END
+		
 		SET @StringToExecute +=N'
 									SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
-									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, encryptor_type, has_bulk_logged_data'  + @crlf;
+									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
+																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
+																																				ELSE + N', has_bulk_logged_data)' + @crlf
+																																				END
 		SET @StringToExecute +=N'
 								 FROM msdb.dbo.backupset b
 								 WHERE 1=1
