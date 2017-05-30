@@ -108,7 +108,7 @@ IF	@WriteBackupsLastHours > 0
 
 SELECT  @crlf = NCHAR(13) + NCHAR(10), 
 		@StartTime = DATEADD(hh, @HoursBack, GETDATE()),
-        @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + ' -- ?>';
+        @MoreInfoHeader = N'<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + N' -- ?>';
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
@@ -713,7 +713,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	/*Find max and avg diff and log sizes*/
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '
+	SET @StringToExecute += N'
 							UPDATE r
 							 SET r.AvgFullSize = fulls.avg_full_size,
 							 	 r.AvgDiffSize = diffs.avg_diff_size,
@@ -750,7 +750,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	EXEC sys.sp_executesql @StringToExecute;
 	
 /*Trending - only works if backupfile is populated, which means in msdb */
-IF @MSDBName = 'msdb'
+IF @MSDBName = N'msdb'
 BEGIN
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
 
@@ -975,7 +975,7 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 								8 AS CheckId,
 								100 AS [Priority],
 								b.database_name AS [Database Name],
@@ -1027,7 +1027,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		10 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1047,7 +1047,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		11 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1068,7 +1068,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		12 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1193,8 +1193,8 @@ END
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.master.sys.databases d WHERE d.name = @i_WriteBackupsToDatabaseName;'
+	SET @StringToExecute += N'SELECT TOP 1 1 FROM ' 
+							+ QUOTENAME(@WriteBackupsToListenerName) + N'.master.sys.databases d WHERE d.name = @i_WriteBackupsToDatabaseName;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1212,7 +1212,7 @@ END
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
+	SET @StringToExecute += N'SELECT TOP 1 1 FROM ' 
 							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE name = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
 							' + @crlf;
 
@@ -1280,7 +1280,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += '
+		SET @StringToExecute += N'
 		
 		IF NOT EXISTS (
 		SELECT t.name, i.name
@@ -1309,7 +1309,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
@@ -1363,7 +1363,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
@@ -1390,7 +1390,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
