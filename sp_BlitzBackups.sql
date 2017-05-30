@@ -108,7 +108,7 @@ IF	@WriteBackupsLastHours > 0
 
 SELECT  @crlf = NCHAR(13) + NCHAR(10), 
 		@StartTime = DATEADD(hh, @HoursBack, GETDATE()),
-        @MoreInfoHeader = '<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + ' -- ?>';
+        @MoreInfoHeader = N'<?ClickToSeeDetails -- ' + @crlf, @MoreInfoFooter = @crlf + N' -- ?>';
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
@@ -713,7 +713,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	/*Find max and avg diff and log sizes*/
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += '
+	SET @StringToExecute += N'
 							UPDATE r
 							 SET r.AvgFullSize = fulls.avg_full_size,
 							 	 r.AvgDiffSize = diffs.avg_diff_size,
@@ -750,7 +750,7 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	EXEC sys.sp_executesql @StringToExecute;
 	
 /*Trending - only works if backupfile is populated, which means in msdb */
-IF @MSDBName = 'msdb'
+IF @MSDBName = N'msdb'
 BEGIN
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' --+ @crlf;
 
@@ -975,7 +975,7 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 								8 AS CheckId,
 								100 AS [Priority],
 								b.database_name AS [Database Name],
@@ -1027,7 +1027,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		10 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1047,7 +1047,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		11 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1068,7 +1068,7 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT 
+	SET @StringToExecute += N'SELECT 
 		12 AS CheckId,
 		100 AS [Priority],
 		b.database_name AS [Database Name],
@@ -1137,14 +1137,6 @@ RAISERROR('Pushing backup history to listener', 0, 1) WITH NOWAIT;
 DECLARE @msg NVARCHAR(4000) = N'';
 DECLARE @RemoteCheck TABLE (c INT NULL);
 
-/*
-	@AGName NVARCHAR(256) NULL,
-	@WriteBackupsToDatabaseName NVARCHAR(256) = 'msdb',
-	@WriteBackupsToListenerName NVARCHAR(256),
-    @WriteBackupsToDatabaseName NVARCHAR(256),
-    @WriteBackupsLastHours INT = 24,
-	@WriteBackupsBatchSize INT = 5000,
-*/
 
 IF @WriteBackupsToDatabaseName IS NULL
 	BEGIN
@@ -1193,8 +1185,8 @@ END
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
-							+ QUOTENAME(@WriteBackupsToListenerName) + '.master.sys.databases d WHERE d.name = @i_WriteBackupsToDatabaseName;'
+	SET @StringToExecute += N'SELECT TOP 1 1 FROM ' 
+							+ QUOTENAME(@WriteBackupsToListenerName) + N'.master.sys.databases d WHERE d.name = @i_WriteBackupsToDatabaseName;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
@@ -1212,7 +1204,7 @@ END
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += 'SELECT TOP 1 1 FROM ' 
+	SET @StringToExecute += N'SELECT TOP 1 1 FROM ' 
 							+ QUOTENAME(@WriteBackupsToListenerName) + '.' + QUOTENAME(@WriteBackupsToDatabaseName) + '.sys.tables WHERE name = ''backupset'' AND SCHEMA_NAME(schema_id) = ''dbo'';
 							' + @crlf;
 
@@ -1231,10 +1223,19 @@ END
 		
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-		SET @StringToExecute += N'SELECT TOP 1 *
-								 INTO ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
-								 FROM ' + N'msdb.dbo.backupset
-								 WHERE 1 = 2
+		SET @StringToExecute += N'CREATE TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
+											( backup_set_id INT IDENTITY(1, 1), backup_set_uuid UNIQUEIDENTIFIER, media_set_id INT, first_family_number TINYINT, first_media_number SMALLINT, 
+											  last_family_number TINYINT, last_media_number SMALLINT, catalog_family_number TINYINT, catalog_media_number SMALLINT, position INT, expiration_date DATETIME, 
+											  software_vendor_id INT, name NVARCHAR(128), description NVARCHAR(255), user_name NVARCHAR(128), software_major_version TINYINT, software_minor_version TINYINT, 
+											  software_build_version SMALLINT, time_zone SMALLINT, mtf_minor_version TINYINT, first_lsn NUMERIC(25, 0), last_lsn NUMERIC(25, 0), checkpoint_lsn NUMERIC(25, 0), 
+											  database_backup_lsn NUMERIC(25, 0), database_creation_date DATETIME, backup_start_date DATETIME, backup_finish_date DATETIME, type CHAR(1), sort_order SMALLINT, 
+											  code_page SMALLINT, compatibility_level TINYINT, database_version INT, backup_size NUMERIC(20, 0), database_name NVARCHAR(128), server_name NVARCHAR(128), 
+											  machine_name NVARCHAR(128), flags INT, unicode_locale INT, unicode_compare_style INT, collation_name NVARCHAR(128), is_password_protected BIT, recovery_model NVARCHAR(60), 
+											  has_bulk_logged_data BIT, is_snapshot BIT, is_readonly BIT, is_single_user BIT, has_backup_checksums BIT, is_damaged BIT, begins_log_chain BIT, has_incomplete_metadata BIT, 
+											  is_force_offline BIT, is_copy_only BIT, first_recovery_fork_guid UNIQUEIDENTIFIER, last_recovery_fork_guid UNIQUEIDENTIFIER, fork_point_lsn NUMERIC(25, 0), database_guid UNIQUEIDENTIFIER, 
+											  family_guid UNIQUEIDENTIFIER, differential_base_lsn NUMERIC(25, 0), differential_base_guid UNIQUEIDENTIFIER, compressed_backup_size NUMERIC(20, 0), key_algorithm NVARCHAR(32), 
+											  encryptor_thumbprint VARBINARY(20) , encryptor_type NVARCHAR(32) 
+											);
 								 ' + @crlf;
 		
 		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
@@ -1244,35 +1245,6 @@ END
 		
 		EXEC sp_executesql @InnerStringToExecute
 
-		/*We need to add the encryptor column if it doesn't exist, in case someone wants to push data from  a 2014 instance to a 2012 repo.*/
-
-
-		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
-		
-		SET @StringToExecute += '
-		
-		IF NOT EXISTS (
-		SELECT 1
-		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.column AS c
-		WHERE OBJECT_NAME(c.object_id) = ?
-		AND c.name = ?
-		)
-
-			BEGIN
-			
-				ALTER TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD [encryptor_type] NVARCHAR(32)
-			
-			END
-		'
-
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''encryptor_type'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
-	
-	IF @Debug = 1
-		PRINT @InnerStringToExecute;		
-		
-		EXEC sp_executesql @InnerStringToExecute
-
-
 
 		RAISERROR('We''ll even make the indexes!', 0, 1) WITH NOWAIT
 
@@ -1280,7 +1252,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += '
+		SET @StringToExecute += N'
 		
 		IF NOT EXISTS (
 		SELECT t.name, i.name
@@ -1309,7 +1281,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
@@ -1363,7 +1335,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
@@ -1390,7 +1362,7 @@ END
 
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 		
-		SET @StringToExecute += 'IF NOT EXISTS (
+		SET @StringToExecute += N'IF NOT EXISTS (
 		SELECT t.name, i.name
 		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.tables AS t
 		JOIN ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.indexes AS i  
@@ -1488,8 +1460,8 @@ END
 									SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id,
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
-																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
-																																				ELSE + N', has_bulk_logged_data)' + @crlf
+																																				THEN + N'encryptor_type, has_bulk_logged_data' + @crlf
+																																				ELSE + N', has_bulk_logged_data' + @crlf
 																																				END
 		SET @StringToExecute +=N'
 								 FROM msdb.dbo.backupset b
