@@ -715,6 +715,12 @@ IF @Debug = 1
 	RAISERROR(N'Starting WHERE clause:', 0, 1) WITH NOWAIT;
 	PRINT @sql_where;
 
+IF @sql_where IS NULL
+    BEGIN
+        RAISERROR(N'@sql_where is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 IF (@ExportToExcel = 1 OR @SkipXML = 1)	
 	BEGIN
 	RAISERROR(N'Exporting to Excel or skipping XML, hiding summary', 0, 1) WITH NOWAIT;
@@ -767,6 +773,12 @@ SET @sql_select +=
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 INSERT #grouped_interval WITH (TABLOCK)
 		( flat_date, start_range, end_range, total_avg_duration_ms, 
@@ -825,6 +837,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_duration DESC
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -868,6 +886,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_cpu_time DESC
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -913,6 +937,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_reads DESC
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -956,6 +986,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_physical_io_reads DESC
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -1002,6 +1038,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_writes DESC
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -1047,6 +1089,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_query_max_used_memory DESC
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -1091,6 +1139,12 @@ SET @sql_select +=  N'ORDER BY qsrs.avg_rowcount DESC
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -1219,6 +1273,12 @@ SET @sql_select +=  N'OPTION (RECOMPILE);
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 INSERT #working_metrics WITH (TABLOCK)
 		( database_name, plan_id, query_id, 
 		  proc_or_function_name, 
@@ -1280,6 +1340,12 @@ SET @sql_select +=  N'OPTION (RECOMPILE);
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 INSERT #working_plan_text WITH (TABLOCK)
 		( database_name, plan_id, query_id, 
 		  plan_group_id, engine_version, compatibility_level, query_plan_hash, query_plan_xml, is_online_index_plan, is_trivial_plan, 
@@ -1335,6 +1401,12 @@ OPTION (RECOMPILE);
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 EXEC sys.sp_executesql  @stmt = @sql_select;
 
@@ -1392,6 +1464,12 @@ OPTION (RECOMPILE);
 
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 INSERT #working_wait_stats WITH (TABLOCK)
 		( plan_id, wait_category, wait_category_desc, total_query_wait_time_ms, avg_query_wait_time_ms, last_query_wait_time_ms, min_query_wait_time_ms, max_query_wait_time_ms )
@@ -1468,6 +1546,12 @@ SET @sql_select +=  N'OPTION (RECOMPILE);
 IF @Debug = 1
 	PRINT @sql_select;
 
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
 INSERT #working_warnings  WITH (TABLOCK)
 	( plan_id, query_id, query_hash, sql_handle )
 EXEC sys.sp_executesql  @stmt = @sql_select, 
@@ -1528,6 +1612,12 @@ SET @sql_select += N'GROUP BY wp.query_id
 					';
 IF @Debug = 1
 	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
