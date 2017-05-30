@@ -1137,14 +1137,6 @@ RAISERROR('Pushing backup history to listener', 0, 1) WITH NOWAIT;
 DECLARE @msg NVARCHAR(4000) = N'';
 DECLARE @RemoteCheck TABLE (c INT NULL);
 
-/*
-	@AGName NVARCHAR(256) NULL,
-	@WriteBackupsToDatabaseName NVARCHAR(256) = 'msdb',
-	@WriteBackupsToListenerName NVARCHAR(256),
-    @WriteBackupsToDatabaseName NVARCHAR(256),
-    @WriteBackupsLastHours INT = 24,
-	@WriteBackupsBatchSize INT = 5000,
-*/
 
 IF @WriteBackupsToDatabaseName IS NULL
 	BEGIN
@@ -1231,10 +1223,19 @@ END
 		
 		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-		SET @StringToExecute += N'SELECT TOP 1 *
-								 INTO ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
-								 FROM ' + N'msdb.dbo.backupset
-								 WHERE 1 = 2
+		SET @StringToExecute += N'CREATE TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.dbo.backupset
+											( backup_set_id INT IDENTITY(1, 1), backup_set_uuid UNIQUEIDENTIFIER, media_set_id INT, first_family_number TINYINT, first_media_number SMALLINT, 
+											  last_family_number TINYINT, last_media_number SMALLINT, catalog_family_number TINYINT, catalog_media_number SMALLINT, position INT, expiration_date DATETIME, 
+											  software_vendor_id INT, name NVARCHAR(128), description NVARCHAR(255), user_name NVARCHAR(128), software_major_version TINYINT, software_minor_version TINYINT, 
+											  software_build_version SMALLINT, time_zone SMALLINT, mtf_minor_version TINYINT, first_lsn NUMERIC(25, 0), last_lsn NUMERIC(25, 0), checkpoint_lsn NUMERIC(25, 0), 
+											  database_backup_lsn NUMERIC(25, 0), database_creation_date DATETIME, backup_start_date DATETIME, backup_finish_date DATETIME, type CHAR(1), sort_order SMALLINT, 
+											  code_page SMALLINT, compatibility_level TINYINT, database_version INT, backup_size NUMERIC(20, 0), database_name NVARCHAR(128), server_name NVARCHAR(128), 
+											  machine_name NVARCHAR(128), flags INT, unicode_locale INT, unicode_compare_style INT, collation_name NVARCHAR(128), is_password_protected BIT, recovery_model NVARCHAR(60), 
+											  has_bulk_logged_data BIT, is_snapshot BIT, is_readonly BIT, is_single_user BIT, has_backup_checksums BIT, is_damaged BIT, begins_log_chain BIT, has_incomplete_metadata BIT, 
+											  is_force_offline BIT, is_copy_only BIT, first_recovery_fork_guid UNIQUEIDENTIFIER, last_recovery_fork_guid UNIQUEIDENTIFIER, fork_point_lsn NUMERIC(25, 0), database_guid UNIQUEIDENTIFIER, 
+											  family_guid UNIQUEIDENTIFIER, differential_base_lsn NUMERIC(25, 0), differential_base_guid UNIQUEIDENTIFIER, compressed_backup_size NUMERIC(20, 0), key_algorithm NVARCHAR(32), 
+											  encryptor_thumbprint VARBINARY(20) , encryptor_type NVARCHAR(32) 
+											);
 								 ' + @crlf;
 		
 		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
@@ -1243,35 +1244,6 @@ END
 		PRINT @InnerStringToExecute;		
 		
 		EXEC sp_executesql @InnerStringToExecute
-
-		/*We need to add the encryptor column if it doesn't exist, in case someone wants to push data from  a 2014 instance to a 2012 repo.*/
-
-
-		SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
-		
-		SET @StringToExecute += '
-		
-		IF NOT EXISTS (
-		SELECT 1
-		FROM ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.sys.column AS c
-		WHERE OBJECT_NAME(c.object_id) = ?
-		AND c.name = ?
-		)
-
-			BEGIN
-			
-				ALTER TABLE ' + QUOTENAME(@WriteBackupsToDatabaseName) + N'.[dbo].[backupset] ADD [encryptor_type] NVARCHAR(32)
-			
-			END
-		'
-
-		SET @InnerStringToExecute = N'EXEC( ''' + @StringToExecute +  ''', ''backupset'', ''encryptor_type'' ) AT ' + QUOTENAME(@WriteBackupsToListenerName) + N';'
-	
-	IF @Debug = 1
-		PRINT @InnerStringToExecute;		
-		
-		EXEC sp_executesql @InnerStringToExecute
-
 
 
 		RAISERROR('We''ll even make the indexes!', 0, 1) WITH NOWAIT
