@@ -221,7 +221,7 @@ RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
 
 DECLARE @out INT,
 		@waitstats BIT,
-		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
+		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
 		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
 
 EXEC sys.sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
@@ -233,6 +233,31 @@ SET @msg = N'Wait stats DMV ' + CASE @waitstats
 									WHEN 1 THEN N' exists, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+
+IF @StoredProcName IS NOT NULL
+	BEGIN 
+	
+	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StoredProcName NVARCHAR(128), @i_out INT OUTPUT';
+	
+	SET @sql = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query qsq WHERE object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName ';
+	
+	EXEC sys.sp_executesql @sql, @proc_params, @sp_StoredProcName = @StoredProcName, @i_out = @out OUTPUT;
+	
+	IF @out = 0
+		BEGIN	
+	
+		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N'. Try removing schema prefixes. If it was executed from a different database context, try searching there instead.'
+		RAISERROR(@msg, 0, 1) WITH NOWAIT;
+	
+		RETURN;
+	
+		END 
+	
+	END 
+
+
+
 
 /*
 These are the temp tables we use
@@ -1529,10 +1554,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
@@ -2436,10 +2461,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
@@ -2510,10 +2535,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
@@ -2648,10 +2673,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
@@ -3470,10 +3495,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
@@ -3550,10 +3575,10 @@ BEGIN CATCH
         END;
 
         SELECT    @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @error_severity = ERROR_SEVERITY(), @error_state = ERROR_STATE();
-        RAISERROR (@msg,@error_severity, @error_state )WITH NOWAIT;
+        RAISERROR (@msg, @error_severity, @error_state) WITH NOWAIT;
         
         
-        WHILE @@trancount > 0 
+        WHILE @@TRANCOUNT > 0 
             ROLLBACK;
 
         RETURN;
