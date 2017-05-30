@@ -75,7 +75,8 @@ OPTION (RECOMPILE);
 
 SELECT @min_memory_per_query = CONVERT(INT, c.value)
 FROM   sys.configurations AS c
-WHERE  c.name = 'min memory per query (KB)';
+WHERE  c.name = 'min memory per query (KB)'
+OPTION (RECOMPILE);
 
 
 /*Help section.*/
@@ -218,7 +219,7 @@ RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
 
 DECLARE @out INT,
 		@waitstats BIT,
-		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION(RECOMPILE);',
+		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + '.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
 		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
 
 EXEC sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
@@ -518,11 +519,11 @@ CREATE TABLE #working_wait_stats
 								WHEN 7  THEN N'RESOURCE_SEMAPHORE_QUERY_COMPILE'
 								WHEN 8  THEN N'CLR%, SQLCLR%'
 								WHEN 9  THEN N'DBMIRROR%'
-								WHEN 10 THEN N'	XACT%, DTC%, TRAN_MARKLATCH_%, MSQL_XACT_%, TRANSACTION_MUTEX'
-								WHEN 11 THEN N'	SLEEP_%, LAZYWRITER_SLEEP, SQLTRACE_BUFFER_FLUSH, SQLTRACE_INCREMENTAL_FLUSH_SLEEP, SQLTRACE_WAIT_ENTRIES, FT_IFTS_SCHEDULER_IDLE_WAIT, XE_DISPATCHER_WAIT, REQUEST_FOR_DEADLOCK_SEARCH, LOGMGR_QUEUE, ONDEMAND_TASK_QUEUE, CHECKPOINT_QUEUE, XE_TIMER_EVENT'
+								WHEN 10 THEN N'XACT%, DTC%, TRAN_MARKLATCH_%, MSQL_XACT_%, TRANSACTION_MUTEX'
+								WHEN 11 THEN N'SLEEP_%, LAZYWRITER_SLEEP, SQLTRACE_BUFFER_FLUSH, SQLTRACE_INCREMENTAL_FLUSH_SLEEP, SQLTRACE_WAIT_ENTRIES, FT_IFTS_SCHEDULER_IDLE_WAIT, XE_DISPATCHER_WAIT, REQUEST_FOR_DEADLOCK_SEARCH, LOGMGR_QUEUE, ONDEMAND_TASK_QUEUE, CHECKPOINT_QUEUE, XE_TIMER_EVENT'
 								WHEN 12 THEN N'PREEMPTIVE_%'
 								WHEN 13 THEN N'BROKER_% (but not BROKER_RECEIVE_WAITFOR)'
-								WHEN 14 THEN N'	LOGMGR, LOGBUFFER, LOGMGR_RESERVE_APPEND, LOGMGR_FLUSH, LOGMGR_PMM_LOG, CHKPT, WRITELOG'
+								WHEN 14 THEN N'LOGMGR, LOGBUFFER, LOGMGR_RESERVE_APPEND, LOGMGR_FLUSH, LOGMGR_PMM_LOG, CHKPT, WRITELOG'
 								WHEN 15 THEN N'ASYNC_NETWORK_IO, NET_WAITFOR_PACKET, PROXY_NETWORK_IO, EXTERNAL_SCRIPT_NETWORK_IOF'
 								WHEN 16 THEN N'CXPACKET, EXCHANGE'
 								WHEN 17 THEN N'RESOURCE_SEMAPHORE, CMEMTHREAD, CMEMPARTITIONED, EE_PMOLOCK, MEMORY_ALLOCATION_EXT, RESERVED_MEMORY_ALLOCATION_EXT, MEMORY_GRANT_UPDATE'
@@ -531,7 +532,7 @@ CREATE TABLE #working_wait_stats
 								WHEN 20 THEN N'FT_RESTART_CRAWL, FULLTEXT GATHERER, MSSEARCH, FT_METADATA_MUTEX, FT_IFTSHC_MUTEX, FT_IFTSISM_MUTEX, FT_IFTS_RWLOCK, FT_COMPROWSET_RWLOCK, FT_MASTER_MERGE, FT_PROPERTYLIST_CACHE, FT_MASTER_MERGE_COORDINATOR, PWAIT_RESOURCE_SEMAPHORE_FT_PARALLEL_QUERY_SYNC'
 								WHEN 21 THEN N'ASYNC_IO_COMPLETION, IO_COMPLETION, BACKUPIO, WRITE_COMPLETION, IO_QUEUE_LIMIT, IO_RETRY'
 								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
-								WHEN 23 THEN N'	LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
+								WHEN 23 THEN N'LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
 							END,
     INDEX wws_ix_ids CLUSTERED ( plan_id)
 );
@@ -583,7 +584,7 @@ DROP TABLE IF EXISTS #plan_cost;
 
 CREATE TABLE #plan_cost 
 (
-	query_plan_cost DECIMAL(18,2),
+	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64),
 	INDEX px_ix_ids CLUSTERED (sql_handle)
 );
@@ -639,6 +640,7 @@ IF (@StartDate IS NULL AND @EndDate IS NULL)
 	SET @sql_where += ' AND qsrs.last_execution_time >= DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))
 					  ';
 	END;
+
 --Hey, that's nice of me
 IF @StartDate IS NOT NULL
 	BEGIN 
@@ -646,6 +648,7 @@ IF @StartDate IS NOT NULL
 	SET @sql_where += N' AND qsrs.last_execution_time >= @sp_StartDate 
 					   ';
 	END; 
+
 --Alright, sensible
 IF @EndDate IS NOT NULL 
 	BEGIN 
@@ -653,6 +656,7 @@ IF @EndDate IS NOT NULL
 	SET @sql_where += N' AND qsrs.last_execution_time < @sp_EndDate 
 					   ';
     END;
+
 --C'mon, why would you do that?
 IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 	BEGIN 
@@ -660,6 +664,7 @@ IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 	SET @sql_where += N' AND qsrs.last_execution_time < DATEADD(DAY, -7, @sp_EndDate) 
 					   ';
     END;
+
 --Jeez, abusive
 IF (@StartDate IS NOT NULL AND @EndDate IS NULL)
 	BEGIN 
@@ -757,7 +762,7 @@ SET @sql_select += @sql_where;
 
 SET @sql_select += 
 			N'GROUP BY CONVERT(DATE, qsrs.last_execution_time)
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 			';
 
 IF @Debug = 1
@@ -809,13 +814,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
 	AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_duration DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -854,13 +858,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_cpu_time DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -899,13 +902,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_reads DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -944,13 +946,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_physical_io_reads DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -990,13 +991,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_logical_io_writes DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1036,13 +1036,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_query_max_used_memory DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1082,13 +1081,12 @@ ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
 SET @sql_select +=  N'ORDER BY qsrs.avg_rowcount DESC
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1123,7 +1121,7 @@ FROM #working_plans AS wp
 JOIN patterns
 ON  wp.plan_id = patterns.plan_id
 AND wp.query_id = patterns.query_id
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1138,7 +1136,7 @@ FROM #working_plans AS wp
 )
 DELETE dedupe
 WHERE dedupe.dupes > 1
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_ids.'
 RAISERROR(@msg, 0, 1) WITH NOWAIT
@@ -1206,6 +1204,8 @@ ON qsrs.plan_id = wp.plan_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
 AND qsp.query_id = wp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
@@ -1213,7 +1213,7 @@ WHERE    1 = 1
 
 SET @sql_select += @sql_where;
 
-SET @sql_select +=  N'OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1270,12 +1270,11 @@ ON qsrs.plan_id = wp.plan_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
-SET @sql_select +=  N'OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1305,7 +1304,7 @@ SET    wpt.min_grant_kb = deqs.min_grant_kb,
 FROM   #working_plan_text AS wpt
 JOIN   max_mem AS deqs
 ON wpt.statement_sql_handle = deqs.sql_handle
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1331,7 +1330,7 @@ JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
 ON wp.query_id = qsq.query_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_context_settings AS qcs
 ON qcs.context_settings_id = qsq.context_settings_id
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 ';
 
 IF @Debug = 1
@@ -1352,7 +1351,7 @@ FROM #working_plans AS wp
 JOIN #working_plan_text AS wpt
 ON wpt.plan_id = wp.plan_id
 AND wpt.query_id = wp.query_id
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 /*This cleans up query text a bit*/
 
@@ -1361,7 +1360,7 @@ RAISERROR(N'Clean awkward characters from query text', 0, 1) WITH NOWAIT;
 UPDATE b
 SET b.query_sql_text = REPLACE(REPLACE(REPLACE(query_sql_text, @cr, ' '), @lf, ' '), @tab, '  ')
 FROM #working_plan_text AS b
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*This populates #working_wait_stats when available*/
@@ -1388,7 +1387,7 @@ JOIN #working_plans AS wp
 ON qws.plan_id = wp.plan_id
 GROUP BY qws.plan_id, qws.wait_category, qws.wait_category_desc
 HAVING SUM(qws.min_query_wait_time_ms) >= 5
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 '
 
 IF @Debug = 1
@@ -1419,10 +1418,11 @@ JOIN (
 	GROUP BY plan_id
 ) AS x 
 ON x.plan_id = wpt.plan_id
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END
 
+/*End wait stats population*/
 
 UPDATE #working_plan_text
 SET top_three_waits = CASE 
@@ -1458,12 +1458,11 @@ ON qsrs.plan_id = wp.plan_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
 
-SET @sql_select +=  N'OPTION(RECOMPILE);
+SET @sql_select +=  N'OPTION (RECOMPILE);
 					';
 
 IF @Debug = 1
@@ -1489,7 +1488,8 @@ SET    w.proc_or_function_name = ISNULL(wm.proc_or_function_name, N'Statement')
 FROM   #working_warnings AS w
 JOIN   #working_metrics AS wm
 ON w.plan_id = wm.plan_id
-   AND w.query_id = wm.query_id;
+   AND w.query_id = wm.query_id
+OPTION (RECOMPILE);
 
 
 
@@ -1516,7 +1516,6 @@ ON qsrs.plan_id = wp.plan_id
 WHERE    1 = 1
     AND qsq.is_internal_query = 0
 	AND qsp.query_plan IS NOT NULL
-	AND qsqt.query_sql_text NOT LIKE ''(@_msparam_0%''
 	';
 
 SET @sql_select += @sql_where;
@@ -1525,7 +1524,7 @@ SET @sql_select += N'GROUP BY wp.query_id
 					HAVING COUNT(qsp.plan_id) > 1
 					) AS x
 					ON ww.query_id = x.query_id
-					OPTION(RECOMPILE);
+					OPTION (RECOMPILE);
 					';
 IF @Debug = 1
 	PRINT @sql_select;
@@ -1547,7 +1546,7 @@ JOIN   #working_plan_text AS wp
 ON ww.plan_id = wp.plan_id
    AND ww.query_id = wp.query_id
    AND wp.is_forced_plan = 1
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1563,7 +1562,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'Forced'
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1580,7 +1579,7 @@ ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'None'
    AND ww.proc_or_function_name IS NOT NULL
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1596,7 +1595,7 @@ JOIN   #working_plan_text AS wp
 ON ww.plan_id = wp.plan_id
    AND ww.query_id = wp.query_id
    AND wp.plan_group_id > 0
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1609,7 +1608,7 @@ JOIN   #working_plan_text AS wp
 ON ww.plan_id = wp.plan_id
    AND ww.query_id = wp.query_id
    AND wp.is_parallel_plan = 1
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 /*This looks for old CE*/
 
@@ -1622,7 +1621,8 @@ JOIN #working_plan_text AS wpt
 ON w.plan_id = wpt.plan_id
 AND w.query_id = wpt.query_id
 /*PLEASE DON'T TELL ANYONE I DID THIS*/
-WHERE PARSENAME(wpt.engine_version, 4) < PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4);
+WHERE PARSENAME(wpt.engine_version, 4) < PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
+OPTION (RECOMPILE);
 /*NO SERIOUSLY THIS IS A HORRIBLE IDEA*/
 
 
@@ -1636,7 +1636,8 @@ FROM #working_warnings AS w
 JOIN #working_plan_text AS wpt
 ON w.plan_id = wpt.plan_id
 AND w.query_id = wpt.query_id
-AND wpt.is_trivial_plan = 1;
+AND wpt.is_trivial_plan = 1
+OPTION (RECOMPILE);
 
 /*Plans that compile 2x more than they execute*/
 
@@ -1649,7 +1650,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.count_compiles > (wm.count_executions * 2)
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 /*Plans that compile 2x more than they execute*/
 
@@ -1668,7 +1669,7 @@ ON ww.plan_id = wm.plan_id
 		wm.avg_optimize_duration > 5000
 		OR 
 		wm.avg_optimize_cpu_time > 5000)
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*
@@ -1677,6 +1678,7 @@ This parses the XML from our top plans into smaller chunks for easier consumptio
 
 RAISERROR(N'Begin XML nodes parsing', 0, 1) WITH NOWAIT;
 
+RAISERROR(N'Inserting #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )	
 	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
@@ -1685,8 +1687,9 @@ INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, s
 	ON ww.plan_id = wp.plan_id
 	AND ww.query_id = wp.query_id
     CROSS APPLY wp.query_plan_xml.nodes('//p:StmtSimple') AS q(n) 
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
+RAISERROR(N'Inserting parsed cursor XML to #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )
 	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
@@ -1695,21 +1698,23 @@ INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, s
 	ON ww.plan_id = wp.plan_id
 	AND ww.query_id = wp.query_id
     CROSS APPLY wp.query_plan_xml.nodes('//p:StmtCursor') AS q(n) 
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
+RAISERROR(N'Inserting to #query_plan', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #query_plan WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, query_plan )
 SELECT  s.plan_id, s.query_id, s.query_hash, s.sql_handle, q.n.query('.') AS query_plan
 FROM    #statements AS s
         CROSS APPLY s.statement.nodes('//p:QueryPlan') AS q(n) 
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
+RAISERROR(N'Inserting to #relop', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #relop WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, relop)
 SELECT  qp.plan_id, qp.query_id, qp.query_hash, qp.sql_handle, q.n.query('.') AS relop
 FROM    #query_plan qp
         CROSS APPLY qp.query_plan.nodes('//p:RelOp') AS q(n) 
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 -- statement level checks
@@ -1751,7 +1756,7 @@ index_dml AS (
 	JOIN index_dml i
 	ON i.query_hash = b.query_hash
 	WHERE i.index_dml = 1
-	OPTION (RECOMPILE);
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Performing table DML checks', 0, 1) WITH NOWAIT;
@@ -1769,7 +1774,7 @@ table_dml AS (
 	JOIN table_dml t
 	ON t.query_hash = b.query_hash
 	WHERE t.table_dml = 1
-	OPTION (RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*Begin plan cost calculations*/
@@ -1797,7 +1802,7 @@ WITH pc AS (
 		FROM  #working_warnings AS b
 		JOIN pc
 		ON pc.sql_handle = b.sql_handle
-	OPTION (RECOMPILE);
+OPTION (RECOMPILE);
 
 
 /*End plan cost calculations*/
@@ -1892,7 +1897,7 @@ SELECT
 FROM   #relop r
 WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for expensive remote queries', 0, 1) WITH NOWAIT;
@@ -1907,7 +1912,7 @@ SELECT
 FROM   #relop r
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
@@ -1923,7 +1928,7 @@ SELECT
 FROM   #relop r
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
@@ -1936,7 +1941,7 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 AND b.is_cursor = 1
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n(fn)
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
@@ -2053,7 +2058,7 @@ SET b.index_insert_count = iops.index_insert_count,
 	b.table_delete_count = iops.table_delete_count
 FROM #working_warnings AS b
 JOIN iops ON  iops.sql_handle = b.sql_handle
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 RAISERROR(N'Checking for Spatial index use', 0, 1) WITH NOWAIT;
@@ -2095,7 +2100,7 @@ SELECT
 FROM   #relop r
 WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
 ) AS x ON x.sql_handle = b.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 RAISERROR('Checking for row level security only', 0, 1) WITH NOWAIT;
@@ -2106,7 +2111,7 @@ FROM #working_warnings b
 JOIN #statements s 
 ON s.query_hash = b.query_hash 
 WHERE statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
@@ -2211,7 +2216,7 @@ SET    b.trace_flags_session = tf.session_trace_flags
 FROM   #working_warnings AS b
 JOIN #trace_flags tf 
 ON tf.sql_handle = b.sql_handle 
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 
 
@@ -2238,7 +2243,7 @@ AND b.query_id = wm.query_id
 JOIN #working_plan_text AS wpt
 ON b.plan_id = wpt.plan_id
 AND b.query_id = wpt.query_id
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 END;
 
@@ -2289,7 +2294,8 @@ SET parameter_sniffing_symptoms =
 				CASE WHEN last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN last_dop > 1 THEN ', Parallel last run' ELSE '' END 
 	, 2, 200000) 
-FROM #working_metrics AS b;
+FROM #working_metrics AS b
+OPTION (RECOMPILE);
 
 
 IF @SkipXML = 0
@@ -2351,7 +2357,7 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
                   , 2, 200000) 
 FROM #working_warnings b
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
  
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
@@ -2387,7 +2393,7 @@ SELECT *
 FROM x
 WHERE x.rn = 1
 ORDER BY x.query_cost DESC
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END;
 
@@ -2415,7 +2421,7 @@ SELECT *
 FROM x
 WHERE x.rn = 1
 ORDER BY x.query_cost DESC
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END;
 
@@ -2426,7 +2432,7 @@ RAISERROR(N'Returning results for Excel export', 0, 1) WITH NOWAIT;
 
 UPDATE #working_plan_text
 SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_text)),' ','<>'),'><',''),'<>',' '), 1, 31000)
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
@@ -2447,7 +2453,7 @@ SELECT *
 FROM x
 WHERE x.rn = 1
 ORDER BY x.query_cost DESC
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END;
 
@@ -2472,7 +2478,7 @@ SELECT *
 FROM x
 WHERE x.rn = 1
 ORDER BY x.avg_cpu_time DESC
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END;
 
@@ -3284,51 +3290,51 @@ RAISERROR(N'Returning debugging data from temp tables', 0, 1) WITH NOWAIT;
 
 SELECT '#working_metrics' AS table_name, *
 FROM #working_metrics AS wm
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#working_plan_text' AS table_name, *
 FROM #working_plan_text AS wpt
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#working_warnings' AS table_name, *
 FROM #working_warnings AS ww
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#working_wait_stats' AS table_name, *
 FROM #working_wait_stats wws
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#grouped_interval' AS table_name, *
 FROM #grouped_interval
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#working_plans' AS table_name, *
 FROM #working_plans
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#stats_agg' AS table_name, *
 FROM #stats_agg
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#trace_flags' AS table_name, *
 FROM #trace_flags
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#statements' AS table_name, *
 FROM #statements AS s
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#query_plan' AS table_name, *
 FROM #query_plan AS qp
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#relop' AS table_name, *
 FROM #relop AS r
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 SELECT '#plan_cost' AS table_name,  * 
 FROM #plan_cost AS pc
-OPTION(RECOMPILE);
+OPTION (RECOMPILE);
 
 END; 
 
