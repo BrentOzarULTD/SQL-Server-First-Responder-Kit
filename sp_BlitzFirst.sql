@@ -9,6 +9,8 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @AsOf DATETIMEOFFSET = NULL ,
     @ExpertMode TINYINT = 0 ,
     @Seconds INT = 5 ,
+	@UserStoredProc NVARCHAR(MAX) = NULL,
+	@UserAdHoc NVARCHAR(MAX) = NULL,
     @OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
@@ -141,6 +143,48 @@ ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL
 ELSE
     SELECT @StartSampleTime = SYSDATETIMEOFFSET(), @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET());
 
+/*Begin code duration value checks*/
+
+/*Check if configurations are missing.*/
+IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)
+		AND (
+				(SELECT CONVERT(BIT, c.value_in_use) FROM sys.configurations AS c WHERE c.name = 'show advanced options') = 0
+			OR 
+				(SELECT CONVERT(BIT, c.value_in_use) FROM sys.configurations AS c WHERE c.name = 'Ad Hoc Distributed Queries') = 0
+			)
+   BEGIN
+   RAISERROR('You must enable ''show advanced options'' and ''ad hoc distributed queries'' via sp_configure to use this feature.',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+/*Can't mix a stored proc and an ad hoc query*/
+IF (@UserStoredProc IS NOT NULL AND @UserAdHoc IS NOT NULL)   
+   BEGIN
+   RAISERROR('You can''t test a stored procedure and ad hoc code at the same time.',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+/*Minimum length for executing a stored procedure based on 'EXEC X' */
+IF (@UserStoredProc IS NOT NULL AND LEN(@UserStoredProc) <= 6)
+   BEGIN
+   RAISERROR('Are you sure you supplied a stored procedure?',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+/*Minimum length for executing ad hoc code based on 'SELECT ' */
+IF (@UserAdHoc IS NOT NULL AND LEN(@UserAdHoc) <= 7)
+   BEGIN
+   RAISERROR('Are you sure you supplied working code?',0,1) WITH NOWAIT;
+   RETURN;
+   END  
+
+/*Minimum length for executing ad hoc code based on 'SELECT ' */
+IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)   
+   BEGIN
+   SELECT @SinceStartup = 0, @ExpertMode = 1, @Seconds = 1, @StartSampleTime = SYSDATETIMEOFFSET()
+   END  
+/*End code duration value checks*/
+
 IF @OutputType = 'SCHEMA'
 BEGIN
     SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [HowToStopIt] NVARCHAR(MAX), [QueryPlan] XML, [QueryText] NVARCHAR(MAX)'
@@ -180,7 +224,6 @@ BEGIN
 			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
-     
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
@@ -1013,11 +1056,59 @@ BEGIN
 
 
     /* End of checks. If we haven't waited @Seconds seconds, wait. */
+IF (@UserStoredProc IS NULL AND @UserAdHoc IS NULL)
+BEGIN
     IF SYSDATETIMEOFFSET() < @FinishSampleTime
 		BEGIN
 		RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
         WAITFOR TIME @FinishSampleTimeWaitFor;
 		END
+END
+ELSE IF (@UserStoredProc IS NOT NULL OR @UserAdHoc IS NOT NULL)
+BEGIN
+
+RAISERROR('Testing user supplied code',10,1) WITH NOWAIT;
+
+DECLARE @RandomProcName UNIQUEIDENTIFIER = NEWID()
+DECLARE @UserSQL NVARCHAR(MAX) = N''
+
+		SET @UserSQL += 
+		'CREATE PROC #' + REPLACE(CONVERT(VARCHAR(36), @RandomProcName), '-', '') + '
+		  AS
+			BEGIN ' + @LineFeed + 
+		CASE WHEN @UserStoredProc IS NOT NULL THEN 
+				    '			SELECT *
+					INTO #sp_BlitzFirst_Temp 
+					FROM OPENROWSET(''SQLNCLI'', 
+									''Server='+@@SERVERNAME+';Trusted_Connection=yes;'',
+									''EXEC ' + @UserStoredProc 
+									+ ''') ' + @LineFeed
+			 WHEN @UserAdHoc IS NOT NULL THEN 
+				    '			SELECT *
+					INTO #sp_BlitzFirst_Temp 
+					FROM OPENROWSET(''SQLNCLI'', 
+									''Server='+@@SERVERNAME+';Trusted_Connection=yes;'',
+									''' + @UserAdHoc 
+									+ ''') ' + @LineFeed
+			 ELSE ' ' 
+		END +
+		'	END;'
+		
+		EXEC sp_executesql @UserSQL
+		
+		SET @UserSQL = 'EXEC #' + REPLACE(CONVERT(VARCHAR(36), @RandomProcName), '-', '')
+
+		EXEC sp_executesql @UserSQL
+
+		SELECT @FinishSampleTime = SYSDATETIMEOFFSET()
+
+		SELECT COALESCE(@UserStoredProc, @UserAdHoc) AS [Executed Code]
+
+		RAISERROR('Finished testing user supplied code',10,1) WITH NOWAIT;
+
+END
+
+
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
@@ -1361,9 +1452,9 @@ BEGIN
         'Wait Stats' AS FindingGroup,
         wNow.wait_type AS Finding, /* IF YOU CHANGE THIS, STUFF WILL BREAK. Other checks look for wait type names in the Finding field. See checks 11, 12 as example. */
         N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST((( ISNULL(NULLIF(wNow.wait_time_ms, 0), 1) - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
-        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
+        (( ISNULL(NULLIF(wNow.wait_time_ms, 0), 1) - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
     LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
     WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * (DATEDIFF(ss,@StartSampleTime,@FinishSampleTime)) * 1000)) /* Only look for things we've actually waited on for half of the time or more */
@@ -2537,7 +2628,6 @@ BEGIN
             -------------------------
             IF @CheckProcedureCache = 1
 			BEGIN
-			
 			SELECT qsNow.*, qsFirst.*
             FROM #QueryStats qsNow
               INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
@@ -2547,7 +2637,7 @@ BEGIN
 			BEGIN
 			SELECT 'Plan Cache' AS [Pattern], 'Plan cache not analyzed' AS [Finding], 'Use @CheckProcedureCache = 1 or run sp_BlitzCache for more analysis' AS [More Info], CONVERT(XML, @StockDetailsHeader + 'firstresponderkit.org' + @StockDetailsFooter) AS [Details]
 			END
-        END
+		END
 
     DROP TABLE #BlitzFirstResults;
 
