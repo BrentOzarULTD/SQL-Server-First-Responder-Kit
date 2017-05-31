@@ -201,8 +201,8 @@ CREATE TABLE #Recoverability
 		AvgFullSizeMB DECIMAL (18,2),
 		AvgDiffSizeMB DECIMAL (18,2),
 		AvgLogSizeMB DECIMAL (18,2),
-		IsBigDiff AS CASE WHEN (AvgFullSizeMB - AvgDiffSizeMB) * .01 > .40 AND (AvgFullSizeMB > 1024)  THEN 1 ELSE 0 END,
-		IsBigLog AS CASE WHEN (AvgFullSizeMB - AvgLogSizeMB) * .01 > .20 AND (AvgFullSizeMB > 1024) THEN 1 ELSE 0 END
+		IsBigDiff AS CASE WHEN (AvgFullSizeMB > 10240. AND ((AvgDiffSizeMB * 100.) / AvgFullSizeMB >= 40.))  THEN 1 ELSE 0 END,
+		IsBigLog AS CASE WHEN (AvgFullSizeMB > 10240. AND ((AvgLogSizeMB * 100.) / AvgFullSizeMB >= 20.)) THEN 1 ELSE 0 END
 	);
 
 CREATE TABLE #Trending
