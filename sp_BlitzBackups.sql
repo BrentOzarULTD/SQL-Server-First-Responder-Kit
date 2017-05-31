@@ -188,21 +188,21 @@ CREATE TABLE #Recoverability
 		DatabaseName NVARCHAR(128),
 		DatabaseGUID UNIQUEIDENTIFIER,
 		LastBackupRecoveryModel NVARCHAR(60),
-		FirstFullBackupSize BIGINT,
+		FirstFullBackupSizeMB DECIMAL (18,2),
 		FirstFullBackupDate DATETIME,
-		LastFullBackupSize BIGINT,
+		LastFullBackupSizeMB DECIMAL (18,2),
 		LastFullBackupDate DATETIME,
-		AvgFullBackupThroughput DECIMAL (18,2),
+		AvgFullBackupThroughputMB DECIMAL (18,2),
 		AvgFullBackupDurationSeconds INT,
-		AvgDiffBackupThroughput DECIMAL (18,2),
+		AvgDiffBackupThroughputMB DECIMAL (18,2),
 		AvgDiffBackupDurationSeconds INT,
-		AvgLogBackupThroughput DECIMAL (18,2),
+		AvgLogBackupThroughputMB DECIMAL (18,2),
 		AvgLogBackupDurationSeconds INT,
-		AvgFullSize BIGINT,
-		AvgDiffSize BIGINT,
-		AvgLogSize BIGINT,
-		IsBigDiff AS CASE WHEN (AvgFullSize - AvgDiffSize) * .01 > .40 AND (AvgFullSize > 1073741824)  THEN 1 ELSE 0 END,
-		IsBigLog AS CASE WHEN (AvgFullSize - AvgLogSize) * .01 > .20 AND (AvgFullSize > 1073741824) THEN 1 ELSE 0 END
+		AvgFullSizeMB DECIMAL (18,2),
+		AvgDiffSizeMB DECIMAL (18,2),
+		AvgLogSizeMB DECIMAL (18,2),
+		IsBigDiff AS CASE WHEN (AvgFullSizeMB - AvgDiffSizeMB) * .01 > .40 AND (AvgFullSizeMB > 1024)  THEN 1 ELSE 0 END,
+		IsBigLog AS CASE WHEN (AvgFullSizeMB - AvgLogSizeMB) * .01 > .20 AND (AvgFullSizeMB > 1024) THEN 1 ELSE 0 END
 	);
 
 CREATE TABLE #Trending
@@ -618,44 +618,46 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 	SET @StringToExecute += 	N'
 								UPDATE r
 								SET r.LastBackupRecoveryModel = ca.recovery_model,
-									r.LastFullBackupSize = ca.backup_size,
+									r.LastFullBackupSizeMB = ca.compressed_backup_size,
 									r.LastFullBackupDate = ca.backup_finish_date
 								FROM #Recoverability r
 									CROSS APPLY (
-										SELECT TOP 1 b.recovery_model, b.backup_size, b.backup_finish_date
+										SELECT TOP 1 b.recovery_model, (b.compressed_backup_size / 1048576.0) AS compressed_backup_size, b.backup_finish_date
 										FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 										WHERE r.DatabaseName = b.database_name
 										AND r.DatabaseGUID = b.database_guid
 										AND b.type = ''D''
+										AND b.backup_finish_date > @StartTime
 										ORDER BY b.backup_finish_date DESC
 												) ca;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 	/*Find first backup size and date*/
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += N'
 							UPDATE r
-							SET r.FirstFullBackupSize = ca.backup_size,
+							SET r.FirstFullBackupSizeMB = ca.compressed_backup_size,
 								r.FirstFullBackupDate = ca.backup_finish_date
 							FROM #Recoverability r
 								CROSS APPLY (
-									SELECT TOP 1 b.backup_size, b.backup_finish_date
+									SELECT TOP 1 (b.compressed_backup_size / 1048576.0) AS compressed_backup_size, b.backup_finish_date
 									FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 									WHERE r.DatabaseName = b.database_name 
 									AND r.DatabaseGUID = b.database_guid
 									AND b.type = ''D''
+									AND b.backup_finish_date > @StartTime
 									ORDER BY b.backup_finish_date ASC
 											) ca;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 
 	/*Find average backup throughputs for full, diff, and log*/
@@ -663,51 +665,54 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += N'
 							UPDATE r
-							SET r.AvgFullBackupThroughput = ca_full.AvgFullSpeed,
-								r.AvgDiffBackupThroughput = ca_diff.AvgDiffSpeed,
-								r.AvgLogBackupThroughput = ca_log.AvgLogSpeed,
+							SET r.AvgFullBackupThroughputMB = ca_full.AvgFullSpeed,
+								r.AvgDiffBackupThroughputMB = ca_diff.AvgDiffSpeed,
+								r.AvgLogBackupThroughputMB = ca_log.AvgLogSpeed,
 								r.AvgFullBackupDurationSeconds = AvgFullDuration,
 								r.AvgDiffBackupDurationSeconds = AvgDiffDuration,
 								r.AvgLogBackupDurationSeconds = AvgLogDuration
 							FROM #Recoverability AS r
 							OUTER APPLY (
 								SELECT b.database_name, 
-									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgFullSpeed,
-									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgFullDuration
+									   AVG( b.compressed_backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576.0 ) AS AvgFullSpeed,
+									   AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS AvgFullDuration
 								FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''D'' 
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
+								AND b.backup_finish_date > @StartTime
 								GROUP BY b.database_name
 										) ca_full
 							OUTER APPLY (
 								SELECT b.database_name, 
-									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgDiffSpeed,
-									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgDiffDuration
+									   AVG( b.compressed_backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576.0 ) AS AvgDiffSpeed,
+									   AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS AvgDiffDuration
 								FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''I'' 
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
+								AND b.backup_finish_date > @StartTime
 								GROUP BY b.database_name
 										) ca_diff
 							OUTER APPLY (
 								SELECT b.database_name, 
-									   CAST(AVG(( backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576 )) AS INT) AS AvgLogSpeed,
-									   CAST(AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS INT) AS AvgLogDuration
+									   AVG( b.compressed_backup_size / ( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) / 1048576.0 ) AS AvgLogSpeed,
+									   AVG( DATEDIFF(ss, b.backup_start_date, b.backup_finish_date) ) AS AvgLogDuration
 								FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 								WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 								AND b.type = ''L''
 								AND DATEDIFF(SECOND, b.backup_start_date, b.backup_finish_date) > 0
+								AND b.backup_finish_date > @StartTime
 								GROUP BY b.database_name
 										) ca_log;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 
 	/*Find max and avg diff and log sizes*/
@@ -715,39 +720,42 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += N'
 							UPDATE r
-							 SET r.AvgFullSize = fulls.avg_full_size,
-							 	 r.AvgDiffSize = diffs.avg_diff_size,
-							 	 r.AvgLogSize = logs.avg_log_size
+							 SET r.AvgFullSizeMB = fulls.avg_full_size,
+							 	 r.AvgDiffSizeMB = diffs.avg_diff_size,
+							 	 r.AvgLogSizeMB = logs.avg_log_size
 							 FROM #Recoverability AS r
 							 OUTER APPLY (
-							 	SELECT b.database_name, AVG(b.backup_size) AS avg_full_size
+							 	SELECT b.database_name, AVG(b.compressed_backup_size / 1048576.0) AS avg_full_size
 							 	FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 							 	AND b.type = ''D''
+								AND b.backup_finish_date > @StartTime
 							 	GROUP BY b.database_name
 							 			) AS fulls
 							 OUTER APPLY (
-							 	SELECT b.database_name, AVG(b.backup_size) AS avg_diff_size
+							 	SELECT b.database_name, AVG(b.compressed_backup_size / 1048576.0) AS avg_diff_size
 							 	FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 							 	AND b.type = ''I''
+								AND b.backup_finish_date > @StartTime
 							 	GROUP BY b.database_name
 							 			) AS diffs
 							 OUTER APPLY (
-							 	SELECT b.database_name, AVG(b.backup_size) AS avg_log_size
+							 	SELECT b.database_name, AVG(b.compressed_backup_size / 1048576.0) AS avg_log_size
 							 	FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS b
 							 	WHERE r.DatabaseName = b.database_name
 								AND r.DatabaseGUID = b.database_guid
 							 	AND b.type = ''L''
+								AND b.backup_finish_date > @StartTime
 							 	GROUP BY b.database_name
 							 			) AS logs;'
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 	
 /*Trending - only works if backupfile is populated, which means in msdb */
 IF @MSDBName = N'msdb'
@@ -812,12 +820,13 @@ RAISERROR('Returning data', 0, 1) WITH NOWAIT;
 		LEFT JOIN #Trending t
 		ON r.DatabaseName = t.DatabaseName
 		AND r.DatabaseGUID = t.DatabaseGUID	
+		WHERE r.LastBackupRecoveryModel IS NOT NULL
 		ORDER BY r.DatabaseName
 
 
 RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 
-/*Looking for non-Agent backups. Agent handles most backups, can expand or change depending on what we find out there*/
+/*Looking for out of band backups by finding most common backup operator user_name and noting backups taken by other user_names*/
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
@@ -1073,7 +1082,7 @@ IF @ProductVersionMajor >= 12
 		100 AS [Priority],
 		b.database_name AS [Database Name],
 		''Uncompressed backups'' AS [Finding],
-		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' uncompressed backups in the last 30 days. This is a free way to save time and space. And SPACETIME if your version of SQL supports it.'' AS [Warning]
+		''The database '' + QUOTENAME(b.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' uncompressed backups in the last 30 days. This is a free way to save time and space. And SPACETIME. If your version of SQL supports it.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE backup_size = compressed_backup_size AND type = ''D''
 	AND b.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
