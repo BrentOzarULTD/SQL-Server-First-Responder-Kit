@@ -30,7 +30,9 @@ WITH RECOMPILE
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	SET @VersionDate = '20170201';
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '5.0';
+	SET @VersionDate = '20170307';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -276,6 +278,15 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (181);
 			END /* Amazon RDS skipped checks */
 
+		/* If the server is ExpressEdition, skip checks that it doesn't allow */
+		IF CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%'
+			BEGIN
+						INSERT INTO #SkipChecks (CheckID) VALUES (30); /* Alerts not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (31); /* Operators not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61); /* Agent alerts 19-25 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* Failsafe operator */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+			END /* Express Edition skipped checks */
 
 
 		/*
@@ -508,9 +519,10 @@ AS
             WHERE   name='tempdb';
 
 		/* Have they cleared wait stats? Using a 10% fudge factor */
-		IF @MsSinceWaitsCleared * .9 > (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+		IF @MsSinceWaitsCleared * .9 > (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'))
 			BEGIN
-				SET @MsSinceWaitsCleared = (SELECT wait_time_ms FROM sys.dm_os_wait_stats WHERE wait_type = 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP')
+				SET @MsSinceWaitsCleared = (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'));
+				IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 				INSERT  INTO #BlitzResults
 						( CheckID ,
 							Priority ,
@@ -665,7 +677,7 @@ AS
 										d.name AS DatabaseName ,
 										1 AS Priority ,
 										'Backup' AS FindingsGroup ,
-										'Full Recovery Mode w/o Log Backups' AS Finding ,
+										'Full Recovery Model w/o Log Backups' AS Finding ,
 										'https://BrentOzar.com/go/biglogs' AS URL ,
 										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
@@ -1725,6 +1737,7 @@ AS
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
+								  DatabaseName ,
 								  Priority ,
 								  FindingsGroup ,
 								  Finding ,
@@ -1732,6 +1745,7 @@ AS
 								  Details
 								)
 								SELECT  28 AS CheckID ,
+								        'msdb' AS DatabaseName ,
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'Tables in the MSDB Database' AS Finding ,
@@ -1751,6 +1765,7 @@ AS
 					BEGIN
 						INSERT  INTO #BlitzResults
 								( CheckID ,
+								  DatabaseName ,
 								  Priority ,
 								  FindingsGroup ,
 								  Finding ,
@@ -1758,6 +1773,7 @@ AS
 								  Details
 								)
 								SELECT  29 AS CheckID ,
+								        'msdb' AS DatabaseName ,
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'Tables in the Model Database' AS Finding ,
@@ -2613,66 +2629,16 @@ AS
 									SELECT  107 AS CheckID ,
 											50 AS Priority ,
 											'Performance' AS FindingGroup ,
-											'Poison Wait Detected: THREADPOOL'  AS Finding ,
-											'https://BrentOzar.com/go/poison' AS URL ,
+											'Poison Wait Detected: ' + wait_type  AS Finding ,
+											'https://BrentOzar.com/go/poison/#' + wait_type AS URL ,
 											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
-									WHERE wait_type = 'THREADPOOL'
+									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
 									GROUP BY wait_type
 								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000
 						END
 
-					IF NOT EXISTS ( SELECT 1
-										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 108 )
-						BEGIN
-							INSERT  INTO #BlitzResults
-									( CheckID ,
-									  Priority ,
-									  FindingsGroup ,
-									  Finding ,
-									  URL ,
-									  Details
-									)
-									SELECT  108 AS CheckID ,
-											50 AS Priority ,
-											'Performance' AS FindingGroup ,
-											'Poison Wait Detected: RESOURCE_SEMAPHORE'  AS Finding ,
-											'https://BrentOzar.com/go/poison' AS URL ,
-											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
-									FROM sys.[dm_os_wait_stats]
-									WHERE wait_type = 'RESOURCE_SEMAPHORE'
-									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
-									AND SUM([wait_time_ms]) > 60000
-						END
-
-
-					IF NOT EXISTS ( SELECT 1
-										 FROM   #SkipChecks
-										 WHERE  DatabaseName IS NULL AND CheckID = 109 )
-						BEGIN
-							INSERT  INTO #BlitzResults
-									( CheckID ,
-									  Priority ,
-									  FindingsGroup ,
-									  Finding ,
-									  URL ,
-									  Details
-									)
-									SELECT  109 AS CheckID ,
-											50 AS Priority ,
-											'Performance' AS FindingGroup ,
-											'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE'  AS Finding ,
-											'https://BrentOzar.com/go/poison' AS URL ,
-											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
-									FROM sys.[dm_os_wait_stats]
-									WHERE wait_type = 'RESOURCE_SEMAPHORE_QUERY_COMPILE'
-									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
-									AND SUM([wait_time_ms]) > 60000
-						END
 
 
 					IF NOT EXISTS ( SELECT 1
@@ -3120,7 +3086,7 @@ AS
 	                        END
 
 
-                        /* Performance - Log File Growths Slow */
+                        /* Performance - File Growths Slow */
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
@@ -3139,11 +3105,11 @@ AS
 					                            t.DatabaseName,
 						                        50 AS Priority ,
 						                        'Performance' AS FindingsGroup ,
-						                        'Log File Growths Slow' AS Finding ,
+						                        'File Growths Slow' AS Finding ,
 						                        'https://BrentOzar.com/go/filegrowth' AS URL ,
-						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting log file autogrowth to a smaller increment.' AS Details
+						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting file autogrowth to a smaller increment.' AS Details
                                         FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
-                                        WHERE t.EventClass = 93
+                                        WHERE t.EventClass IN (92, 93)
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
                                           AND t.Duration > 15000000
                                         GROUP BY t.DatabaseName
@@ -3571,7 +3537,7 @@ IF @ProductVersionMajor >= 10
 																	 ELSE CAST([current_size_in_kb] / 1024. AS VARCHAR(100))
 																		  + ' MB'
 								END +
-								'. Did you know that BPEs only provide single threaded access 8 bytes at a time?'	
+								'. Did you know that BPEs only provide single threaded access 8KB (one page) at a time?'	
 							   ) AS [Details]
 							 FROM sys.dm_os_buffer_pool_extension_configuration
 							 WHERE [state_description] <> 'BUFFER POOL EXTENSION DISABLED'

@@ -7,6 +7,7 @@ First of all, welcome! We're excited that you'd like to contribute. How would yo
 * [I'd like to fix bugs in T-SQL checks](#how-to-fix-bugs-in-existing-t-sql-checks)
 * [I'd like to test checks written by someone else](#how-to-test-checks-written-by-someone-else)
 * [I'd like to write or update documentation](#how-to-write-or-update-documentation)
+* [I don't know how to upload code to GitHub](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/)
 
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](#the-contributor-covenant-code-of-conduct).
 

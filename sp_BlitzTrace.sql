@@ -7,10 +7,11 @@ SET QUOTED_IDENTIFIER ON;
 SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
-IF OBJECT_ID('dbo.sp_BlitzTrace') IS NOT NULL
-    DROP PROCEDURE dbo.sp_BlitzTrace
+IF OBJECT_ID('dbo.sp_BlitzTrace') IS  NULL
+    EXEC ('CREATE PROCEDURE dbo.sp_BlitzTrace AS RETURN 0');
 GO
-CREATE PROCEDURE dbo.sp_BlitzTrace
+
+ALTER PROCEDURE dbo.sp_BlitzTrace
     @Debug BIT = 0 , /* 1 prints the statement and won't execute it */
     @SessionId INT = NULL ,
     @Action VARCHAR(5) = NULL ,  /* 'start', 'read', 'stop', 'drop'*/

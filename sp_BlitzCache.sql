@@ -196,6 +196,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 					  cx_insert_count + cx_update_count + cx_delete_count +
 					  table_insert_count + table_update_count + table_delete_count),
 		is_row_level BIT,
+		is_spatial BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -228,7 +229,8 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
-    @MinimumExecutionCount INT = 0
+    @MinimumExecutionCount INT = 0,
+	@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 BEGIN
@@ -236,9 +238,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-DECLARE @VersionDate VARCHAR(30);
- SET @Version = '4.3';
- SET @VersionDate = '20170201';
+SET @Version = '5.0';
+SET @VersionDate = '20170307';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -381,7 +382,7 @@ BEGIN
     UNION ALL
     SELECT N'@QueryFilter',
            N'VARCHAR(10)',
-           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', or ''all'' (any variation in capitalization is acceptable).'
+           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', ''functions'', or ''all'' (any variation in capitalization is acceptable).'
 
     UNION ALL
     SELECT N'@Reanalyze',
@@ -854,6 +855,7 @@ BEGIN
 			  cx_insert_count + cx_update_count + cx_delete_count +
 			  table_insert_count + table_update_count + table_delete_count),
 		is_row_level BIT,
+		is_spatial BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -915,7 +917,7 @@ SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 
 SET @QueryFilter = LOWER(@QueryFilter);
 
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro')
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
   BEGIN
   RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
   SET @QueryFilter = 'all';
@@ -1161,7 +1163,7 @@ END
 
 IF ((@OnlyQueryHashes IS NOT NULL AND LEN(@OnlyQueryHashes) > 0)
     OR (@IgnoreQueryHashes IS NOT NULL AND LEN(@IgnoreQueryHashes) > 0))
-   AND LEFT(@QueryFilter, 3) = 'pro'
+   AND LEFT(@QueryFilter, 3) IN ('pro', 'fun')
 BEGIN
    RAISERROR('You cannot limit by query hash and filter by stored procedure', 16, 1);
    RETURN;
@@ -1290,6 +1292,12 @@ OR (@v = 12 AND @build < 5000)
 OR (@v = 13 AND @build < 1601))
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by memory grant or average memory grant. Please use another sort order.', 16, 1);
+   RETURN;
+END
+
+IF ((LEFT(@QueryFilter, 3) = 'fun') AND (@v < 13))
+BEGIN
+   RAISERROR('Your version of SQL does not support filtering by functions. Please use another filter.', 16, 1);
    RETURN;
 END
 
@@ -1425,7 +1433,7 @@ SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q) + @nl ;
 SET @plans_triggers_select_list += N'
 SELECT TOP (@Top)
        @@SPID ,
-       ''Procedure: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       ''Stored Procedure or Function: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
        (total_worker_time / 1000.0) AS TotalCPU ,
@@ -1641,6 +1649,24 @@ BEGIN
     SET @sql += @body_order + @nl + @nl + @nl ;
 END
 
+IF (@v >= 13
+   AND @QueryFilter = 'all'
+   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
+   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   OR (LEFT(@QueryFilter, 3) = 'fun')
+BEGIN
+    SET @sql += @insert_list;
+    SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Function') ;
+
+    SET @sql += REPLACE(@body, '#view#', 'dm_exec_function_stats') ; 
+    SET @sql += @body_where ;
+
+    IF @IgnoreSystemDBs = 1
+       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+
+    SET @sql += @body_order + @nl + @nl + @nl ;
+END
 
 
 /*******************************************************************************
@@ -2350,6 +2376,21 @@ JOIN iops ON  iops.SqlHandle = b.SqlHandle
 WHERE SPID = @@SPID
 OPTION(RECOMPILE);
 
+RAISERROR(N'Checking for Spatial index use', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE ##bou_BlitzCacheProcs
+SET is_spatial = x.is_spatial
+FROM (
+SELECT qs.SqlHandle,
+	   1 AS is_spatial
+FROM   #relop qs
+CROSS APPLY relop.nodes('/p:RelOp//p:Object') n(fn)
+WHERE n.fn.exist('(@IndexKind[.="Spatial"])') = 1
+) AS x
+WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
+AND SPID = @@SPID
+OPTION (RECOMPILE)
+
 IF @v >= 12
 BEGIN
     RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
@@ -2665,7 +2706,8 @@ SET    Warnings = CASE WHEN QueryPlan IS NULL THEN 'We couldn''t find a plan for
 				  CASE WHEN is_sort_expensive = 1 THEN ', Expensive Sort' ELSE '' END +
 				  CASE WHEN is_computed_filter = 1 THEN ', Filter UDF' ELSE '' END +
 				  CASE WHEN index_ops >= 5 THEN ', ' + CONVERT(VARCHAR(10), index_ops) + ' Indexes Modified' ELSE '' END +
-				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END
+				  CASE WHEN is_row_level = 1 THEN ', Row Level Security' ELSE '' END + 
+				  CASE WHEN is_spatial = 1 THEN ', Spatial Index' ELSE '' END 
                   , 2, 200000) 
 				  END
 WHERE SPID = @@SPID
@@ -2999,7 +3041,8 @@ BEGIN
 				  CASE WHEN is_sort_expensive = 1 THEN '', 43'' ELSE '''' END +
 				  CASE WHEN is_computed_filter = 1 THEN '', 44'' ELSE '''' END + 
 				  CASE WHEN index_ops >= 5 THEN  '', 45'' ELSE '''' END +
-				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END 
+				  CASE WHEN is_row_level = 1 THEN  '', 46'' ELSE '''' END +
+				  CASE WHEN is_spatial = 1 THEN '', 47'' ELSE '''' END 
 				  , 2, 200000) END AS opserver_warning , ' + @nl ;
     END
     
@@ -3645,7 +3688,7 @@ BEGIN
                      'Many Indexes Modified',
                      'Write Queries Are Hitting >= 5 Indexes',
                      'No URL yet',
-                     'This can cause lots of hidden I/O -- Run sp_BLitzIndex for more information.') ;
+                     'This can cause lots of hidden I/O -- Run sp_BlitzIndex for more information.') ;
 
         IF EXISTS (SELECT 1/0
                     FROM   ##bou_BlitzCacheProcs p
@@ -3659,6 +3702,19 @@ BEGIN
                      'Row Level Security is in use',
                      'No URL yet',
                      'You may see a lot of confusing junk in your query plan') ;
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_spatial = 1
+  					AND SPID = @@SPID)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     47,
+                     200,
+                     'Spatial Abuse',
+                     'You hit a Spatial Index',
+                     'No URL yet',
+                     'Purely informational') ;
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
@@ -3730,7 +3786,7 @@ BEGIN
                     'Thanks for using sp_BlitzCache!' ,
                     'From Your Community Volunteers',
                     'http://FirstResponderKit.org',
-                    'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + @VersionDate);
+                    'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + CONVERT(NVARCHAR(30), @VersionDate));
 	
 	END            
     
@@ -3921,6 +3977,10 @@ SET @AllSortSql += N'
 					
 					IF @MemGrant = 0
 					BEGIN
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);'
+						END 
 					SET @AllSortSql += N'  SELECT * 
 										   FROM #bou_allsort 
 										   ORDER BY Id 
@@ -3938,9 +3998,12 @@ SET @AllSortSql += N'
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName;
 					 					  
-										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);
-												
-										  SELECT * 
+										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);'
+					IF @ExportToExcel = 1
+					BEGIN
+						SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);'
+					END 
+					SET @AllSortSql += N' SELECT * 
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  '
