@@ -73,7 +73,7 @@ has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to mak
 */
 
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;')
+  EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
 
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
@@ -118,7 +118,7 @@ IF @MajorVersion < 10
 BEGIN
   RAISERROR('Sorry, DatabaseRestore doesn''t work on versions of SQL prior to 2008.', 15, 1);
   RETURN;
-END
+END;
 
 -- Build SQL for RESTORE FILELIST ONLY
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
@@ -152,10 +152,10 @@ SET @FileListParamSQL =
   'INSERT INTO #FileListParameters
    (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
    ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
-   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint'
+   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint';
 
 IF @MajorVersion >= 13
-  SET @FileListParamSQL += ', SnapshotUrl'
+  SET @FileListParamSQL += ', SnapshotUrl';
 
 SET @FileListParamSQL += ')' + CHAR(13) + CHAR(10);
 SET @FileListParamSQL += 'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
@@ -198,13 +198,13 @@ SET @HeadersSQL =
   ,SoftwareVendorId, SoftwareVersionMajor, SoftwareVersionMinor, SoftwareVersionBuild, MachineName, Flags, BindingID
   ,RecoveryForkID, Collation, FamilyGUID, HasBulkLoggedData, IsSnapshot, IsReadOnly, IsSingleUser, HasBackupChecksums
   ,IsDamaged, BeginsLogChain, HasIncompleteMetaData, IsForceOffline, IsCopyOnly, FirstRecoveryForkID, ForkPointLSN
-  ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize'
+  ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize';
   
 IF @MajorVersion >= 11
   SET @HeadersSQL += CHAR(13) + CHAR(10) + '  ,Containment';
 
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
-  SET @HeadersSQL += ', KeyAlgorithm, EncryptorThumbprint, EncryptorType'
+  SET @HeadersSQL += ', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
 
 SET @HeadersSQL += ')' + CHAR(13) + CHAR(10);
 SET @HeadersSQL += 'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
@@ -239,12 +239,12 @@ BEGIN
   EXECUTE (@sql);
 
     --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
-	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '')
+	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
 
 	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
 
   IF @Debug = 2
-	PRINT @BackupDateTime                                                
+	PRINT @BackupDateTime;                                                
 END;
 ELSE
 BEGIN
@@ -252,7 +252,7 @@ BEGIN
 	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
-	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1
+	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1;
 END;
 
 --Clear out table variables for differential
@@ -271,8 +271,8 @@ WHERE BackupFile LIKE '%.bak'
     AND
     BackupFile LIKE '%'+@Database+'%';
 	--set the @BackupDateTime so that it can be used for comparisons
-	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '')
-	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '')
+	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
+	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
 
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 BEGIN
@@ -288,7 +288,7 @@ BEGIN
   
   EXECUTE (@sql);
   --set the @BackupDateTime to the date time on the most recent differential	
-  SET @BackupDateTime = @LastDiffBackupDateTime
+  SET @BackupDateTime = @LastDiffBackupDateTime;
   SELECT @DiffLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 5;                                                  
 END;
 
@@ -309,7 +309,7 @@ DECLARE BackupFiles CURSOR FOR
 	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
 	  ORDER BY BackupFile;
 OPEN BackupFiles;
-END
+END;
 ELSE
 BEGIN
 DECLARE BackupFiles CURSOR FOR
@@ -320,7 +320,7 @@ DECLARE BackupFiles CURSOR FOR
 	  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 	  ORDER BY BackupFile;
 OPEN BackupFiles;
-END
+END;
 DECLARE @i tinyint = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -344,7 +344,7 @@ BEGIN
 	IF @i = 2
 	BEGIN
 		SET @sql = 'RESTORE LOG '+@RestoreDatabaseName+' FROM DISK = '''+@BackupPathLog + @BackupFile+''' WITH NORECOVERY'+CHAR(13);
-		PRINT @sql
+		PRINT @sql;
 		IF @Debug = 0
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	END;
@@ -356,7 +356,7 @@ DEALLOCATE BackupFiles;
 IF @RunRecovery = 1
 BEGIN
 	SET @sql = 'RESTORE DATABASE '+@RestoreDatabaseName+' WITH RECOVERY'+CHAR(13);
-	PRINT @sql
+	PRINT @sql;
 	IF @Debug = 0
 		EXECUTE sp_executesql @sql;
 END;
@@ -365,15 +365,15 @@ END;
 IF @RunCheckDB = 1
 BEGIN
 	SET @sql = 'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + ', @LogToTable = ''Y'''+CHAR(13);
-	PRINT @sql
+	PRINT @sql;
 	IF @Debug = 0
-		EXECUTE sys.sp_executesql @sql
+		EXECUTE sys.sp_executesql @sql;
 END;
  --If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 BEGIN
 	SET @sql = 'DROP DATABASE '+@RestoreDatabaseName+CHAR(13);
-	PRINT @sql
+	PRINT @sql;
 	IF @Debug = 0
 		EXECUTE sp_executesql @sql;
 END;
