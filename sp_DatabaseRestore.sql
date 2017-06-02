@@ -99,8 +99,26 @@ SET NOCOUNT ON;
 	SET @Version = '5.3';
 	SET @VersionDate = '20170501';
 
-DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @LastDiffBackupDateTime NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0), @DiffLastLSN NUMERIC(25, 0);
-DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
+DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
+        @sql NVARCHAR(MAX), --Holds executable SQL commands
+        @LastFullBackup NVARCHAR(500), --Last full backup name
+        @LastDiffBackup NVARCHAR(500), --Last diff backup name
+        @LastDiffBackupDateTime NVARCHAR(500), --Last diff backup date
+        @BackupFile NVARCHAR(500), --Name of backup file
+        @BackupDateTime AS CHAR(15), --Used for comparisons to generate ordered backup files/create a stopat point
+        @FullLastLSN NUMERIC(25, 0), --LSN for full
+        @DiffLastLSN NUMERIC(25, 0), --LSN for diff
+		@HeadersSQL AS NVARCHAR(4000), --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
+		@MoveOption AS NVARCHAR(MAX)= '', --If you need to move restored files to a different directory
+		@DatabaseLastLSN NUMERIC(25, 0), --
+		@i TINYINT = 1, 
+		@LogFirstLSN NUMERIC(25, 0), 
+		@LogLastLSN NUMERIC(25, 0);
+
+DECLARE @FileList TABLE
+(
+    BackupFile NVARCHAR(255)
+);
 
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
@@ -244,7 +262,7 @@ CREATE TABLE #Headers
     Seq INT NOT NULL IDENTITY(1, 1)
 );
 
-DECLARE @HeadersSQL AS NVARCHAR(4000);
+
 SET @HeadersSQL = 
 N'INSERT INTO #Headers
   (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
@@ -264,7 +282,6 @@ IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
 SET @HeadersSQL += N')' + CHAR(13) + CHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
-DECLARE @MoveOption AS NVARCHAR(MAX)= '';
 
 IF @MoveFiles = 1
 BEGIN
@@ -303,11 +320,12 @@ BEGIN
 END;
 ELSE
 BEGIN
-	DECLARE @DatabaseLastLSN NUMERIC(25, 0);
+	
 	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
 	WHERE d.name = @RestoreDatabaseName AND f.file_id = 1;
+
 END;
 
 --Clear out table variables for differential
@@ -376,7 +394,7 @@ DECLARE BackupFiles CURSOR FOR
 	  ORDER BY BackupFile;
 OPEN BackupFiles;
 END;
-DECLARE @i TINYINT = 1, @LogFirstLSN NUMERIC(25, 0), @LogLastLSN NUMERIC(25, 0);
+
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
 WHILE @@FETCH_STATUS = 0
