@@ -22,12 +22,16 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
 * If it passes, bump all the version numbers inside the scripts.
     * sp_foreachdb (no version number yet)
+    * sp_BlitzTrace (no version number yet)
+    * sp-BlitzRS (no version number yet)
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
     * sp_BlitzFirst @VersionDate (no version) 
     * sp_BlitzCache @Version and @VersionDate 
     * sp_Blitz @Version and @VersionDate
     * sp_DatabaseRestore @Version and @VersionDate
+    * sp_BlitzBackups @Version and @VersionDate
+    * sp_BlitzQueryStore @Version and @VersionDate
 
 ## Push to Master
 

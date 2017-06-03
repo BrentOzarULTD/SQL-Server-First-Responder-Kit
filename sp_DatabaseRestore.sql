@@ -84,8 +84,8 @@ AS
 SET NOCOUNT ON;
 
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.3';
-	SET @VersionDate = '20170501';
+	SET @Version = '5.4';
+	SET @VersionDate = '20170603';
 
 DECLARE @cmd NVARCHAR(4000), @sql NVARCHAR(MAX), @LastFullBackup NVARCHAR(500), @LastDiffBackup NVARCHAR(500), @LastDiffBackupDateTime NVARCHAR(500), @BackupFile NVARCHAR(500), @BackupDateTime AS CHAR(15), @FullLastLSN NUMERIC(25, 0), @DiffLastLSN NUMERIC(25, 0);
 DECLARE @FileList TABLE (BackupFile NVARCHAR(255));
