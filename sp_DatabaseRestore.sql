@@ -110,8 +110,8 @@ DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
         @DiffLastLSN NUMERIC(25, 0), --LSN for diff
 		@HeadersSQL AS NVARCHAR(4000), --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
 		@MoveOption AS NVARCHAR(MAX)= '', --If you need to move restored files to a different directory
-		@DatabaseLastLSN NUMERIC(25, 0), --
-		@i TINYINT = 1, 
+		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
+		@i TINYINT = 1,  --
 		@LogFirstLSN NUMERIC(25, 0), 
 		@LogLastLSN NUMERIC(25, 0),
 		@FileListParamSQL NVARCHAR(4000);
@@ -120,6 +120,7 @@ DECLARE @FileList TABLE
 (
     BackupFile NVARCHAR(255)
 );
+
 
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
@@ -130,6 +131,7 @@ SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
+
 -- select * from @fileList
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
@@ -137,6 +139,7 @@ FROM @FileList
 WHERE BackupFile LIKE '%.bak'
     AND
     BackupFile LIKE '%' + @Database + '%';
+
 
 -- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
 -- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
@@ -413,7 +416,9 @@ IF(@StopAt IS NULL)
 		
 		OPEN BackupFiles;
 	END;
+	
 	ELSE
+	
 	BEGIN
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
@@ -435,30 +440,41 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			
 			BEGIN
 		    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathLog + @BackupFile);
-			IF @Debug = 2
-				PRINT @sql;
+			
+				IF @Debug = 2
+					PRINT @sql;
+			
 			EXECUTE (@sql);
 				
-				SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 2;
+				SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), 
+					   @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) 
+					   FROM #Headers 
+					   WHERE BackupType = 2;
 		
 				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
 					SET @i = 2;
+				
 				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
 					SET @i = 2;
+				
 				DELETE FROM #Headers WHERE BackupType = 2;
 			END;
 			
 			IF @i = 2
 			BEGIN
+				
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
 				PRINT @sql;
-				IF @Debug = 0
-					EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+				
+					IF @Debug = 0
+						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
 		END;
-CLOSE BackupFiles;
+	
+	CLOSE BackupFiles;
+
 DEALLOCATE BackupFiles;  
 
 
