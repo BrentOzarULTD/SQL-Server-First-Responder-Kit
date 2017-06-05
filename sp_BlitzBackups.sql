@@ -21,8 +21,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.3';
-	SET @VersionDate = '20170501';
+	SET @Version = '1.4';
+	SET @VersionDate = '20170603';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -1462,7 +1462,7 @@ END
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
-																																				ELSE + N', has_bulk_logged_data)' + @crlf
+																																				ELSE + N'has_bulk_logged_data)' + @crlf
 																																				END
 		
 		SET @StringToExecute +=N'
@@ -1470,7 +1470,7 @@ END
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level, 
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data' + @crlf
-																																				ELSE + N', has_bulk_logged_data' + @crlf
+																																				ELSE + N'has_bulk_logged_data' + @crlf
 																																				END
 		SET @StringToExecute +=N'
 								 FROM msdb.dbo.backupset b

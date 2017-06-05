@@ -96,8 +96,8 @@ AS
 SET NOCOUNT ON;
 
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.3';
-	SET @VersionDate = '20170501';
+	SET @Version = '5.4';
+	SET @VersionDate = '20170603';
 
 DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
         @sql NVARCHAR(MAX), --Holds executable SQL commands

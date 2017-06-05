@@ -46,8 +46,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.0';
-SET @VersionDate = '20170601';
+SET @Version = '1.4';
+SET @VersionDate = '20170603';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
