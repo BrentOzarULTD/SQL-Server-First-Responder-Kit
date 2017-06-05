@@ -11,13 +11,13 @@ Navigation
    - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
      - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
      - [Skipping Checks or Databases](#skipping-checks-or-databases)
+ - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
  - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
    - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
  - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
-   - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
- - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
+ - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -226,18 +226,33 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 ## sp_BlitzFirst: Real-Time Performance Advice
 
-(stub - describe the big picture here)
+When performance emergencies strike, this should be the first stored proc in the kit you run.
+
+It takes a sample from a bunch of DMVs (wait stats, Perfmon counters, plan cache), waits 5 seconds, and then takes another sample. It examines the differences between the samples, and then gives you a prioritized list of things that might be causing performance issues right now. Examples include:
+
+* Data or log file growing (or heaven forbid, shrinking)
+* Backup or restore running
+* DBCC operation happening
+
+If no problems are found, it'll tell you that too. That's one of our favorite features because you can have your help desk team run sp_BlitzFirst and read the output to you over the phone. If no problems are found, you can keep right on drinking at the bar. (Ha! Just kidding, you'll still have to close out your tab, but at least you'll feel better about finishing that drink rather than trying to sober up.)
+
+Common sp_BlitzFirst parameters include:
+
+* @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
+* @CheckProcedureCache = 0 by default. When set to 1, this outputs the most resource-intensive queries during the time span. The data is calculated using sys.dm_exec_query_stats, which is a lightweight way of doing things (as opposed to starting up a trace or XE session). We don't turn this on by default because it tends to produce a lot of end user questions.
+* @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
+* @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample.
 
 [*Back to top*](#header1)
 
-### Advanced sp_BlitzFirst Parameters
 
-In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzFirst:
+## sp_BlitzWho: What Queries are Running Now
 
-(stub - describe the lesser-used stuff)
+This is like sp_who, except it goes into way, way, way more details.
+
+It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
 
 [*Back to top*](#header1)
-
 
 ## sp_DatabaseRestore: Easier Multi-File Restores
 
