@@ -139,6 +139,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.writes, s.writes) AS request_writes,
 			            COALESCE(r.reads, s.reads) AS request_physical_reads ,
 			            s.cpu_time AS session_cpu,
+						tempdb_allocations.tempdb_allocations_mb,
 			            s.logical_reads AS session_logical_reads,
 			            s.reads AS session_physical_reads ,
 			            s.writes AS session_writes,
@@ -227,7 +228,11 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			    LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 			    ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 					    AND qmg.pool_id = qrs.pool_id
-			    OUTER APPLY (
+			    LEFT JOIN sys.dm_db_task_space_usage tsu
+				ON tsu.request_id = r.request_id
+				AND tsu.session_id = r.session_id
+				AND tsu.session_id = s.session_id
+				OUTER APPLY (
 								SELECT TOP 1
 								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
 								b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
@@ -237,6 +242,13 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							) AS blocked				
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+				OUTER APPLY (
+						SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+						FROM sys.dm_db_task_space_usage tsu
+						WHERE tsu.request_id = r.request_id
+						AND tsu.session_id = r.session_id
+						AND tsu.session_id = s.session_id
+				) as tempdb_allocations
 			    WHERE s.session_id <> @@SPID 
 				AND s.host_name IS NOT NULL
 				'
@@ -311,6 +323,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.writes, s.writes) AS request_writes,
 			            COALESCE(r.reads, s.reads) AS request_physical_reads ,
 			            s.cpu_time AS session_cpu,
+						tempdb_allocations.tempdb_allocations_mb,
 			            s.logical_reads AS session_logical_reads,
 			            s.reads AS session_physical_reads ,
 			            s.writes AS session_writes,
@@ -378,7 +391,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.login_time ,
 			            r.start_time 
 						FROM sys.dm_exec_sessions AS s
-						 LEFT JOIN    sys.dm_exec_requests AS r
+						LEFT JOIN    sys.dm_exec_requests AS r
 									    ON      r.session_id = s.session_id
 						LEFT JOIN ( SELECT DISTINCT
 									                        wait.session_id ,
@@ -414,6 +427,13 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							) AS blocked
 						OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 						OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+						OUTER APPLY (
+								SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+								FROM sys.dm_db_task_space_usage tsu
+								WHERE tsu.request_id = r.request_id
+								AND tsu.session_id = r.session_id
+								AND tsu.session_id = s.session_id
+						) as tempdb_allocations
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
 						'
