@@ -274,12 +274,12 @@ N'INSERT INTO #Headers
   ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize';
   
 IF @MajorVersion >= 11
-  SET @HeadersSQL += CHAR(13) + CHAR(10) + N'  ,Containment';
+  SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N'  ,Containment';
 
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
   SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
 
-SET @HeadersSQL += N')' + CHAR(13) + CHAR(10);
+SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 
