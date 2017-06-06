@@ -11,13 +11,13 @@ Navigation
    - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
      - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
      - [Skipping Checks or Databases](#skipping-checks-or-databases)
+ - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
  - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
    - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
  - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
-   - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
- - [sp_BlitzBackups](#sp-blitzbackups)  
+ - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -32,7 +32,7 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 The First Responder Kit runs on:
 
-* SQL Server 2008, 2008R2, 2012, 2014, 2016 - yes, fully supported
+* SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
 * Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
@@ -110,6 +110,36 @@ Checks for the existence of a table named Fred - just kidding, named DBAtools.db
 
 [*Back to top*](#header1)
 
+## sp_BlitzBackups: How Much Data Could You Lose
+
+Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
+
+Parameters include:
+
+* @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
+* @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
+* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
+* @RestoreSpeedDiffMBps -- Nothing yet
+* @RestoreSpeedLogMBps -- Nothing yet
+
+* @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
+* @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
+* @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.
+* @WriteBackupsLastHours -- How many hours in the past you want to move data for. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+
+An example run of sp_BlitzBackups to push data looks like this:
+
+```
+EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
+                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
+                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
+                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
+```
+
+In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by [Michael J. Swart's Take Care When Scripting Batches](http://michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
+
+The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
 
 ## sp_BlitzCache: Find the Most Resource-Intensive Queries
 
@@ -196,20 +226,34 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 ## sp_BlitzFirst: Real-Time Performance Advice
 
-(stub - describe the big picture here)
+When performance emergencies strike, this should be the first stored proc in the kit you run.
+
+It takes a sample from a bunch of DMVs (wait stats, Perfmon counters, plan cache), waits 5 seconds, and then takes another sample. It examines the differences between the samples, and then gives you a prioritized list of things that might be causing performance issues right now. Examples include:
+
+* Data or log file growing (or heaven forbid, shrinking)
+* Backup or restore running
+* DBCC operation happening
+
+If no problems are found, it'll tell you that too. That's one of our favorite features because you can have your help desk team run sp_BlitzFirst and read the output to you over the phone. If no problems are found, you can keep right on drinking at the bar. (Ha! Just kidding, you'll still have to close out your tab, but at least you'll feel better about finishing that drink rather than trying to sober up.)
+
+Common sp_BlitzFirst parameters include:
+
+* @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
+* @CheckProcedureCache = 0 by default. When set to 1, this outputs the most resource-intensive queries during the time span. The data is calculated using sys.dm_exec_query_stats, which is a lightweight way of doing things (as opposed to starting up a trace or XE session). We don't turn this on by default because it tends to produce a lot of end user questions.
+* @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
+* @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample.
 
 [*Back to top*](#header1)
 
-### Advanced sp_BlitzFirst Parameters
 
-In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzFirst:
+## sp_BlitzWho: What Queries are Running Now
 
-(stub - describe the lesser-used stuff)
+This is like sp_who, except it goes into way, way, way more details.
 
-<<<<<<< HEAD
+It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
 [*Back to top*](#header1)
 
-=======
 ## sp_DatabaseRestore: Easier Multi-File Restores
 
 If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
@@ -227,44 +271,10 @@ Parameters include:
 * @RunRecovery
 
 For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
->>>>>>> refs/remotes/origin/dev
 
-<<<<<<< HEAD
 [*Back to top*](#header1)
 
-=======
-## sp_BlitzBackups
 
-Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
-
-Parameters include:
-
-* @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
-* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
-* @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
-* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
-* @RestoreSpeedDiffMBps -- Nothing yet
-* @RestoreSpeedLogMBps -- Nothing yet
-
-* @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
-* @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
-* @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.
-* @WriteBackupsLastHours -- How many hours in the past you want to move data for. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
-
-An example run of sp_BlitzBackups to push data looks like this:
-
-```
-EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
-                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
-                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
-                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
-```
-
-In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by Michael J. Swart (michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
-
-The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
-	
->>>>>>> refs/remotes/origin/dev
 
 ## Parameters Common to Many of the Stored Procedures
 
