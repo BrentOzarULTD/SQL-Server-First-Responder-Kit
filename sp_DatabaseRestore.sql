@@ -77,11 +77,11 @@ IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 GO
 
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
-	  @Database NVARCHAR(128), 
+	  @Database NVARCHAR(128) = NULL, 
 	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
-	  @BackupPathFull NVARCHAR(MAX), 
-	  @BackupPathDiff NVARCHAR(MAX), 
-	  @BackupPathLog NVARCHAR(MAX),
+	  @BackupPathFull NVARCHAR(MAX) = NULL, 
+	  @BackupPathDiff NVARCHAR(MAX) = NULL, 
+	  @BackupPathLog NVARCHAR(MAX) = NULL,
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
@@ -91,7 +91,9 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @RunRecovery BIT = 0, 
 	  @Debug INT = 0, 
 	  @VersionDate DATETIME = NULL OUTPUT, 
-	  @StopAt NVARCHAR(14) = NULL
+	  @StopAt NVARCHAR(14) = NULL,
+	  /*These variables are in play for pseudo Log Shipping*/
+	  @Pollster BIT = 0
 AS
 SET NOCOUNT ON;
 
@@ -120,6 +122,21 @@ DECLARE @FileList TABLE
 (
     BackupFile NVARCHAR(255)
 );
+
+/*
+Certain variables necessarily skip to parts of this script that are irrelevant
+in both directions to each other. They are used for other stuff.
+*/
+
+
+/*
+Pollster use happens strictly to check for new databases in sys.databases to place them in a worker queue
+*/
+
+IF @Pollster = 1
+GOTO Pollster
+
+
 
 
 IF @RestoreDatabaseName IS NULL
@@ -505,3 +522,40 @@ IF @TestRestore = 1
 		IF @Debug = 0
 			EXECUTE sp_executesql @sql;
 	END;
+RETURN
+
+Pollster:
+
+IF OBJECT_ID('msdbCentral.dbo.backup_worker') IS NOT NULL
+
+	BEGIN
+	
+		WHILE @Pollster = 1
+		
+		BEGIN
+		
+			INSERT msdbCentral.dbo.backup_worker (database_name) 
+			SELECT d.name
+			FROM sys.databases d
+			WHERE NOT EXISTS (
+				SELECT * 
+				FROM msdbCentral.dbo.backup_worker dw
+				WHERE dw.database_name = d.name
+							)
+			
+			WAITFOR DELAY '00:01:00.000'
+		
+		END 
+	
+	END
+
+	ELSE
+
+	BEGIN
+
+		RAISERROR('msdbCentral.dbo.backup_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
+		RETURN
+	
+	END
+
+
