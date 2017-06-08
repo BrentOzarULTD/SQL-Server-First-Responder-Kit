@@ -10,11 +10,17 @@ GO
 
 DECLARE @msg NVARCHAR(MAX) = N'';
 
-IF  (
-	SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
-	) < 13
+	-- Must be a compatible, on-prem version of SQL (2016+)
+IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
+	)
+	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
+OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) <> 5
+	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
+	)
 BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016, or Azure Database compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
@@ -67,7 +73,8 @@ DECLARE /*Variables for the variable Gods*/
 		@tab NVARCHAR(1) = NCHAR(9),
 		@error_severity INT,
 		@error_state INT,
-		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)';
+		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)',
+		@is_azure_db BIT = 0;
 
 
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -100,6 +107,8 @@ IF @Help = 1
 	
 	Known limitations of this version:
 	 - This query will not run on SQL Server versions less than 2016.
+	 - This query will not run on Azure Databases with compatibility less than 130.
+	 - This query will not run on Azure Data Warehouse.
 
 	Unknown limitations of this version:
 	 - Could be tickling
@@ -136,7 +145,20 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  ( SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13
+IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
+	BEGIN
+		SET @is_azure_db = 1;
+
+		IF	(	(SELECT SERVERPROPERTY ('ENGINEEDITION')) <> 5
+			OR	(SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130 
+			)
+		BEGIN
+			SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
+			PRINT @msg;
+			RETURN;
+		END
+	END
+ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
 	BEGIN
 		SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
@@ -160,50 +182,54 @@ IF  (	SELECT COUNT(*)
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
-SET @DatabaseName = LTRIM(RTRIM(@DatabaseName));
-
+IF (@is_azure_db = 1)
+	SET @DatabaseName = DB_NAME()
+ELSE
 BEGIN	
-	
+
+	/*If we're on Azure we don't need to check all this @DatabaseName stuff...*/
+
+	SET @DatabaseName = LTRIM(RTRIM(@DatabaseName));
+
 	/*Did you set @DatabaseName?*/
-	RAISERROR('Making sure @DatabaseName isn''t NULL', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure [%s] isn''t NULL', 0, 1, @DatabaseName) WITH	NOWAIT;
 	IF (@DatabaseName IS NULL)
 	BEGIN
-	   RAISERROR('@DatabaseName cannot be NULL', 0, 1) WITH	NOWAIT;
-	   RETURN;
+		RAISERROR('@DatabaseName cannot be NULL', 0, 1) WITH NOWAIT;
+		RETURN;
 	END;
 
 	/*Does the database exist?*/
-	RAISERROR('Making sure @DatabaseName exists', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure [%s] exists', 0, 1, @DatabaseName) WITH NOWAIT;
 	IF ((DB_ID(@DatabaseName)) IS NULL)
 	BEGIN
-	   RAISERROR('The @DatabaseName you specified does not exist. Please check the name and try again.', 0, 1) WITH	NOWAIT;
-	   RETURN;
+		RAISERROR('The @DatabaseName you specified ([%s]) does not exist. Please check the name and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
+		RETURN;
 	END;
 
 	/*Is it online?*/
-	RAISERROR('Making sure databasename is online', 0, 1) WITH	NOWAIT;
+	RAISERROR('Making sure [%s] is online', 0, 1, @DatabaseName) WITH NOWAIT;
 	IF (DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
 	BEGIN
-	   RAISERROR('The @DatabaseName you specified is not readable. Please check the name and try again. Better yet, check your server.', 0, 1);
-	   RETURN;
+		RAISERROR('The @DatabaseName you specified ([%s]) is not readable. Please check the name and try again. Better yet, check your server.', 0, 1, @DatabaseName);
+		RETURN;
 	END;
+END;
 
-	/*Does it have Query Store enabled?*/
-	RAISERROR('Making sure @DatabaseName has Query Store enabled', 0, 1) WITH	NOWAIT;
-	IF 	
-		((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
-	AND		
-		(   SELECT DB_NAME(d.database_id)
-			FROM sys.databases AS d
-			WHERE d.is_query_store_on = 1
-			AND d.user_access_desc='MULTI_USER'
-			AND d.state_desc = 'ONLINE'
-			AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
-	BEGIN
-	   RAISERROR('The @DatabaseName you specified does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1) WITH	NOWAIT;
-	   RETURN;
-	END;
-
+/*Does it have Query Store enabled?*/
+RAISERROR('Making sure [%s] has Query Store enabled', 0, 1, @DatabaseName) WITH NOWAIT;
+IF 	
+	((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
+AND		
+	(   SELECT DB_NAME(d.database_id)
+		FROM sys.databases AS d
+		WHERE d.is_query_store_on = 1
+		AND d.user_access_desc='MULTI_USER'
+		AND d.state_desc = 'ONLINE'
+		AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
+BEGIN
+	RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
+	RETURN;
 END;
 
 /*Making sure top is set to something if NULL*/
@@ -3621,7 +3647,7 @@ EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = 
 --Set a minimum execution count												 
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10
 
-Set a duration minimum
+--Set a duration minimum
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5
 
 --Look for a stored procedure name (that doesn't exist!)
