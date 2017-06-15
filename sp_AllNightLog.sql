@@ -237,7 +237,7 @@ Begin Polling section
 
 /*
 
-This section runs in a loop checking for new databases added to the server
+This section runs in a loop checking for new databases added to the server, or broken backups
 
 */
 
@@ -273,6 +273,53 @@ Pollster:
 							WHERE bw.database_name = d.name
 										)
 						AND d.database_id > 4;
+
+						IF @Debug = 1 RAISERROR('Checking for wayward databases', 0, 1) WITH NOWAIT;
+
+						/*
+							
+						This section aims to find databases that have
+							* Had a log backup ever (the default for finish time is 9999-12-31, so anything with a more recent finish time has had a log backup)
+							* Not had a log backup start in the last 5 minutes (this could be trouble! or a really big log backup)
+							* Also checks msdb.dbo.backupset to make sure the database has a full backup associated with it (otherwise it's the first full, and we don't need to start taking log backups yet)
+
+						*/
+	
+						IF EXISTS (
+								
+							SELECT 1
+							FROM msdbCentral.dbo.backup_worker bw WITH (READPAST)
+							WHERE bw.last_log_backup_finish_time < '99991231'
+							AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())				
+							AND EXISTS (
+									SELECT 1
+									FROM msdb.dbo.backupset b
+									WHERE b.database_name = bw.database_name
+									AND b.type = 'D'
+										)								
+								)
+	
+							BEGIN
+									
+								IF @Debug = 1 RAISERROR('Resetting databases with a log backup and no log backup in the last 5 minutes', 0, 1) WITH NOWAIT;
+
+	
+									UPDATE bw
+											SET bw.is_started = 0,
+												bw.is_completed = 1,
+												bw.last_log_backup_start_time = '19000101'
+									FROM msdbCentral.dbo.backup_worker bw
+									WHERE bw.last_log_backup_finish_time < '99991231'
+									AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())
+									AND EXISTS (
+											SELECT 1
+											FROM msdb.dbo.backupset b
+											WHERE b.database_name = bw.database_name
+											AND b.type = 'D'
+												);
+
+								
+								END; --End check for wayward databases
 
 						/*
 						
@@ -441,14 +488,16 @@ LogShamer:
 										ORDER BY bw.last_log_backup_start_time ASC, bw.last_log_backup_finish_time ASC, bw.database_name ASC;
 	
 								
-									SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database');
-									IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									IF @database IS NOT NULL
+										BEGIN
+										SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database');
+										IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
-								/*
+										/*
 								
-								Update the worker table so other workers know a database is being backed up
+										Update the worker table so other workers know a database is being backed up
 								
-								*/
+										*/
 
 								
 										UPDATE bw
@@ -457,6 +506,7 @@ LogShamer:
 													bw.last_log_backup_start_time = GETDATE()
 										FROM msdbCentral.dbo.backup_worker bw 
 										WHERE bw.database_name = @database;
+										END
 	
 							COMMIT;
 	
@@ -481,6 +531,15 @@ LogShamer:
 							ROLLBACK;
 	
 					END CATCH;
+
+
+					/* If we don't find a database to work on, wait for a few seconds */
+					IF @database IS NULL
+
+						BEGIN
+							IF @Debug = 1 RAISERROR('No databases to back up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
+							WAITFOR DELAY '00:00:03.000';
+						END
 	
 	
 					BEGIN TRY
@@ -588,101 +647,42 @@ LogShamer:
 	
 					END CATCH;
 	
-						IF  @error_number IS NULL
+					IF  @database IS NOT NULL AND @error_number IS NULL
 
-						/*
+					/*
 						
-						If no error, update everything normally
+					If no error, update everything normally
 						
-						*/
+					*/
 
 							
-							BEGIN
+						BEGIN
 	
-								IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
+							IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
 								
-								SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
-								IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	
 								
-									UPDATE bw
-											SET bw.is_started = 0,
-												bw.is_completed = 1,
-												bw.last_log_backup_finish_time = GETDATE()
-									FROM msdbCentral.dbo.backup_worker bw 
-									WHERE bw.database_name = @database;
+								UPDATE bw
+										SET bw.is_started = 0,
+											bw.is_completed = 1,
+											bw.last_log_backup_finish_time = GETDATE()
+								FROM msdbCentral.dbo.backup_worker bw 
+								WHERE bw.database_name = @database;
 
 								
-								/*
-								
-								Set @database back to NULL to avoid variable assignment weirdness
-								
-								*/
-
-								SET @database = NULL;
-
-
-										/*
-										
-										Wait around for a second so we're not just spinning wheels -- this only runs if the backup finishes without an error
-
-										*/
-										
-										IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
-										
-										WAITFOR DELAY '00:00:01.000';
-	
-							END; -- End update for successful backup	
-					
-	
-							IF @Debug = 1 RAISERROR('Checking for wayward databases', 0, 1) WITH NOWAIT;
-
 							/*
-							
-							This section aims to find databases that have
-								* Had a log backup ever (the default for finish time is 9999-12-31, so anything with a more recent finish time has had a log backup)
-								* Not had a log backup start in the last 5 minutes (this could be trouble! or a really big log backup)
-								* Also checks msdb.dbo.backupset to make sure the database has a full backup associated with it (otherwise it's the first full, and we don't need to start taking log backups yet)
-
+								
+							Set @database back to NULL to avoid variable assignment weirdness
+								
 							*/
-	
-							IF EXISTS (
-								
-								SELECT 1
-								FROM msdbCentral.dbo.backup_worker bw WITH (READPAST)
-								WHERE bw.last_log_backup_finish_time < '99991231'
-								AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())				
-								AND EXISTS (
-										SELECT 1
-										FROM msdb.dbo.backupset b
-										WHERE b.database_name = bw.database_name
-										AND b.type = 'D'
-											)								
-									)
-	
-								BEGIN
-									
-									IF @Debug = 1 RAISERROR('Resetting databases with a log backup and no log backup in the last 5 minutes', 0, 1) WITH NOWAIT;
 
-	
-										UPDATE bw
-												SET bw.is_started = 0,
-													bw.is_completed = 1,
-													bw.last_log_backup_start_time = '19000101'
-										FROM msdbCentral.dbo.backup_worker bw
-										WHERE bw.last_log_backup_finish_time < '99991231'
-										AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())
-										AND EXISTS (
-												SELECT 1
-												FROM msdb.dbo.backupset b
-												WHERE b.database_name = bw.database_name
-												AND b.type = 'D'
-													);
+							SET @database = NULL;
 
-								
-								END; --End check for wayward databases
 
-					
+						END; -- End update for successful backup	
+										
 				END; -- End @LogShaming WHILE loop
 
 				

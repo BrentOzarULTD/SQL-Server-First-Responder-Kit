@@ -16,6 +16,7 @@ GO
 ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 	  @RPOSeconds BIGINT = 30,
 	  @BackupPath NVARCHAR(MAX) = N'D:\Backup',
+	  @Jobs TINYINT = 10,
 	  @RunSetup BIT = 0,
 	  @UpdateSetup BIT = 0,
 	  @Debug BIT = 0,
@@ -169,6 +170,20 @@ IF (@RPOSeconds < 0)
 			RETURN;
 		END
 
+
+/*
+
+Probably shouldn't be more than 20
+
+*/
+
+IF (@Jobs > 20) OR (@Jobs < 1)
+
+		BEGIN
+			RAISERROR('We advise sticking with 1-20 jobs.', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END
 
 /*
 
@@ -495,7 +510,7 @@ BEGIN
 
 				/*
 				
-				This section creates 10 worker jobs to take log backups with
+				This section creates @Jobs (quantity) of worker jobs to take log backups with
 
 				They work in a queue
 
@@ -511,15 +526,15 @@ BEGIN
 					FROM msdb.dbo.sysjobs 
 					WHERE name LIKE '%sp_AllNightLog_Backup_%';
 
-					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < 10 THEN + 'starting loop!'
-																											 WHEN @counter >= 10 THEN 'skipping loop!'
+					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
+																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
 																											 ELSE 'Oh woah something weird happened!'
 																										END;	
 
 					RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 					
-							WHILE @counter < 11
+							WHILE @counter <= @Jobs
 
 							
 								BEGIN
