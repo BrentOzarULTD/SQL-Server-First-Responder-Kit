@@ -274,6 +274,11 @@ Let's scale out our backup jobs by:
 
 For more information about how this works, see [sp_AllNightLog documentation.](https://www.BrentOzar.com/sp_AllNightLog)
 
+Known issues:
+
+* The msdbCentral database name is hard-coded.
+* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We're not checking for it right now.)
+
 
 [*Back to top*](#header1)
 
