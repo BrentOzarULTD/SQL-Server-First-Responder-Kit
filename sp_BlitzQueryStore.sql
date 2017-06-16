@@ -20,7 +20,7 @@ OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
 	)
 BEGIN
-	SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016, or Azure Database compatibility < 130.' + REPLICATE(CHAR(13), 7933);
+	SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016, or Azure Database compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
@@ -51,50 +51,51 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-DECLARE @Version VARCHAR(30);
-SET @Version = '1.4';
-SET @VersionDate = '20170603';
+DECLARE @Version NVARCHAR(30);
+SET @Version = N'1.4';
+SET @VersionDate = N'20170603';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
 		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
 		@sql_where NVARCHAR(MAX) = N'', -- Used to hold WHERE clause for dynamic SQL
-		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.),
-		@execution_threshold INT = 1000,
-		@parameter_sniffing_warning_pct TINYINT = 30,
-        @parameter_sniffing_io_threshold BIGINT = 100000 ,
-        @ctp_threshold_pct TINYINT = 10,
-        @long_running_query_warning_seconds BIGINT = 300 * 1000 ,
-		@memory_grant_warning_percent INT = 10,
-		@ctp INT,
-		@min_memory_per_query INT,
-		@cr NVARCHAR(1) = NCHAR(13),
-		@lf NVARCHAR(1) = NCHAR(10),
-		@tab NVARCHAR(1) = NCHAR(9),
-		@error_severity INT,
-		@error_state INT,
-		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)',
-		@is_azure_db BIT = 0;
+		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.), --We accept Duration in seconds, but we filter in milliseconds (this is grandfathered from sp_BlitzCache)
+		@execution_threshold INT = 1000, --Threshold at which we consider a query to be frequently executed
+        @ctp_threshold_pct TINYINT = 10, --Percentage of CTFP at which we consider a query to be near parallel
+        @long_running_query_warning_seconds BIGINT = 300 * 1000 ,--Number of seconds (converted to milliseconds) at which a query is considered long running
+		@memory_grant_warning_percent INT = 10,--Percent of memory grant used compared to what's granted; used to trigger unused memory grant warning
+		@ctp INT,--Holds the CTFP value for the server
+		@min_memory_per_query INT,--Holds the server configuration value for min memory per query
+		@cr NVARCHAR(1) = NCHAR(13),--Special character
+		@lf NVARCHAR(1) = NCHAR(10),--Special character
+		@tab NVARCHAR(1) = NCHAR(9),--Special character
+		@error_severity INT,--Holds error info for try/catch blocks
+		@error_state INT,--Holds error info for try/catch blocks
+		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)',--Holds parameters used in dynamic SQL
+		@is_azure_db BIT = 0; --Are we using Azure? I'm not. You might be. That's cool.
 
 
+/*Grabs CTFP setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
 FROM    sys.configurations
-WHERE   name = 'cost threshold for parallelism'
+WHERE   name = N'cost threshold for parallelism'
 OPTION (RECOMPILE);
 
+/*Grabs min query memory setting*/
 SELECT @min_memory_per_query = CONVERT(INT, c.value)
 FROM   sys.configurations AS c
-WHERE  c.name = 'min memory per query (KB)'
+WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
 
-/*Help section.*/
+/*Help section*/
+
 IF @Help = 1
 	BEGIN
 	
-	SELECT 'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
+	SELECT N'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 
-	PRINT '
+	PRINT N'
 	sp_BlitzQueryStore from http://FirstResponderKit.org
 		
 	This script displays your most resource-intensive queries from the Query Store,
@@ -153,14 +154,14 @@ IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
 			OR	(SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130 
 			)
 		BEGIN
-			SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
+			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 			PRINT @msg;
 			RETURN;
 		END
 	END
 ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
 	BEGIN
-		SELECT @msg = 'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
 		RETURN;
 	END;
@@ -174,7 +175,7 @@ IF  (	SELECT COUNT(*)
 		AND d.name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
 		AND d.is_distributor = 0 ) = 0
 	BEGIN
-		SELECT @msg = 'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
+		SELECT @msg = N'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
 		RETURN;
 	END;
@@ -667,7 +668,7 @@ CREATE TABLE #warning_results
 IF (@StartDate IS NULL AND @EndDate IS NULL)
 	BEGIN
 	RAISERROR(N'@StartDate and @EndDate are NULL, checking last 7 days', 0, 1) WITH NOWAIT;
-	SET @sql_where += ' AND qsrs.last_execution_time >= DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))
+	SET @sql_where += N' AND qsrs.last_execution_time >= DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))
 					  ';
 	END;
 
@@ -691,7 +692,7 @@ IF @EndDate IS NOT NULL
 IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 	BEGIN 
 	RAISERROR(N'Setting reasonable start date filter', 0, 1) WITH NOWAIT;
-	SET @sql_where += N' AND qsrs.last_execution_time < DATEADD(DAY, -7, @sp_EndDate) 
+	SET @sql_where += N' AND qsrs.last_execution_time >= DATEADD(DAY, -7, @sp_EndDate) 
 					   ';
     END;
 
@@ -761,27 +762,30 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 IF @StoredProcName IS NOT NULL
 	BEGIN 
 	
-	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2(7), @sp_EndDate DATETIME2(7), @sp_StoredProcName NVARCHAR(128), @i_out INT OUTPUT';
+	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @i_out INT OUTPUT';
+	
 	
 	SET @sql = N'SELECT @i_out = COUNT(*) 
-				 FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query qsq 
-				 WHERE object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName 
-				 AND qsq.last_execution_time >= @sp_StartDate
-				 AND qsq.last_execution_time < @sp_EndDate';
+				 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+				 JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+				 ON qsp.plan_id = qsrs.plan_id
+				 JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+				 ON qsq.query_id = qsp.query_id
+				 WHERE    1 = 1
+				        AND qsq.is_internal_query = 0
+				 	    AND qsp.query_plan IS NOT NULL 
+				 ';
 	
+	SET @sql += @sql_where;
+
 	EXEC sys.sp_executesql @sql, 
 						   @proc_params, 
-						   @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_StoredProcName = @StoredProcName, @i_out = @out OUTPUT;
+						   @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @i_out = @out OUTPUT;
 	
 	IF @out = 0
 		BEGIN	
-		
-		PRINT @StoredProcName
-		PRINT @DatabaseName
-		PRINT @StartDate
-		PRINT @EndDate
 
-		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + ' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
+		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + N' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
 					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.'
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
@@ -859,6 +863,7 @@ INSERT #grouped_interval WITH (TABLOCK)
 		( flat_date, start_range, end_range, total_avg_duration_ms, 
 		  total_avg_cpu_time_ms, total_avg_logical_io_reads_mb, total_avg_physical_io_reads_mb, 
 		  total_avg_logical_io_writes_mb, total_avg_query_max_used_memory_mb, total_rowcount, total_count_executions )
+
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
@@ -871,6 +876,8 @@ We take the highest value from each metric (duration, cpu, etc) and find the top
 
 They insert into the #working_plans table
 */
+
+
 
 /*Get longest duration plans*/
 
@@ -922,6 +929,8 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
+
+
 /*Get longest cpu plans*/
 
 RAISERROR(N'Gathering highest cpu plans', 0, 1) WITH NOWAIT;
@@ -971,6 +980,8 @@ IF @sql_select IS NULL
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
+
+
 
 /*Get highest logical read plans*/
 
@@ -1022,6 +1033,8 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
+
+
 /*Get highest physical read plans*/
 
 RAISERROR(N'Gathering highest physical read plans', 0, 1) WITH NOWAIT;
@@ -1071,6 +1084,7 @@ IF @sql_select IS NULL
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
+
 
 
 /*Get highest logical write plans*/
@@ -1124,6 +1138,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 
+
 /*Get highest memory use plans*/
 
 RAISERROR(N'Gathering highest memory use plans', 0, 1) WITH NOWAIT;
@@ -1175,7 +1190,8 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 
-/*Get highest memory use plans*/
+
+/*Get highest row count plans*/
 
 RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
 
@@ -1226,6 +1242,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 
+
 /*
 This rolls up the different patterns we find before deduplicating.
 
@@ -1269,6 +1286,7 @@ OPTION (RECOMPILE);
 
 SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_ids.';
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
 
 /*
 This gathers data for the #working_metrics table
@@ -1371,6 +1389,8 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName;
 
 
+
+/*This just helps us classify our queries*/
 UPDATE #working_metrics
 SET proc_or_function_name = N'Statement'
 WHERE proc_or_function_name IS NULL;
@@ -1434,6 +1454,15 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 
+/*
+
+Some memory grant information isn't available in query store
+
+We have to go back to other DMVs to find it, when possible
+
+It may not be there for various reaons
+
+*/
 RAISERROR(N'Checking dm_exec_query_stats for memory grant info', 0, 1) WITH NOWAIT;
 WITH max_mem
 AS ( SELECT   deqs.sql_handle, MAX(deqs.min_grant_kb) AS min_grant_kb, MAX(deqs.max_used_grant_kb) AS max_used_grant_kb
@@ -1486,9 +1515,7 @@ IF @sql_select IS NULL
 EXEC sys.sp_executesql  @stmt = @sql_select;
 
 
-/*
-This adds the patterns we found from each interval to the #working_plan_text table
-*/
+/*This adds the patterns we found from each interval to the #working_plan_text table*/
 
 RAISERROR(N'Add patterns to working plans', 0, 1) WITH NOWAIT;
 
@@ -1514,64 +1541,65 @@ OPTION (RECOMPILE);
 
 IF @waitstats = 1
 
-BEGIN
-
-RAISERROR(N'Collecting wait stats info', 0, 1) WITH NOWAIT;
-
-
-SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
-SET @sql_select += N'
-SELECT   qws.plan_id,
-         qws.wait_category,
-         qws.wait_category_desc,
-         SUM(qws.total_query_wait_time_ms) AS total_query_wait_time_ms,
-         SUM(qws.avg_query_wait_time_ms) AS avg_query_wait_time_ms,
-         SUM(qws.last_query_wait_time_ms) AS last_query_wait_time_ms,
-         SUM(qws.min_query_wait_time_ms) AS min_query_wait_time_ms,
-         SUM(qws.max_query_wait_time_ms) AS max_query_wait_time_ms
-FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_wait_stats qws
-JOIN #working_plans AS wp
-ON qws.plan_id = wp.plan_id
-GROUP BY qws.plan_id, qws.wait_category, qws.wait_category_desc
-HAVING SUM(qws.min_query_wait_time_ms) >= 5
-OPTION (RECOMPILE);
-';
-
-IF @Debug = 1
-	PRINT @sql_select;
-
-IF @sql_select IS NULL
-    BEGIN
-        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
-        RETURN;
-    END;
-
-INSERT #working_wait_stats WITH (TABLOCK)
-		( plan_id, wait_category, wait_category_desc, total_query_wait_time_ms, avg_query_wait_time_ms, last_query_wait_time_ms, min_query_wait_time_ms, max_query_wait_time_ms )
-
-EXEC sys.sp_executesql  @stmt = @sql_select;
-
-/*This updates #working_plan_text with the top three waits from the wait stats DMV*/
-
-RAISERROR(N'Update working_plan_text with top three waits', 0, 1) WITH NOWAIT;
-
-
-UPDATE wpt
-SET wpt.top_three_waits = x.top_three_waits 
-FROM #working_plan_text AS wpt
-JOIN (
-	SELECT wws.plan_id,
-		   top_three_waits = STUFF((SELECT TOP 3 N', ' + wws2.wait_category_desc + N' (' + CONVERT(NVARCHAR(20), SUM(CONVERT(BIGINT, wws2.avg_query_wait_time_ms))) + N' ms) '
-										FROM #working_wait_stats AS wws2
-										WHERE wws.plan_id = wws2.plan_id
-										GROUP BY wws2.wait_category_desc
-										ORDER BY SUM(wws2.avg_query_wait_time_ms) DESC
-										FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')							
-	FROM #working_wait_stats AS wws
-	GROUP BY wws.plan_id
-) AS x 
-ON x.plan_id = wpt.plan_id
-OPTION (RECOMPILE);
+	BEGIN
+	
+	RAISERROR(N'Collecting wait stats info', 0, 1) WITH NOWAIT;
+	
+	
+		SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+		SET @sql_select += N'
+		SELECT   qws.plan_id,
+		         qws.wait_category,
+		         qws.wait_category_desc,
+		         SUM(qws.total_query_wait_time_ms) AS total_query_wait_time_ms,
+		         SUM(qws.avg_query_wait_time_ms) AS avg_query_wait_time_ms,
+		         SUM(qws.last_query_wait_time_ms) AS last_query_wait_time_ms,
+		         SUM(qws.min_query_wait_time_ms) AS min_query_wait_time_ms,
+		         SUM(qws.max_query_wait_time_ms) AS max_query_wait_time_ms
+		FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_wait_stats qws
+		JOIN #working_plans AS wp
+		ON qws.plan_id = wp.plan_id
+		GROUP BY qws.plan_id, qws.wait_category, qws.wait_category_desc
+		HAVING SUM(qws.min_query_wait_time_ms) >= 5
+		OPTION (RECOMPILE);
+		';
+		
+		IF @Debug = 1
+			PRINT @sql_select;
+		
+		IF @sql_select IS NULL
+		    BEGIN
+		        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+		        RETURN;
+		    END;
+		
+		INSERT #working_wait_stats WITH (TABLOCK)
+				( plan_id, wait_category, wait_category_desc, total_query_wait_time_ms, avg_query_wait_time_ms, last_query_wait_time_ms, min_query_wait_time_ms, max_query_wait_time_ms )
+		
+		EXEC sys.sp_executesql  @stmt = @sql_select;
+	
+	
+	/*This updates #working_plan_text with the top three waits from the wait stats DMV*/
+	
+	RAISERROR(N'Update working_plan_text with top three waits', 0, 1) WITH NOWAIT;
+	
+	
+		UPDATE wpt
+		SET wpt.top_three_waits = x.top_three_waits 
+		FROM #working_plan_text AS wpt
+		JOIN (
+			SELECT wws.plan_id,
+				   top_three_waits = STUFF((SELECT TOP 3 N', ' + wws2.wait_category_desc + N' (' + CONVERT(NVARCHAR(20), SUM(CONVERT(BIGINT, wws2.avg_query_wait_time_ms))) + N' ms) '
+												FROM #working_wait_stats AS wws2
+												WHERE wws.plan_id = wws2.plan_id
+												GROUP BY wws2.wait_category_desc
+												ORDER BY SUM(wws2.avg_query_wait_time_ms) DESC
+												FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')							
+			FROM #working_wait_stats AS wws
+			GROUP BY wws.plan_id
+		) AS x 
+		ON x.plan_id = wpt.plan_id
+		OPTION (RECOMPILE);
 
 END;
 
@@ -1579,7 +1607,7 @@ END;
 
 UPDATE #working_plan_text
 SET top_three_waits = CASE 
-						WHEN compatibility_level < 140 THEN 'The query store waits stats DMV is only available in 2017+'
+						WHEN @waitstats = 0 THEN N'The query store waits stats DMV is not available'
 						ELSE N'No Significant waits detected!'
 						END
 WHERE top_three_waits IS NULL;
@@ -1591,7 +1619,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
@@ -2382,14 +2410,14 @@ INSERT #trace_flags WITH (TABLOCK)
 		(sql_handle, global_trace_flags, session_trace_flags )
 SELECT DISTINCT tf1.sql_handle ,
     STUFF((
-          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          SELECT DISTINCT N', ' + CONVERT(NVARCHAR(5), tf2.trace_flag)
           FROM  tf_pretty AS tf2 
           WHERE tf1.sql_handle = tf2.sql_handle 
 		  AND tf2.scope = 'Global'
         FOR XML PATH(N'')), 1, 2, N''
       ) AS global_trace_flags,
     STUFF((
-          SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
+          SELECT DISTINCT N', ' + CONVERT(NVARCHAR(5), tf2.trace_flag)
           FROM  tf_pretty AS tf2 
           WHERE tf1.sql_handle = tf2.sql_handle 
 		  AND tf2.scope = 'Session'
@@ -2431,6 +2459,7 @@ JOIN #working_plan_text AS wpt
 ON b.plan_id = wpt.plan_id
 AND b.query_id = wpt.query_id
 OPTION (RECOMPILE);
+
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
 /* Populate warnings */
@@ -2498,7 +2527,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
@@ -2572,7 +2601,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
@@ -2710,7 +2739,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
@@ -3532,7 +3561,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
@@ -3612,7 +3641,7 @@ BEGIN CATCH
 
         IF @sql_select IS NOT NULL
         BEGIN
-            SET @msg= 'Last @sql_select: ' + @sql_select;
+            SET @msg = N'Last @sql_select: ' + @sql_select;
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
