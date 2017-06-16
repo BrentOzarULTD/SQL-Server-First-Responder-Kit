@@ -77,6 +77,28 @@ DECLARE  @ProductVersion NVARCHAR(128)
 					  query_stats.last_used_threads,
 					  query_stats.min_used_threads,
 					  query_stats.max_used_threads,'
+		,@SessionWaits BIT = 0
+		,@SessionWaitsSQL NVARCHAR(MAX) = 
+						 N'LEFT JOIN ( SELECT DISTINCT
+												wait.session_id ,
+												( SELECT    TOP  5 waitwait.wait_type + N'' (''
+												           + CAST(SUM(waitwait.wait_time_ms) AS NVARCHAR(128))
+												           + N'' ms), ''
+												 FROM      sys.dm_exec_session_wait_stats AS waitwait
+												 WHERE     waitwait.session_id = wait.session_id
+												 GROUP BY  waitwait.wait_type
+												 HAVING SUM(waitwait.wait_time_ms) > 5
+												 ORDER BY  SUM(waitwait.wait_time_ms) DESC
+												 FOR
+												 XML PATH('''') ) AS session_wait_info
+										FROM    sys.dm_exec_session_wait_stats AS wait ) AS wt2
+						ON      s.session_id = wt2.session_id
+						LEFT JOIN sys.dm_exec_query_stats AS session_stats
+						ON      r.sql_handle = session_stats.sql_handle
+								AND r.plan_handle = session_stats.plan_handle
+						        AND r.statement_start_offset = session_stats.statement_start_offset
+						        AND r.statement_end_offset = session_stats.statement_end_offset' 
+
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
@@ -271,6 +293,14 @@ SELECT @EnhanceFlag =
 		     ELSE 0 
 	    END
 
+
+IF OBJECT_ID('sys.dm_exec_session_wait_stats') IS NOT NULL
+BEGIN
+	SET @SessionWaits = 1
+END
+
+
+
 SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             
 						DECLARE @blocked TABLE 
@@ -305,6 +335,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.session_id ,
 						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
+						SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
 			                             ( query_stats.statement_start_offset / 2 ) + 1,
@@ -333,8 +364,9 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            r.deadlock_priority ,'
 					    + 
 					    CASE @EnhanceFlag
-					    WHEN 1 THEN @EnhanceSQL
-					    ELSE N'' END 
+							 WHEN 1 THEN @EnhanceSQL
+							 ELSE N'' 
+						END 
 						+
 					    N'CASE 
 			              WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
@@ -412,6 +444,14 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 								AND r.plan_handle = query_stats.plan_handle
 						        AND r.statement_start_offset = query_stats.statement_start_offset
 						        AND r.statement_end_offset = query_stats.statement_end_offset
+						'
+						+
+						CASE @SessionWaits
+							 WHEN 1 THEN @SessionWaitsSQL
+							 ELSE N''
+						END
+						+ 
+						'
 						LEFT JOIN sys.dm_exec_query_memory_grants qmg
 						ON      r.session_id = qmg.session_id
 								AND r.request_id = qmg.request_id
