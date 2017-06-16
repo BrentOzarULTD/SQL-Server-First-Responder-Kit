@@ -5,6 +5,7 @@ GO
 ALTER PROCEDURE dbo.sp_BlitzWho 
 	@Help TINYINT = 0 ,
 	@ShowSleepingSPIDs TINYINT = 0,
+	@Debug BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
 BEGIN
@@ -447,6 +448,12 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						'
 
 END 
+
+IF @Debug = 1
+	BEGIN
+		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
+		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 160000))
+	END
 
 EXEC(@StringToExecute);
 
