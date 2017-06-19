@@ -119,9 +119,8 @@ DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that create
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
 DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd 
-
-
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
+DECLARE @restore_full BIT = 0 --We use this one
 
 
 
@@ -358,6 +357,7 @@ DiskPollster:
 	IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
 	
 		BEGIN
+				RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
 
 				SELECT @restore_path = CONVERT(NVARCHAR(512), configuration_setting)
 				FROM msdb.dbo.restore_configuration c
@@ -969,7 +969,14 @@ IF @Restore = 1
 	
 							
 										SELECT TOP (1) 
-												@database = rw.database_name
+												@database = rw.database_name,
+												@restore_full = CASE WHEN	  rw.is_started = 0
+																		  AND rw.is_completed = 0
+																		  AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
+																		  AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
+																	THEN 1
+																	ELSE 0
+																END
 										FROM msdb.dbo.restore_worker rw WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
 										WHERE 
 											  (		/*This section works on databases already part of the backup cycle*/
@@ -1056,7 +1063,12 @@ IF @Restore = 1
 								
 								BEGIN
 	
-									SET @msg = N'Restoring logs for ' + ISNULL(@database, 'UH OH NULL @database');
+									SET @msg = CASE WHEN @restore_full = 0 
+														 THEN N'Restoring logs for ' 
+														 ELSE N'Restoring full backup for ' 
+													END 
+													+ ISNULL(@database, 'UH OH NULL @database');
+
 									IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 										/*
@@ -1065,9 +1077,31 @@ IF @Restore = 1
 										
 										*/
 
+										SET @restore_path += N'\' + @database + N'\' + CASE WHEN @restore_full = 0
+																							THEN + N'LOG'
+																							ELSE + N'FULL'
+																							END
+										IF @restore_full = 0
+
+											BEGIN
+
+												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
+																				   @BackupPathLog = @restore_path,
+																				   @ContinueLogs = 1
 	
-										EXEC master.dbo.sp_DatabaseRestore 
+											END
+
+										IF @restore_full = 1
+
+											BEGIN
+
+												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
+																				   @BackupPathFull = @restore_path,
+																				   @ContinueLogs = 1
 	
+											END
+
+
 										
 										/*
 										
