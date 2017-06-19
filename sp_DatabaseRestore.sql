@@ -128,6 +128,12 @@ IF @RestoreDatabaseName IS NULL
 -- get list of files 
 SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 
+			IF @Debug = 1
+			BEGIN
+				PRINT @cmd;
+			END  
+
+
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
@@ -197,8 +203,11 @@ SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
 
 SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
-IF @Debug = 2
-	PRINT @sql;
+		
+		IF @Debug = 1
+		BEGIN
+			PRINT @sql;
+		END
 
 EXEC (@sql);
 
@@ -289,6 +298,11 @@ IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
+			IF @Debug = 1
+			BEGIN
+				PRINT @HeadersSQL;
+			END  
+
 
 IF @MoveFiles = 1
 	BEGIN
@@ -312,16 +326,22 @@ IF @ContinueLogs = 0
 	BEGIN
 	
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
-		PRINT @sql;
 		
-		IF @Debug = 0
+		IF @Debug = 1
+		BEGIN
+			PRINT @sql;
+		END
+		
+		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	
 	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
 	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
 			
-			IF @Debug = 2
-			  PRINT @sql;
+		IF @Debug = 1
+		BEGIN
+			PRINT @sql;
+		END
 	    
 	    EXECUTE (@sql);
 	    
@@ -329,9 +349,11 @@ IF @ContinueLogs = 0
 		  SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
 	    
 		  SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
-	    
-			IF @Debug = 2
-			  PRINT @BackupDateTime;                                                
+
+			IF @Debug = 1
+			BEGIN
+				PRINT @BackupDateTime;
+			END                                            
 	    
 	END;
 
@@ -353,6 +375,11 @@ DELETE FROM @FileList;
 -- get list of files 
 SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 
+	IF @Debug = 1
+	BEGIN
+		PRINT @cmd;
+	END  
+
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
@@ -372,16 +399,23 @@ WHERE BackupFile LIKE N'%.bak'
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
-		PRINT @sql;
 		
-		IF @Debug = 0
+		IF @Debug = 1
+		BEGIN
+			PRINT @sql;
+		END  
+
+		
+		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
 		
-		IF @Debug = 2
+		IF @Debug = 1
+		BEGIN
 			PRINT @sql;
+		END;  
 		
 		EXECUTE (@sql);
 		
@@ -398,6 +432,12 @@ DELETE FROM @FileList;
         
 
 SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
+
+		IF @Debug = 1
+		BEGIN
+			PRINT @cmd;
+		END; 
+
 
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
@@ -441,8 +481,10 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			BEGIN
 		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathLog + @BackupFile);
 			
-				IF @Debug = 2
+				IF @Debug = 1
+				BEGIN
 					PRINT @sql;
+				END; 
 			
 			EXECUTE (@sql);
 				
@@ -464,9 +506,13 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			BEGIN
 				
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
-				PRINT @sql;
 				
-					IF @Debug = 0
+					IF @Debug = 1
+					BEGIN
+						PRINT @sql;
+					END; 
+				
+					IF @Debug IN (0, 1)
 						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
@@ -482,8 +528,13 @@ DEALLOCATE BackupFiles;
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+
+			IF @Debug = 1
+			BEGIN
+				PRINT @sql;
+			END; 
+
+		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
 	    
@@ -492,8 +543,13 @@ IF @RunRecovery = 1
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+			
+			IF @Debug = 1
+			BEGIN
+				PRINT @sql;
+			END; 
+		
+		IF @Debug IN (0, 1)
 			EXECUTE sys.sp_executesql @sql;
 	END;
 
@@ -501,7 +557,12 @@ IF @RunCheckDB = 1
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+			
+			IF @Debug = 1
+			BEGIN
+				PRINT @sql;
+			END; 
+		
+		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
