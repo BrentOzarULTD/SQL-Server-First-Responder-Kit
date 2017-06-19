@@ -223,7 +223,9 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.program_name ,
 			            s.client_interface_name ,
 			            s.login_time ,
-			            r.start_time 
+			            r.start_time ,
+						wg.name AS workload_group_name, 
+						rp.name AS resource_pool_name
 			    FROM    sys.dm_exec_sessions AS s
 			    LEFT JOIN    sys.dm_exec_requests AS r
 			    ON      r.session_id = s.session_id
@@ -255,6 +257,10 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				ON tsu.request_id = r.request_id
 				AND tsu.session_id = r.session_id
 				AND tsu.session_id = s.session_id
+				LEFT JOIN sys.resource_governor_workload_groups wg 
+				ON 		s.group_id = wg.group_id
+				LEFT JOIN sys.resource_governor_resource_pools rp 
+				ON		wg.pool_id = rp.pool_id
 				OUTER APPLY (
 								SELECT TOP 1
 								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
@@ -422,7 +428,9 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.program_name ,
 			            s.client_interface_name ,
 			            s.login_time ,
-			            r.start_time 
+			            r.start_time ,
+						wg.name AS workload_group_name, 
+						rp.name AS resource_pool_name
 						FROM sys.dm_exec_sessions AS s
 						LEFT JOIN    sys.dm_exec_requests AS r
 									    ON      r.session_id = s.session_id
@@ -458,6 +466,10 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 						ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 							    AND qmg.pool_id = qrs.pool_id
+						LEFT JOIN sys.resource_governor_workload_groups wg 
+						ON 		s.group_id = wg.group_id
+						LEFT JOIN sys.resource_governor_resource_pools rp 
+						ON		wg.pool_id = rp.pool_id
 						OUTER APPLY (
 								SELECT TOP 1
 								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
