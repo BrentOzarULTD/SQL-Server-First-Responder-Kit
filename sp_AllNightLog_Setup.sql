@@ -166,7 +166,7 @@ Sanity check some variables
 
 
 
-IF ((@RunSetup = 0 OR @Runsetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
+IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
 
 	BEGIN
 
@@ -746,7 +746,7 @@ BEGIN
 				*/
 
 
-				RAISERROR('Checking for sp_AllNightLog backup jobs', 0, 1) WITH NOWAIT;
+				RAISERROR('Checking for sp_AllNightLog Restore jobs', 0, 1) WITH NOWAIT;
 				
 					
 					SELECT @counter = COUNT(*) + 1 
@@ -857,10 +857,14 @@ UpdateConfigs:
 IF @UpdateSetup = 1
 	AND (@RPOSeconds IS NULL AND @BackupPath IS NULL AND @RPOSeconds IS NULL AND @RestorePath IS NULL)
 
+	BEGIN
+
 		BEGIN
+
 			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
 
 			RETURN;
+
 		END
 
 			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
@@ -917,7 +921,9 @@ IF @UpdateSetup = 1
 
 					END CATCH
 
-			
+			END
+
+
 			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
 
 				BEGIN
@@ -972,7 +978,7 @@ IF @UpdateSetup = 1
 
 					END CATCH
 
-
+				END
 
 					RETURN
 
