@@ -9,7 +9,7 @@ SET STATISTICS TIME OFF;
 GO
 
 IF OBJECT_ID('dbo.sp_AllNightLog_Setup') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog_Setup AS RETURN 0;')
+  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog_Setup AS RETURN 0;');
 GO
 
 
@@ -17,7 +17,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@RPOSeconds BIGINT = 30,
 				@RTOSeconds BIGINT = 30,
 				@BackupPath NVARCHAR(MAX) = N'D:\Backup',
-				@RestorePath NVARCHAR(MAX) = N'D:\Backup',
+				@RestorePath NVARCHAR(MAX) = N'D:\Backup\NADASUPERIOR$NADA2016',
 				@Jobs TINYINT = 10,
 				@RunSetup BIT = 0,
 				@UpdateSetup BIT = 0,
@@ -86,7 +86,7 @@ BEGIN
 		Parameter explanations:
 	
 		  @RunSetup	BIT, defaults to 0. When this is set to 1, it will run the setup portion to create database, tables, and worker jobs.
-		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO and database backup paths.
+		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO/RTO and database backup/restore paths.
 		  @RPOSeconds BIGINT, defaults to 30. Value in seconds you want to use to determine if a new log backup needs to be taken.
 		  @BackupPath NVARCHAR(MAX), defaults to = ''D:\Backup''. You 99.99999% will need to change this path to something else. This tells Ola''s job where to put backups.
 		  @Debug BIT, defaults to 0. Whent this is set to 1, it prints out dynamic SQL commands
@@ -126,8 +126,8 @@ BEGIN
 
 		*/';
 
-RETURN
-END /* IF @Help = 1 */
+RETURN;
+END; /* IF @Help = 1 */
 
 
 SET NOCOUNT ON;
@@ -178,11 +178,11 @@ IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup I
 
 	BEGIN
 
-		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT
+		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT;
 
-		RETURN
+		RETURN;
 
-	END
+	END;
 
 
 /*
@@ -197,7 +197,7 @@ IF (@RPOSeconds < 0)
 			RAISERROR('Please choose a positive number for @RPOSeconds', 0, 1) WITH NOWAIT;
 
 			RETURN;
-		END
+		END;
 
 
 /*
@@ -212,7 +212,7 @@ IF (@Jobs > 20) OR (@Jobs < 1)
 			RAISERROR('We advise sticking with 1-20 jobs.', 0, 1) WITH NOWAIT;
 
 			RETURN;
-		END
+		END;
 
 /*
 
@@ -226,7 +226,7 @@ IF (@RPOSeconds >= 14400)
 			RAISERROR('If your RPO is really 4 hours, perhaps you''d be interested in a more modest recovery model, like SIMPLE?', 0, 1) WITH NOWAIT;
 
 			RETURN;
-		END
+		END;
 
 /*
 
@@ -238,10 +238,31 @@ IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A 
 AND (@BackupPath NOT LIKE '\\[a-zA-Z0-9]%\%') --UNC path
 	
 		BEGIN 		
-				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT
+				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT;
 				
 				RETURN;
-		END 
+		END; 
+
+/*
+
+If you want to update the table, one of these has to not be NULL
+
+*/
+
+IF @UpdateSetup = 1
+	AND (	 @RPOSeconds IS NULL 
+		 AND @BackupPath IS NULL 
+		 AND @RPOSeconds IS NULL 
+		 AND @RestorePath IS NULL
+		)
+
+		BEGIN
+
+			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END;
 
 
 IF @UpdateSetup = 1
@@ -465,7 +486,7 @@ BEGIN
 
 							RETURN;
 
-							END
+							END;
 
 						
 						/* In search of restore_configuration */
@@ -485,7 +506,7 @@ BEGIN
 																			configuration_setting NVARCHAR(MAX)
 																			);
 
-							END
+							END;
 
 
 						ELSE
@@ -495,9 +516,9 @@ BEGIN
 
 								RAISERROR('Restore configuration table exists, truncating', 0, 1) WITH NOWAIT;
 
-								TRUNCATE TABLE msdb.dbo.restore_configuration
+								TRUNCATE TABLE msdb.dbo.restore_configuration;
 						
-							END
+							END;
 
 
 								RAISERROR('Inserting configuration values to msdb.dbo.restore_configuration', 0, 1) WITH NOWAIT;
@@ -849,7 +870,7 @@ BEGIN
 
 	END CATCH;
 
-END  /* IF @RunSetup = 1 */
+END;  /* IF @RunSetup = 1 */
 
 RETURN;
 
@@ -857,19 +878,12 @@ RETURN;
 UpdateConfigs:
 
 IF @UpdateSetup = 1
-	AND (@RPOSeconds IS NULL AND @BackupPath IS NULL AND @RPOSeconds IS NULL AND @RestorePath IS NULL)
-
+	
 	BEGIN
 
-		BEGIN
-
-			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
-
-			RETURN;
-
-		END
-
 			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
+
+				RAISERROR('Found backup config, checking variables...', 0, 1) WITH NOWAIT;
 	
 				BEGIN
 
@@ -878,6 +892,7 @@ IF @UpdateSetup = 1
 						
 						IF @RPOSeconds IS NOT NULL
 
+
 							BEGIN
 
 								RAISERROR('Attempting to update RPO setting', 0, 1) WITH NOWAIT;
@@ -885,9 +900,9 @@ IF @UpdateSetup = 1
 								UPDATE c
 										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RPOSeconds)
 								FROM msdbCentral.dbo.backup_configuration AS c
-								WHERE c.configuration_name = N'log backup frequency'
+								WHERE c.configuration_name = N'log backup frequency';
 
-							END
+							END;
 
 						
 						IF @BackupPath IS NOT NULL
@@ -899,10 +914,10 @@ IF @UpdateSetup = 1
 								UPDATE c
 										SET c.configuration_setting = @BackupPath
 								FROM msdbCentral.dbo.backup_configuration AS c
-								WHERE c.configuration_name = N'log backup path'
+								WHERE c.configuration_name = N'log backup path';
 
 
-							END
+							END;
 
 					END TRY
 
@@ -921,12 +936,14 @@ IF @UpdateSetup = 1
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
 
-					END CATCH
+					END CATCH;
 
-			END
+			END;
 
 
 			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+
+				RAISERROR('Found restore config, checking variables...', 0, 1) WITH NOWAIT;
 
 				BEGIN
 
@@ -942,9 +959,9 @@ IF @UpdateSetup = 1
 								UPDATE c
 										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RTOSeconds)
 								FROM msdb.dbo.restore_configuration AS c
-								WHERE c.configuration_name = N'log restore frequency'
+								WHERE c.configuration_name = N'log restore frequency';
 
-							END
+							END;
 
 						
 						IF @RestorePath IS NOT NULL
@@ -956,10 +973,10 @@ IF @UpdateSetup = 1
 								UPDATE c
 										SET c.configuration_setting = @RestorePath
 								FROM msdb.dbo.restore_configuration AS c
-								WHERE c.configuration_name = N'log restore path'
+								WHERE c.configuration_name = N'log restore path';
 
 
-							END
+							END;
 
 					END TRY
 
@@ -978,13 +995,13 @@ IF @UpdateSetup = 1
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
 
-					END CATCH
+					END CATCH;
 
-				END
+				END;
 
-			RETURN
+			RETURN;
 
-	END --End updates to configuration table
+	END; --End updates to configuration table
 
 
 END; -- Final END for stored proc
