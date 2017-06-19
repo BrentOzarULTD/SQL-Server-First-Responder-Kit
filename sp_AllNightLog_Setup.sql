@@ -148,12 +148,12 @@ DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job categor
 DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
 
 /*Specifically for Backups*/
-DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backups_Job_'''; --Name of log backup job
+DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
 DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
 DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
 
 /*Specifically for Restores*/
-DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restores_Job_'''; --Name of log backup job
+DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; --Name of log backup job
 DECLARE @job_description_restores NVARCHAR(MAX) = N'''This is a worker for the purposes of restoring log backups from msdb.dbo.restore_worker queue table.'''; --Job description
 DECLARE @job_command_restores NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Restore = 1'''; --Command the Agent job will run
 
@@ -769,7 +769,7 @@ BEGIN
 									
 										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
 
-											SET @job_name_restores = N'sp_AllNightLog_Restores_' + 
+											SET @job_name_restores = N'sp_AllNightLog_Restore_' + 
 																				CASE 
 																				WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
 																				WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
