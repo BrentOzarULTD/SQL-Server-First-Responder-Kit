@@ -137,8 +137,18 @@ SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
+	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+		BEGIN
 
--- select * from @fileList
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END
+
+
+
+ select * from @FileList
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
 FROM @FileList
@@ -383,6 +393,16 @@ SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
+	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+		BEGIN
+
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END
+
+
 -- select * from @fileList
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
@@ -441,6 +461,15 @@ SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
 
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
+
+	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+		BEGIN
+
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END
 
 
 --check for log backups
