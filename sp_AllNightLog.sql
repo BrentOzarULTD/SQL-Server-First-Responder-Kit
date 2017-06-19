@@ -110,7 +110,9 @@ DECLARE @error_severity INT; --Used for TRY/CATCH
 DECLARE @error_state INT; --Used for TRY/CATCH
 DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
 DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
+DECLARE @rto INT; --Used to hold the RPO value in our configuration table
 DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @restore_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
 DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
@@ -138,7 +140,6 @@ IF (
 		END 
 
 
-
 /*
 
 Certain variables necessarily skip to parts of this script that are irrelevant
@@ -158,12 +159,21 @@ IF @PollForNewDatabases = 1
 
 /*
 
-LogShamer happens when we need to find and assign work to a worker job
+LogShamer happens when we need to find and assign work to a worker job for backups
 
 */
 
 IF @Backup = 1
 	GOTO LogShamer;
+
+/*
+
+Restoregasm Addict happens when we need to find and assign work to a worker job for restores
+
+*/
+
+IF @Restore = 1
+	GOTO Restoregasm_Addict;
 
 
 /*
@@ -387,6 +397,7 @@ LogShamer:
 			/*
 			
 			Start loop to take log backups
+
 			*/
 
 			
@@ -396,7 +407,7 @@ LogShamer:
 							
 							BEGIN TRAN;
 	
-								IF @Debug = 1 RAISERROR('Begin tran to grab a database', 0, 1) WITH NOWAIT;
+								IF @Debug = 1 RAISERROR('Begin tran to grab a database to back up', 0, 1) WITH NOWAIT;
 
 
 								/*
@@ -622,7 +633,7 @@ LogShamer:
 
 						END; -- End update for successful backup	
 										
-				END; -- End @LogShaming WHILE loop
+				END; -- End @Backup WHILE loop
 
 				
 		END; -- End successful check for backup_worker and subsequent code
@@ -633,6 +644,329 @@ LogShamer:
 		BEGIN
 	
 			RAISERROR('msdbCentral.dbo.backup_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
+			
+			RETURN;
+		
+		END;
+RETURN;
+
+
+/*
+
+Begin Restoregasm_Addict section
+
+*/
+
+Restoregasm_Addict:
+
+IF @Restore = 1
+	IF @Debug = 1 RAISERROR('Beginning Restores', 0, 1) WITH NOWAIT;
+	
+	IF OBJECT_ID('msdb.dbo.restore_worker') IS NOT NULL
+	
+		BEGIN
+		
+			/*
+			
+			Make sure configuration table exists...
+			
+			*/
+	
+			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+	
+				BEGIN
+	
+					IF @Debug = 1 RAISERROR('Checking variables', 0, 1) WITH NOWAIT;
+		
+			/*
+			
+			These settings are configurable
+	
+			I haven't found a good way to find the default backup path that doesn't involve xp_regread
+			
+			*/
+	
+						SELECT @rto  = CONVERT(INT, configuration_setting)
+						FROM msdb.dbo.restore_configuration c
+						WHERE configuration_name = N'log restore frequency';
+	
+							
+							IF @rto IS NULL
+								BEGIN
+									RAISERROR('@rto cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
+									RETURN;
+								END;	
+	
+	
+						SELECT @restore_path = CONVERT(NVARCHAR(512), configuration_setting)
+						FROM msdb.dbo.restore_configuration c
+						WHERE configuration_name = N'log restore path';
+	
+							
+							IF @restore_path IS NULL
+								BEGIN
+									RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
+									RETURN;
+								END;	
+	
+				END;
+	
+			ELSE
+	
+				BEGIN
+	
+					RAISERROR('msdb.dbo.restore_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
+					
+					RETURN;
+				
+				END;
+	
+	
+			WHILE @Restore = 1
+
+			/*
+			
+			Start loop to restore log backups
+
+			*/
+
+			
+				BEGIN
+	
+					BEGIN TRY
+							
+							BEGIN TRAN;
+	
+								IF @Debug = 1 RAISERROR('Begin tran to grab a database to restore', 0, 1) WITH NOWAIT;
+
+
+								/*
+								
+								This grabs a database for a worker to work on
+
+								The locking hints hope to provide some isolation when 10+ workers are in action
+								
+								*/
+	
+							
+										SELECT TOP (1) 
+												@database = rw.database_name
+										FROM msdb.dbo.restore_worker rw WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
+										WHERE 
+											  (		/*This section works on databases already part of the backup cycle*/
+												    rw.is_started = 0
+												AND rw.is_completed = 1
+												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
+											  )
+										OR    
+											  (		/*This section picks up newly added databases by Pollster*/
+											  	    rw.is_started = 0
+											  	AND rw.is_completed = 0
+											  	AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
+											  	AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
+											  )
+										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
+	
+								
+									IF @database IS NOT NULL
+										BEGIN
+										SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database');
+										IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+								
+										/*
+								
+										Update the worker table so other workers know a database is being restored
+								
+										*/
+
+								
+										UPDATE rw
+												SET rw.is_started = 1,
+													rw.is_completed = 0,
+													rw.last_log_restore_start_time = GETDATE()
+										FROM msdb.dbo.restore_worker rw 
+										WHERE rw.database_name = @database;
+										END
+	
+							COMMIT;
+	
+					END TRY
+	
+					BEGIN CATCH
+						
+						/*
+						
+						Do I need to build retry logic in here? Try to catch deadlocks? I don't know yet!
+						
+						*/
+
+						SELECT @msg = N'Error securing a database to restore, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+						SET @database = NULL;
+	
+						WHILE @@TRANCOUNT > 0
+							ROLLBACK;
+	
+					END CATCH;
+
+
+					/* If we don't find a database to work on, wait for a few seconds */
+					IF @database IS NULL
+
+						BEGIN
+							IF @Debug = 1 RAISERROR('No databases to restore up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
+							WAITFOR DELAY '00:00:03.000';
+						END
+	
+	
+					BEGIN TRY
+						
+						BEGIN
+	
+							IF @database IS NOT NULL
+
+							/*
+							
+							Make sure we have a database to work on -- I should make this more robust so we do something if it is NULL, maybe
+							
+							*/
+
+								
+								BEGIN
+	
+									SET @msg = N'Restoring logs for ' + ISNULL(@database, 'UH OH NULL @database');
+									IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+										/*
+										
+										Call sp_DatabaseRestore to backup the database
+										
+										*/
+
+	
+										EXEC master.dbo.sp_DatabaseRestore 
+	
+										
+										/*
+										
+										Catch any erroneous zones
+										
+										*/
+										
+										SELECT @error_number = ERROR_NUMBER(), 
+											   @error_severity = ERROR_SEVERITY(), 
+											   @error_state = ERROR_STATE();
+	
+								END; --End call to dbo.sp_DatabaseRestore
+	
+						END; --End successful check of @database (not NULL)
+					
+					END TRY
+	
+					BEGIN CATCH
+	
+						IF  @error_number IS NOT NULL
+
+						/*
+						
+						If the ERROR() function returns a number, update the table with it and the last error date.
+
+						Also update the last start time to 1900-01-01 so it gets picked back up immediately -- the query to find a log restore to take sorts by start time
+
+						*/
+	
+							BEGIN
+	
+								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
+								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+								
+								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
+								RAISERROR(@msg, 0, 1) WITH NOWAIT;
+	
+								
+									UPDATE rw
+											SET rw.is_started = 0,
+												rw.is_completed = 1,
+												rw.last_log_restore_start_time = '19000101',
+												rw.error_number = @error_number,
+												rw.last_error_date = GETDATE()
+									FROM msdb.dbo.restore_worker rw 
+									WHERE rw.database_name = @database;
+
+
+								/*
+								
+								Set @database back to NULL to avoid variable assignment weirdness
+								
+								*/
+
+								SET @database = NULL;
+
+										
+										/*
+										
+										Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
+
+										*/
+										
+										IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
+										
+										WAITFOR DELAY '00:00:01.000';
+
+							END; -- End update of unsuccessful restore
+	
+					END CATCH;
+	
+					IF  @database IS NOT NULL AND @error_number IS NULL
+
+					/*
+						
+					If no error, update everything normally
+						
+					*/
+
+							
+						BEGIN
+	
+							IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
+								
+							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+	
+								
+								UPDATE rw
+										SET rw.is_started = 0,
+											rw.is_completed = 1,
+											rw.last_log_restore_finish_time = GETDATE()
+								FROM msdb.dbo.restore_worker rw 
+								WHERE rw.database_name = @database;
+
+								
+							/*
+								
+							Set @database back to NULL to avoid variable assignment weirdness
+								
+							*/
+
+							SET @database = NULL;
+
+
+						END; -- End update for successful backup	
+										
+				END; -- End @Restore WHILE loop
+
+				
+		END; -- End successful check for restore_worker and subsequent code
+
+	
+	ELSE
+	
+		BEGIN
+	
+			RAISERROR('msdb.dbo.restore_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
 			
 			RETURN;
 		
