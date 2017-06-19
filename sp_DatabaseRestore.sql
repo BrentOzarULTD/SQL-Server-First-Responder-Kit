@@ -95,7 +95,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 AS
 SET NOCOUNT ON;
 
-	DECLARE @Version VARCHAR(30);
+	DECLARE @Version NVARCHAR(30);
 	SET @Version = '5.4';
 	SET @VersionDate = '20170603';
 
@@ -136,15 +136,15 @@ EXEC master.sys.xp_cmdshell @cmd;
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
 FROM @FileList
-WHERE BackupFile LIKE '%.bak'
+WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE '%' + @Database + '%';
+    BackupFile LIKE N'%' + @Database + N'%';
 
 
 -- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
 -- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
 -- Need to capture BuildVersion because RESTORE HEADERONLY changed with 2014 CU1, not RTM
-DECLARE @ProductVersion AS VARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS VARCHAR(20));
+DECLARE @ProductVersion AS NVARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS NVARCHAR(20));
 DECLARE @MajorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 4) AS SMALLINT);
 DECLARE @MinorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 3) AS SMALLINT);
 DECLARE @BuildVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 2) AS SMALLINT);
@@ -196,7 +196,7 @@ IF @MajorVersion >= 13
 SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
 
-SET @sql = REPLACE(@FileListParamSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
 IF @Debug = 2
 	PRINT @sql;
 
@@ -206,59 +206,59 @@ EXEC (@sql);
 IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
 CREATE TABLE #Headers
 (
-    BackupName VARCHAR(256),
-    BackupDescription VARCHAR(256),
-    BackupType VARCHAR(256),
-    ExpirationDate VARCHAR(256),
-    Compressed VARCHAR(256),
-    Position VARCHAR(256),
-    DeviceType VARCHAR(256),
-    UserName VARCHAR(256),
-    ServerName VARCHAR(256),
-    DatabaseName VARCHAR(256),
-    DatabaseVersion VARCHAR(256),
-    DatabaseCreationDate VARCHAR(256),
-    BackupSize VARCHAR(256),
-    FirstLSN VARCHAR(256),
-    LastLSN VARCHAR(256),
-    CheckpointLSN VARCHAR(256),
-    DatabaseBackupLSN VARCHAR(256),
-    BackupStartDate VARCHAR(256),
-    BackupFinishDate VARCHAR(256),
-    SortOrder VARCHAR(256),
-    CodePage VARCHAR(256),
-    UnicodeLocaleId VARCHAR(256),
-    UnicodeComparisonStyle VARCHAR(256),
-    CompatibilityLevel VARCHAR(256),
-    SoftwareVendorId VARCHAR(256),
-    SoftwareVersionMajor VARCHAR(256),
-    SoftwareVersionMinor VARCHAR(256),
-    SoftwareVersionBuild VARCHAR(256),
-    MachineName VARCHAR(256),
-    Flags VARCHAR(256),
-    BindingID VARCHAR(256),
-    RecoveryForkID VARCHAR(256),
-    Collation VARCHAR(256),
-    FamilyGUID VARCHAR(256),
-    HasBulkLoggedData VARCHAR(256),
-    IsSnapshot VARCHAR(256),
-    IsReadOnly VARCHAR(256),
-    IsSingleUser VARCHAR(256),
-    HasBackupChecksums VARCHAR(256),
-    IsDamaged VARCHAR(256),
-    BeginsLogChain VARCHAR(256),
-    HasIncompleteMetaData VARCHAR(256),
-    IsForceOffline VARCHAR(256),
-    IsCopyOnly VARCHAR(256),
-    FirstRecoveryForkID VARCHAR(256),
-    ForkPointLSN VARCHAR(256),
-    RecoveryModel VARCHAR(256),
-    DifferentialBaseLSN VARCHAR(256),
-    DifferentialBaseGUID VARCHAR(256),
-    BackupTypeDescription VARCHAR(256),
-    BackupSetGUID VARCHAR(256),
-    CompressedBackupSize VARCHAR(256),
-    Containment VARCHAR(256),
+    BackupName NVARCHAR(256),
+    BackupDescription NVARCHAR(256),
+    BackupType NVARCHAR(256),
+    ExpirationDate NVARCHAR(256),
+    Compressed NVARCHAR(256),
+    Position NVARCHAR(256),
+    DeviceType NVARCHAR(256),
+    UserName NVARCHAR(256),
+    ServerName NVARCHAR(256),
+    DatabaseName NVARCHAR(256),
+    DatabaseVersion NVARCHAR(256),
+    DatabaseCreationDate NVARCHAR(256),
+    BackupSize NVARCHAR(256),
+    FirstLSN NVARCHAR(256),
+    LastLSN NVARCHAR(256),
+    CheckpointLSN NVARCHAR(256),
+    DatabaseBackupLSN NVARCHAR(256),
+    BackupStartDate NVARCHAR(256),
+    BackupFinishDate NVARCHAR(256),
+    SortOrder NVARCHAR(256),
+    CodePage NVARCHAR(256),
+    UnicodeLocaleId NVARCHAR(256),
+    UnicodeComparisonStyle NVARCHAR(256),
+    CompatibilityLevel NVARCHAR(256),
+    SoftwareVendorId NVARCHAR(256),
+    SoftwareVersionMajor NVARCHAR(256),
+    SoftwareVersionMinor NVARCHAR(256),
+    SoftwareVersionBuild NVARCHAR(256),
+    MachineName NVARCHAR(256),
+    Flags NVARCHAR(256),
+    BindingID NVARCHAR(256),
+    RecoveryForkID NVARCHAR(256),
+    Collation NVARCHAR(256),
+    FamilyGUID NVARCHAR(256),
+    HasBulkLoggedData NVARCHAR(256),
+    IsSnapshot NVARCHAR(256),
+    IsReadOnly NVARCHAR(256),
+    IsSingleUser NVARCHAR(256),
+    HasBackupChecksums NVARCHAR(256),
+    IsDamaged NVARCHAR(256),
+    BeginsLogChain NVARCHAR(256),
+    HasIncompleteMetaData NVARCHAR(256),
+    IsForceOffline NVARCHAR(256),
+    IsCopyOnly NVARCHAR(256),
+    FirstRecoveryForkID NVARCHAR(256),
+    ForkPointLSN NVARCHAR(256),
+    RecoveryModel NVARCHAR(256),
+    DifferentialBaseLSN NVARCHAR(256),
+    DifferentialBaseGUID NVARCHAR(256),
+    BackupTypeDescription NVARCHAR(256),
+    BackupSetGUID NVARCHAR(256),
+    CompressedBackupSize NVARCHAR(256),
+    Containment NVARCHAR(256),
     KeyAlgorithm NVARCHAR(32),
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
@@ -318,7 +318,7 @@ IF @ContinueLogs = 0
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	
 	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
-	    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
 			
 			IF @Debug = 2
 			  PRINT @sql;
@@ -360,9 +360,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
-WHERE BackupFile LIKE '%.bak'
+WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE '%' + @Database + '%';
+    BackupFile LIKE N'%' + @Database + '%';
 	
 	--set the @BackupDateTime so that it can be used for comparisons
 	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
@@ -378,7 +378,7 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
-		SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathDiff + @LastDiffBackup);
+		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
 		
 		IF @Debug = 2
 			PRINT @sql;
@@ -409,8 +409,8 @@ IF(@StopAt IS NULL)
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
-			WHERE BackupFile LIKE '%.trn'
-			  AND BackupFile LIKE '%' + @Database + '%'
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
 			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
 			  ORDER BY BackupFile;
 		
@@ -423,8 +423,8 @@ IF(@StopAt IS NULL)
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
-			WHERE BackupFile LIKE '%.trn'
-			  AND BackupFile LIKE '%' + @Database + '%'
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
 			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  ORDER BY BackupFile;
 		
@@ -439,7 +439,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			IF @i = 1
 			
 			BEGIN
-		    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathLog + @BackupFile);
+		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathLog + @BackupFile);
 			
 				IF @Debug = 2
 					PRINT @sql;
