@@ -537,8 +537,6 @@ BEGIN
 												)
 								AND d.database_id > 4;
 
-
-
 		
 		/*
 		
@@ -661,7 +659,7 @@ BEGIN
 					
 					SELECT @counter = COUNT(*) + 1 
 					FROM msdb.dbo.sysjobs 
-					WHERE name LIKE 'sp[_]AllNightLog[_]Backups[_]Job[_]%';
+					WHERE name LIKE 'sp[_]AllNightLog[_]Backup[_]%';
 
 					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
 																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
@@ -751,7 +749,7 @@ BEGIN
 					
 					SELECT @counter = COUNT(*) + 1 
 					FROM msdb.dbo.sysjobs 
-					WHERE name LIKE 'sp[_]AllNightLog[_]Restores[_]Job[_]%';
+					WHERE name LIKE 'sp[_]AllNightLog[_]Restore[_]%';
 
 					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' restore jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
 																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
