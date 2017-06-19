@@ -14,12 +14,13 @@ GO
 
 
 ALTER PROCEDURE dbo.sp_AllNightLog
-	  @PollForNewDatabases BIT = 0, /* Formerly Pollster */
-	  @Backup BIT = 0, /* Formerly LogShaming */
-	  @Restore BIT = 0,
-	  @Debug BIT = 0,
-	  @Help BIT = 0,
-	  @VersionDate DATETIME = NULL OUTPUT
+								@PollForNewDatabases BIT = 0, /* Formerly Pollster */
+								@Backup BIT = 0, /* Formerly LogShaming */
+								@PollDiskForNewDatabases BIT = 0,
+								@Restore BIT = 0,
+								@Debug BIT = 0,
+								@Help BIT = 0,
+								@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
@@ -117,7 +118,10 @@ DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create ms
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
+DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd 
 
+
+DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 
 
 
@@ -129,6 +133,7 @@ Make sure we're doing something
 
 IF (
 		  @PollForNewDatabases = 0
+	  AND @PollDiskForNewDatabases = 0
 	  AND @Backup = 0
 	  AND @Restore = 0
 	  AND @Help = 0
@@ -168,12 +173,23 @@ IF @Backup = 1
 
 /*
 
+Pollster use happens strictly to check for new databases in sys.databases to place them in a worker queue
+
+*/
+
+IF @PollDiskForNewDatabases = 1
+	GOTO DiskPollster;
+
+
+/*
+
 Restoregasm Addict happens when we need to find and assign work to a worker job for restores
 
 */
 
 IF @Restore = 1
 	GOTO Restoregasm_Addict;
+
 
 
 /*
@@ -320,6 +336,209 @@ Pollster:
 End of Pollster
 
 */
+
+
+/*
+
+Begin DiskPollster
+
+*/
+
+
+/*
+
+This section runs in a loop checking restore path for new databases added to the server, or broken restores
+
+*/
+
+DiskPollster:
+
+	IF @Debug = 1 RAISERROR('Beginning DiskPollster', 0, 1) WITH NOWAIT;
+	
+	IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+	
+		BEGIN
+
+				SELECT @restore_path = CONVERT(NVARCHAR(512), configuration_setting)
+				FROM msdb.dbo.restore_configuration c
+				WHERE configuration_name = N'log restore path';
+
+
+					IF @restore_path IS NULL
+						BEGIN
+							RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
+							RETURN;
+						END;
+
+		
+			WHILE @PollDiskForNewDatabases = 1
+			
+			BEGIN
+				
+				BEGIN TRY
+			
+					IF @Debug = 1 RAISERROR('Checking restore path for new databases...', 0, 1) WITH NOWAIT;
+
+					/*
+					
+					Look for new non-system databases -- there should probably be additional filters here for accessibility, etc.
+
+					*/
+						
+						/*
+						
+						This setups up the @cmd variable to check the restore path for new folders
+						
+						In our case, a new folder means a new database, because we assume a pristine path
+
+						*/
+
+						SET @cmd = N'DIR /b "' + @restore_path + N'"';
+						
+									IF @Debug = 1
+									BEGIN
+										PRINT @cmd;
+									END  
+						
+						
+						INSERT INTO @FileList (BackupFile)
+						EXEC master.sys.xp_cmdshell @cmd; 
+						
+							IF (
+								SELECT COUNT(*) 
+								FROM @FileList AS fl 
+								WHERE fl.BackupFile = 'The system cannot find the path specified.'
+								OR fl.BackupFile = 'File Not Found'
+								) = 1
+
+								BEGIN
+						
+									RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+						
+									RETURN;
+						
+								END
+
+							IF (
+								SELECT COUNT(*) 
+								FROM @FileList AS fl 
+								) = 1
+							AND (
+								SELECT COUNT(*) 
+								FROM @FileList AS fl 							
+								WHERE fl.BackupFile IS NULL
+								) = 1
+
+								BEGIN
+						
+									RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+						
+									RETURN;
+						
+								END
+
+
+						INSERT msdb.dbo.restore_worker (database_name) 
+						SELECT fl.BackupFile
+						FROM @FileList AS fl
+						WHERE fl.BackupFile IS NOT NULL
+						AND NOT EXISTS
+							(
+							SELECT 1
+							FROM msdb.dbo.restore_worker rw
+							WHERE rw.database_name = fl. BackupFile
+							)
+
+						IF @Debug = 1 RAISERROR('Checking for wayward databases', 0, 1) WITH NOWAIT;
+
+						/*
+							
+						This section aims to find databases that have
+							* Had a log restore ever (the default for finish time is 9999-12-31, so anything with a more recent finish time has had a log restore)
+							* Not had a log restore start in the last 5 minutes (this could be trouble! or a really big log restore)
+							* Also checks msdb.dbo.backupset to make sure the database has a full backup associated with it (otherwise it's the first full, and we don't need to start adding log restores yet)
+
+						*/
+	
+						IF EXISTS (
+								
+							SELECT 1
+							FROM msdb.dbo.restore_worker rw WITH (READPAST)
+							WHERE rw.last_log_restore_finish_time < '99991231'
+							AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())				
+							AND NOT EXISTS (
+									SELECT 1
+									FROM msdb.dbo.backupset b
+									WHERE b.database_name = rw.database_name
+									AND b.type = 'D'
+										)								
+								)
+	
+							BEGIN
+									
+								IF @Debug = 1 RAISERROR('Resetting databases with a log restore and no log restore in the last 5 minutes', 0, 1) WITH NOWAIT;
+
+	
+									UPDATE rw
+											SET rw.is_started = 0,
+												rw.is_completed = 1,
+												rw.last_log_restore_start_time = '19000101'
+									FROM msdb.dbo.restore_worker rw
+									WHERE rw.last_log_restore_finish_time < '99991231'
+									AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())
+									AND EXISTS (
+											SELECT 1
+											FROM msdb.dbo.backupset b
+											WHERE b.database_name = rw.database_name
+											AND b.type = 'D'
+												);
+
+								
+								END; --End check for wayward databases
+
+						/*
+						
+						Wait 1 minute between runs, we don't need to be checking this constantly
+						
+						*/
+
+	
+					IF @Debug = 1 RAISERROR('Waiting for 1 minute', 0, 1) WITH NOWAIT;
+					
+					WAITFOR DELAY '00:01:00.000';
+
+				END TRY
+
+				BEGIN CATCH
+
+
+						SELECT @msg = N'Error inserting databases to msdb.dbo.restore_worker, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+						
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+	
+						WHILE @@TRANCOUNT > 0
+							ROLLBACK;
+
+
+				END CATCH;
+	
+			
+			END; 
+		
+		END;-- End Pollster loop
+	
+		ELSE
+	
+			BEGIN
+	
+				RAISERROR('msdbCentral.dbo.backup_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
+				RETURN;
+			
+			END; 
+	RETURN;
 
 
 
