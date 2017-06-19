@@ -312,8 +312,7 @@ IF @ContinueLogs = 0
 	BEGIN
 	
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
-		IF @Debug = 1
-			PRINT @sql;
+		PRINT @sql;
 		
 		IF @Debug = 0
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
@@ -373,8 +372,7 @@ WHERE BackupFile LIKE '%.bak'
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
-		IF @Debug = 1
-			PRINT @sql;
+		PRINT @sql;
 		
 		IF @Debug = 0
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
@@ -466,11 +464,10 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			BEGIN
 				
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
-				IF @Debug = 1
-					PRINT @sql;
+				PRINT @sql;
 				
-				IF @Debug = 0
-					EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+					IF @Debug = 0
+						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -485,8 +482,7 @@ DEALLOCATE BackupFiles;
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
-		IF @Debug = 1
-			PRINT @sql;
+		PRINT @sql;
 		IF @Debug = 0
 			EXECUTE sp_executesql @sql;
 	END;
@@ -496,8 +492,7 @@ IF @RunRecovery = 1
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
-		IF @Debug = 1
-			PRINT @sql;
+		PRINT @sql;
 		IF @Debug = 0
 			EXECUTE sys.sp_executesql @sql;
 	END;
@@ -506,8 +501,7 @@ IF @RunCheckDB = 1
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
-		IF @Debug = 1
-			PRINT @sql;
+		PRINT @sql;
 		IF @Debug = 0
 			EXECUTE sp_executesql @sql;
 	END;
