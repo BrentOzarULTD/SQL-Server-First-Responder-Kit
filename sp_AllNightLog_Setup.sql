@@ -14,16 +14,16 @@ GO
 
 
 ALTER PROCEDURE dbo.sp_AllNightLog_Setup
-	  @RPOSeconds BIGINT = 30,
-	  @RTOSeconds BIGINT = 30,
-	  @BackupPath NVARCHAR(MAX) = N'D:\Backup',
-	  @RestorePath NVARCHAR(MAX) = N'D:\Backup',
-	  @Jobs TINYINT = 10,
-	  @RunSetup BIT = 0,
-	  @UpdateSetup BIT = 0,
-	  @Debug BIT = 0,
-	  @Help BIT = 0,
-	  @VersionDate DATETIME = NULL OUTPUT
+				@RPOSeconds BIGINT = 30,
+				@RTOSeconds BIGINT = 30,
+				@BackupPath NVARCHAR(MAX) = N'D:\Backup',
+				@RestorePath NVARCHAR(MAX) = N'D:\Backup',
+				@Jobs TINYINT = 10,
+				@RunSetup BIT = 0,
+				@UpdateSetup BIT = 0,
+				@Debug BIT = 0,
+				@Help BIT = 0,
+				@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
@@ -48,11 +48,19 @@ BEGIN
 	
 		* Creates tables in that database!
 			* dbo.backup_configuration
-				* Hold variables used by stored proc to make runtime decicions
+				* Hold variables used by stored proc to make runtime decisions
 					* RPO: Seconds, how often we look for databases that need log backups
 					* Backup Path: The path we feed to Ola H''s backup proc
 			* dbo.backup_worker
 				* Holds list of databases and some information that helps our Agent jobs figure out if they need to take another log backup
+		
+		* Creates tables in msdb
+			* dbo.restore_configuration
+				* Holds variables used by stored proc to make runtime decisions
+					* RTO: Seconds, how often to look for log backups to restore
+					* Restore Path: The path we feed to sp_DatabaseRestore 
+			* dbo.restore_worker
+				* Holds list of databases and some information that helps our Agent jobs figure out if they need to look for files to restore
 	
 		 * Creates agent jobs
 			* 1 job that polls sys.databases for new entries
@@ -677,11 +685,9 @@ BEGIN
 									
 										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
 
-											SET @job_name_backups = N'sp_AllNightLog_Backup_' + 
-																				CASE 
-																				WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
-																				WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
-																				END; 
+											SET @job_name_backups = N'sp_AllNightLog_Backup_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
+																									 WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
+																								END; 
 							
 										
 										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
@@ -752,9 +758,9 @@ BEGIN
 					WHERE name LIKE 'sp[_]AllNightLog[_]Restore[_]%';
 
 					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' restore jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
-																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
-																											 ELSE 'Oh woah something weird happened!'
-																										END;	
+																											  WHEN @counter >= @Jobs THEN 'skipping loop!'
+																											  ELSE 'Oh woah something weird happened!'
+																										 END;	
 
 					RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
@@ -767,11 +773,9 @@ BEGIN
 									
 										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
 
-											SET @job_name_restores = N'sp_AllNightLog_Restore_' + 
-																				CASE 
-																				WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
-																				WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
-																				END; 
+											SET @job_name_restores = N'sp_AllNightLog_Restore_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
+																									   WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
+																								  END; 
 							
 										
 										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
@@ -978,10 +982,9 @@ IF @UpdateSetup = 1
 
 				END
 
-					RETURN
+			RETURN
 
-
-				END --End updates to configuration table
+	END --End updates to configuration table
 
 
 END; -- Final END for stored proc
