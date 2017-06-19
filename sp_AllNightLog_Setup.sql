@@ -15,7 +15,9 @@ GO
 
 ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 	  @RPOSeconds BIGINT = 30,
+	  @RTOSeconds BIGINT = 30,
 	  @BackupPath NVARCHAR(MAX) = N'D:\Backup',
+	  @RestorePath NVARCHAR(MAX) = N'D:\Backup',
 	  @Jobs TINYINT = 10,
 	  @RunSetup BIT = 0,
 	  @UpdateSetup BIT = 0,
@@ -45,7 +47,7 @@ BEGIN
 			* Right now it''s hard-coded to use msdbCentral, that might change later
 	
 		* Creates tables in that database!
-			* dbo.configuration
+			* dbo.backup_configuration
 				* Hold variables used by stored proc to make runtime decicions
 					* RPO: Seconds, how often we look for databases that need log backups
 					* Backup Path: The path we feed to Ola H''s backup proc
@@ -142,11 +144,18 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 /*These variables control the loop to create jobs*/
 DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
 DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
-DECLARE @job_name NVARCHAR(MAX) = N'''sp_AllNightLog Backups Job 0'''; --Name of log backup job
-DECLARE @job_description NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
 DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
 DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
-DECLARE @job_command NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
+
+/*Specifically for Backups*/
+DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backups_Job_'''; --Name of log backup job
+DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
+DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
+
+/*Specifically for Restores*/
+DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restores_Job_'''; --Name of log backup job
+DECLARE @job_description_restores NVARCHAR(MAX) = N'''This is a worker for the purposes of restoring log backups from msdb.dbo.restore_worker queue table.'''; --Job description
+DECLARE @job_command_restores NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Restore = 1'''; --Command the Agent job will run
 
 
 /*
@@ -154,6 +163,18 @@ DECLARE @job_command NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --C
 Sanity check some variables
 
 */
+
+
+
+IF ((@RunSetup = 0 OR @Runsetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
+
+	BEGIN
+
+		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT
+
+		RETURN
+
+	END
 
 
 /*
@@ -206,8 +227,7 @@ Basic path sanity checks
 */
 
 IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A or B drives
-AND (@BackupPath NOT LIKE '\\[a-zA-Z]%\%') --UNC path
-AND (@BackupPath NOT LIKE '\\[1-9][1-9][1-9].[1-9][1-9][1-9].[1-9][1-9][1-9].[1-9][1-9][1-9]%\%') --IP address?!
+AND (@BackupPath NOT LIKE '\\[a-zA-Z0-9]%\%') --UNC path
 	
 		BEGIN 		
 				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT
@@ -309,13 +329,13 @@ BEGIN
 									USE ' + QUOTENAME(@database_name) + '
 									
 									
-									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.configuration'') IS NULL
+									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_configuration'') IS NULL
 									
 										BEGIN
 										
-										RAISERROR(''Creating table dbo.configuration'', 0, 1) WITH NOWAIT;
+										RAISERROR(''Creating table dbo.backup_configuration'', 0, 1) WITH NOWAIT;
 											
-											CREATE TABLE dbo.configuration (
+											CREATE TABLE dbo.backup_configuration (
 																			database_name NVARCHAR(256), 
 																			configuration_name NVARCHAR(512), 
 																			configuration_description NVARCHAR(512), 
@@ -329,10 +349,10 @@ BEGIN
 										BEGIN
 											
 											
-											RAISERROR(''Configuration table exists, truncating'', 0, 1) WITH NOWAIT;
+											RAISERROR(''Backup configuration table exists, truncating'', 0, 1) WITH NOWAIT;
 										
 											
-											TRUNCATE TABLE dbo.configuration
+											TRUNCATE TABLE dbo.backup_configuration
 
 										
 										END
@@ -341,11 +361,11 @@ BEGIN
 											RAISERROR(''Inserting configuration values'', 0, 1) WITH NOWAIT;
 
 											
-											INSERT dbo.configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between log backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between Log Backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
 											
 											
-											INSERT dbo.configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
 									
 									
@@ -370,6 +390,18 @@ BEGIN
 											
 										END;
 									
+									ELSE
+
+										BEGIN
+
+
+											RAISERROR(''Backup worker table exists, truncating'', 0, 1) WITH NOWAIT;
+										
+											
+											TRUNCATE TABLE dbo.backup_worker
+
+
+										END
 
 											
 											RAISERROR(''Inserting databases for backups'', 0, 1) WITH NOWAIT;
@@ -400,8 +432,113 @@ BEGIN
 
 
 							EXEC sp_executesql @tbl_sql;
-		
-		
+
+						
+						/*
+						
+						This section creates tables for restore workers to work off of
+						
+						*/
+
+						
+						/* 
+						
+						In search of msdb 
+						
+						*/
+						
+						RAISERROR('Checking for msdb. Yeah, I know...', 0, 1) WITH NOWAIT;
+						
+						IF DATABASEPROPERTYEX('msdb', 'Status') IS NULL
+
+							BEGIN
+
+									RAISERROR('YOU HAVE NO MSDB WHY?!', 0, 1) WITH NOWAIT;
+
+							RETURN;
+
+							END
+
+						
+						/* In search of restore_configuration */
+
+						RAISERROR('Checking for Restore Worker tables in msdb', 0, 1) WITH NOWAIT;
+
+						IF OBJECT_ID('msdb.dbo.restore_configuration') IS NULL
+
+							BEGIN
+
+								RAISERROR('Creating restore_configuration table in msdb', 0, 1) WITH NOWAIT;
+
+								CREATE TABLE msdb.dbo.restore_configuration (
+																			database_name NVARCHAR(256), 
+																			configuration_name NVARCHAR(512), 
+																			configuration_description NVARCHAR(512), 
+																			configuration_setting NVARCHAR(MAX)
+																			);
+
+							END
+
+
+						ELSE
+
+
+							BEGIN
+
+								RAISERROR('Restore configuration table exists, truncating', 0, 1) WITH NOWAIT;
+
+								TRUNCATE TABLE msdb.dbo.restore_configuration
+						
+							END
+
+
+								RAISERROR('Inserting configuration values to msdb.dbo.restore_configuration', 0, 1) WITH NOWAIT;
+								
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'log restore frequency', 'The length of time in second between Log Restores.', @RTOSeconds);
+								
+								
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
+
+
+
+						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
+							
+							BEGIN
+							
+							
+								RAISERROR('Creating table msdb.dbo.restore_worker', 0, 1) WITH NOWAIT;
+								
+									CREATE TABLE msdb.dbo.restore_worker (
+																		 id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
+																		 database_name NVARCHAR(256), 
+																		 last_log_restore_start_time DATETIME DEFAULT '19000101', 
+																		 last_log_restore_finish_time DATETIME DEFAULT '99991231', 
+																		 is_started BIT DEFAULT 0, 
+																		 is_completed BIT DEFAULT 0, 
+																		 error_number INT DEFAULT NULL, 
+																		 last_error_date DATETIME DEFAULT NULL
+																		 );
+								
+							END;
+						
+
+								
+								RAISERROR('Inserting databases for restores', 0, 1) WITH NOWAIT;
+						
+								INSERT msdb.dbo.restore_worker (database_name) 
+								SELECT d.name
+								FROM sys.databases d
+								WHERE NOT EXISTS (
+									SELECT * 
+									FROM msdb.dbo.restore_worker bw
+									WHERE bw.database_name = d.name
+												)
+								AND d.database_id > 4;
+
+
+
 		
 		/*
 		
@@ -463,7 +600,7 @@ BEGIN
 			IF NOT EXISTS (
 							SELECT 1 
 							FROM msdb.dbo.sysjobs 
-							WHERE name = 'pollster_00'
+							WHERE name = 'sp_AllNightLog_PollForNewDatabases'
 						  )
 		
 				
@@ -524,7 +661,7 @@ BEGIN
 					
 					SELECT @counter = COUNT(*) + 1 
 					FROM msdb.dbo.sysjobs 
-					WHERE name LIKE '%sp_AllNightLog_Backup_%';
+					WHERE name LIKE 'sp[_]AllNightLog[_]Backups[_]Job[_]%';
 
 					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
 																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
@@ -542,7 +679,7 @@ BEGIN
 									
 										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
 
-											SET @job_name = N'sp_AllNightLog_Backup_' + 
+											SET @job_name_backups = N'sp_AllNightLog_Backup_' + 
 																				CASE 
 																				WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
 																				WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
@@ -554,23 +691,23 @@ BEGIN
 										
 											SET @job_sql = N'
 							
-											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name + ', 
-																	 @description = ' + @job_description + ', 
+											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_backups + ', 
+																	 @description = ' + @job_description_backups + ', 
 																	 @category_name = ' + @job_category + ', 
 																	 @owner_login_name = ' + @job_owner + ',
 																	 @enabled = 0;
 								  
 											
-											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name + ', 
-																		 @step_name = ' + @job_name + ', 
+											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_backups + ', 
+																		 @step_name = ' + @job_name_backups + ', 
 																		 @subsystem = ''TSQL'', 
-																		 @command = ' + @job_command + ';
+																		 @command = ' + @job_command_backups + ';
 								  
 											
-											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name + ';
+											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_backups + ';
 											
 											
-											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name + ', 
+											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_backups + ', 
 																			  @schedule_name = ten_seconds;
 											
 											';
@@ -596,7 +733,97 @@ BEGIN
 							
 								END;		
 
+
+
+				/*
+				
+				This section creates @Jobs (quantity) of worker jobs to restore logs with
+
+				They too work in a queue
+
+				Like a queue-t 3.14
+				
+				*/
+
+
+				RAISERROR('Checking for sp_AllNightLog backup jobs', 0, 1) WITH NOWAIT;
+				
+					
+					SELECT @counter = COUNT(*) + 1 
+					FROM msdb.dbo.sysjobs 
+					WHERE name LIKE 'sp[_]AllNightLog[_]Restores[_]Job[_]%';
+
+					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' restore jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
+																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
+																											 ELSE 'Oh woah something weird happened!'
+																										END;	
+
+					RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+					
+							WHILE @counter <= @Jobs
+
+							
+								BEGIN
+
+									
+										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
+
+											SET @job_name_restores = N'sp_AllNightLog_Restores_' + 
+																				CASE 
+																				WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
+																				WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
+																				END; 
+							
+										
+										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
+
+										
+											SET @job_sql = N'
+							
+											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_restores + ', 
+																	 @description = ' + @job_description_restores + ', 
+																	 @category_name = ' + @job_category + ', 
+																	 @owner_login_name = ' + @job_owner + ',
+																	 @enabled = 0;
+								  
+											
+											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_restores + ', 
+																		 @step_name = ' + @job_name_restores + ', 
+																		 @subsystem = ''TSQL'', 
+																		 @command = ' + @job_command_restores + ';
+								  
+											
+											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_restores + ';
+											
+											
+											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_restores + ', 
+																			  @schedule_name = ten_seconds;
+											
+											';
+							
+										
+										SET @counter += 1;
+
+										
+											IF @Debug = 1
+												BEGIN 
+													RAISERROR(@job_sql, 0, 1) WITH NOWAIT;
+												END; 		
+
 		
+											IF @job_sql IS NULL
+											BEGIN
+												RAISERROR('@job_sql is NULL for some reason', 0, 1) WITH NOWAIT;
+											END; 
+
+
+										EXEC sp_executesql @job_sql;
+
+							
+								END;		
+
+
 		RAISERROR('Setup complete!', 0, 1) WITH NOWAIT;
 		
 			END; --End for the Agent job creation
@@ -628,19 +855,17 @@ RETURN;
 UpdateConfigs:
 
 IF @UpdateSetup = 1
-	AND (@RPOSeconds IS NULL AND @BackupPath IS NULL)
+	AND (@RPOSeconds IS NULL AND @BackupPath IS NULL AND @RPOSeconds IS NULL AND @RestorePath IS NULL)
 
 		BEGIN
-			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds or @BackupPath has a value', 0, 1) WITH NOWAIT;
+			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
 
 			RETURN;
 		END
 
-			IF OBJECT_ID('msdbCentral.dbo.configuration') IS NOT NULL
+			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
 	
 				BEGIN
-					
-					RAISERROR('Attempting to update RPO setting', 0, 1) WITH NOWAIT;
 
 					BEGIN TRY
 
@@ -649,9 +874,11 @@ IF @UpdateSetup = 1
 
 							BEGIN
 
+								RAISERROR('Attempting to update RPO setting', 0, 1) WITH NOWAIT;
+
 								UPDATE c
 										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RPOSeconds)
-								FROM msdbCentral.dbo.configuration AS c
+								FROM msdbCentral.dbo.backup_configuration AS c
 								WHERE c.configuration_name = N'log backup frequency'
 
 							END
@@ -660,15 +887,16 @@ IF @UpdateSetup = 1
 						IF @BackupPath IS NOT NULL
 
 							BEGIN
+								
+								RAISERROR('Attempting to update Backup Path setting', 0, 1) WITH NOWAIT;
 
 								UPDATE c
 										SET c.configuration_setting = @BackupPath
-								FROM msdbCentral.dbo.configuration AS c
+								FROM msdbCentral.dbo.backup_configuration AS c
 								WHERE c.configuration_name = N'log backup path'
 
 
 							END
-
 
 					END TRY
 
@@ -680,7 +908,7 @@ IF @UpdateSetup = 1
 							   @error_severity = ERROR_SEVERITY(), 
 							   @error_state = ERROR_STATE();
 
-						SELECT @msg = N'Error updating configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+						SELECT @msg = N'Error updating backup configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
 							   @error_severity = ERROR_SEVERITY(), 
 							   @error_state = ERROR_STATE();
 						
@@ -688,6 +916,62 @@ IF @UpdateSetup = 1
 
 
 					END CATCH
+
+			
+			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+
+				BEGIN
+
+					BEGIN TRY
+
+						
+						IF @RTOSeconds IS NOT NULL
+
+							BEGIN
+
+								RAISERROR('Attempting to update RTO setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RTOSeconds)
+								FROM msdb.dbo.restore_configuration AS c
+								WHERE c.configuration_name = N'log restore frequency'
+
+							END
+
+						
+						IF @RestorePath IS NOT NULL
+
+							BEGIN
+								
+								RAISERROR('Attempting to update Restore Path setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = @RestorePath
+								FROM msdb.dbo.restore_configuration AS c
+								WHERE c.configuration_name = N'log restore path'
+
+
+							END
+
+					END TRY
+
+
+					BEGIN CATCH
+
+
+						SELECT @error_number = ERROR_NUMBER(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+
+						SELECT @msg = N'Error updating restore configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+						
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+
+					END CATCH
+
 
 
 					RETURN

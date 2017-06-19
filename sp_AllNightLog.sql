@@ -16,9 +16,8 @@ GO
 ALTER PROCEDURE dbo.sp_AllNightLog
 	  @PollForNewDatabases BIT = 0, /* Formerly Pollster */
 	  @Backup BIT = 0, /* Formerly LogShaming */
+	  @Restore BIT = 0,
 	  @Debug BIT = 0,
-	  @RPOSeconds BIGINT = 30,
-	  @BackupPath NVARCHAR(MAX) = N'D:\Backup',
 	  @Help BIT = 0,
 	  @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -118,67 +117,7 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
 
 
-/*These variables control the loop to create jobs*/
-DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
-DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
-DECLARE @job_name NVARCHAR(MAX) = N'''rock_logster_0'''; --Name of log backup job
-DECLARE @job_description NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
-DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
-DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
-DECLARE @job_command NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @LogShaming = 1'''; --Command the Agent job will run
 
-
-/*
-
-Sanity check some variables
-
-*/
-
-
-/*
-
-Should be a positive number
-
-*/
-
-IF (@RPOSeconds < 0)
-
-		BEGIN
-			RAISERROR('Please choose a positive number for @RPOSeconds', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END
-
-
-/*
-
-Probably shouldn't be more than 4 hours
-
-*/
-
-IF (@RPOSeconds >= 14400)
-		BEGIN
-
-			RAISERROR('If your RPO is really 4 hours, perhaps you''d be interested in a more modest recovery model, like SIMPLE?', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END
-
-/*
-
-Basic path sanity checks
-
-*/
-
-IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A or B drives
-AND (@BackupPath NOT LIKE '\\[a-zA-Z]%\%') --UNC path
-AND (@BackupPath NOT LIKE '\\[1-9][1-9][1-9].[1-9][1-9][1-9].[1-9][1-9][1-9].[1-9][1-9][1-9]%\%') --IP address?!
-	
-		BEGIN 		
-				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT
-				
-				RETURN;
-		END 
 
 /*
 
@@ -189,7 +128,7 @@ Make sure we're doing something
 IF (
 		  @PollForNewDatabases = 0
 	  AND @Backup = 0
-	  AND @Debug = 0
+	  AND @Restore = 0
 	  AND @Help = 0
 )
 		BEGIN 		
@@ -394,7 +333,7 @@ LogShamer:
 			
 			*/
 	
-			IF OBJECT_ID('msdbCentral.dbo.configuration') IS NOT NULL
+			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
 	
 				BEGIN
 	
@@ -409,25 +348,25 @@ LogShamer:
 			*/
 	
 						SELECT @rpo  = CONVERT(INT, configuration_setting)
-						FROM msdbCentral.dbo.configuration c
+						FROM msdbCentral.dbo.backup_configuration c
 						WHERE configuration_name = N'log backup frequency';
 	
 							
 							IF @rpo IS NULL
 								BEGIN
-									RAISERROR('@rpo cannot be NULL. Please check the msdbCentral.dbo.configuration table', 0, 1) WITH NOWAIT;
+									RAISERROR('@rpo cannot be NULL. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
 								END;	
 	
 	
 						SELECT @backup_path = CONVERT(NVARCHAR(512), configuration_setting)
-						FROM msdbCentral.dbo.configuration c
+						FROM msdbCentral.dbo.backup_configuration c
 						WHERE configuration_name = N'log backup path';
 	
 							
 							IF @backup_path IS NULL
 								BEGIN
-									RAISERROR('@backup_path cannot be NULL. Please check the msdbCentral.dbo.configuration table', 0, 1) WITH NOWAIT;
+									RAISERROR('@backup_path cannot be NULL. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
 								END;	
 	
@@ -437,7 +376,7 @@ LogShamer:
 	
 				BEGIN
 	
-					RAISERROR('msdbCentral.dbo.configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
+					RAISERROR('msdbCentral.dbo.backup_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
 					RETURN;
 				
 				END;
@@ -703,4 +642,3 @@ RETURN;
 
 
 END; -- Final END for stored proc
-
