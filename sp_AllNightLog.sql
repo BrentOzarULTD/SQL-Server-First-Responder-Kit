@@ -985,7 +985,7 @@ IF @Restore = 1
 												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
 											  )
 										OR    
-											  (		/*This section picks up newly added databases by Pollster*/
+											  (		/*This section picks up newly added databases by DiskPollster*/
 											  	    rw.is_started = 0
 											  	AND rw.is_completed = 0
 											  	AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'

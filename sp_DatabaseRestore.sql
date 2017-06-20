@@ -83,8 +83,7 @@ IF @Help = 1
 		*/
 		'
 		
-		SELECT [Example Commands] = 
-		N'
+		PRINT '
 		/*
 		EXEC dbo.sp_DatabaseRestore 
 			@Database = ''LogShipMe'', 
@@ -295,6 +294,33 @@ CREATE TABLE #Headers
     --
     Seq INT NOT NULL IDENTITY(1, 1)
 );
+
+/*
+
+Correct paths in case people forget a final "\" 
+
+*/
+
+/*Full*/
+
+IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		SET @BackupPathFull += N'\'
+	END
+
+/*Diff*/
+IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		SET @BackupPathDiff += N'\'
+	END
+
+/*Log*/
+IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		SET @BackupPathLog += N'\'
+	END
+
+
 
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
