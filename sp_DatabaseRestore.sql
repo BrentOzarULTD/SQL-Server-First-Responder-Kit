@@ -702,7 +702,8 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 				
 				DELETE FROM #Headers WHERE BackupType = 2;
 			END;
-			
+
+
 			IF @i = 2
 			BEGIN
 
@@ -726,6 +727,12 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 	CLOSE BackupFiles;
 
 DEALLOCATE BackupFiles;  
+
+				IF @Debug = 1
+				BEGIN
+					SELECT '#Headers' AS table_name, * FROM #Headers AS h
+				END
+
 
 END
 
