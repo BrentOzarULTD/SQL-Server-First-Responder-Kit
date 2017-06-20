@@ -1038,8 +1038,6 @@ IF @UpdateSetup = 1
 
 							END;
 
-						RAISERROR('Update complete!', 0, 1) WITH NOWAIT;
-
 					END TRY
 
 
@@ -1060,6 +1058,8 @@ IF @UpdateSetup = 1
 					END CATCH;
 
 				END;
+
+				RAISERROR('Update complete!', 0, 1) WITH NOWAIT;
 
 			RETURN;
 
