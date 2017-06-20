@@ -17,6 +17,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
 	  @StopAt NVARCHAR(14) = NULL,
+	  @OnlyLogsAfter NVARCHAR(14),
 	  @Debug INT = 0, 
 	  @Help BIT = 0,
 	  @VersionDate DATETIME = NULL OUTPUT
@@ -710,7 +711,22 @@ IF(@StopAt IS NULL)
 		
 		OPEN BackupFiles;
 	END;
-	
+
+
+IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
+	BEGIN
+		DECLARE BackupFiles CURSOR FOR
+			SELECT BackupFile
+			FROM @FileList
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
+			  ORDER BY BackupFile;
+		
+		OPEN BackupFiles;
+	END
+
+
 	ELSE
 	
 	BEGIN
