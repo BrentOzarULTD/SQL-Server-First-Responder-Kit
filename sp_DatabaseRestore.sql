@@ -1,77 +1,3 @@
-
-/*
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 0, 
-	@RunRecovery = 0;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 1, 
-	@RunRecovery = 0;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 1, 
-	@RunRecovery = 1;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 0, 
-	@RunRecovery = 1;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathDiff = 'D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\',
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1;
- 
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
-	@BackupPathDiff = '\\StorageServer\LogShipMe\DIFF\',
-	@BackupPathLog = '\\StorageServer\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1,
-	@TestRestore = 1,
-	@RunCheckDB = 1,
-	@Debug = 0;
-
---This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'DBA', 
-	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
-	@BackupPathDiff = '\\StorageServer\LogShipMe\DIFF\',
-	@BackupPathLog = '\\StorageServer\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1,
-	@StopAt = '20170508201501',
-	@Debug = 1;
-
-Variables:
-
-@RestoreDiff - This variable is a flag for whether or not the script is expecting to restore differentials
-@StopAt - This variable is used to restore transaction logs to a specific date and time.  The format must be in YYYYMMDDHHMMSS.  The time is in military format.
-
-About Debug Modes:
-
-There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
-has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
-*/
-
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -89,9 +15,10 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
+	  @StopAt NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
-	  @VersionDate DATETIME = NULL OUTPUT, 
-	  @StopAt NVARCHAR(14) = NULL
+	  @Help BIT = 0,
+	  @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
 
@@ -99,6 +26,143 @@ SET NOCOUNT ON;
 	DECLARE @Version NVARCHAR(30);
 	SET @Version = '5.4';
 	SET @VersionDate = '20170603';
+
+
+IF @Help = 1
+
+	BEGIN
+	
+		PRINT '
+		/*
+			sp_DatabaseRestore from http://FirstResponderKit.org
+			
+			This script will restore a database from a given file path.
+		
+			To learn more, visit http://FirstResponderKit.org where you can download new
+			versions for free, watch training videos on how it works, get more info on
+			the findings, contribute your own code, and more.
+		
+			Known limitations of this version:
+			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+			 - Tastes awful with marmite.
+		
+			Unknown limitations of this version:
+			 - None.  (If we knew them, they would be known. Duh.)
+		
+		     Changes - for the full list of improvements and fixes in this version, see:
+		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		
+		    MIT License
+			
+			Copyright for portions of sp_Blitz are held by Microsoft as part of project 
+			tigertoolbox and are provided under the MIT license:
+			https://github.com/Microsoft/tigertoolbox
+			   
+			All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
+		
+			Copyright (c) 2017 Brent Ozar Unlimited
+		
+			Permission is hereby granted, free of charge, to any person obtaining a copy
+			of this software and associated documentation files (the "Software"), to deal
+			in the Software without restriction, including without limitation the rights
+			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+			copies of the Software, and to permit persons to whom the Software is
+			furnished to do so, subject to the following conditions:
+		
+			The above copyright notice and this permission notice shall be included in all
+			copies or substantial portions of the Software.
+		
+			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+			AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+			SOFTWARE.
+		
+		*/
+		'
+		
+		SELECT [Example Commands] = 
+		N'
+		/*
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 0, 
+			@RunRecovery = 0;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 1, 
+			@RunRecovery = 0;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 1, 
+			@RunRecovery = 1;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 0, 
+			@RunRecovery = 1;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1;
+		 
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
+			@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1,
+			@TestRestore = 1,
+			@RunCheckDB = 1,
+			@Debug = 0;
+		
+		--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''DBA'', 
+			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
+			@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1,
+			@StopAt = ''20170508201501'',
+			@Debug = 1;
+		
+		Variables:
+		
+		@RestoreDiff - This variable is a flag for whether or not the script is expecting to restore differentials
+		@StopAt - This variable is used to restore transaction logs to a specific date and time.  The format must be in YYYYMMDDHHMMSS.  The time is in military format.
+		
+		About Debug Modes:
+		
+		There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
+		has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
+		*/
+		'
+	
+	RETURN
+	
+	END
+
 
 
 -- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
