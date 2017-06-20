@@ -247,15 +247,42 @@ SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
-	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
 		BEGIN
-
+	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-
+	
 			RETURN;
-
+	
 		END
 
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
 
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
@@ -408,14 +435,42 @@ SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
-	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
 		BEGIN
-
+	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-
+	
 			RETURN;
-
+	
 		END
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
 
 
 -- Find latest diff backup 
@@ -482,14 +537,42 @@ SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
 
-	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
 		BEGIN
-
+	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-
+	
 			RETURN;
-
+	
 		END
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
 
 
 --check for log backups
