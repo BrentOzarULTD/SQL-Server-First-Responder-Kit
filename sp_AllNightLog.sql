@@ -469,7 +469,7 @@ DiskPollster:
 							AND EXISTS (
 									SELECT 1
 									FROM msdb.dbo.restorehistory r
-									WHERE r.database_name = rw.database_name
+									WHERE r.destination_database_name = rw.database_name
 									AND r.restore_type = 'D'
 										)								
 								)
@@ -489,7 +489,7 @@ DiskPollster:
 									AND EXISTS (
 											SELECT 1
 											FROM msdb.dbo.restorehistory r
-											WHERE r.database_name = rw.database_name
+											WHERE r.destination_database_name = rw.database_name
 											AND r.restore_type = 'D'
 												);
 
