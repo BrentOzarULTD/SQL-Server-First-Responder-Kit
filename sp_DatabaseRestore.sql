@@ -95,9 +95,26 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 AS
 SET NOCOUNT ON;
 
+/*Versioning details*/
 	DECLARE @Version NVARCHAR(30);
 	SET @Version = '5.4';
 	SET @VersionDate = '20170603';
+
+
+-- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
+-- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
+-- Need to capture BuildVersion because RESTORE HEADERONLY changed with 2014 CU1, not RTM
+DECLARE @ProductVersion AS NVARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS NVARCHAR(20));
+DECLARE @MajorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 4) AS SMALLINT);
+DECLARE @MinorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 3) AS SMALLINT);
+DECLARE @BuildVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 2) AS SMALLINT);
+
+IF @MajorVersion < 10
+BEGIN
+  RAISERROR('Sorry, DatabaseRestore doesn''t work on versions of SQL prior to 2008.', 15, 1);
+  RETURN;
+END;
+
 
 DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
         @sql NVARCHAR(MAX), --Holds executable SQL commands
@@ -122,56 +139,6 @@ DECLARE @FileList TABLE
 );
 
 
-IF @RestoreDatabaseName IS NULL
-	SET @RestoreDatabaseName = @Database;
-
--- get list of files 
-SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
-
-			IF @Debug = 1
-			BEGIN
-				PRINT @cmd;
-			END  
-
-
-INSERT INTO @FileList (BackupFile)
-EXEC master.sys.xp_cmdshell @cmd; 
-
-	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
-		BEGIN
-
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-
-			RETURN;
-
-		END
-
-
-
- select * from @FileList
--- Find latest full backup 
-SELECT @LastFullBackup = MAX(BackupFile)
-FROM @FileList
-WHERE BackupFile LIKE N'%.bak'
-    AND
-    BackupFile LIKE N'%' + @Database + N'%';
-
-
--- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
--- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
--- Need to capture BuildVersion because RESTORE HEADERONLY changed with 2014 CU1, not RTM
-DECLARE @ProductVersion AS NVARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS NVARCHAR(20));
-DECLARE @MajorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 4) AS SMALLINT);
-DECLARE @MinorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 3) AS SMALLINT);
-DECLARE @BuildVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 2) AS SMALLINT);
-
-IF @MajorVersion < 10
-BEGIN
-  RAISERROR('Sorry, DatabaseRestore doesn''t work on versions of SQL prior to 2008.', 15, 1);
-  RETURN;
-END;
-
--- Build SQL for RESTORE FILELIST ONLY
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
 CREATE TABLE #FileListParameters
 (
@@ -200,28 +167,6 @@ CREATE TABLE #FileListParameters
 );
 
 
-SET @FileListParamSQL = 
-  N'INSERT INTO #FileListParameters WITH (TABLOCK)
-   (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
-   ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
-   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint';
-
-IF @MajorVersion >= 13
-  SET @FileListParamSQL += N', SnapshotUrl';
-
-SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
-SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
-
-SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
-		
-		IF @Debug = 1
-		BEGIN
-			PRINT @sql;
-		END
-
-EXEC (@sql);
-
--- Build SQL for RESTORE HEADERONLY - this will be used a bit further below
 IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
 CREATE TABLE #Headers
 (
@@ -286,6 +231,69 @@ CREATE TABLE #Headers
     --
     Seq INT NOT NULL IDENTITY(1, 1)
 );
+
+IF @RestoreDatabaseName IS NULL
+	SET @RestoreDatabaseName = @Database;
+
+-- get list of files 
+SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
+
+			IF @Debug = 1
+			BEGIN
+				PRINT @cmd;
+			END  
+
+
+INSERT INTO @FileList (BackupFile)
+EXEC master.sys.xp_cmdshell @cmd; 
+
+	IF (SELECT COUNT(*) FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.') = 1
+		BEGIN
+
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END
+
+
+-- Find latest full backup 
+SELECT @LastFullBackup = MAX(BackupFile)
+FROM @FileList
+WHERE BackupFile LIKE N'%.bak'
+    AND
+    BackupFile LIKE N'%' + @Database + N'%';
+
+	IF @Debug = 1
+	BEGIN
+		SELECT *
+		FROM   @FileList;
+	END
+
+
+
+SET @FileListParamSQL = 
+  N'INSERT INTO #FileListParameters WITH (TABLOCK)
+   (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
+   ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
+   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint';
+
+IF @MajorVersion >= 13
+	BEGIN
+		SET @FileListParamSQL += N', SnapshotUrl';
+	END
+
+SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
+SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
+
+SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+		
+		IF @Debug = 1
+		BEGIN
+			PRINT @sql;
+		END
+
+EXEC (@sql);
 
 
 SET @HeadersSQL = 
@@ -390,6 +398,13 @@ SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 		PRINT @cmd;
 	END  
 
+	IF @Debug = 1
+	BEGIN
+		SELECT *
+		FROM   @FileList;
+	END
+
+
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
@@ -403,7 +418,6 @@ EXEC master.sys.xp_cmdshell @cmd;
 		END
 
 
--- select * from @fileList
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
@@ -457,6 +471,12 @@ SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
 		BEGIN
 			PRINT @cmd;
 		END; 
+
+		IF @Debug = 1
+		BEGIN
+			SELECT *
+			FROM   @FileList;
+		END
 
 
 INSERT INTO @FileList (BackupFile)
