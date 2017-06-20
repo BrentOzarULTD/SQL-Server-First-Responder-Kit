@@ -466,11 +466,11 @@ DiskPollster:
 							FROM msdb.dbo.restore_worker rw WITH (READPAST)
 							WHERE rw.last_log_restore_finish_time < '99991231'
 							AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())				
-							AND NOT EXISTS (
+							AND EXISTS (
 									SELECT 1
-									FROM msdb.dbo.backupset b
-									WHERE b.database_name = rw.database_name
-									AND b.type = 'D'
+									FROM msdb.dbo.restorehistory r
+									WHERE r.database_name = rw.database_name
+									AND r.restore_type = 'D'
 										)								
 								)
 	
@@ -488,9 +488,9 @@ DiskPollster:
 									AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())
 									AND EXISTS (
 											SELECT 1
-											FROM msdb.dbo.backupset b
-											WHERE b.database_name = rw.database_name
-											AND b.type = 'D'
+											FROM msdb.dbo.restorehistory r
+											WHERE r.database_name = rw.database_name
+											AND r.restore_type = 'D'
 												);
 
 								
@@ -534,7 +534,7 @@ DiskPollster:
 	
 			BEGIN
 	
-				RAISERROR('msdbCentral.dbo.backup_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
+				RAISERROR('msdb.dbo.restore_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
 				RETURN;
 			
 			END; 
