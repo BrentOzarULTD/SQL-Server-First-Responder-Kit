@@ -1,4 +1,4 @@
-﻿IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
+IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzFirst AS RETURN 0;')
 GO
 

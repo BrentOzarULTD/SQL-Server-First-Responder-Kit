@@ -3691,6 +3691,6 @@ EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1
 
 */
 
-
-
 END;
+
+GO 
