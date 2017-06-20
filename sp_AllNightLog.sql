@@ -121,7 +121,7 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd 
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0 --We use this one
-
+DECLARE @only_logs_after NVARCHAR(30) = N''
 
 
 /*
@@ -970,6 +970,7 @@ IF @Restore = 1
 							
 										SELECT TOP (1) 
 												@database = rw.database_name,
+												@only_logs_after = REPLACE(REPLACE(REPLACE(CONVERT(NVARCHAR(30), rw.last_log_restore_start_time, 120), ' ', ''), '-', ''), ':', ''),
 												@restore_full = CASE WHEN	  rw.is_started = 0
 																		  AND rw.is_completed = 0
 																		  AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
@@ -1087,7 +1088,9 @@ IF @Restore = 1
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathLog = @restore_path,
-																				   @ContinueLogs = 1
+																				   @ContinueLogs = 1,
+																				   @RunRecovery = 0,
+																				   @OnlyLogsAfter = @only_logs_after
 	
 											END
 
@@ -1097,7 +1100,8 @@ IF @Restore = 1
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path,
-																				   @ContinueLogs = 1
+																				   @ContinueLogs = 0,
+																				   @RunRecovery = 0
 	
 											END
 
