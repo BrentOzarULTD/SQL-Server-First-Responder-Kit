@@ -11,7 +11,8 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
-	  @TestRestore BIT = 0, @RunCheckDB BIT = 0, 
+	  @TestRestore BIT = 0, 
+	  @RunCheckDB BIT = 0, 
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
@@ -81,7 +82,7 @@ IF @Help = 1
 			SOFTWARE.
 		
 		*/
-		'
+		';
 		
 		PRINT '
 		/*
@@ -156,11 +157,11 @@ IF @Help = 1
 		There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
 		has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
 		*/
-		'
+		';
 	
-	RETURN
+	RETURN;
 	
-	END
+	END;
 
 
 
@@ -179,22 +180,22 @@ BEGIN
 END;
 
 
-DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
-        @sql NVARCHAR(MAX), --Holds executable SQL commands
-        @LastFullBackup NVARCHAR(500), --Last full backup name
-        @LastDiffBackup NVARCHAR(500), --Last diff backup name
-        @LastDiffBackupDateTime NVARCHAR(500), --Last diff backup date
-        @BackupFile NVARCHAR(500), --Name of backup file
-        @BackupDateTime AS CHAR(15), --Used for comparisons to generate ordered backup files/create a stopat point
+DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
+        @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
+        @LastFullBackup NVARCHAR(500) = N'', --Last full backup name
+        @LastDiffBackup NVARCHAR(500) = N'', --Last diff backup name
+        @LastDiffBackupDateTime NVARCHAR(500) = N'', --Last diff backup date
+        @BackupFile NVARCHAR(500) = N'', --Name of backup file
+        @BackupDateTime AS CHAR(15) = N'', --Used for comparisons to generate ordered backup files/create a stopat point
         @FullLastLSN NUMERIC(25, 0), --LSN for full
         @DiffLastLSN NUMERIC(25, 0), --LSN for diff
-		@HeadersSQL AS NVARCHAR(4000), --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
-		@MoveOption AS NVARCHAR(MAX)= '', --If you need to move restored files to a different directory
+		@HeadersSQL AS NVARCHAR(4000) = N'', --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
+		@MoveOption AS NVARCHAR(MAX)= N'', --If you need to move restored files to a different directory
 		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
 		@i TINYINT = 1,  --Maintains loop to continue logs
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
-		@FileListParamSQL NVARCHAR(4000); --Holds INSERT list for #FileListParameters
+		@FileListParamSQL NVARCHAR(4000) = N''; --Holds INSERT list for #FileListParameters
 
 DECLARE @FileList TABLE
 (
@@ -305,33 +306,42 @@ Correct paths in case people forget a final "\"
 
 IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		SET @BackupPathFull += N'\'
-	END
+		RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathFull += N'\';
+	END;
 
 /*Diff*/
 IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		SET @BackupPathDiff += N'\'
-	END
+		RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathDiff += N'\';
+	END;
 
 /*Log*/
 IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		SET @BackupPathLog += N'\'
-	END
+		RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathLog += N'\';
+	END;
 
 
 
 IF @RestoreDatabaseName IS NULL
 	SET @RestoreDatabaseName = @Database;
 
+
+IF @BackupPathFull IS NOT NULL
+
+BEGIN
+
 -- get list of files 
 SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 
 			IF @Debug = 1
 			BEGIN
+				IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
 				PRINT @cmd;
-			END  
+			END;  
 
 
 INSERT INTO @FileList (BackupFile)
@@ -349,28 +359,8 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
+		END;
 
 /*End folder sanity check*/
 
@@ -385,7 +375,7 @@ WHERE BackupFile LIKE N'%.bak'
 	BEGIN
 		SELECT *
 		FROM   @FileList;
-	END
+	END;
 
 
 
@@ -398,7 +388,7 @@ SET @FileListParamSQL =
 IF @MajorVersion >= 13
 	BEGIN
 		SET @FileListParamSQL += N', SnapshotUrl';
-	END
+	END;
 
 SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
@@ -407,10 +397,16 @@ SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBack
 		
 		IF @Debug = 1
 		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for INSERT to #FileListParameters: @BackupPathFull + @LastFullBackup';
 			PRINT @sql;
-		END
+		END;
 
 EXEC (@sql);
+
+	IF @Debug = 1
+		BEGIN
+			SELECT * FROM #FileListParameters
+		END
 
 
 SET @HeadersSQL = 
@@ -433,14 +429,11 @@ IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
-			IF @Debug = 1
-			BEGIN
-				PRINT @HeadersSQL;
-			END  
-
 
 IF @MoveFiles = 1
 	BEGIN
+		
+		RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
 	
 		WITH Files
 	    AS (
@@ -451,7 +444,7 @@ IF @MoveFiles = 1
 				END + REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' AS logicalcmds
 			FROM #FileListParameters)
 		
-		SELECT @MoveOption = @MoveOption + logicalcmds
+		SELECT @MoveOption = @MoveOption + Files.logicalcmds
 		FROM Files;
 	
 	END;
@@ -459,13 +452,16 @@ IF @MoveFiles = 1
 
 IF @ContinueLogs = 0
 	BEGIN
+
+		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
 		
 		IF @Debug = 1
 		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
 			PRINT @sql;
-		END
+		END;
 		
 		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
@@ -475,8 +471,9 @@ IF @ContinueLogs = 0
 			
 		IF @Debug = 1
 		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
 			PRINT @sql;
-		END
+		END;
 	    
 	    EXECUTE (@sql);
 	    
@@ -487,8 +484,9 @@ IF @ContinueLogs = 0
 
 			IF @Debug = 1
 			BEGIN
+				IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
 				PRINT @BackupDateTime;
-			END                                            
+			END;                                            
 	    
 	END;
 
@@ -506,20 +504,27 @@ ELSE
 --Clear out table variables for differential
 DELETE FROM @FileList;
 
+END
+
+
+IF @BackupPathDiff IS NOT NULL
+
+BEGIN 
 
 -- get list of files 
 SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 
 	IF @Debug = 1
 	BEGIN
+		IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff check';
 		PRINT @cmd;
-	END  
+	END;  
 
 	IF @Debug = 1
 	BEGIN
 		SELECT *
 		FROM   @FileList;
-	END
+	END;
 
 
 INSERT INTO @FileList (BackupFile)
@@ -538,27 +543,7 @@ EXEC master.sys.xp_cmdshell @cmd;
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
 	
-			RETURN;
-	
-		END
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
+		END;
 
 /*End folder sanity check*/
 
@@ -581,8 +566,9 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		
 		IF @Debug = 1
 		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
-		END  
+		END;  
 
 		
 		IF @Debug IN (0, 1)
@@ -593,10 +579,16 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		
 		IF @Debug = 1
 		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
 		END;  
 		
 		EXECUTE (@sql);
+
+			IF @Debug = 1
+				BEGIN
+					SELECT * FROM #Headers AS h
+				END
 		
 		--set the @BackupDateTime to the date time on the most recent differential	
 		SET @BackupDateTime = @LastDiffBackupDateTime;
@@ -608,12 +600,18 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 
 --Clear out table variables for translogs
 DELETE FROM @FileList;
-        
+   
+ END      
+
+ IF @BackupPathLog IS NOT NULL
+
+BEGIN
 
 SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
 
 		IF @Debug = 1
 		BEGIN
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog check';
 			PRINT @cmd;
 		END; 
 
@@ -621,7 +619,7 @@ SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
 		BEGIN
 			SELECT *
 			FROM   @FileList;
-		END
+		END;
 
 
 INSERT INTO @FileList (BackupFile)
@@ -640,27 +638,7 @@ EXEC master.sys.xp_cmdshell @cmd;
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
 	
-			RETURN;
-	
-		END
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
+		END;
 
 /*End folder sanity check*/
 
@@ -705,6 +683,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			
 				IF @Debug = 1
 				BEGIN
+					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @BackupPathLog, @BackupFile';
 					PRINT @sql;
 				END; 
 			
@@ -726,11 +705,14 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			
 			IF @i = 2
 			BEGIN
+
+				RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
 				
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
 				
 					IF @Debug = 1
 					BEGIN
+						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @BackupPathLog, @BackupFile';
 						PRINT @sql;
 					END; 
 				
@@ -745,6 +727,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 
 DEALLOCATE BackupFiles;  
 
+END
 
 -- put database in a useable state 
 IF @RunRecovery = 1
@@ -753,6 +736,7 @@ IF @RunRecovery = 1
 
 			IF @Debug = 1
 			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 
@@ -768,6 +752,7 @@ IF @RunCheckDB = 1
 			
 			IF @Debug = 1
 			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for Run Integrity Check: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 		
@@ -782,6 +767,7 @@ IF @TestRestore = 1
 			
 			IF @Debug = 1
 			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for DROP DATABASE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 		
