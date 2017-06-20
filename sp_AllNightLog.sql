@@ -359,7 +359,7 @@ DiskPollster:
 	IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
 	
 		BEGIN
-				RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
+				IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
 
 				SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
 				FROM msdb.dbo.restore_configuration c

@@ -16,8 +16,8 @@ GO
 ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@RPOSeconds BIGINT = 30,
 				@RTOSeconds BIGINT = 30,
-				@BackupPath NVARCHAR(MAX) = N'D:\Backup',
-				@RestorePath NVARCHAR(MAX) = N'D:\Backup\NADASUPERIOR$NADA2016',
+				@BackupPath NVARCHAR(MAX) = NULL,
+				@RestorePath NVARCHAR(MAX) = NULL,
 				@Jobs TINYINT = 10,
 				@RunSetup BIT = 0,
 				@UpdateSetup BIT = 0,
@@ -616,7 +616,7 @@ BEGIN
 			
 			/*
 			
-			Look for Pollster job -- this job sets up our watcher for new databases
+			Look for Backup Pollster job -- this job sets up our watcher for new databases to back up
 			
 			*/
 
@@ -671,6 +671,66 @@ BEGIN
 				
 				END;	
 				
+
+
+			/*
+			
+			Look for Restore Pollster job -- this job sets up our watcher for new databases to back up
+			
+			*/
+
+			
+			RAISERROR('Checking for restore pollster job', 0, 1) WITH NOWAIT;
+
+			
+			IF NOT EXISTS (
+							SELECT 1 
+							FROM msdb.dbo.sysjobs 
+							WHERE name = 'sp_AllNightLog_PollDiskForNewDatabases'
+						  )
+		
+				
+				BEGIN
+					
+					
+					RAISERROR('Creating restore pollster job', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												 @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												 @category_name = 'Database Maintenance', 
+												 @owner_login_name = 'sa',
+												 @enabled = 0;
+					
+					
+					
+					RAISERROR('Adding restore job step', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobstep @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+													 @step_name = sp_AllNightLog_PollDiskForNewDatabases, 
+													 @subsystem = 'TSQL', 
+													 @command = 'EXEC sp_AllNightLog @PollDiskForNewDatabases = 1';
+					
+					
+					
+					RAISERROR('Adding restore job server', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobserver @job_name = sp_AllNightLog_PollDiskForNewDatabases;
+
+					
+									
+					RAISERROR('Attaching schedule', 0, 1) WITH NOWAIT;
+		
+						
+						EXEC msdb.dbo.sp_attach_schedule @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+														 @schedule_name = ten_seconds;
+		
+				
+				END;	
+
+
 
 				/*
 				

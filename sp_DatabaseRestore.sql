@@ -777,7 +777,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			IF @i = 1
 				BEGIN
 
-					RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
 
 				END
 
