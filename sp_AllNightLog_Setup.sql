@@ -978,6 +978,8 @@ IF @UpdateSetup = 1
 
 							END;
 
+						RAISERROR('Update complete!', 0, 1) WITH NOWAIT;
+
 					END TRY
 
 
