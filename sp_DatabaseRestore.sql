@@ -362,6 +362,24 @@ EXEC master.sys.xp_cmdshell @cmd;
 
 		END;
 
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
 /*End folder sanity check*/
 
 -- Find latest full backup 
@@ -542,8 +560,26 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-	
+
 		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
 
 /*End folder sanity check*/
 
@@ -637,8 +673,26 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-	
+
 		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
 
 /*End folder sanity check*/
 
@@ -701,8 +755,16 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					SET @i = 2;
 				
 				DELETE FROM #Headers WHERE BackupType = 2;
+
+
 			END;
 
+			IF @i = 1
+				BEGIN
+
+					RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
+
+				END
 
 			IF @i = 2
 			BEGIN
