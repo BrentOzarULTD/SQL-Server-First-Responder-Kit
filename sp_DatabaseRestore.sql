@@ -697,6 +697,20 @@ EXEC master.sys.xp_cmdshell @cmd;
 
 /*End folder sanity check*/
 
+IF (@OnlyLogsAfter IS NOT NULL)
+	BEGIN
+	
+	RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+	
+		DELETE fl
+		FROM @FileList AS fl
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND REPLACE(LEFT(RIGHT(fl.BackupFile, 19), 15),'_','') < @OnlyLogsAfter
+	
+END
+
+
 
 --check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
