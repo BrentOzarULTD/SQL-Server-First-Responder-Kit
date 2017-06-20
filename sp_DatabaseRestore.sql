@@ -17,7 +17,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
 	  @StopAt NVARCHAR(14) = NULL,
-	  @OnlyLogsAfter NVARCHAR(14),
+	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
 	  @Help BIT = 0,
 	  @VersionDate DATETIME = NULL OUTPUT
@@ -699,7 +699,7 @@ EXEC master.sys.xp_cmdshell @cmd;
 
 
 --check for log backups
-IF(@StopAt IS NULL)
+IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
@@ -727,8 +727,7 @@ IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)
 	END
 
 
-	ELSE
-	
+IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
 	BEGIN
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile

@@ -113,7 +113,9 @@ DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
 DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
 DECLARE @rto INT; --Used to hold the RPO value in our configuration table
 DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
-DECLARE @restore_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @restore_path_base NVARCHAR(MAX); --Used to hold the base backup path in our configuration table
+DECLARE @restore_path_full NVARCHAR(MAX); --Used to hold the full backup path in our configuration table
+DECLARE @restore_path_log NVARCHAR(MAX); --Used to hold the log backup path in our configuration table
 DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
@@ -359,12 +361,12 @@ DiskPollster:
 		BEGIN
 				RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
 
-				SELECT @restore_path = CONVERT(NVARCHAR(512), configuration_setting)
+				SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
 				FROM msdb.dbo.restore_configuration c
 				WHERE configuration_name = N'log restore path';
 
 
-					IF @restore_path IS NULL
+					IF @restore_path_base IS NULL
 						BEGIN
 							RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
 							RETURN;
@@ -393,7 +395,7 @@ DiskPollster:
 
 						*/
 
-						SET @cmd = N'DIR /b "' + @restore_path + N'"';
+						SET @cmd = N'DIR /b "' + @restore_path_base + N'"';
 						
 									IF @Debug = 1
 									BEGIN
@@ -900,8 +902,6 @@ IF @Restore = 1
 			/*
 			
 			These settings are configurable
-	
-			I haven't found a good way to find the default backup path that doesn't involve xp_regread
 			
 			*/
 	
@@ -917,12 +917,12 @@ IF @Restore = 1
 								END;	
 	
 	
-						SELECT @restore_path = CONVERT(NVARCHAR(512), configuration_setting)
+						SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
 						FROM msdb.dbo.restore_configuration c
 						WHERE configuration_name = N'log restore path';
 	
 							
-							IF @restore_path IS NULL
+							IF @restore_path_base IS NULL
 								BEGIN
 									RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
@@ -997,7 +997,7 @@ IF @Restore = 1
 								
 									IF @database IS NOT NULL
 										BEGIN
-										SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database');
+										SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database');
 										IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
 										/*
@@ -1078,19 +1078,29 @@ IF @Restore = 1
 										
 										*/
 
-										SET @restore_path += N'\' + @database + N'\' + CASE WHEN @restore_full = 0
-																							THEN + N'LOG'
-																							ELSE + N'FULL'
-																							END
+										SET @restore_path_full = @restore_path_base + N'\' + @database + N'\' + N'FULL\'
+										
+											SET @msg = N'Path for FULL backups for ' + @database + N' is ' + @restore_path_full
+											IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+										SET @restore_path_log = @restore_path_base + N'\' + @database + N'\' + N'LOG\'
+
+											SET @msg = N'Path for LOG backups for ' + @database + N' is ' + @restore_path_log
+											IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
 										IF @restore_full = 0
 
 											BEGIN
 
+												IF @Debug = 1 RAISERROR('Starting Log only restores', 0, 1) WITH NOWAIT;
+
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
-																				   @BackupPathLog = @restore_path,
+																				   @BackupPathFull = @restore_path_full,
+																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 1,
 																				   @RunRecovery = 0,
-																				   @OnlyLogsAfter = @only_logs_after
+																				   @OnlyLogsAfter = @only_logs_after,
+																				   @Debug = @Debug
 	
 											END
 
@@ -1098,10 +1108,14 @@ IF @Restore = 1
 
 											BEGIN
 
+												IF @Debug = 1 RAISERROR('Starting first Full restore', 0, 1) WITH NOWAIT;
+
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
-																				   @BackupPathFull = @restore_path,
+																				   @BackupPathFull = @restore_path_full,
+																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 0,
-																				   @RunRecovery = 0
+																				   @RunRecovery = 0,
+																				   @Debug = @Debug
 	
 											END
 
