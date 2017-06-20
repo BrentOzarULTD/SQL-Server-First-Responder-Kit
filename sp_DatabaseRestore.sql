@@ -405,7 +405,7 @@ EXEC (@sql);
 
 	IF @Debug = 1
 		BEGIN
-			SELECT * FROM #FileListParameters
+			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
 		END
 
 
@@ -587,7 +587,7 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 
 			IF @Debug = 1
 				BEGIN
-					SELECT * FROM #Headers AS h
+					SELECT '#Headers' AS table_name, * FROM #Headers AS h
 				END
 		
 		--set the @BackupDateTime to the date time on the most recent differential	
