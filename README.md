@@ -11,13 +11,16 @@ Navigation
    - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
      - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
      - [Skipping Checks or Databases](#skipping-checks-or-databases)
- - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
  - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
    - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
  - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+ - Backups and Restores:
+   - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
+   - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
+   - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -110,36 +113,6 @@ Checks for the existence of a table named Fred - just kidding, named DBAtools.db
 
 [*Back to top*](#header1)
 
-## sp_BlitzBackups: How Much Data Could You Lose
-
-Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
-
-Parameters include:
-
-* @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
-* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
-* @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
-* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
-* @RestoreSpeedDiffMBps -- Nothing yet
-* @RestoreSpeedLogMBps -- Nothing yet
-
-* @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
-* @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
-* @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.
-* @WriteBackupsLastHours -- How many hours in the past you want to move data for. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
-
-An example run of sp_BlitzBackups to push data looks like this:
-
-```
-EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
-                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
-                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
-                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
-```
-
-In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by [Michael J. Swart's Take Care When Scripting Batches](http://michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
-
-The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
 
 ## sp_BlitzCache: Find the Most Resource-Intensive Queries
 
@@ -253,6 +226,62 @@ This is like sp_who, except it goes into way, way, way more details.
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
 
 [*Back to top*](#header1)
+
+## sp_BlitzBackups: How Much Data Could You Lose
+
+Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
+
+Parameters include:
+
+* @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+* @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
+* @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
+* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
+* @RestoreSpeedDiffMBps -- Nothing yet
+* @RestoreSpeedLogMBps -- Nothing yet
+
+* @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
+* @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
+* @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.
+* @WriteBackupsLastHours -- How many hours in the past you want to move data for. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
+
+An example run of sp_BlitzBackups to push data looks like this:
+
+```
+EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
+                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
+                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
+                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
+```
+
+In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by [Michael J. Swart's Take Care When Scripting Batches](http://michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
+
+The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
+
+[*Back to top*](#header1)
+
+
+## sp_AllNightLog: Back Up Faster to Lose Less Data
+
+You manage a SQL Server instance with hundreds or thousands of mission-critical databases. You want to back them all up as quickly as possible, and one maintenance plan job isn't going to cut it.
+
+Let's scale out our backup jobs by:
+
+* Creating a table with a list of databases and their desired Recovery Point Objective (RPO, aka data loss) - done with sp_AllNightLog_Setup
+* Set up several Agent jobs to back up databases as necessary - also done with sp_AllNightLog_Setup
+* Inside each of those Agent jobs, they call sp_AllNightLog @Backup = 1, which loops through the table to find databases that need to be backed up, then call [Ola Hallengren's DatabaseBackup stored procedure](https://ola.hallengren.com/)
+* Keeping that database list up to date as new databases are added - done by a job calling sp_AllNightLog @PollForNewDatabases = 1
+
+For more information about how this works, see [sp_AllNightLog documentation.](https://www.BrentOzar.com/sp_AllNightLog)
+
+Known issues:
+
+* The msdbCentral database name is hard-coded.
+* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We're not checking for it right now.)
+
+
+[*Back to top*](#header1)
+
 
 ## sp_DatabaseRestore: Easier Multi-File Restores
 
