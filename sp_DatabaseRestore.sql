@@ -505,3 +505,5 @@ IF @TestRestore = 1
 		IF @Debug = 0
 			EXECUTE sp_executesql @sql;
 	END;
+
+GO 
