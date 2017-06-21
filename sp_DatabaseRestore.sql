@@ -1,77 +1,3 @@
-
-/*
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 0, 
-	@RunRecovery = 0;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 1, 
-	@RunRecovery = 0;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 1, 
-	@RunRecovery = 1;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@ContinueLogs = 0, 
-	@RunRecovery = 1;
-
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = 'D:\Backup\SQL2016PROD1A\LogShipMe\FULL\', 
-	@BackupPathDiff = 'D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\',
-	@BackupPathLog = 'D:\Backup\SQL2016PROD1A\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1;
- 
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'LogShipMe', 
-	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
-	@BackupPathDiff = '\\StorageServer\LogShipMe\DIFF\',
-	@BackupPathLog = '\\StorageServer\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1,
-	@TestRestore = 1,
-	@RunCheckDB = 1,
-	@Debug = 0;
-
---This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
-EXEC dbo.sp_DatabaseRestore 
-	@Database = 'DBA', 
-	@BackupPathFull = '\\StorageServer\LogShipMe\FULL\', 
-	@BackupPathDiff = '\\StorageServer\LogShipMe\DIFF\',
-	@BackupPathLog = '\\StorageServer\LogShipMe\LOG\', 
-	@RestoreDiff = 1,
-	@ContinueLogs = 0, 
-	@RunRecovery = 1,
-	@StopAt = '20170508201501',
-	@Debug = 1;
-
-Variables:
-
-@RestoreDiff - This variable is a flag for whether or not the script is expecting to restore differentials
-@StopAt - This variable is used to restore transaction logs to a specific date and time.  The format must be in YYYYMMDDHHMMSS.  The time is in military format.
-
-About Debug Modes:
-
-There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
-has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
-*/
-
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -85,66 +11,165 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
-	  @TestRestore BIT = 0, @RunCheckDB BIT = 0, 
+	  @TestRestore BIT = 0, 
+	  @RunCheckDB BIT = 0, 
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
+	  @StopAt NVARCHAR(14) = NULL,
+	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
-	  @VersionDate DATETIME = NULL OUTPUT, 
-	  @StopAt NVARCHAR(14) = NULL
+	  @Help BIT = 0,
+	  @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
 
-	DECLARE @Version VARCHAR(30);
+/*Versioning details*/
+	DECLARE @Version NVARCHAR(30);
 	SET @Version = '5.4';
 	SET @VersionDate = '20170603';
 
-DECLARE @cmd NVARCHAR(4000), --Holds xp_cmdshell command
-        @sql NVARCHAR(MAX), --Holds executable SQL commands
-        @LastFullBackup NVARCHAR(500), --Last full backup name
-        @LastDiffBackup NVARCHAR(500), --Last diff backup name
-        @LastDiffBackupDateTime NVARCHAR(500), --Last diff backup date
-        @BackupFile NVARCHAR(500), --Name of backup file
-        @BackupDateTime AS CHAR(15), --Used for comparisons to generate ordered backup files/create a stopat point
-        @FullLastLSN NUMERIC(25, 0), --LSN for full
-        @DiffLastLSN NUMERIC(25, 0), --LSN for diff
-		@HeadersSQL AS NVARCHAR(4000), --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
-		@MoveOption AS NVARCHAR(MAX)= '', --If you need to move restored files to a different directory
-		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
-		@i TINYINT = 1,  --
-		@LogFirstLSN NUMERIC(25, 0), 
-		@LogLastLSN NUMERIC(25, 0),
-		@FileListParamSQL NVARCHAR(4000);
 
-DECLARE @FileList TABLE
-(
-    BackupFile NVARCHAR(255)
-);
+IF @Help = 1
 
+	BEGIN
+	
+		PRINT '
+		/*
+			sp_DatabaseRestore from http://FirstResponderKit.org
+			
+			This script will restore a database from a given file path.
+		
+			To learn more, visit http://FirstResponderKit.org where you can download new
+			versions for free, watch training videos on how it works, get more info on
+			the findings, contribute your own code, and more.
+		
+			Known limitations of this version:
+			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+			 - Tastes awful with marmite.
+		
+			Unknown limitations of this version:
+			 - None.  (If we knew them, they would be known. Duh.)
+		
+		     Changes - for the full list of improvements and fixes in this version, see:
+		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		
+		    MIT License
+			
+			Copyright for portions of sp_Blitz are held by Microsoft as part of project 
+			tigertoolbox and are provided under the MIT license:
+			https://github.com/Microsoft/tigertoolbox
+			   
+			All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
+		
+			Copyright (c) 2017 Brent Ozar Unlimited
+		
+			Permission is hereby granted, free of charge, to any person obtaining a copy
+			of this software and associated documentation files (the "Software"), to deal
+			in the Software without restriction, including without limitation the rights
+			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+			copies of the Software, and to permit persons to whom the Software is
+			furnished to do so, subject to the following conditions:
+		
+			The above copyright notice and this permission notice shall be included in all
+			copies or substantial portions of the Software.
+		
+			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+			AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+			SOFTWARE.
+		
+		*/
+		';
+		
+		PRINT '
+		/*
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 0, 
+			@RunRecovery = 0;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 1, 
+			@RunRecovery = 0;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 1, 
+			@RunRecovery = 1;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@ContinueLogs = 0, 
+			@RunRecovery = 1;
+		
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
+			@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1;
+		 
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
+			@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1,
+			@TestRestore = 1,
+			@RunCheckDB = 1,
+			@Debug = 0;
+		
+		--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''DBA'', 
+			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+			@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
+			@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+			@RestoreDiff = 1,
+			@ContinueLogs = 0, 
+			@RunRecovery = 1,
+			@StopAt = ''20170508201501'',
+			@Debug = 1;
+		
+		Variables:
+		
+		@RestoreDiff - This variable is a flag for whether or not the script is expecting to restore differentials
+		@StopAt - This variable is used to restore transaction logs to a specific date and time.  The format must be in YYYYMMDDHHMMSS.  The time is in military format.
+		
+		About Debug Modes:
+		
+		There are 3 Debug Modes.  Mode 0 is the default and will execute the script.  Debug 1 will print just the commands.  Debug 2 will print other useful information that
+		has mostly been useful for troubleshooting.  Debug 2 needs to be expanded to make it more useful.
+		*/
+		';
+	
+	RETURN;
+	
+	END;
 
-IF @RestoreDatabaseName IS NULL
-	SET @RestoreDatabaseName = @Database;
-
--- get list of files 
-SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
-
-INSERT INTO @FileList (BackupFile)
-EXEC master.sys.xp_cmdshell @cmd; 
-
-
--- select * from @fileList
--- Find latest full backup 
-SELECT @LastFullBackup = MAX(BackupFile)
-FROM @FileList
-WHERE BackupFile LIKE '%.bak'
-    AND
-    BackupFile LIKE '%' + @Database + '%';
 
 
 -- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
 -- Based on: https://www.brentozar.com/archive/2015/05/sql-server-version-detection/
 -- Need to capture BuildVersion because RESTORE HEADERONLY changed with 2014 CU1, not RTM
-DECLARE @ProductVersion AS VARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS VARCHAR(20));
+DECLARE @ProductVersion AS NVARCHAR(20) = CAST(SERVERPROPERTY ('productversion') AS NVARCHAR(20));
 DECLARE @MajorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 4) AS SMALLINT);
 DECLARE @MinorVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 3) AS SMALLINT);
 DECLARE @BuildVersion AS SMALLINT = CAST(PARSENAME(@ProductVersion, 2) AS SMALLINT);
@@ -155,7 +180,30 @@ BEGIN
   RETURN;
 END;
 
--- Build SQL for RESTORE FILELIST ONLY
+
+DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
+        @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
+        @LastFullBackup NVARCHAR(500) = N'', --Last full backup name
+        @LastDiffBackup NVARCHAR(500) = N'', --Last diff backup name
+        @LastDiffBackupDateTime NVARCHAR(500) = N'', --Last diff backup date
+        @BackupFile NVARCHAR(500) = N'', --Name of backup file
+        @BackupDateTime AS CHAR(15) = N'', --Used for comparisons to generate ordered backup files/create a stopat point
+        @FullLastLSN NUMERIC(25, 0), --LSN for full
+        @DiffLastLSN NUMERIC(25, 0), --LSN for diff
+		@HeadersSQL AS NVARCHAR(4000) = N'', --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
+		@MoveOption AS NVARCHAR(MAX)= N'', --If you need to move restored files to a different directory
+		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
+		@i TINYINT = 1,  --Maintains loop to continue logs
+		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
+		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
+		@FileListParamSQL NVARCHAR(4000) = N''; --Holds INSERT list for #FileListParameters
+
+DECLARE @FileList TABLE
+(
+    BackupFile NVARCHAR(255)
+);
+
+
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
 CREATE TABLE #FileListParameters
 (
@@ -184,81 +232,62 @@ CREATE TABLE #FileListParameters
 );
 
 
-SET @FileListParamSQL = 
-  N'INSERT INTO #FileListParameters WITH (TABLOCK)
-   (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
-   ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
-   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint';
-
-IF @MajorVersion >= 13
-  SET @FileListParamSQL += N', SnapshotUrl';
-
-SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
-SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
-
-SET @sql = REPLACE(@FileListParamSQL, '{Path}', @BackupPathFull + @LastFullBackup);
-IF @Debug = 2
-	PRINT @sql;
-
-EXEC (@sql);
-
--- Build SQL for RESTORE HEADERONLY - this will be used a bit further below
 IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
 CREATE TABLE #Headers
 (
-    BackupName VARCHAR(256),
-    BackupDescription VARCHAR(256),
-    BackupType VARCHAR(256),
-    ExpirationDate VARCHAR(256),
-    Compressed VARCHAR(256),
-    Position VARCHAR(256),
-    DeviceType VARCHAR(256),
-    UserName VARCHAR(256),
-    ServerName VARCHAR(256),
-    DatabaseName VARCHAR(256),
-    DatabaseVersion VARCHAR(256),
-    DatabaseCreationDate VARCHAR(256),
-    BackupSize VARCHAR(256),
-    FirstLSN VARCHAR(256),
-    LastLSN VARCHAR(256),
-    CheckpointLSN VARCHAR(256),
-    DatabaseBackupLSN VARCHAR(256),
-    BackupStartDate VARCHAR(256),
-    BackupFinishDate VARCHAR(256),
-    SortOrder VARCHAR(256),
-    CodePage VARCHAR(256),
-    UnicodeLocaleId VARCHAR(256),
-    UnicodeComparisonStyle VARCHAR(256),
-    CompatibilityLevel VARCHAR(256),
-    SoftwareVendorId VARCHAR(256),
-    SoftwareVersionMajor VARCHAR(256),
-    SoftwareVersionMinor VARCHAR(256),
-    SoftwareVersionBuild VARCHAR(256),
-    MachineName VARCHAR(256),
-    Flags VARCHAR(256),
-    BindingID VARCHAR(256),
-    RecoveryForkID VARCHAR(256),
-    Collation VARCHAR(256),
-    FamilyGUID VARCHAR(256),
-    HasBulkLoggedData VARCHAR(256),
-    IsSnapshot VARCHAR(256),
-    IsReadOnly VARCHAR(256),
-    IsSingleUser VARCHAR(256),
-    HasBackupChecksums VARCHAR(256),
-    IsDamaged VARCHAR(256),
-    BeginsLogChain VARCHAR(256),
-    HasIncompleteMetaData VARCHAR(256),
-    IsForceOffline VARCHAR(256),
-    IsCopyOnly VARCHAR(256),
-    FirstRecoveryForkID VARCHAR(256),
-    ForkPointLSN VARCHAR(256),
-    RecoveryModel VARCHAR(256),
-    DifferentialBaseLSN VARCHAR(256),
-    DifferentialBaseGUID VARCHAR(256),
-    BackupTypeDescription VARCHAR(256),
-    BackupSetGUID VARCHAR(256),
-    CompressedBackupSize VARCHAR(256),
-    Containment VARCHAR(256),
+    BackupName NVARCHAR(256),
+    BackupDescription NVARCHAR(256),
+    BackupType NVARCHAR(256),
+    ExpirationDate NVARCHAR(256),
+    Compressed NVARCHAR(256),
+    Position NVARCHAR(256),
+    DeviceType NVARCHAR(256),
+    UserName NVARCHAR(256),
+    ServerName NVARCHAR(256),
+    DatabaseName NVARCHAR(256),
+    DatabaseVersion NVARCHAR(256),
+    DatabaseCreationDate NVARCHAR(256),
+    BackupSize NVARCHAR(256),
+    FirstLSN NVARCHAR(256),
+    LastLSN NVARCHAR(256),
+    CheckpointLSN NVARCHAR(256),
+    DatabaseBackupLSN NVARCHAR(256),
+    BackupStartDate NVARCHAR(256),
+    BackupFinishDate NVARCHAR(256),
+    SortOrder NVARCHAR(256),
+    CodePage NVARCHAR(256),
+    UnicodeLocaleId NVARCHAR(256),
+    UnicodeComparisonStyle NVARCHAR(256),
+    CompatibilityLevel NVARCHAR(256),
+    SoftwareVendorId NVARCHAR(256),
+    SoftwareVersionMajor NVARCHAR(256),
+    SoftwareVersionMinor NVARCHAR(256),
+    SoftwareVersionBuild NVARCHAR(256),
+    MachineName NVARCHAR(256),
+    Flags NVARCHAR(256),
+    BindingID NVARCHAR(256),
+    RecoveryForkID NVARCHAR(256),
+    Collation NVARCHAR(256),
+    FamilyGUID NVARCHAR(256),
+    HasBulkLoggedData NVARCHAR(256),
+    IsSnapshot NVARCHAR(256),
+    IsReadOnly NVARCHAR(256),
+    IsSingleUser NVARCHAR(256),
+    HasBackupChecksums NVARCHAR(256),
+    IsDamaged NVARCHAR(256),
+    BeginsLogChain NVARCHAR(256),
+    HasIncompleteMetaData NVARCHAR(256),
+    IsForceOffline NVARCHAR(256),
+    IsCopyOnly NVARCHAR(256),
+    FirstRecoveryForkID NVARCHAR(256),
+    ForkPointLSN NVARCHAR(256),
+    RecoveryModel NVARCHAR(256),
+    DifferentialBaseLSN NVARCHAR(256),
+    DifferentialBaseGUID NVARCHAR(256),
+    BackupTypeDescription NVARCHAR(256),
+    BackupSetGUID NVARCHAR(256),
+    CompressedBackupSize NVARCHAR(256),
+    Containment NVARCHAR(256),
     KeyAlgorithm NVARCHAR(32),
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
@@ -267,6 +296,136 @@ CREATE TABLE #Headers
     --
     Seq INT NOT NULL IDENTITY(1, 1)
 );
+
+/*
+
+Correct paths in case people forget a final "\" 
+
+*/
+
+/*Full*/
+
+IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathFull += N'\';
+	END;
+
+/*Diff*/
+IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathDiff += N'\';
+	END;
+
+/*Log*/
+IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
+		SET @BackupPathLog += N'\';
+	END;
+
+
+
+IF @RestoreDatabaseName IS NULL
+	SET @RestoreDatabaseName = @Database;
+
+
+IF @BackupPathFull IS NOT NULL
+
+BEGIN
+
+-- get list of files 
+SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
+
+			IF @Debug = 1
+			BEGIN
+				IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
+				PRINT @cmd;
+			END;  
+
+
+INSERT INTO @FileList (BackupFile)
+EXEC master.sys.xp_cmdshell @cmd; 
+
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
+
+-- Find latest full backup 
+SELECT @LastFullBackup = MAX(BackupFile)
+FROM @FileList
+WHERE BackupFile LIKE N'%.bak'
+    AND
+    BackupFile LIKE N'%' + @Database + N'%';
+
+	IF @Debug = 1
+	BEGIN
+		SELECT *
+		FROM   @FileList;
+	END;
+
+
+
+SET @FileListParamSQL = 
+  N'INSERT INTO #FileListParameters WITH (TABLOCK)
+   (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
+   ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
+   ,DifferentialBaseLSN, DifferentialBaseGUID, IsReadOnly, IsPresent, TDEThumbprint';
+
+IF @MajorVersion >= 13
+	BEGIN
+		SET @FileListParamSQL += N', SnapshotUrl';
+	END;
+
+SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
+SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
+
+SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+		
+		IF @Debug = 1
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for INSERT to #FileListParameters: @BackupPathFull + @LastFullBackup';
+			PRINT @sql;
+		END;
+
+EXEC (@sql);
+
+	IF @Debug = 1
+		BEGIN
+			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
+		END
 
 
 SET @HeadersSQL = 
@@ -292,6 +451,8 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 IF @MoveFiles = 1
 	BEGIN
+		
+		RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
 	
 		WITH Files
 	    AS (
@@ -302,7 +463,7 @@ IF @MoveFiles = 1
 				END + REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' AS logicalcmds
 			FROM #FileListParameters)
 		
-		SELECT @MoveOption = @MoveOption + logicalcmds
+		SELECT @MoveOption = @MoveOption + Files.logicalcmds
 		FROM Files;
 	
 	END;
@@ -310,18 +471,28 @@ IF @MoveFiles = 1
 
 IF @ContinueLogs = 0
 	BEGIN
+
+		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
-		PRINT @sql;
 		
-		IF @Debug = 0
+		IF @Debug = 1
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
+			PRINT @sql;
+		END;
+		
+		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	
 	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
-	    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathFull + @LastFullBackup);
+	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
 			
-			IF @Debug = 2
-			  PRINT @sql;
+		IF @Debug = 1
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
+			PRINT @sql;
+		END;
 	    
 	    EXECUTE (@sql);
 	    
@@ -329,9 +500,12 @@ IF @ContinueLogs = 0
 		  SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
 	    
 		  SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
-	    
-			IF @Debug = 2
-			  PRINT @BackupDateTime;                                                
+
+			IF @Debug = 1
+			BEGIN
+				IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
+				PRINT @BackupDateTime;
+			END;                                            
 	    
 	END;
 
@@ -349,20 +523,74 @@ ELSE
 --Clear out table variables for differential
 DELETE FROM @FileList;
 
+END
+
+
+IF @BackupPathDiff IS NOT NULL
+
+BEGIN 
 
 -- get list of files 
 SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 
+	IF @Debug = 1
+	BEGIN
+		IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff check';
+		PRINT @cmd;
+	END;  
+
+	IF @Debug = 1
+	BEGIN
+		SELECT *
+		FROM   @FileList;
+	END;
+
+
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd; 
 
--- select * from @fileList
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
+
+
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
-WHERE BackupFile LIKE '%.bak'
+WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE '%' + @Database + '%';
+    BackupFile LIKE N'%' + @Database + '%';
 	
 	--set the @BackupDateTime so that it can be used for comparisons
 	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
@@ -372,18 +600,32 @@ WHERE BackupFile LIKE '%.bak'
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
-		PRINT @sql;
 		
-		IF @Debug = 0
+		IF @Debug = 1
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathDiff, @LastDiffBackup';
+			PRINT @sql;
+		END;  
+
+		
+		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
-		SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathDiff + @LastDiffBackup);
+		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
 		
-		IF @Debug = 2
+		IF @Debug = 1
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
+		END;  
 		
 		EXECUTE (@sql);
+
+			IF @Debug = 1
+				BEGIN
+					SELECT '#Headers' AS table_name, * FROM #Headers AS h
+				END
 		
 		--set the @BackupDateTime to the date time on the most recent differential	
 		SET @BackupDateTime = @LastDiffBackupDateTime;
@@ -395,36 +637,117 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 
 --Clear out table variables for translogs
 DELETE FROM @FileList;
-        
+   
+ END      
+
+ IF @BackupPathLog IS NOT NULL
+
+BEGIN
 
 SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
+
+		IF @Debug = 1
+		BEGIN
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog check';
+			PRINT @cmd;
+		END; 
+
+		IF @Debug = 1
+		BEGIN
+			SELECT *
+			FROM   @FileList;
+		END;
+
 
 INSERT INTO @FileList (BackupFile)
 EXEC master.sys.xp_cmdshell @cmd;
 
+/*Sanity check folders*/
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		OR fl.BackupFile = 'File Not Found'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		) = 1
+	AND (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 							
+		WHERE fl.BackupFile IS NULL
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+			RETURN;
+	
+		END
+
+/*End folder sanity check*/
+
+IF (@OnlyLogsAfter IS NOT NULL)
+	BEGIN
+	
+	RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+	
+		DELETE fl
+		FROM @FileList AS fl
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND REPLACE(LEFT(RIGHT(fl.BackupFile, 19), 15),'_','') < @OnlyLogsAfter
+	
+END
+
+
 
 --check for log backups
-IF(@StopAt IS NULL)
+IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
-			WHERE BackupFile LIKE '%.trn'
-			  AND BackupFile LIKE '%' + @Database + '%'
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
 			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
 			  ORDER BY BackupFile;
 		
 		OPEN BackupFiles;
 	END;
-	
-	ELSE
-	
+
+
+IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
 	BEGIN
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
-			WHERE BackupFile LIKE '%.trn'
-			  AND BackupFile LIKE '%' + @Database + '%'
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
+			  ORDER BY BackupFile;
+		
+		OPEN BackupFiles;
+	END
+
+
+IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
+	BEGIN
+		DECLARE BackupFiles CURSOR FOR
+			SELECT BackupFile
+			FROM @FileList
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
 			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  ORDER BY BackupFile;
 		
@@ -439,10 +762,13 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			IF @i = 1
 			
 			BEGIN
-		    SET @sql = REPLACE(@HeadersSQL, '{Path}', @BackupPathLog + @BackupFile);
+		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathLog + @BackupFile);
 			
-				IF @Debug = 2
+				IF @Debug = 1
+				BEGIN
+					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @BackupPathLog, @BackupFile';
 					PRINT @sql;
+				END; 
 			
 			EXECUTE (@sql);
 				
@@ -458,15 +784,31 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					SET @i = 2;
 				
 				DELETE FROM #Headers WHERE BackupType = 2;
+
+
 			END;
-			
+
+			IF @i = 1
+				BEGIN
+
+					IF @Debug = 1 RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
+
+				END
+
 			IF @i = 2
 			BEGIN
+
+				RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
 				
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
-				PRINT @sql;
 				
-					IF @Debug = 0
+					IF @Debug = 1
+					BEGIN
+						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @BackupPathLog, @BackupFile';
+						PRINT @sql;
+					END; 
+				
+					IF @Debug IN (0, 1)
 						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
@@ -477,13 +819,26 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 
 DEALLOCATE BackupFiles;  
 
+				IF @Debug = 1
+				BEGIN
+					SELECT '#Headers' AS table_name, * FROM #Headers AS h
+				END
+
+
+END
 
 -- put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+
+			IF @Debug = 1
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
+				PRINT @sql;
+			END; 
+
+		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
 	    
@@ -492,8 +847,14 @@ IF @RunRecovery = 1
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+			
+			IF @Debug = 1
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for Run Integrity Check: @RestoreDatabaseName';
+				PRINT @sql;
+			END; 
+		
+		IF @Debug IN (0, 1)
 			EXECUTE sys.sp_executesql @sql;
 	END;
 
@@ -501,9 +862,13 @@ IF @RunCheckDB = 1
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
-		PRINT @sql;
-		IF @Debug = 0
+			
+			IF @Debug = 1
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for DROP DATABASE: @RestoreDatabaseName';
+				PRINT @sql;
+			END; 
+		
+		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
-
-GO 
