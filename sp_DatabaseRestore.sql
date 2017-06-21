@@ -873,3 +873,5 @@ IF @TestRestore = 1
 			EXECUTE sp_executesql @sql;
 
 	END;
+
+GO 
