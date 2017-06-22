@@ -341,7 +341,12 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.session_id ,
 						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
-						SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,
+						'+
+						CASE @SessionWaits
+							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,'
+							 ELSE N''
+						END
+						+' 
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
 			                             ( query_stats.statement_start_offset / 2 ) + 1,
