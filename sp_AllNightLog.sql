@@ -448,7 +448,7 @@ DiskPollster:
 							(
 							SELECT 1
 							FROM msdb.dbo.restore_worker rw
-							WHERE rw.database_name = fl. BackupFile
+							WHERE rw.database_name = fl.BackupFile
 							)
 
 						IF @Debug = 1 RAISERROR('Checking for wayward databases', 0, 1) WITH NOWAIT;
