@@ -72,8 +72,8 @@ DECLARE /*Variables for the variable Gods*/
 		@error_severity INT,--Holds error info for try/catch blocks
 		@error_state INT,--Holds error info for try/catch blocks
 		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128)',--Holds parameters used in dynamic SQL
-		@is_azure_db BIT = 0; --Are we using Azure? I'm not. You might be. That's cool.
-
+		@is_azure_db BIT = 0, --Are we using Azure? I'm not. You might be. That's cool.
+		@compatibility_level TINYINT = 0 --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
 
 /*Grabs CTFP setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -232,6 +232,17 @@ BEGIN
 	RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
 	RETURN;
 END;
+
+/*Check database compat level*/
+
+RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT
+
+SELECT @compatibility_level = d.compatibility_level
+FROM sys.databases AS d
+WHERE d.name = @DatabaseName
+
+RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
+
 
 /*Making sure top is set to something if NULL*/
 IF ( @Top IS NULL )
@@ -522,6 +533,10 @@ CREATE TABLE #working_warnings
 	is_adaptive BIT,
 	is_slow_plan BIT,
 	is_compile_more BIT,
+	index_spool_cost FLOAT,
+	index_spool_rows FLOAT,
+	is_spool_expensive BIT,
+	is_spool_more_rows BIT,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -2328,6 +2343,36 @@ ON s.query_hash = b.query_hash
 WHERE s.statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 OPTION (RECOMPILE);
 
+RAISERROR('Checking for wonky Index Spools', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES (
+    'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, selects
+AS ( SELECT s.plan_id, s.query_id
+     FROM   #statements AS s
+     WHERE  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 )
+, spools
+AS ( SELECT DISTINCT r.plan_id,
+       r.query_id,
+	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
+       c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
+       c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
+       c.n.value('@EstimateRewinds', 'FLOAT') AS estimated_rewinds
+FROM   #relop AS r
+JOIN   selects AS s
+ON s.plan_id = r.plan_id
+   AND s.query_id = r.query_id
+CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
+WHERE  r.relop.exist('/p:RelOp[(@PhysicalOp[.="Index Spool"])]') = 1
+)
+UPDATE ww
+		SET ww.index_spool_rows = sp.estimated_rows,
+			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE sp.estimated_rewinds WHEN 0 THEN 1 ELSE sp.estimated_rewinds END)
+FROM #working_warnings ww
+JOIN spools sp
+ON ww.plan_id = sp.plan_id
+AND ww.query_id = sp.query_id
+OPTION ( RECOMPILE );
+
 
 IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
 
@@ -2450,7 +2495,9 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
 	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
-	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END
+	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END,
+	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .5 THEN 1 END,
+	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= (wm.avg_rowcount * 10) THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
