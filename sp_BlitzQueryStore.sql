@@ -2496,8 +2496,8 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
 	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END,
-	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .5 THEN 1 END,
-	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= (wm.avg_rowcount * 10) THEN 1 END
+	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .1 THEN 1 END,
+	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= wm.min_rowcount THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
@@ -2561,7 +2561,9 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN b.long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
 				  CASE WHEN b.stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN b.is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
+				  CASE WHEN b.is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END	+
+				  CASE WHEN b.is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
+				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END     
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -2677,7 +2679,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time  ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2705,7 +2707,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2737,7 +2739,7 @@ SELECT wpt.database_name, ww.query_cost, wpt.query_sql_text, wm.proc_or_function
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
 	ON wpt.plan_id = ww.plan_id
@@ -2765,7 +2767,7 @@ SELECT wpt.database_name, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
-	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time   ORDER BY wm.plan_id) AS rn
+	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
@@ -3441,6 +3443,31 @@ BEGIN
                      'No URL yet',
                      'Joe Sack rules.') ;					 
 
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_spool_expensive = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     54,
+                     150,
+                     'Expensive Index Spool',
+                     'You have an index spool, this is usually a sign that there''s an index missing somewhere.',
+                     'No URL yet',
+                     'Check operator predicates and output for index definition guidance') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_spool_expensive = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     55,
+                     150,
+                     'Index Spools Many Rows',
+                     'You have an index spool that spools more rows than the query returns',
+                     'No URL yet',
+                     'Check operator predicates and output for index definition guidance') ;	
 
 				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 
