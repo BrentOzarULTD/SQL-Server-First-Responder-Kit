@@ -2559,7 +2559,7 @@ FROM   #relop AS r
 JOIN   selects AS s
 ON s.QueryHash = r.QueryHash
 CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
-WHERE  r.relop.exist('/p:RelOp[(@PhysicalOp[.="Index Spool"])]') = 1
+WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" AND @LogicalOp="Eager Spool"]') = 1
 )
 UPDATE b
 		SET b.index_spool_rows = sp.estimated_rows,

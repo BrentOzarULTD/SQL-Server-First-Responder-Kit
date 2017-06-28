@@ -2362,7 +2362,7 @@ JOIN   selects AS s
 ON s.plan_id = r.plan_id
    AND s.query_id = r.query_id
 CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
-WHERE  r.relop.exist('/p:RelOp[(@PhysicalOp[.="Index Spool"])]') = 1
+WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager Spool"]') = 1
 )
 UPDATE ww
 		SET ww.index_spool_rows = sp.estimated_rows,
