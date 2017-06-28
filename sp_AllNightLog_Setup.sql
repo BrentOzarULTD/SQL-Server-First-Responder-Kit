@@ -133,8 +133,8 @@ END; /* IF @Help = 1 */
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.0';
-SET @VersionDate = '20170611';
+SET @Version = '1.1';
+SET @VersionDate = '201700701';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -282,6 +282,12 @@ BEGIN
 				*/
 				
 				
+				IF ( SELECT 1
+						FROM sys.all_objects
+						WHERE name = 'dm_server_services' ) IS NOT NULL 
+
+				BEGIN
+
 				IF EXISTS (
 							SELECT 1
 							FROM sys.dm_server_services
@@ -296,6 +302,8 @@ BEGIN
 						RETURN;
 		
 					END;
+				
+				END 
 		
 
 			ELSE
@@ -1068,3 +1076,4 @@ IF @UpdateSetup = 1
 
 END; -- Final END for stored proc
 GO
+
