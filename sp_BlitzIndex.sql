@@ -36,8 +36,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.4';
-SET @VersionDate = '20170603';
+SET @Version = '5.5';
+SET @VersionDate = '20170701';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -1891,23 +1891,36 @@ BEGIN
     OPTION    ( RECOMPILE );                        
 
     IF (SELECT TOP 1 [object_id] FROM    #MissingIndexes mi) IS NOT NULL
-    BEGIN  
+    BEGIN
+
+	WITH create_date AS (
+						SELECT i.database_id,
+							   i.schema_name,
+							   i.[object_id], 
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+						FROM #IndexSanity AS i
+						GROUP BY i.database_id, i.schema_name, i.object_id
+						)
         SELECT  N'Missing index.' AS Finding ,
                 N'http://BrentOzar.com/go/Indexaphobia' AS URL ,
                 mi.[statement] + 
                 ' Est. Benefit: '
                     + CASE WHEN magic_benefit_number >= 922337203685477 THEN '>= 922,337,203,685,477'
                     ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
-                                        (magic_benefit_number/@DaysUptime)
+                                        (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END)
                                         AS BIGINT) AS MONEY), 1), '.00', '')
                     END AS [Estimated Benefit],
                 missing_index_details AS [Missing Index Request] ,
                 index_estimated_impact AS [Estimated Impact],
                 create_tsql AS [Create TSQL]
         FROM    #MissingIndexes mi
-        WHERE   [object_id] = @ObjectID
-                /* Minimum benefit threshold = 100k/day of uptime */
-        AND (magic_benefit_number/@DaysUptime) >= 100000
+		LEFT JOIN create_date AS cd
+		ON mi.[object_id] =  cd.object_id 
+		AND mi.database_id = cd.database_id
+		AND mi.schema_name = cd.schema_name
+        WHERE   mi.[object_id] = @ObjectID
+                /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+        AND (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
         ORDER BY is_low, magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END       
@@ -2902,6 +2915,7 @@ BEGIN;
 									i.schema_name,
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
+									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days,
                                 ISNULL (
                                     CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
@@ -2959,8 +2973,9 @@ BEGIN;
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id 
 										  AND mi.database_id = sz.database_id
 										  AND mi.schema_name = sz.schema_name
-                                        /* Minimum benefit threshold = 100k/day of uptime */
-                        WHERE ( @Mode = 4 AND (magic_benefit_number/@DaysUptime) >= 100000 ) OR (magic_benefit_number/@DaysUptime) >= 100000
+                                        /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+                        WHERE ( @Mode = 4 AND (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000 ) 
+						OR (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000
                         ) AS t
                         WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
                         ORDER BY t.is_low, magic_benefit_number DESC
@@ -4210,29 +4225,42 @@ BEGIN;
     END /* End @Mode=2 (index detail)*/
     ELSE IF @Mode=3 /*Missing index Detail*/
     BEGIN
+
+	WITH create_date AS (
+					SELECT i.database_id,
+						   i.schema_name,
+						   i.[object_id], 
+						   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+					FROM #IndexSanity AS i
+					GROUP BY i.database_id, i.schema_name, i.object_id
+					)
         SELECT 
-            database_name AS [Database Name], 
-            [schema_name] AS [Schema], 
-            table_name AS [Table], 
-            CAST((magic_benefit_number/@DaysUptime) AS BIGINT)
+            mi.database_name AS [Database Name], 
+            mi.[schema_name] AS [Schema], 
+            mi.table_name AS [Table], 
+            CAST((mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) AS BIGINT)
                 AS [Magic Benefit Number], 
-            missing_index_details AS [Missing Index Details], 
-            avg_total_user_cost AS [Avg Query Cost], 
-            avg_user_impact AS [Est Index Improvement], 
-            user_seeks AS [Seeks], 
-            user_scans AS [Scans],
-            unique_compiles AS [Compiles], 
-            equality_columns AS [Equality Columns], 
-            inequality_columns AS [Inequality Columns], 
-            included_columns AS [Included Columns], 
-            index_estimated_impact AS [Estimated Impact], 
-            create_tsql AS [Create TSQL], 
-            more_info AS [More Info],
+            mi.missing_index_details AS [Missing Index Details], 
+            mi.avg_total_user_cost AS [Avg Query Cost], 
+            mi.avg_user_impact AS [Est Index Improvement], 
+            mi.user_seeks AS [Seeks], 
+            mi.user_scans AS [Scans],
+            mi.unique_compiles AS [Compiles], 
+            mi.equality_columns AS [Equality Columns], 
+            mi.inequality_columns AS [Inequality Columns], 
+            mi.included_columns AS [Included Columns], 
+            mi.index_estimated_impact AS [Estimated Impact], 
+            mi.create_tsql AS [Create TSQL], 
+            mi.more_info AS [More Info],
             1 AS [Display Order],
-			is_low
-        FROM #MissingIndexes
-        /* Minimum benefit threshold = 100k/day of uptime */
-        WHERE (magic_benefit_number/@DaysUptime) >= 100000
+			mi.is_low
+        FROM #MissingIndexes AS mi
+		LEFT JOIN create_date AS cd
+		ON mi.[object_id] =  cd.object_id 
+		AND mi.database_id = cd.database_id
+		AND mi.schema_name = cd.schema_name
+        /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+        WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
         UNION ALL
         SELECT                 
             @ScriptVersionName,   

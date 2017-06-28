@@ -16,8 +16,11 @@ Navigation
  - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
-   - [Advanced sp_BlitzFirst Parameters](#advanced-sp_blitzfirst-parameters)
- - [sp_BlitzBackups](#sp-blitzbackups)  
+ - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+ - Backups and Restores:
+   - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
+   - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
+   - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
 
@@ -32,7 +35,7 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 The First Responder Kit runs on:
 
-* SQL Server 2008, 2008R2, 2012, 2014, 2016 - yes, fully supported
+* SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
 * Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
@@ -196,44 +199,35 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 ## sp_BlitzFirst: Real-Time Performance Advice
 
-(stub - describe the big picture here)
+When performance emergencies strike, this should be the first stored proc in the kit you run.
+
+It takes a sample from a bunch of DMVs (wait stats, Perfmon counters, plan cache), waits 5 seconds, and then takes another sample. It examines the differences between the samples, and then gives you a prioritized list of things that might be causing performance issues right now. Examples include:
+
+* Data or log file growing (or heaven forbid, shrinking)
+* Backup or restore running
+* DBCC operation happening
+
+If no problems are found, it'll tell you that too. That's one of our favorite features because you can have your help desk team run sp_BlitzFirst and read the output to you over the phone. If no problems are found, you can keep right on drinking at the bar. (Ha! Just kidding, you'll still have to close out your tab, but at least you'll feel better about finishing that drink rather than trying to sober up.)
+
+Common sp_BlitzFirst parameters include:
+
+* @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
+* @CheckProcedureCache = 0 by default. When set to 1, this outputs the most resource-intensive queries during the time span. The data is calculated using sys.dm_exec_query_stats, which is a lightweight way of doing things (as opposed to starting up a trace or XE session). We don't turn this on by default because it tends to produce a lot of end user questions.
+* @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
+* @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample.
 
 [*Back to top*](#header1)
 
-### Advanced sp_BlitzFirst Parameters
 
-In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzFirst:
+## sp_BlitzWho: What Queries are Running Now
 
-(stub - describe the lesser-used stuff)
+This is like sp_who, except it goes into way, way, way more details.
 
-<<<<<<< HEAD
+It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
 [*Back to top*](#header1)
 
-=======
-## sp_DatabaseRestore: Easier Multi-File Restores
-
-If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
-
-Parameters include:
-
-* @Database
-* @RestoreDatabaseName
-* @BackupPathFull
-* @BackupPathLog
-* @MoveFiles, @MoveDataDrive, @MoveLogDrive
-* @TestRestore
-* @RunCheckDB
-* @ContinueLogs
-* @RunRecovery
-
-For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
->>>>>>> refs/remotes/origin/dev
-
-<<<<<<< HEAD
-[*Back to top*](#header1)
-
-=======
-## sp_BlitzBackups
+## sp_BlitzBackups: How Much Data Could You Lose
 
 Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
 
@@ -260,11 +254,60 @@ EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
                         @WriteBackupsLastHours = -24 -- Hours back in time you want to go
 ```
 
-In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by Michael J. Swart (michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
+In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by [Michael J. Swart's Take Care When Scripting Batches](http://michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
 
 The reason behind that is, if you have 500 databases, and you're taking log backups every minute, you can have a lot of data to move. A 5000 row batch should move pretty quickly.
-	
->>>>>>> refs/remotes/origin/dev
+
+[*Back to top*](#header1)
+
+
+## sp_AllNightLog: Back Up Faster to Lose Less Data
+
+You manage a SQL Server instance with hundreds or thousands of mission-critical databases. You want to back them all up as quickly as possible, and one maintenance plan job isn't going to cut it.
+
+Let's scale out our backup jobs by:
+
+* Creating a table with a list of databases and their desired Recovery Point Objective (RPO, aka data loss) - done with sp_AllNightLog_Setup
+* Set up several Agent jobs to back up databases as necessary - also done with sp_AllNightLog_Setup
+* Inside each of those Agent jobs, they call sp_AllNightLog @Backup = 1, which loops through the table to find databases that need to be backed up, then call [Ola Hallengren's DatabaseBackup stored procedure](https://ola.hallengren.com/)
+* Keeping that database list up to date as new databases are added - done by a job calling sp_AllNightLog @PollForNewDatabases = 1
+
+For more information about how this works, see [sp_AllNightLog documentation.](https://www.BrentOzar.com/sp_AllNightLog)
+
+Known issues:
+
+* The msdbCentral database name is hard-coded.
+* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We're not checking for it right now.)
+
+
+[*Back to top*](#header1)
+
+
+## sp_DatabaseRestore: Easier Multi-File Restores
+
+If you use [Ola Hallengren's backup scripts](http://ola.hallengren.com), DatabaseRestore.sql helps you rapidly restore a database to the most recent point in time.
+
+Parameters include:
+
+* @Database - the database's name, like LogShipMe
+* @RestoreDatabaseName
+* @BackupPathFull - typically a UNC path like '\\FILESERVER\BACKUPS\SQL2016PROD1A\LogShipMe\FULL\' that points to where the full backups are stored. Note that if the path doesn't exist, we don't create it, and the query might take 30+ seconds if you specify an invalid server name.
+* @BackupPathDiff, @BackupPathLog - as with the Full, this should be set to the exact path where the differentials and logs are stored. We don't append anything to these parameters.
+* @MoveFiles, @MoveDataDrive, @MoveLogDrive - if you want to restore to somewhere other than your default database locations.
+* @RunCheckDB - default 0. When set to 1, we run Ola Hallengren's DatabaseIntegrityCheck stored procedure on this database, and log the results to table. We use that stored proc's default parameters, nothing fancy.
+* @TestRestore - default 0. When set to 1, we delete the database after the restore completes. Used for just testing your restores. Especially useful in combination with @RunCheckDB = 1 because we'll delete the database after running checkdb, but know that we delete the database even if it fails checkdb tests.
+* @RestoreDiff - default 0. When set to 1, we restore the ncessary full, differential, and log backups (instead of just full and log) to get to the most recent point in time.
+* @ContinueLogs - default 0. When set to 1, we don't restore a full or differential backup - we only restore the transaction log backups. Good for continuous log restores with tools like sp_AllNightLog.
+* @RunRecovery - default 0. When set to 1, we run RESTORE WITH RECOVERY, putting the database into writable mode, and no additional log backups can be restored.
+* @Debug - default 0. When 1, we print out messages of what we're doing in the messages tab of SSMS.
+* @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'.
+
+
+For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
+
+[*Back to top*](#header1)
+
+
 
 ## Parameters Common to Many of the Stored Procedures
 

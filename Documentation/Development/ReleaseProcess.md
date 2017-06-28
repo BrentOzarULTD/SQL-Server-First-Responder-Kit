@@ -18,12 +18,14 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 
 * Make sure all issues in the milestone are closed - click Issues, Milestones, and it'll show the percent complete. If there's any issues you want to bump to the next round, add the next round's milestone and tag the issues with it.
 * When enough PRs are in dev, do a round of code testing in 2008-2016 in the cloud lab.
-    * Copy all newly synced scripts to each VM and install in master
+    * Merge scripts into two files:
+        * copy /b /y sp_Blitz*.sql Install_Core_Blitz.sql
+        * copy /b /y *.sql Install-All-Procs.sql 
+        * The easiest way to get a command prompt to the folder location is to navigate there with    Windows Explorer and then type 'cmd' in the address bar.
+        * These get moved to AWS for testing
     * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
 * If it passes, bump all the version numbers inside the scripts.
     * sp_foreachdb (no version number yet)
-    * sp_BlitzTrace (no version number yet)
-    * sp-BlitzRS (no version number yet)
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
     * sp_BlitzFirst @VersionDate (no version) 
@@ -32,6 +34,8 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_DatabaseRestore @Version and @VersionDate
     * sp_BlitzBackups @Version and @VersionDate
     * sp_BlitzQueryStore @Version and @VersionDate
+    * sp_AllNightLog @Version and @VersionDate
+    * sp_AllNightLog_Setup @Version and @VersionDate
 
 ## Push to Master
 

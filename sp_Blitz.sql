@@ -31,8 +31,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.4';
-	SET @VersionDate = '20170603';
+	SET @Version = '5.5';
+	SET @VersionDate = '20170701';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -3675,6 +3675,7 @@ IF @ProductVersionMajor >= 10
 						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
+								, [id] -- ID required to link maintenace plan with jobs and jobhistory (sp_Blitz Issue #776)							
 								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
 							FROM [msdb].[dbo].[sysssispackages]
 							WHERE [packagetype] = 6
@@ -3688,13 +3689,36 @@ IF @ProductVersionMajor >= 10
 										[Details] )									  
 						SELECT
 						180 AS [CheckID] ,
-						100 AS [Priority] ,
+						-- sp_Blitz Issue #776
+						-- Job has history and was executed in the last 30 days
+						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+						    100
+						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
+					        200
+						END AS Priority,
 						'Performance' AS [FindingsGroup] ,
 						'Shrink Database Step In Maintenance Plan' AS [Finding] ,
 						'https://BrentOzar.com/go/autoshrink' AS [URL] ,									  
-						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.' AS [Details] 
+						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.'  
+						+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS [Details]
 						FROM [maintenance_plan_steps] [mps]
 							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+                    	join msdb.dbo.sysmaintplan_subplans as sms 
+                    		on mps.id = sms.plan_id 
+                    	JOIN msdb.dbo.sysjobs j 
+                    		on sms.job_id = j.job_id
+                    	LEFT OUTER JOIN msdb.dbo.sysjobsteps AS step
+                    		ON j.job_id = step.job_id
+                    	LEFT OUTER JOIN msdb.dbo.sysjobschedules AS sjsc 
+                    		ON j.job_id = sjsc.job_id
+                    	LEFT OUTER JOIN msdb.dbo.sysschedules AS ssc 
+                    		ON sjsc.schedule_id = ssc.schedule_id
+                    		AND sjsc.job_id = j.job_id
+                    	LEFT OUTER JOIN msdb.dbo.sysjobhistory AS sjh 
+                    		ON j.job_id = sjh.job_id 
+                    		AND step.step_id = sjh.step_id
+                    		AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
+                    		AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
 						WHERE [c].[value]('(@dts:ObjectName)', 'VARCHAR(128)') = 'Shrink Database Task'
 
 						END
@@ -5621,15 +5645,32 @@ IF @ProductVersionMajor >= 10
 								  Details
 								)
 								SELECT  79 AS CheckID ,
-										100 AS Priority ,
+										-- sp_Blitz Issue #776
+										-- Job has history and was executed in the last 30 days OR Job is enabled AND Job Schedule is enabled
+                						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+                						    100
+                						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
+            						        200
+                						END AS Priority,
 										'Performance' AS FindingsGroup ,
 										'Shrink Database Job' AS Finding ,
 										'https://BrentOzar.com/go/autoshrink' AS URL ,
 										'In the [' + j.[name] + '] job, step ['
 										+ step.[step_name]
-										+ '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.' AS Details
+										+ '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.'
+										+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS Details
 								FROM    msdb.dbo.sysjobs j
 										INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id
+										LEFT OUTER JOIN msdb.dbo.sysjobschedules AS sjsc 
+										    ON j.job_id = sjsc.job_id
+										LEFT OUTER JOIN msdb.dbo.sysschedules AS ssc 
+										    ON sjsc.schedule_id = ssc.schedule_id
+										    AND sjsc.job_id = j.job_id
+										LEFT OUTER JOIN msdb.dbo.sysjobhistory AS sjh 
+										    ON j.job_id = sjh.job_id 
+										    AND step.step_id = sjh.step_id
+										    AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
+										    AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
 								WHERE   step.command LIKE N'%SHRINKDATABASE%'
 										OR step.command LIKE N'%SHRINKFILE%'
 					END

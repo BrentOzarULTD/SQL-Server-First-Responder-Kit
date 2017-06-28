@@ -203,6 +203,10 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		low_cost_high_cpu BIT,
 		stale_stats BIT, 
 		is_adaptive BIT,
+		index_spool_cost FLOAT,
+		index_spool_rows FLOAT,
+		is_spool_expensive BIT,
+		is_spool_more_rows BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -244,8 +248,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.4';
-SET @VersionDate = '20170603';
+SET @Version = '5.5';
+SET @VersionDate = '20170701';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -872,6 +876,10 @@ BEGIN
 		low_cost_high_cpu BIT,
 		stale_stats BIT, 
 		is_adaptive BIT,
+		index_spool_cost FLOAT,
+		index_spool_rows FLOAT,
+		is_spool_expensive BIT,
+		is_spool_more_rows BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2534,6 +2542,34 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+RAISERROR('Checking for wonky Index Spools', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES (
+    'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, selects
+AS ( SELECT s.QueryHash
+     FROM   #statements AS s
+     WHERE  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 )
+, spools
+AS ( SELECT DISTINCT r.QueryHash,
+	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
+       c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
+       c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
+       c.n.value('@EstimateRewinds', 'FLOAT') AS estimated_rewinds
+FROM   #relop AS r
+JOIN   selects AS s
+ON s.QueryHash = r.QueryHash
+CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
+WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager Spool"]') = 1
+)
+UPDATE b
+		SET b.index_spool_rows = sp.estimated_rows,
+			b.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE sp.estimated_rewinds WHEN 0 THEN 1 ELSE sp.estimated_rewinds END)
+FROM ##bou_BlitzCacheProcs b
+JOIN spools sp
+ON sp.QueryHash = b.QueryHash
+OPTION ( RECOMPILE );
+
+
 /* 2012+ only */
 IF @v >= 11
 BEGIN
@@ -2855,7 +2891,9 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_forced_serial = CASE WHEN is_forced_serial = 1 THEN 1 END,
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END,
 	   long_running_low_cpu = CASE WHEN AverageDuration > AverageCPU * 4 THEN 1 END,
-	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END
+	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END,
+	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
+	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
@@ -2950,7 +2988,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END +
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END				   
+				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
+				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
+				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END    			   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -3014,7 +3054,9 @@ SELECT  DISTINCT
 				  CASE WHEN low_cost_high_cpu = 1 THEN ', Low Cost High CPU' ELSE '' END + 
 				  CASE WHEN long_running_low_cpu = 1 THEN + ', Long Running With Low CPU' ELSE '' END + 
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
-				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END
+				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
+				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
+				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END    
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3389,7 +3431,9 @@ BEGIN
 				  CASE WHEN long_running_low_cpu = 1 THEN '', 50'' ELSE '''' END +
 				  CASE WHEN low_cost_high_cpu = 1 THEN '', 51'' ELSE '''' END + 
 				  CASE WHEN stale_stats = 1 THEN '', 52'' ELSE '''' END +
-				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END
+				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END	+
+				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
+				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END    
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -4138,7 +4182,33 @@ BEGIN
                      'Adaptive joins',
                      'This is pretty cool -- you''re living in the future.',
                      'No URL yet',
-                     'Joe Sack rules.') ;					 
+                     'Joe Sack rules.') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_spool_expensive = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     54,
+                     150,
+                     'Expensive Index Spool',
+                     'You have an index spool, this is usually a sign that there''s an index missing somewhere.',
+                     'No URL yet',
+                     'Check operator predicates and output for index definition guidance') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_spool_expensive = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     55,
+                     150,
+                     'Index Spools Many Rows',
+                     'You have an index spool that spools more rows than the query returns',
+                     'No URL yet',
+                     'Check operator predicates and output for index definition guidance') ;						 				 
 
 		IF @v >= 14
 			BEGIN	

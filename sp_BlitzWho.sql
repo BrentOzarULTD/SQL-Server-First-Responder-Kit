@@ -5,14 +5,15 @@ GO
 ALTER PROCEDURE dbo.sp_BlitzWho 
 	@Help TINYINT = 0 ,
 	@ShowSleepingSPIDs TINYINT = 0,
+	@Debug BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
 BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.4';
-	SET @VersionDate = '20170603';
+	SET @Version = '5.5';
+	SET @VersionDate = '20170701';
 
 
 	IF @Help = 1
@@ -76,6 +77,28 @@ DECLARE  @ProductVersion NVARCHAR(128)
 					  query_stats.last_used_threads,
 					  query_stats.min_used_threads,
 					  query_stats.max_used_threads,'
+		,@SessionWaits BIT = 0
+		,@SessionWaitsSQL NVARCHAR(MAX) = 
+						 N'LEFT JOIN ( SELECT DISTINCT
+												wait.session_id ,
+												( SELECT    TOP  5 waitwait.wait_type + N'' (''
+												           + CAST(SUM(waitwait.wait_time_ms) AS NVARCHAR(128))
+												           + N'' ms), ''
+												 FROM      sys.dm_exec_session_wait_stats AS waitwait
+												 WHERE     waitwait.session_id = wait.session_id
+												 GROUP BY  waitwait.wait_type
+												 HAVING SUM(waitwait.wait_time_ms) > 5
+												 ORDER BY  SUM(waitwait.wait_time_ms) DESC
+												 FOR
+												 XML PATH('''') ) AS session_wait_info
+										FROM    sys.dm_exec_session_wait_stats AS wait ) AS wt2
+						ON      s.session_id = wt2.session_id
+						LEFT JOIN sys.dm_exec_query_stats AS session_stats
+						ON      r.sql_handle = session_stats.sql_handle
+								AND r.plan_handle = session_stats.plan_handle
+						        AND r.statement_start_offset = session_stats.statement_start_offset
+						        AND r.statement_end_offset = session_stats.statement_end_offset' 
+
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
@@ -139,6 +162,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.writes, s.writes) AS request_writes,
 			            COALESCE(r.reads, s.reads) AS request_physical_reads ,
 			            s.cpu_time AS session_cpu,
+						tempdb_allocations.tempdb_allocations_mb,
 			            s.logical_reads AS session_logical_reads,
 			            s.reads AS session_physical_reads ,
 			            s.writes AS session_writes,
@@ -199,7 +223,9 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.program_name ,
 			            s.client_interface_name ,
 			            s.login_time ,
-			            r.start_time 
+			            r.start_time ,
+						wg.name AS workload_group_name, 
+						rp.name AS resource_pool_name
 			    FROM    sys.dm_exec_sessions AS s
 			    LEFT JOIN    sys.dm_exec_requests AS r
 			    ON      r.session_id = s.session_id
@@ -227,7 +253,15 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			    LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 			    ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 					    AND qmg.pool_id = qrs.pool_id
-			    OUTER APPLY (
+			    LEFT JOIN sys.dm_db_task_space_usage tsu
+				ON tsu.request_id = r.request_id
+				AND tsu.session_id = r.session_id
+				AND tsu.session_id = s.session_id
+				LEFT JOIN sys.resource_governor_workload_groups wg 
+				ON 		s.group_id = wg.group_id
+				LEFT JOIN sys.resource_governor_resource_pools rp 
+				ON		wg.pool_id = rp.pool_id
+				OUTER APPLY (
 								SELECT TOP 1
 								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
 								b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
@@ -237,6 +271,13 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							) AS blocked				
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+				OUTER APPLY (
+						SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+						FROM sys.dm_db_task_space_usage tsu
+						WHERE tsu.request_id = r.request_id
+						AND tsu.session_id = r.session_id
+						AND tsu.session_id = s.session_id
+				) as tempdb_allocations
 			    WHERE s.session_id <> @@SPID 
 				AND s.host_name IS NOT NULL
 				'
@@ -257,6 +298,14 @@ SELECT @EnhanceFlag =
 		     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
 		     ELSE 0 
 	    END
+
+
+IF OBJECT_ID('sys.dm_exec_session_wait_stats') IS NOT NULL
+BEGIN
+	SET @SessionWaits = 1
+END
+
+
 
 SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             
@@ -292,6 +341,12 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.session_id ,
 						COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
+						'+
+						CASE @SessionWaits
+							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,'
+							 ELSE N''
+						END
+						+' 
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
 			                             ( query_stats.statement_start_offset / 2 ) + 1,
@@ -311,6 +366,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.writes, s.writes) AS request_writes,
 			            COALESCE(r.reads, s.reads) AS request_physical_reads ,
 			            s.cpu_time AS session_cpu,
+						tempdb_allocations.tempdb_allocations_mb,
 			            s.logical_reads AS session_logical_reads,
 			            s.reads AS session_physical_reads ,
 			            s.writes AS session_writes,
@@ -319,8 +375,9 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            r.deadlock_priority ,'
 					    + 
 					    CASE @EnhanceFlag
-					    WHEN 1 THEN @EnhanceSQL
-					    ELSE N'' END 
+							 WHEN 1 THEN @EnhanceSQL
+							 ELSE N'' 
+						END 
 						+
 					    N'CASE 
 			              WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
@@ -376,9 +433,11 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.program_name ,
 			            s.client_interface_name ,
 			            s.login_time ,
-			            r.start_time 
+			            r.start_time ,
+						wg.name AS workload_group_name, 
+						rp.name AS resource_pool_name
 						FROM sys.dm_exec_sessions AS s
-						 LEFT JOIN    sys.dm_exec_requests AS r
+						LEFT JOIN    sys.dm_exec_requests AS r
 									    ON      r.session_id = s.session_id
 						LEFT JOIN ( SELECT DISTINCT
 									                        wait.session_id ,
@@ -398,12 +457,24 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 								AND r.plan_handle = query_stats.plan_handle
 						        AND r.statement_start_offset = query_stats.statement_start_offset
 						        AND r.statement_end_offset = query_stats.statement_end_offset
+						'
+						+
+						CASE @SessionWaits
+							 WHEN 1 THEN @SessionWaitsSQL
+							 ELSE N''
+						END
+						+ 
+						'
 						LEFT JOIN sys.dm_exec_query_memory_grants qmg
 						ON      r.session_id = qmg.session_id
 								AND r.request_id = qmg.request_id
 						LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 						ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 							    AND qmg.pool_id = qrs.pool_id
+						LEFT JOIN sys.resource_governor_workload_groups wg 
+						ON 		s.group_id = wg.group_id
+						LEFT JOIN sys.resource_governor_resource_pools rp 
+						ON		wg.pool_id = rp.pool_id
 						OUTER APPLY (
 								SELECT TOP 1
 								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
@@ -414,6 +485,13 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							) AS blocked
 						OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 						OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+						OUTER APPLY (
+								SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+								FROM sys.dm_db_task_space_usage tsu
+								WHERE tsu.request_id = r.request_id
+								AND tsu.session_id = r.session_id
+								AND tsu.session_id = s.session_id
+						) as tempdb_allocations
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
 						'
@@ -427,6 +505,12 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						'
 
 END 
+
+IF @Debug = 1
+	BEGIN
+		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
+		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 160000))
+	END
 
 EXEC(@StringToExecute);
 
