@@ -176,7 +176,59 @@ IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRest
 		END 
 
 
+IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+    BEGIN
 
+		IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
+
+		SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
+		FROM msdb.dbo.restore_configuration c
+		WHERE configuration_name = N'log restore path';
+
+
+		IF @restore_path_base IS NULL
+			BEGIN
+				RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
+				RETURN;
+			END;
+
+        IF CHARINDEX('**', @restore_path_base) <> 0
+            BEGIN
+
+                /* If they passed in a dynamic **DATABASENAME**, stop at that folder looking for databases. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/993 */
+                IF CHARINDEX('**DATABASENAME**', @restore_path_base) <> 0
+                    BEGIN
+                    SET @restore_path_base = SUBSTRING(@restore_path_base, 1, CHARINDEX('**DATABASENAME**',@restore_path_base) - 2);
+                    END;
+
+                SET @restore_path_base = REPLACE(@restore_path_base, '**AVAILABILITYGROUP**', '');
+                SET @restore_path_base = REPLACE(@restore_path_base, '**BACKUPTYPE**', 'FULL');
+                SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAME**', REPLACE(CAST(SERVERPROPERTY('servername') AS nvarchar(max)),'\','$'));
+
+                IF CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) > 0
+                    BEGIN
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), 1, (CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - 1)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))), (LEN(CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max)))) + 1));
+                    END
+                    ELSE /* No instance installed */
+                    BEGIN
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', CAST(SERVERPROPERTY('servername') AS nvarchar(max)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', 'DEFAULT');
+                    END
+
+                IF CHARINDEX('**CLUSTER**', @restore_path_base) <> 0
+                    BEGIN
+                    DECLARE @ClusterName NVARCHAR(128);
+                    IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_hadr_cluster')
+                        BEGIN
+                            SELECT @ClusterName = cluster_name FROM sys.dm_hadr_cluster;
+                        END
+                    SET @restore_path_base = REPLACE(@restore_path_base, '**CLUSTER**', COALESCE(@ClusterName,''));
+                    END;
+
+            END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
+                    
+    END /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
 
 /*
@@ -392,19 +444,6 @@ DiskPollster:
 	IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
 	
 		BEGIN
-				IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
-
-				SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
-				FROM msdb.dbo.restore_configuration c
-				WHERE configuration_name = N'log restore path';
-
-
-					IF @restore_path_base IS NULL
-						BEGIN
-							RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
-							RETURN;
-						END;
-
 		
 			WHILE @PollDiskForNewDatabases = 1
 			
@@ -412,7 +451,8 @@ DiskPollster:
 				
 				BEGIN TRY
 			
-					IF @Debug = 1 RAISERROR('Checking restore path for new databases...', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR('Checking for new databases in: ', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR(@restore_path_base, 0, 1) WITH NOWAIT;
 
 					/*
 					
@@ -436,6 +476,7 @@ DiskPollster:
 									END  
 						
 						
+                        DELETE @FileList;
 						INSERT INTO @FileList (BackupFile)
 						EXEC master.sys.xp_cmdshell @cmd; 
 						
@@ -471,7 +512,6 @@ DiskPollster:
 									RETURN;
 						
 								END
-
 
 						INSERT msdb.dbo.restore_worker (database_name) 
 						SELECT fl.BackupFile
@@ -949,18 +989,7 @@ IF @Restore = 1
 									RETURN;
 								END;	
 	
-	
-						SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
-						FROM msdb.dbo.restore_configuration c
-						WHERE configuration_name = N'log restore path';
-	
-							
-							IF @restore_path_base IS NULL
-								BEGIN
-									RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
-									RETURN;
-								END;	
-	
+		
 				END;
 	
 			ELSE
@@ -1141,7 +1170,8 @@ IF @Restore = 1
 
 											BEGIN
 
-												IF @Debug = 1 RAISERROR('Starting first Full restore', 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR('Starting first Full restore from: ', 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR(@restore_path_full, 0, 1) WITH NOWAIT;
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,
