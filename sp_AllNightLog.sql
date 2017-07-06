@@ -403,6 +403,18 @@ Pollster:
 	
 			
 			END; 
+
+        /* Check to make sure job is still enabled */
+		IF NOT EXISTS (
+						SELECT *
+						FROM msdb.dbo.sysjobs 
+						WHERE name = 'sp_AllNightLog_PollForNewDatabases'
+                        AND enabled = 1
+						)
+            BEGIN
+				RAISERROR('sp_AllNightLog_PollForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				RETURN;
+            END        
 		
 		END;-- End Pollster loop
 	
@@ -577,6 +589,17 @@ DiskPollster:
 						
 						*/
 
+                    /* Check to make sure job is still enabled */
+		            IF NOT EXISTS (
+						            SELECT *
+						            FROM msdb.dbo.sysjobs 
+						            WHERE name = 'sp_AllNightLog_PollDiskForNewDatabases'
+                                    AND enabled = 1
+						            )
+                        BEGIN
+				            RAISERROR('sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				            RETURN;
+                        END        
 	
 					IF @Debug = 1 RAISERROR('Waiting for 1 minute', 0, 1) WITH NOWAIT;
 					
@@ -783,6 +806,20 @@ LogShamer:
 						BEGIN
 							IF @Debug = 1 RAISERROR('No databases to back up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
 							WAITFOR DELAY '00:00:03.000';
+
+                            /* Check to make sure job is still enabled */
+		                    IF NOT EXISTS (
+						                    SELECT *
+						                    FROM msdb.dbo.sysjobs 
+						                    WHERE name LIKE 'sp_AllNightLog_Backup%'
+                                            AND enabled = 1
+						                    )
+                                BEGIN
+				                    RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				                    RETURN;
+                                END        
+
+
 						END
 	
 	
@@ -926,6 +963,7 @@ LogShamer:
 
 
 						END; -- End update for successful backup	
+
 										
 				END; -- End @Backup WHILE loop
 
@@ -956,6 +994,18 @@ Restoregasm_Addict:
 IF @Restore = 1
 	IF @Debug = 1 RAISERROR('Beginning Restores', 0, 1) WITH NOWAIT;
 	
+    /* Check to make sure backup jobs aren't enabled */
+	IF EXISTS (
+					SELECT *
+					FROM msdb.dbo.sysjobs 
+					WHERE name LIKE 'sp_AllNightLog_Backup%'
+                    AND enabled = 1
+					)
+        BEGIN
+			RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
+			RETURN;
+        END        
+
 	IF OBJECT_ID('msdb.dbo.restore_worker') IS NOT NULL
 	
 		BEGIN
@@ -1108,6 +1158,31 @@ IF @Restore = 1
 						BEGIN
 							IF @Debug = 1 RAISERROR('No databases to restore up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
 							WAITFOR DELAY '00:00:03.000';
+
+                            /* Check to make sure backup jobs aren't enabled */
+	                        IF EXISTS (
+					                        SELECT *
+					                        FROM msdb.dbo.sysjobs 
+					                        WHERE name LIKE 'sp_AllNightLog_Backup%'
+                                            AND enabled = 1
+					                        )
+                                BEGIN
+			                        RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
+			                        RETURN;
+                                END        
+
+                            /* Check to make sure job is still enabled */
+		                    IF NOT EXISTS (
+						                    SELECT *
+						                    FROM msdb.dbo.sysjobs 
+						                    WHERE name LIKE 'sp_AllNightLog_Restore%'
+                                            AND enabled = 1
+						                    )
+                                BEGIN
+				                    RAISERROR('sp_AllNightLog_Restore jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				                    RETURN;
+                                END        
+
 						END
 	
 	
