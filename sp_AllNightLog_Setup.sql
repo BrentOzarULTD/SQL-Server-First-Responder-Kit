@@ -21,6 +21,8 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@Jobs TINYINT = 10,
 				@RunSetup BIT = 0,
 				@UpdateSetup BIT = 0,
+                @EnableBackupJobs INT = NULL,
+                @EnableRestoreJobs INT = NULL,
 				@Debug BIT = 0,
 				@Help BIT = 0,
 				@VersionDate DATETIME = NULL OUTPUT
@@ -154,6 +156,8 @@ DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that create
 DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
 DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
 DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
+DECLARE @jobs TABLE(name SYSNAME); -- list of jobs we need to enable or disable
+DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
 
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
@@ -228,6 +232,21 @@ IF (@RPOSeconds >= 14400)
 			RETURN;
 		END;
 
+
+/*
+
+Can't enable both the backup and restore jobs at the same time
+
+*/
+
+IF @EnableBackupJobs = 1 AND @EnableRestoreJobs = 1
+		BEGIN
+
+			RAISERROR('You are not allowed to enable both the backup and restore jobs at the same time. Pick one, bucko.', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
 /*
 Make sure xp_cmdshell is enabled
 */
@@ -284,6 +303,8 @@ IF @UpdateSetup = 1
 		 AND @BackupPath IS NULL 
 		 AND @RPOSeconds IS NULL 
 		 AND @RestorePath IS NULL
+         AND @EnableBackupJobs IS NULL
+         AND @EnableRestoreJobs IS NULL
 		)
 
 		BEGIN
@@ -671,13 +692,22 @@ BEGIN
 					
 					RAISERROR('Creating pollster job', 0, 1) WITH NOWAIT;
 
-						
-						EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
-												 @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
-												 @category_name = 'Database Maintenance', 
-												 @owner_login_name = 'sa',
-												 @enabled = 0;
-					
+						IF @EnableBackupJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END		
+                        ELSE			
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END		
 					
 					
 					RAISERROR('Adding job step', 0, 1) WITH NOWAIT;
@@ -731,11 +761,22 @@ BEGIN
 					RAISERROR('Creating restore pollster job', 0, 1) WITH NOWAIT;
 
 						
-						EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-												 @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
-												 @category_name = 'Database Maintenance', 
-												 @owner_login_name = 'sa',
-												 @enabled = 0;
+						IF @EnableRestoreJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END
+                        ELSE
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END
 					
 					
 					
@@ -814,10 +855,18 @@ BEGIN
 											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_backups + ', 
 																	 @description = ' + @job_description_backups + ', 
 																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',
-																	 @enabled = 0;
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableBackupJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
 								  
 											
+                                            SET @job_sql = @job_sql + '
 											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_backups + ', 
 																		 @step_name = ' + @job_name_backups + ', 
 																		 @subsystem = ''TSQL'', 
@@ -902,9 +951,18 @@ BEGIN
 											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_restores + ', 
 																	 @description = ' + @job_description_restores + ', 
 																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',
-																	 @enabled = 0;
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableRestoreJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
 								  
+											
+                                            SET @job_sql = @job_sql + '
 											
 											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_restores + ', 
 																		 @step_name = ' + @job_name_restores + ', 
@@ -1043,6 +1101,61 @@ IF @UpdateSetup = 1
 				BEGIN
 
 					BEGIN TRY
+
+                        DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
+                        EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
+
+                        IF @EnableBackupJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing backup job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Backup%' OR name = 'sp_AllNightLog_PollForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableBackupJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs;
+                            END;
+
+                        IF @EnableRestoreJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs;
+                            END;
 
 						
 						IF @RTOSeconds IS NOT NULL
