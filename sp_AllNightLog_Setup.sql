@@ -151,7 +151,7 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
 
 
-/*These variables control the loop to create jobs*/
+/*These variables control the loop to create/modify jobs*/
 DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
 DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
 DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
@@ -159,6 +159,7 @@ DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin 
 DECLARE @jobs TABLE(name SYSNAME); -- list of jobs we need to enable or disable
 DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
 DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
+DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when disabling jobs
 
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
@@ -1111,6 +1112,76 @@ IF @UpdateSetup = 1
 
                         EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
 
+                        IF @EnableRestoreJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs;
+                            END;
+
+                        /* If they wanted to turn off restore jobs, wait to make sure that finishes before we start enabling the backup jobs */
+                        IF @EnableRestoreJobs = 0
+                            BEGIN
+                            SET @started_waiting_for_jobs = GETDATE();
+                            SELECT  @counter = COUNT(*)
+		                            FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                            INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                            ON [ja].[job_id] = [j].[job_id]
+		                            WHERE    [ja].[session_id] = (
+										                            SELECT    TOP 1 [session_id]
+										                            FROM    [msdb].[dbo].[syssessions]
+										                            ORDER BY [agent_start_date] DESC
+									                            )
+				                            AND [start_execution_date] IS NOT NULL
+				                            AND [stop_execution_date] IS NULL
+				                            AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+
+                            WHILE @counter > 0
+                                BEGIN
+                                    IF DATEADD(SS, 120, @started_waiting_for_jobs) < GETDATE()
+                                        BEGIN
+                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 0, 1) WITH NOWAIT;
+                                        RETURN
+                                        END
+                                    SET @msg = N'Waiting for ' + CAST(@counter AS NVARCHAR(100)) + N' sp_AllNightLog_Restore job(s) to finish.'
+                                    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+                                    WAITFOR DELAY '0:00:01'; -- Wait until the restore jobs are fully stopped
+	
+	                                SELECT  @counter = COUNT(*)
+		                                FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                                INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                                ON [ja].[job_id] = [j].[job_id]
+		                                WHERE    [ja].[session_id] = (
+										                                SELECT    TOP 1 [session_id]
+										                                FROM    [msdb].[dbo].[syssessions]
+										                                ORDER BY [agent_start_date] DESC
+									                                )
+				                                AND [start_execution_date] IS NOT NULL
+				                                AND [stop_execution_date] IS NULL
+				                                AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+                                END
+                            END /* IF @EnableRestoreJobs = 0 */
+
+
                         IF @EnableBackupJobs IS NOT NULL
                             BEGIN
             				RAISERROR('Changing backup job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
@@ -1137,31 +1208,6 @@ IF @UpdateSetup = 1
                             DELETE @jobs;
                             END;
 
-                        IF @EnableRestoreJobs IS NOT NULL
-                            BEGIN
-            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
-                            INSERT INTO @jobs(name)
-                                SELECT name 
-                                FROM msdb.dbo.sysjobs 
-                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
-                            DECLARE jobs_cursor CURSOR FOR  
-                                SELECT name 
-                                FROM @jobs
-
-                            OPEN jobs_cursor   
-                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-
-                            WHILE @@FETCH_STATUS = 0   
-                            BEGIN   
-            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
-                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
-                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-                            END   
-
-                            CLOSE jobs_cursor   
-                            DEALLOCATE jobs_cursor
-                            DELETE @jobs;
-                            END;
 
 						
 						IF @RTOSeconds IS NOT NULL
