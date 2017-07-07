@@ -1159,7 +1159,7 @@ IF @UpdateSetup = 1
                                 BEGIN
                                     IF DATEADD(SS, 120, @started_waiting_for_jobs) < GETDATE()
                                         BEGIN
-                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 0, 1) WITH NOWAIT;
+                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 16, 1) WITH NOWAIT;
                                         RETURN
                                         END
                                     SET @msg = N'Waiting for ' + CAST(@counter AS NVARCHAR(100)) + N' sp_AllNightLog_Restore job(s) to finish.'
