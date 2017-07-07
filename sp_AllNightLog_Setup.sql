@@ -158,6 +158,7 @@ DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job categor
 DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
 DECLARE @jobs TABLE(name SYSNAME); -- list of jobs we need to enable or disable
 DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
+DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
 
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
@@ -470,7 +471,10 @@ BEGIN
 																				is_started BIT DEFAULT 0, 
 																				is_completed BIT DEFAULT 0, 
 																				error_number INT DEFAULT NULL, 
-																				last_error_date DATETIME DEFAULT NULL
+																				last_error_date DATETIME DEFAULT NULL,
+																				ignore_database BIT DEFAULT 0,
+																				full_backup_required BIT DEFAULT 0,
+																				diff_backup_required BIT DEFAULT 0
 																				);
 											
 										END;
@@ -603,7 +607,10 @@ BEGIN
 																		 is_started BIT DEFAULT 0, 
 																		 is_completed BIT DEFAULT 0, 
 																		 error_number INT DEFAULT NULL, 
-																		 last_error_date DATETIME DEFAULT NULL
+																		 last_error_date DATETIME DEFAULT NULL,
+																		 ignore_database BIT DEFAULT 0,
+																		 full_restore_required BIT DEFAULT 0,
+																		 diff_restore_required BIT DEFAULT 0
 																		 );
 								
 							END;
@@ -662,7 +669,7 @@ BEGIN
 													 @freq_subday_interval = 10, 
 													 @freq_relative_interval = 0, 
 													 @freq_recurrence_factor = 0, 
-													 @active_start_date = 19900101, 
+													 @active_start_date = @active_start_date, 
 													 @active_end_date = 99991231, 
 													 @active_start_time = 0, 
 													 @active_end_time = 235959;
@@ -1102,7 +1109,6 @@ IF @UpdateSetup = 1
 
 					BEGIN TRY
 
-                        DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
                         EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
 
                         IF @EnableBackupJobs IS NOT NULL
