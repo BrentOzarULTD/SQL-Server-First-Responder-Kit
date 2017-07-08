@@ -153,8 +153,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                               / 2 ) + 1), dest.text) AS query_text ,
 			            derp.query_plan ,
 			            qmg.query_cost ,					
-						CASE WHEN r.blocking_session_id = 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
-							 WHEN r.blocking_session_id = 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
+						CASE WHEN r.blocking_session_id > 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
+							 WHEN r.blocking_session_id > 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
 						ELSE 0 END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
@@ -357,8 +357,8 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                               / 2 ) + 1), dest.text) AS query_text ,
 			            derp.query_plan ,
 			            qmg.query_cost ,					
-						CASE WHEN r.blocking_session_id = 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
-							 WHEN r.blocking_session_id = 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
+						CASE WHEN r.blocking_session_id > 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
+							 WHEN r.blocking_session_id > 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
 						ELSE 0 END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
