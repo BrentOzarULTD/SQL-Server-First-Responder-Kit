@@ -155,7 +155,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qmg.query_cost ,					
 						CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
 							 WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
-						ELSE 0 END
+						ELSE NULL END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
 			            COALESCE(r.logical_reads, s.logical_reads) AS request_logical_reads,
@@ -359,7 +359,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qmg.query_cost ,					
 						CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
 							 WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
-						ELSE 0 END
+						ELSE NULL END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
 			            COALESCE(r.logical_reads, s.logical_reads) AS request_logical_reads,
