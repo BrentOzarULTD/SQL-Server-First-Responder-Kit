@@ -3443,8 +3443,8 @@ AS
 								LoginName ,
 								DBUserName
 							)
-							SELECT
-								t.TextData ,
+							SELECT TOP 20000
+								CONVERT(NVARCHAR(4000),t.TextData) ,
 								t.DatabaseName ,
 								t.EventClass ,
 								t.Severity ,
