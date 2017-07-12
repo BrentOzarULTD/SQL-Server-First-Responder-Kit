@@ -4447,6 +4447,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 199) WITH NOWAIT
@@ -4482,6 +4483,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 200) WITH NOWAIT
@@ -4512,6 +4514,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 201) WITH NOWAIT
@@ -4542,6 +4545,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT
@@ -4572,6 +4576,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 203) WITH NOWAIT
@@ -4601,6 +4606,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 204) WITH NOWAIT
