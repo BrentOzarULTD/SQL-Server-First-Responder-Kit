@@ -124,7 +124,7 @@ DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0 --We use this one
 DECLARE @only_logs_after NVARCHAR(30) = N'' --Stripped down date used to prevent trying to restore a bunch of logs we've already restored
-DECLARE @full_restore_retry INT = 0 --Need a controlled retry loop if initial full fails
+DECLARE @full_restore_retry INT = 1 --Need a controlled retry loop if initial full fails
 
 
 /*
@@ -1262,7 +1262,9 @@ IF @Restore = 1
 											*/		
 
 											IF NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database)
-				
+													
+												IF @Debug = 1 RAISERROR('Database not found in sys.databases, starting retry loop', 0, 1) WITH NOWAIT;
+
 												BEGIN
 													
 													/*
@@ -1272,9 +1274,12 @@ IF @Restore = 1
 													*/
 
 													WHILE NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database) 
-														AND @full_restore_retry <= 3
+														AND @full_restore_retry < 3
+
 
 														BEGIN
+
+																IF @Debug = 1 RAISERROR('Try number: [%d]', 0, 1, @full_restore_retry) WITH NOWAIT;
 
 																EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																								   @BackupPathFull = @restore_path_full,
@@ -1291,6 +1296,8 @@ IF @Restore = 1
 																	--Fadgadget
 																*/
 																
+																IF @Debug = 1 RAISERROR('Waiting 30 seconds', 0, 1) WITH NOWAIT;
+
 																WAITFOR DELAY '00:00:30.000'
 
 														END
@@ -1302,6 +1309,8 @@ IF @Restore = 1
 													IF NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database)
 
 														BEGIN
+
+														IF @Debug = 1 RAISERROR('Database not restore after three retry attempts, passing on for human intervention', 0, 1) WITH NOWAIT;
 
 																	UPDATE rw
 																			SET rw.is_started = 0,
