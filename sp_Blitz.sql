@@ -144,7 +144,8 @@ AS
 			,@NUMANodes int
 			,@MinServerMemory bigint
 			,@MaxServerMemory bigint
-			,@ColumnStoreIndexesInUse bit;
+			,@ColumnStoreIndexesInUse bit
+			,@TraceFileIssue bit;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -460,6 +461,25 @@ AS
 			  ProcessInfo NVARCHAR(20) ,
 			  [Text] NVARCHAR(1000) 
 			);
+
+		IF OBJECT_ID('tempdb..#fnTraceGettable') IS NOT NULL
+			DROP TABLE #fnTraceGettable;
+		CREATE TABLE #fnTraceGettable
+			(
+			  TextData NVARCHAR(4000) ,
+			  DatabaseName NVARCHAR(256) ,
+			  EventClass INT ,
+			  Severity INT ,
+			  StartTime DATETIME ,
+			  EndTime DATETIME ,
+			  Duration BIGINT ,
+			  NTUserName NVARCHAR(256) ,
+			  NTDomainName NVARCHAR(256) ,
+			  HostName NVARCHAR(256) ,
+			  ApplicationName NVARCHAR(256) ,
+			  LoginName NVARCHAR(256) ,
+			  DBUserName NVARCHAR(256)
+			 );
 
 		IF OBJECT_ID('tempdb..#IgnorableWaits') IS NOT NULL
 			DROP TABLE #IgnorableWaits;
@@ -3404,10 +3424,92 @@ AS
 
 
                         /* Reliability - Errors Logged Recently in the Default Trace */
-                        IF NOT EXISTS ( SELECT  1
+                        
+						/* First, let's check that there aren't any issues with the trace files */
+						BEGIN TRY
+						
+						INSERT INTO #fnTraceGettable
+							(	TextData ,
+								DatabaseName ,
+								EventClass ,
+								Severity ,
+								StartTime ,
+								EndTime ,
+								Duration ,
+								NTUserName ,
+								NTDomainName ,
+								HostName ,
+								ApplicationName ,
+								LoginName ,
+								DBUserName
+							)
+							SELECT TOP 20000
+								CONVERT(NVARCHAR(4000),t.TextData) ,
+								t.DatabaseName ,
+								t.EventClass ,
+								t.Severity ,
+								t.StartTime ,
+								t.EndTime ,
+								t.Duration ,
+								t.NTUserName ,
+								t.NTDomainName ,
+								t.HostName ,
+								t.ApplicationName ,
+								t.LoginName ,
+								t.DBUserName
+							FROM sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
+							WHERE
+							(
+								t.EventClass = 22
+								AND t.Severity >= 17
+								AND t.StartTime > DATEADD(dd, -30, GETDATE())
+							)
+							OR
+							(
+							    t.EventClass IN (92, 93)
+                                AND t.StartTime > DATEADD(dd, -30, GETDATE())
+                                AND t.Duration > 15000000
+							)
+							OR
+							(
+								t.EventClass IN (94, 95, 116)
+							)
+
+							SET @TraceFileIssue = 0
+
+						END TRY
+						BEGIN CATCH
+
+							SET @TraceFileIssue = 1
+						
+						END CATCH
+											
+						IF @TraceFileIssue = 1
+							BEGIN
+								INSERT  INTO #BlitzResults
+								            ( CheckID ,
+								                DatabaseName ,
+								                Priority ,
+								                FindingsGroup ,
+								                Finding ,
+								                URL ,
+								                Details
+								            )
+											SELECT
+												'199' AS CheckID ,
+												'' AS DatabaseName ,
+												50 AS Priority ,
+												'Reliability' AS FindingsGroup ,
+												'There Is An Error With The Default Trace' AS Finding ,
+												'https://BrentOzar.com/go/defaulttrace' AS URL ,
+												'Somebody has been messing with your trace files. Check the files are present at ' + @base_tracefilename AS Details
+							END
+						
+						IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 150 )
                             AND @base_tracefilename IS NOT NULL
+							AND @TraceFileIssue = 0
 	                        BEGIN
 
 		                        IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 150) WITH NOWAIT;
@@ -3428,10 +3530,11 @@ AS
 						                        'Errors Logged Recently in the Default Trace' AS Finding ,
 						                        'https://BrentOzar.com/go/defaulttrace' AS URL ,
 						                         CAST(t.TextData AS NVARCHAR(4000)) AS Details
-                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
+                                        FROM    #fnTraceGettable t
                                         WHERE t.EventClass = 22
-                                          AND t.Severity >= 17
-                                          AND t.StartTime > DATEADD(dd, -30, GETDATE());
+                                          /* Removed these as they're unnecessary, we filter this when inserting data into #fnTraceGettable */
+										  --AND t.Severity >= 17
+                                          --AND t.StartTime > DATEADD(dd, -30, GETDATE());
 	                        END;
 
 
@@ -3440,6 +3543,7 @@ AS
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
                             AND @base_tracefilename IS NOT NULL
+							AND @TraceFileIssue = 0
 	                        BEGIN
 		                        
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 151) WITH NOWAIT;
@@ -3460,10 +3564,11 @@ AS
 						                        'File Growths Slow' AS Finding ,
 						                        'https://BrentOzar.com/go/filegrowth' AS URL ,
 						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting file autogrowth to a smaller increment.' AS Details
-                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
+                                        FROM    #fnTraceGettable t
                                         WHERE t.EventClass IN (92, 93)
-                                          AND t.StartTime > DATEADD(dd, -30, GETDATE())
-                                          AND t.Duration > 15000000
+                                          /* Removed these as they're unnecessary, we filter this when inserting data into #fnTraceGettable */
+										  --AND t.StartTime > DATEADD(dd, -30, GETDATE())
+                                          --AND t.Duration > 15000000
                                         GROUP BY t.DatabaseName
                                         HAVING COUNT(*) > 1;
 	                        END;
@@ -4296,6 +4401,8 @@ IF @ProductVersionMajor >= 10
 /*Begin: checking default trace for odd DBCC activity*/
 		
 		--Grab relevant event data
+		IF @TraceFileIssue = 0
+		BEGIN
 		SELECT UPPER(
 					REPLACE(
 						SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 0, 
@@ -4331,14 +4438,16 @@ IF @ProductVersionMajor >= 10
 			t.LoginName [login_name], 
 			t.DBUserName AS [db_user_name]
 		 	INTO #dbcc_events_from_trace
-		    FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+		    FROM #fnTraceGettable AS t
 			WHERE t.EventClass = 116
-			OPTION(RECOMPILE);
+			OPTION(RECOMPILE)
+			END;
 
 			/*Overall count of DBCC events excluding silly stuff*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 199) WITH NOWAIT
@@ -4374,6 +4483,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 200) WITH NOWAIT
@@ -4404,6 +4514,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 201) WITH NOWAIT
@@ -4434,6 +4545,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT
@@ -4464,6 +4576,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 203) WITH NOWAIT
@@ -4493,6 +4606,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+							AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 204) WITH NOWAIT
@@ -4528,6 +4642,7 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 205 )
+						AND @TraceFileIssue = 0
 					BEGIN
 						  
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 205) WITH NOWAIT
@@ -4552,7 +4667,7 @@ IF @ProductVersionMajor >= 10
 														+ ' that lasted on average ' 
 															+ CONVERT(NVARCHAR(10), AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)))
 																+ ' seconds.' AS Details
-						FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+						FROM #fnTraceGettable AS t
 						WHERE t.EventClass IN (94, 95)
 						GROUP BY t.DatabaseName
 						HAVING AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)) > 5;
