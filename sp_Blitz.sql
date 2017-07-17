@@ -693,7 +693,7 @@ AS
 										'Backup' AS FindingsGroup ,
 										'Full Recovery Model w/o Log Backups' AS Finding ,
 										'https://BrentOzar.com/go/biglogs' AS URL ,
-										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR) + 'MB log file has not been backed up in the last week.' ) AS Details
+										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
@@ -3971,7 +3971,7 @@ IF @ProductVersionMajor >= 10
 										'File Configuration' AS FindingsGroup ,
 										'TempDB Has >16 Data Files' AS Finding ,
 										'https://BrentOzar.com/go/tempdb' AS URL ,
-										'Woah, Nelly! TempDB has ' + CAST(COUNT_BIG(*) AS VARCHAR) + '. Did you forget to terminate a loop somewhere?' AS Details
+										'Woah, Nelly! TempDB has ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + '. Did you forget to terminate a loop somewhere?' AS Details
 								  FROM sys.[master_files] AS [mf] 
 								  WHERE [mf].[database_id] = 2 AND [mf].[type] = 0
 								  HAVING COUNT_BIG(*) > 16; 
@@ -4004,7 +4004,7 @@ IF @ProductVersionMajor >= 10
 													'Monitoring' AS FindingsGroup ,
 													'Extended Events Hyperextension' AS Finding ,
 													'https://BrentOzar.com/go/xe' AS URL ,
-													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
+													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
 												WHERE [name] NOT IN
 												('system_health', 'sp_server_diagnostics session', 'hkenginexesession', 'telemetry_xevents')
@@ -6001,13 +6001,13 @@ IF @ProductVersionMajor >= 10
 						(@@SERVERNAME IS NOT NULL
 						AND
 						/* not a named instance */
-						CHARINDEX('\',CAST(SERVERPROPERTY('ServerName') AS NVARCHAR)) = 0
+						CHARINDEX('\',CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))) = 0
 						AND
 						/* not clustered, when computername may be different than the servername */
 						SERVERPROPERTY('IsClustered') = 0
 						AND
 						/* @@SERVERNAME is different than the computer name */
-						@@SERVERNAME <> CAST(ISNULL(SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),@@SERVERNAME) AS NVARCHAR) )
+						@@SERVERNAME <> CAST(ISNULL(SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),@@SERVERNAME) AS NVARCHAR(128)) )
 						 BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 70) WITH NOWAIT;
@@ -6729,7 +6729,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Server Info' AS FindingsGroup ,
 												'Drive ' + i.drive + ' Space' AS Finding ,
 												'' AS URL ,
-												CAST(i.SIZE AS VARCHAR)
+												CAST(i.SIZE AS VARCHAR(30))
 												+ 'MB free on ' + i.drive
 												+ ' drive' AS Details
 										FROM    #driveInfo AS i;
@@ -6830,8 +6830,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												,'Server Info' AS FindingsGroup
 												,'Default Trace Contents' AS Finding
 												,'https://BrentOzar.com/go/trace' AS URL
-												,'The default trace holds '+cast(DATEDIFF(hour,MIN(StartTime),GETDATE())as varchar)+' hours of data'
-												+' between '+cast(Min(StartTime) as varchar)+' and '+cast(GETDATE()as varchar)
+												,'The default trace holds '+cast(DATEDIFF(hour,MIN(StartTime),GETDATE())as VARCHAR(30))+' hours of data'
+												+' between '+cast(Min(StartTime) as VARCHAR(30))+' and '+cast(GETDATE()as VARCHAR(30))
 												+('. The default trace files are located in: '+left( @curr_tracefilename,len(@curr_tracefilename) - @indx)
 												) as Details
 										FROM    ::fn_trace_gettable( @base_tracefilename, default )
