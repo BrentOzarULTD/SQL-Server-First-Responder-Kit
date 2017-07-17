@@ -136,7 +136,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
-							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
+							CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
 							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
 								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
@@ -334,7 +334,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
-							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
+							CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
 							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
 								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
@@ -343,7 +343,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
 						'+
 						CASE @SessionWaits
-							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,'
+							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
 							 ELSE N''
 						END
 						+' 
