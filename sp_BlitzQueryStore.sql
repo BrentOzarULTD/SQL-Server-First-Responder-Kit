@@ -538,6 +538,8 @@ CREATE TABLE #working_warnings
 	index_spool_rows FLOAT,
 	is_spool_expensive BIT,
 	is_spool_more_rows BIT,
+	estimated_rows FLOAT,
+	is_bad_estimate BIT, 
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -1723,7 +1725,7 @@ This and several of the following queries all replaced XML parsing to find plan 
 Thanks, Query Store
 */
 
-RAISERROR(N'Checking for multiple plans', 0, 1) WITH NOWAIT;
+RAISERROR(N'Populating object name in #working_warnings', 0, 1) WITH NOWAIT;
 UPDATE w
 SET    w.proc_or_function_name = ISNULL(wm.proc_or_function_name, N'Statement')
 FROM   #working_warnings AS w
@@ -1731,7 +1733,6 @@ JOIN   #working_metrics AS wm
 ON w.plan_id = wm.plan_id
    AND w.query_id = wm.query_id
 OPTION (RECOMPILE);
-
 
 
 RAISERROR(N'Checking for multiple plans', 0, 1) WITH NOWAIT;
@@ -2024,6 +2025,21 @@ table_dml AS (
 	WHERE t.table_dml = 1
 OPTION (RECOMPILE);
 
+RAISERROR(N'Gathering row estimates', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES ('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p ),
+est_rows AS(
+SELECT s.sql_handle, c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
+FROM   #statements AS s
+CROSS APPLY s.statement.nodes('//p:StmtSimple') AS c(n)
+WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
+)
+	UPDATE b
+		SET b.estimated_rows = er.estimated_rows
+	FROM #working_warnings AS b
+	JOIN est_rows er
+	ON er.sql_handle = b.sql_handle
+	WHERE b.proc_or_function_name = 'Statement'
+	OPTION (RECOMPILE);
 
 /*Begin plan cost calculations*/
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
@@ -2515,7 +2531,8 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
 	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END,
 	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .1 THEN 1 END,
-	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= wm.min_rowcount THEN 1 END
+	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= wm.min_rowcount THEN 1 END,
+	   	   is_bad_estimate = CASE WHEN wm.avg_rowcount > 0 AND (b.estimated_rows * 10000 < wm.avg_rowcount OR b.estimated_rows > wm.avg_rowcount * 10000) THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
@@ -2581,7 +2598,8 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
 				  CASE WHEN b.is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END	+
 				  CASE WHEN b.is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
-				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END     
+				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  	     
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -3487,9 +3505,22 @@ BEGIN
                      'No URL yet',
                      'Check operator predicates and output for index definition guidance') ;	
 
-				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-				SELECT 
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_bad_estimate = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     56,
+                     100,
+                     'Potentially bad cardinality estimates',
+                     'Estimated rows are different from average rows by a factor of 10000',
+                     'No URL yet',
+                     'This may indicate a performance problem if mismatches occur regularly') ;					
 				
+				
+				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+				SELECT 				
 				999,
 				200,
 				'Database Level Statistics',
