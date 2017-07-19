@@ -75,7 +75,9 @@ DECLARE /*Variables for the variable Gods*/
 		@error_state INT,--Holds error info for try/catch blocks
 		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT',--Holds parameters used in dynamic SQL
 		@is_azure_db BIT = 0, --Are we using Azure? I'm not. You might be. That's cool.
-		@compatibility_level TINYINT = 0 --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
+		@compatibility_level TINYINT = 0, --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
+		@log_size_mb DECIMAL(38,2) = 0,
+		@avg_tempdb_data_file DECIMAL(38,2) = 0;
 
 /*Grabs CTFP setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -88,6 +90,18 @@ SELECT @min_memory_per_query = CONVERT(INT, c.value)
 FROM   sys.configurations AS c
 WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
+
+/*Grabs log size for datbase*/
+SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
+FROM sys.master_files AS mf
+WHERE mf.database_id = DB_ID(@DatabaseName)
+AND mf.type_desc = 'LOG'
+
+/*Grab avg tempdb file size*/
+SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
+FROM sys.master_files AS mf
+WHERE mf.database_id = DB_ID('tempdb')
+AND mf.type_desc = 'ROWS'
 
 
 /*Help section*/
@@ -258,14 +272,14 @@ This section determines if you have the Query Store wait stats DMV
 
 RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
 
-DECLARE @out INT,
+DECLARE @ws_out INT,
 		@waitstats BIT,
-		@sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
+		@ws_sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.all_objects WHERE name = ''query_store_wait_stats'' OPTION (RECOMPILE);',
 		@ws_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
 
-EXEC sys.sp_executesql @sql, @ws_params, @i_out = @out OUTPUT;
+EXEC sys.sp_executesql @ws_sql, @ws_params, @i_out = @ws_out OUTPUT;
 
-SELECT @waitstats = CASE @out WHEN 0 THEN 0 ELSE 1 END;
+SELECT @waitstats = CASE @ws_out WHEN 0 THEN 0 ELSE 1 END;
 
 SET @msg = N'Wait stats DMV ' + CASE @waitstats 
 									WHEN 0 THEN N' does not exist, skipping.'
@@ -273,6 +287,42 @@ SET @msg = N'Wait stats DMV ' + CASE @waitstats
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
+/*
+This section determines if you have some additional columns present in 2017, in case they get back ported.
+*/
+
+RAISERROR('Checking for new columns in query_store_runtime_stats', 0, 1) WITH NOWAIT;
+
+DECLARE @nc_out INT,
+		@new_columns BIT,
+		@nc_sql NVARCHAR(MAX) = N'SELECT @i_out = COUNT(*) 
+							      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.all_columns AS ac
+								  WHERE OBJECT_NAME(object_id) = ''query_store_runtime_stats''
+								  AND ac.name IN (
+								  ''avg_num_physical_io_reads'',
+								  ''last_num_physical_io_reads'',
+								  ''min_num_physical_io_reads'',
+								  ''max_num_physical_io_reads'',
+								  ''avg_log_bytes_used'',
+								  ''last_log_bytes_used'',
+								  ''min_log_bytes_used'',
+								  ''max_log_bytes_used'',
+								  ''avg_tempdb_space_used'',
+								  ''last_tempdb_space_used'',
+								  ''min_tempdb_space_used'',
+								  ''max_tempdb_space_used''
+								  ) OPTION (RECOMPILE);',
+		@nc_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
+
+EXEC sys.sp_executesql @nc_sql, @ws_params, @i_out = @nc_out OUTPUT;
+
+SELECT @new_columns = CASE @nc_out WHEN 12 THEN 1 ELSE 0 END;
+
+SET @msg = N'New query_store_runtime_stats columns ' + CASE @waitstats 
+									WHEN 0 THEN N' do not exist, skipping.'
+									WHEN 1 THEN N' exist, will analyze.'
+							   END;
+RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
  
 /*
@@ -389,6 +439,20 @@ CREATE TABLE #working_metrics
 	last_rowcount DECIMAL(38,2),
 	min_rowcount DECIMAL(38,2),
 	max_rowcount  DECIMAL(38,2),
+	/*These are 2017 only, AFAIK*/
+	avg_num_physical_io_reads DECIMAL(38,2),
+	last_num_physical_io_reads DECIMAL(38,2),
+	min_num_physical_io_reads DECIMAL(38,2),
+	max_num_physical_io_reads DECIMAL(38,2),
+	avg_log_bytes_used DECIMAL(38,2),
+	last_log_bytes_used DECIMAL(38,2),
+	min_log_bytes_used DECIMAL(38,2),
+	max_log_bytes_used DECIMAL(38,2),
+	avg_tempdb_space_used DECIMAL(38,2),
+	last_tempdb_space_used DECIMAL(38,2),
+	min_tempdb_space_used DECIMAL(38,2),
+	max_tempdb_space_used DECIMAL(38,2),
+	/*These are computed columns to make some stuff easier down the line*/
 	total_compile_duration AS avg_compile_duration * count_compiles,
 	total_bind_duration AS avg_bind_duration * count_compiles,
 	total_bind_cpu_time AS avg_bind_cpu_time * count_compiles,
@@ -403,6 +467,9 @@ CREATE TABLE #working_metrics
 	total_clr_time AS avg_clr_time * count_executions,
 	total_query_max_used_memory AS avg_query_max_used_memory * count_executions,
 	total_rowcount AS avg_rowcount * count_executions,
+	total_num_physical_io_reads AS avg_num_physical_io_reads * count_executions,
+	total_log_bytes_used AS avg_log_bytes_used * count_executions,
+	total_tempdb_space_used AS avg_tempdb_space_used * count_executions,
 	xpm AS NULLIF(count_executions, 0) / NULLIF(DATEDIFF(MINUTE, first_execution_time, last_execution_time), 0),
 	INDEX wm_ix_ids CLUSTERED (plan_id, query_id, query_hash)
 );
@@ -540,6 +607,8 @@ CREATE TABLE #working_warnings
 	is_spool_more_rows BIT,
 	estimated_rows FLOAT,
 	is_bad_estimate BIT, 
+	is_big_log BIT,
+	is_big_tempdb BIT,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -797,6 +866,8 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 IF @StoredProcName IS NOT NULL
 	BEGIN 
 	
+	DECLARE @sql NVARCHAR(MAX)
+	DECLARE @out INT
 	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT, @i_out INT OUTPUT';
 	
 	
@@ -1377,8 +1448,41 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 	   ((qsrs.last_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.min_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.max_query_max_used_memory * 8 ) / 1024.), 
-	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount
-FROM   #working_plans AS wp
+	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,'
+		
+		IF @new_columns = 1
+			BEGIN
+			SET @sql_select += N'
+			qsrs.avg_num_physical_io_reads, qsrs.last_num_physical_io_reads, qsrs.min_num_physical_io_reads, qsrs.max_num_physical_io_reads,
+			(qsrs.avg_log_bytes_used / 100000000),
+			(qsrs.last_log_bytes_used / 100000000),
+			(qsrs.min_log_bytes_used / 100000000),
+			(qsrs.max_log_bytes_used / 100000000),
+			((qsrs.avg_tempdb_space_used * 8 ) / 1024.),
+			((qsrs.last_tempdb_space_used * 8 ) / 1024.),
+			((qsrs.min_tempdb_space_used * 8 ) / 1024.),
+			((qsrs.max_tempdb_space_used * 8 ) / 1024.)
+			'
+			END	
+		IF @new_columns = 0
+			BEGIN
+			SET @sql_select += N'
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL
+			'
+			END
+SET @sql_select +=
+N'FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
 ON wp.query_id = qsq.query_id
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
@@ -1417,7 +1521,11 @@ INSERT #working_metrics WITH (TABLOCK)
 		  min_cpu_time, max_cpu_time, avg_logical_io_reads, last_logical_io_reads, min_logical_io_reads, max_logical_io_reads, avg_logical_io_writes, 
 		  last_logical_io_writes, min_logical_io_writes, max_logical_io_writes, avg_physical_io_reads, last_physical_io_reads, min_physical_io_reads, 
 		  max_physical_io_reads, avg_clr_time, last_clr_time, min_clr_time, max_clr_time, avg_dop, last_dop, min_dop, max_dop, avg_query_max_used_memory, 
-		  last_query_max_used_memory, min_query_max_used_memory, max_query_max_used_memory, avg_rowcount, last_rowcount, min_rowcount, max_rowcount )
+		  last_query_max_used_memory, min_query_max_used_memory, max_query_max_used_memory, avg_rowcount, last_rowcount, min_rowcount, max_rowcount,
+		  /* 2017 only columns */
+		  avg_num_physical_io_reads, last_num_physical_io_reads, min_num_physical_io_reads, max_num_physical_io_reads,
+		  avg_log_bytes_used, last_log_bytes_used, min_log_bytes_used, max_log_bytes_used,
+		  avg_tempdb_space_used, last_tempdb_space_used, min_tempdb_space_used, max_tempdb_space_used )
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -2532,7 +2640,9 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.low_cost_high_cpu = CASE WHEN b.query_cost < @ctp AND wm.avg_cpu_time > 500. AND b.query_cost * 10 < wm.avg_cpu_time THEN 1 END,
 	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .1 THEN 1 END,
 	   b.is_spool_more_rows = CASE WHEN b.index_spool_rows >= wm.min_rowcount THEN 1 END,
-	   	   is_bad_estimate = CASE WHEN wm.avg_rowcount > 0 AND (b.estimated_rows * 10000 < wm.avg_rowcount OR b.estimated_rows > wm.avg_rowcount * 10000) THEN 1 END
+	   b.is_bad_estimate = CASE WHEN wm.avg_rowcount > 0 AND (b.estimated_rows * 10000 < wm.avg_rowcount OR b.estimated_rows > wm.avg_rowcount * 10000) THEN 1 END,
+	   b.is_big_log = CASE WHEN wm.avg_log_bytes_used >= (@log_size_mb / 2.) THEN 1 END,
+	   b.is_big_tempdb = CASE WHEN wm.avg_tempdb_space_used >= (@avg_tempdb_data_file / 2.) THEN 1 END
 FROM #working_warnings AS b
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
@@ -2599,7 +2709,9 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END	+
 				  CASE WHEN b.is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  	     
+				  CASE WHEN b.is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END +
+				  CASE WHEN b.is_big_log = 1 THEN + ', High log use' ELSE '' END +
+				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END  
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -2674,7 +2786,17 @@ SET b.parameter_sniffing_symptoms =
 				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
 				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
 				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
-				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END 
+				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
+				/*tempdb*/
+				CASE WHEN b.min_tempdb_space_used * 10000 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
+				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb sometimes' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used * 10000 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb last run' ELSE '' END +
+				/*tlog*/
+				CASE WHEN b.min_log_bytes_used * 10000 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
+				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use sometimes' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used * 10000 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use last run' ELSE '' END 
 	, 2, 200000) 
 FROM #working_metrics AS b
 OPTION (RECOMPILE);
@@ -2714,7 +2836,8 @@ SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
-	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
+	   wm.total_log_bytes_used, wm.avg_log_bytes_used, wm.total_num_physical_io_reads, wm.avg_num_physical_io_reads,
 	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
@@ -2742,7 +2865,8 @@ SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
-	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
+	   wm.total_log_bytes_used, wm.avg_log_bytes_used, wm.total_num_physical_io_reads, wm.avg_num_physical_io_reads,
 	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
@@ -2774,7 +2898,8 @@ SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
-	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
+	   wm.total_log_bytes_used, wm.avg_log_bytes_used, wm.total_num_physical_io_reads, wm.avg_num_physical_io_reads,
 	   wm.first_execution_time, wm.last_execution_time, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_warnings AS ww
@@ -2802,7 +2927,8 @@ SELECT wpt.database_name, wm.plan_id, wm.query_id, wpt.query_sql_text, wpt.query
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes,
-	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.min_query_max_used_memory, wm.max_query_max_used_memory,
+	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
+	   wm.total_log_bytes_used, wm.avg_log_bytes_used, wm.total_num_physical_io_reads, wm.avg_num_physical_io_reads,
 	   wm.first_execution_time, wm.last_execution_time, wpt.last_force_failure_reason_desc, wpt.context_settings, ROW_NUMBER() OVER (PARTITION BY wm.plan_id, wm.query_id, wm.last_execution_time ORDER BY wm.plan_id) AS rn
 FROM #working_plan_text AS wpt
 JOIN #working_metrics AS wm
@@ -3517,7 +3643,32 @@ BEGIN
                      'Estimated rows are different from average rows by a factor of 10000',
                      'No URL yet',
                      'This may indicate a performance problem if mismatches occur regularly') ;					
-				
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_big_log = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     57,
+                     100,
+                     'High transaction log use',
+                     'This query on average uses more than half of the transaction log',
+                     'michaeljswart.com/2014/09/take-care-when-scripting-batches/',
+                     'This is probably a sign that you need to start batching queries') ;
+					 		
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_big_tempdb = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     58,
+                     100,
+                     'High tempdb use',
+                     'This query uses more than half of a data file on average',
+                     'No URL yet',
+                     'You should take a look at tempdb waits to see if you''re having problems') ;						
 				
 				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 				
