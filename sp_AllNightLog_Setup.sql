@@ -23,6 +23,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@UpdateSetup BIT = 0,
                 @EnableBackupJobs INT = NULL,
                 @EnableRestoreJobs INT = NULL,
+				@Cleanup BIT = 0,
 				@Debug BIT = 0,
 				@Help BIT = 0,
 				@VersionDate DATETIME = NULL OUTPUT
@@ -171,6 +172,20 @@ DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; -
 DECLARE @job_description_restores NVARCHAR(MAX) = N'''This is a worker for the purposes of restoring log backups from msdb.dbo.restore_worker queue table.'''; --Job description
 DECLARE @job_command_restores NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Restore = 1'''; --Command the Agent job will run
 
+/*Cleanup variables*/
+--Agent stuff
+DECLARE @ten_second_schedule_check INT = 0 --Looks for ten_second schedule. I know it looks weird to have this as an INT, but you can create multiple schedules with the same name.
+DECLARE @backup_jobs_count INT = 0 --Gets a count  of backup jobs
+DECLARE @restore_jobs_count INT = 0 --Gets a count of restore jobs
+DECLARE @poll_jobs_count INT = 0 --Gets a count of polling jobs
+--Table and database stuff
+DECLARE @drop_db_sql NVARCHAR(MAX) = N'' --Dynamic SQL used to look for our centralized database
+DECLARE @drop_db_exists NVARCHAR(100) = NULL -- Holds the status of our database (will be ONLINE if exists and accessible)
+DECLARE @drop_db_table_count_sql NVARCHAR(MAX) = N'' --Dynamic SQL to get a count of user tables in centralized database
+DECLARE @drop_db_table_count INT = 0 --Count of user tables in centralized database. Used to determine if we drop the database or just our two tables
+DECLARE @drop_restore_worker BIT = 0 --Flips to 1 if we need to drop our restore worker table
+DECLARE @drop_restore_config BIT = 0 --Flips to 1 if we need to drop our restore config table
+
 
 /*
 
@@ -180,16 +195,40 @@ Sanity check some variables
 
 
 
-IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
+IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL) AND (@Cleanup = 0 OR @Cleanup IS NULL))
 
 	BEGIN
 
-		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT;
+		RAISERROR('You have to either run setup or update setup or cleanup setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT;
 
 		RETURN;
 
 	END;
 
+IF (
+	(@Cleanup & @RunSetup) = 1
+	OR 
+	(@Cleanup & @UpdateSetup) = 1
+	OR 
+	(@RunSetup & @UpdateSetup) = 1
+	)
+	BEGIN
+
+		RAISERROR('You can''t run more than 1 operation at once. Please choose between setup, update, and cleanup.', 0, 1) WITH NOWAIT;
+
+		RETURN;
+
+	END;
+
+
+IF (@RunSetup = 1 AND (@BackupPath IS NULL OR @RestorePath IS NULL OR @RPOSeconds IS NULL OR @RTOSeconds IS NULL) )
+	BEGIN
+
+		RAISERROR('When running setup, you need to specify a backup path, a restore path, and values for RPO and RTO.', 0, 1) WITH NOWAIT;
+
+		RETURN;
+
+	END;
 
 /*
 
@@ -320,6 +359,10 @@ IF @UpdateSetup = 1
 
 IF @UpdateSetup = 1
 	GOTO UpdateConfigs;
+
+
+IF @Cleanup = 1
+	GOTO Cleanup;
 
 IF @RunSetup = 1
 BEGIN
@@ -1264,6 +1307,161 @@ IF @UpdateSetup = 1
 			RETURN;
 
 	END; --End updates to configuration table
+
+
+/*
+
+Cleanup section to cleanup, you filthy animal
+
+*/
+
+
+Cleanup:
+
+	IF @Cleanup = 1
+
+	BEGIN
+
+	RAISERROR('Starting cleanup', 0, 1) WITH NOWAIT;
+	RAISERROR('Assessing the damage', 0, 1) WITH NOWAIT;
+
+
+	/*
+	
+	Start by looking for backup jobs
+
+	*/
+
+	RAISERROR('Checking for backup jobs', 0, 1) WITH NOWAIT;
+
+		SELECT @backup_jobs_count = COUNT(*)
+		FROM msdb.dbo.sysjobs 
+		WHERE name LIKE 'sp[_]AllNightLog[_]Backup[_]%';
+
+	RAISERROR('Found [%d] backup jobs', 0, 1, @backup_jobs_count) WITH NOWAIT;
+
+	/*
+	
+	Look for restore jobs next
+	
+	*/
+
+	RAISERROR('Checking for restore jobs', 0, 1) WITH NOWAIT;
+
+		SELECT @restore_jobs_count = COUNT(*)
+		FROM msdb.dbo.sysjobs 
+		WHERE name LIKE 'sp[_]AllNightLog[_]Restore[_]%';
+
+	RAISERROR('Found [%d] restore jobs', 0, 1, @restore_jobs_count) WITH NOWAIT;
+
+	/*
+	
+	Now look for polling jobs
+	
+	*/
+
+	IF @Debug = 1 RAISERROR('Checking for polling jobs', 0, 1) WITH NOWAIT;
+
+		SELECT @restore_jobs_count = COUNT(*)
+		FROM msdb.dbo.sysjobs 
+		WHERE name LIKE 'sp[_]AllNightLog[_]Poll%';
+
+	IF @Debug = 1 RAISERROR('Found [%d] polling jobs', 0, 1, @restore_jobs_count) WITH NOWAIT;
+
+
+	/*
+	
+	Now look for ten_second schedule
+	
+	*/
+
+	IF @Debug = 1 RAISERROR('Checking for ten_second schedule', 0, 1) WITH NOWAIT;
+
+	SELECT @ten_second_schedule_check = COUNT(*)
+	FROM msdb.dbo.sysschedules AS s
+	WHERE s.name = 'ten_seconds'
+
+	IF @Debug = 1 RAISERROR('Found [%d] schedules named ten_seconds ', 0, 1, @ten_second_schedule_check) WITH NOWAIT;
+	
+	/*
+	
+	Checking for centralized database
+	
+	*/
+
+	IF @Debug = 1 RAISERROR('Checking for [%s]', 0, 1, @database_name) WITH NOWAIT;
+
+	SET @drop_db_sql += N'SELECT @sp_drop_db_exists = CONVERT(NVARCHAR(100), DATABASEPROPERTYEX(' + QUOTENAME(@database_name, '''') + ', ''Status'') )'
+		
+		IF @Debug = 1 PRINT @drop_db_sql
+
+	EXEC sys.sp_executesql @drop_db_sql, N'@sp_drop_db_exists NVARCHAR(100) OUTPUT', @sp_drop_db_exists = @drop_db_exists OUTPUT
+
+	IF @Debug = 1 RAISERROR('Database [%s] has a status of [%s]', 0, 1, @database_name, @drop_db_exists) WITH NOWAIT;
+
+	IF @drop_db_exists = N'ONLINE' AND @Debug = 1 
+		BEGIN
+			RAISERROR('Found [%s]', 0, 1, @database_name) WITH NOWAIT;
+		END
+	ELSE
+		BEGIN
+			RAISERROR('Did not find [%s]', 0, 1, @database_name) WITH NOWAIT;
+		END
+	
+	/*
+	
+	Checking for other tables in centralized database
+	
+	*/
+	IF @Debug = 1 RAISERROR('Checking for other user tables in [%s]', 0, 1, @database_name) WITH NOWAIT;
+	
+	SET @drop_db_table_count_sql = N'
+									 SELECT @sp_drop_db_table_count = COUNT(*)
+									 FROM msdbCentral.sys.tables AS t
+									 WHERE t.name NOT LIKE ''backup_configuration%''
+									 AND t.name NOT LIKE ''backup_worker%'';
+									 ' --Using LIKE here just in case someone makes a 'backup_worker_bak' table or something before making changes
+
+	IF @Debug = 1 PRINT @drop_db_table_count_sql
+
+	EXEC sys.sp_executesql @drop_db_table_count_sql, N'@sp_drop_db_table_count INT OUTPUT', @sp_drop_db_table_count = @drop_db_table_count OUTPUT
+	
+	IF @Debug = 1 AND @drop_db_table_count > 0 RAISERROR('Found [%d] other tables in [%s], will only drop our tables', 0, 1, @drop_db_table_count, @database_name)
+
+	IF @Debug = 1 AND @drop_db_table_count = 0 RAISERROR('Found [%d] other tables in [%s], will drop database', 0, 1, @drop_db_table_count, @database_name)
+
+
+	/*
+	
+	Checking restore tables 
+	
+	*/
+
+	IF @Debug = 1 RAISERROR('Checking for restore tables in msdb', 0, 1) WITH NOWAIT;
+
+	IF OBJECT_ID('msdb.dbo.restore_configuration', 'U') IS NOT NULL
+		BEGIN
+			SET @drop_restore_config = 1
+			IF @Debug = 1 RAISERROR('Found restore_configuration in msdb', 0, 1) WITH NOWAIT;
+		END
+	
+	IF OBJECT_ID('msdb.dbo.restore_worker', 'U') IS NOT NULL
+		BEGIN
+			SET @drop_restore_worker = 1
+			IF @Debug = 1 RAISERROR('Found restore_worker in msdb', 0, 1) WITH NOWAIT;
+		END
+
+
+
+
+
+	SELECT 'poop'
+
+
+
+
+
+	END
 
 
 END; -- Final END for stored proc
