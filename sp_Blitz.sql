@@ -4475,6 +4475,11 @@ IF @ProductVersionMajor >= 10
 			N'DBCC CLEANTABLE', N'DBCC CHECKPRIMARYFILE', N'DBCC OPENTRAN', 'DBCC SHOWFILESTATS' --Weird but okay
 													)
 			AND d.dbcc_event_full_upper NOT IN('DBCC SQLPERF(NETSTATS)', 'DBCC SQLPERF(LOGSPACE)')
+			AND d.application_name NOT LIKE 'Critical Care(R) Collector'
+			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
+			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
+			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
+
 			HAVING COUNT(*) > 0;
 			
 				END;
