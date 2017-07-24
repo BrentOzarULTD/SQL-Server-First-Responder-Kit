@@ -7,6 +7,7 @@ First of all, welcome! We're excited that you'd like to contribute. How would yo
 * [I'd like to fix bugs in T-SQL checks](#how-to-fix-bugs-in-existing-t-sql-checks)
 * [I'd like to test checks written by someone else](#how-to-test-checks-written-by-someone-else)
 * [I'd like to write or update documentation](#how-to-write-or-update-documentation)
+* [I don't know how to upload code to GitHub](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/)
 
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](#the-contributor-covenant-code-of-conduct).
 
@@ -100,6 +101,61 @@ Project maintainers who do not follow or enforce the Code of Conduct in good fai
 This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 1.4,
 available at [http://contributor-covenant.org/version/1/4][version]
 
+
+## Git Flow for pull requests
+<a name="git-flow"></a>
+
+1. [Fork] the project, clone your fork, and configure the remotes:
+
+   ```bash
+   # Clone your fork of the repo into the current directory
+   git clone git@github.com:<YOUR_USERNAME>/SQL-Server-First-Responder-Kit.git
+   # Navigate to the newly cloned directory
+   cd SQL-Server-First-Responder-Kit
+   # Assign the original repo to a remote called "upstream"
+   git remote add upstream https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+   ```
+
+2. If you cloned a while ago, get the latest changes from upstream:
+
+   ```bash
+   git checkout master
+   git pull upstream master
+   ```
+
+3. Create a new topic branch (off the main project development branch) to
+   contain your feature, change, or fix:
+
+   ```bash
+   git checkout -b <topic-branch-name>
+   ```
+
+4. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
+   or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
+   feature to tidy up your commits before making them public.
+
+5. Locally merge (or rebase) the upstream development branch into your topic branch:
+
+   ```bash
+   git pull [--rebase] upstream master
+   ```
+
+6. Push your topic branch up to your fork:
+
+   ```bash
+   git push origin <topic-branch-name>
+   ```
+
+7. [Open a Pull Request] with a clear title and description.
+
+**IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
+
+
 [homepage]: http://contributor-covenant.org
 [version]: http://contributor-covenant.org/version/1/4/
 [Github issues list]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
+[Fork]:https://help.github.com/articles/fork-a-repo/
+[git commit message guidelines]:http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
+[interactive rebase]:https://help.github.com/articles/about-git-rebase/
+[Open a Pull Request]:https://help.github.com/articles/about-pull-requests/
+[LICENSE]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md

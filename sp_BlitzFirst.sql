@@ -22,13 +22,17 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
+	@ShowSleepingSPIDs TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-SET @VersionDate = '20161210'
+DECLARE @Version VARCHAR(30);
+SET @Version = '5.3';
+SET @VersionDate = '20170501';
+
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -59,7 +63,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2017 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -99,7 +103,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
-    @ObjectFullName NVARCHAR(2000);
+    @ObjectFullName NVARCHAR(2000),
+	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
 
 /* Sanitize our inputs */
 SELECT
@@ -130,7 +135,7 @@ IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure
         WHERE wait_type IN ('BROKER_TASK_STOP','DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
                             'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_DISPATCHER_WAIT','XE_TIMER_EVENT')
 ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
-    SELECT @StartSampleTime = create_date , @FinishSampleTime = SYSDATETIMEOFFSET()
+    SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.databases
         WHERE database_id = 2;
 ELSE
@@ -166,13 +171,13 @@ BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
 			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
 		END
 		ELSE
 		BEGIN
-			EXEC [dbo].[sp_BlitzWho]
+			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
      
@@ -452,6 +457,9 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Buffer Manager','Active Transactions','_Total')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Log Growths', '_Total')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Log Shrinks', '_Total')
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Transactions/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','Write Transactions/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Databases','XTP Memory Used (KB)',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','Distributed Query', 'Execs in progress')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','DTC calls', 'Execs in progress')
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Exec Statistics','Extended Procedures', 'Execs in progress')
@@ -470,6 +478,8 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Attention rate', NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Compilations/sec', NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Re-Compilations/sec', NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Workload Group Stats','Query optimizations/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Workload Group Stats','Suboptimal plans/sec',NULL)
         /* Below counters added by Jefferson Elias */
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Worktables From Cache Base',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Worktables From Cache Ratio',NULL)
@@ -506,6 +516,32 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Access Methods','Index Searches/sec',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Buffer Manager','Page lookups/sec',NULL)
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':Cursor Manager by Type','Active cursors',NULL)
+        /* Below counters are for In-Memory OLTP (Hekaton), which have a different naming convention.
+           And yes, they actually hard-coded the version numbers into the counters.
+           For why, see: https://connect.microsoft.com/SQLServer/feedback/details/817216/xtp-perfmon-counters-should-appear-under-sql-server-perfmon-counter-group
+        */
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Cursors','Expired rows removed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Cursors','Expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Garbage Collection','Rows processed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP IO Governor','Io Issued/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Phantom Processor','Phantom expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Phantom Processor','Phantom rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transaction Log','Log bytes written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transaction Log','Log records written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions aborted by user/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions aborted/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2014 XTP Transactions','Transactions created/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Cursors','Expired rows removed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Cursors','Expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Garbage Collection','Rows processed/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP IO Governor','Io Issued/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Phantom Processor','Phantom expired rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Phantom Processor','Phantom rows touched/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transaction Log','Log bytes written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transaction Log','Log records written/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted by user/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted/sec',NULL)
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions created/sec',NULL)
         END
 
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
@@ -542,49 +578,52 @@ BEGIN
 		   FROM sys.dm_os_wait_stats os
 		) x
 		   WHERE x.wait_type NOT IN (
-		       'REQUEST_FOR_DEADLOCK_SEARCH',
-		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-		       'SQLTRACE_BUFFER_FLUSH',
-		       'LAZYWRITER_SLEEP',
-		       'XE_TIMER_EVENT',
-		       'XE_DISPATCHER_WAIT',
-		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
-		       'LOGMGR_QUEUE',
-		       'CHECKPOINT_QUEUE',
-		       'BROKER_TO_FLUSH',
-		       'BROKER_TASK_STOP',
-		       'BROKER_EVENTHANDLER',
-		       'SLEEP_TASK',
-		       'WAITFOR',
-		       'DBMIRROR_DBM_MUTEX',
-		       'DBMIRROR_EVENTS_QUEUE',
-		       'DBMIRRORING_CMD',
-		       'DISPATCHER_QUEUE_SEMAPHORE',
-		       'BROKER_RECEIVE_WAITFOR',
-		       'CLR_AUTO_EVENT',
-		       'DIRTY_PAGE_POLL',
-		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-		       'ONDEMAND_TASK_QUEUE',
-		       'FT_IFTSHC_MUTEX',
-		       'CLR_MANUAL_EVENT',
-		       'CLR_SEMAPHORE',
-		       'DBMIRROR_WORKER_QUEUE',
-		       'DBMIRROR_DBM_EVENT',
-		       'SP_SERVER_DIAGNOSTICS_SLEEP',
-		       'HADR_CLUSAPI_CALL',
-		       'HADR_LOGCAPTURE_WAIT',
-		       'HADR_NOTIFICATION_DEQUEUE',
-		       'HADR_TIMER_TASK',
-		       'HADR_WORK_QUEUE',
-		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-		       'RESOURCE_GOVERNOR_IDLE',
-		       'QDS_ASYNC_QUEUE',
-		       'QDS_SHUTDOWN_QUEUE',
-		       'SLEEP_SYSTEMTASK',
-		       'BROKER_TRANSMITTER',
-		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+                  'BROKER_EVENTHANDLER'
+                , 'BROKER_RECEIVE_WAITFOR'
+                , 'BROKER_TASK_STOP'
+                , 'BROKER_TO_FLUSH'
+                , 'BROKER_TRANSMITTER'
+                , 'CHECKPOINT_QUEUE'
+                , 'CLR_AUTO_EVENT'
+                , 'CLR_MANUAL_EVENT'
+                , 'CLR_SEMAPHORE'
+                , 'DBMIRROR_DBM_EVENT'
+                , 'DBMIRROR_DBM_MUTEX'
+                , 'DBMIRROR_EVENTS_QUEUE'
+                , 'DBMIRROR_WORKER_QUEUE'
+                , 'DBMIRRORING_CMD'
+                , 'DIRTY_PAGE_POLL'
+                , 'DISPATCHER_QUEUE_SEMAPHORE'
+                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
+                , 'FT_IFTSHC_MUTEX'
+                , 'HADR_CLUSAPI_CALL'
+                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
+                , 'HADR_LOGCAPTURE_WAIT'
+                , 'HADR_NOTIFICATION_DEQUEUE'
+                , 'HADR_TIMER_TASK'
+                , 'HADR_WORK_QUEUE'
+                , 'LAZYWRITER_SLEEP'
+                , 'LOGMGR_QUEUE'
+                , 'ONDEMAND_TASK_QUEUE'
+                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
+                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
+                , 'QDS_ASYNC_QUEUE'
+                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_SHUTDOWN_QUEUE'
+                , 'REDO_THREAD_PENDING_WORK'
+                , 'REQUEST_FOR_DEADLOCK_SEARCH'
+                , 'SLEEP_SYSTEMTASK'
+                , 'SLEEP_TASK'
+                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
+                , 'SQLTRACE_BUFFER_FLUSH'
+                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
+                , 'UCS_SESSION_REGISTRATION'
+                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
+                , 'WAITFOR'
+                , 'XE_DISPATCHER_WAIT'
+                , 'XE_LIVE_TARGET_TVF'
+                , 'XE_TIMER_EVENT'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -622,7 +661,6 @@ BEGIN
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS)
 
-
 	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
 
 
@@ -634,7 +672,8 @@ BEGIN
         'Maintenance Tasks Running' AS FindingGroup,
         'Backup Running' AS Finding,
         'http://www.BrentOzar.com/askbrent/backups/' AS URL,
-        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' 
+		   + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
         'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
         pl.query_plan AS QueryPlan,
         r.start_time AS StartTime,
@@ -656,8 +695,8 @@ BEGIN
     AND     request_status = N'GRANT'
     AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'BACKUP%';
-
+    WHERE r.command LIKE 'BACKUP%'
+	AND r.start_time <= DATEADD(minute, -5, GETDATE());
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
@@ -667,13 +706,13 @@ BEGIN
     END
 
 
-    /* Maintenance Tasks Running - DBCC Running - CheckID 2 */
-    IF @Seconds > 0
+    /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
+    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
     SELECT 2 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
-        'DBCC Running' AS Finding,
+        'DBCC CHECK* Running' AS Finding,
         'http://www.BrentOzar.com/askbrent/dbcc/' AS URL,
         'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
         'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
@@ -697,7 +736,9 @@ BEGIN
     AND    l.request_status = N'GRANT'
     AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'DBCC%';
+    CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+    WHERE r.command LIKE 'DBCC%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%';
 
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
@@ -727,8 +768,7 @@ BEGIN
     FROM    sys.dm_tran_locks
     WHERE resource_type = N'DATABASE'
     AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+    AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     WHERE r.command LIKE 'RESTORE%';
 
@@ -761,44 +801,38 @@ BEGIN
 
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-    /*
-    IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
-    SELECT 5 AS CheckID,
-        1 AS Priority,
-        'Query Problems' AS FindingGroup,
-        'Long-Running Query Blocking Others' AS Finding,
-        'http://www.BrentOzar.com/go/blocking' AS URL,
-        'Query in ' + DB_NAME(db.resource_database_id) + ' has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed + @LineFeed
-            + CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
-            (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '') AS NVARCHAR(2000)) AS Details,
-        'KILL ' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(rBlocker.plan_handle)) AS QueryPlan,
-        COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(rBlocker.sql_handle)),
-            (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id)) AS QueryText,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount
-    FROM sys.dm_exec_sessions s
-    INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
-    INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-    INNER JOIN sys.dm_os_waiting_tasks tBlocked ON tBlocked.session_id = s.session_id AND tBlocked.session_id <> s.session_id
-    INNER JOIN (
-    SELECT DISTINCT request_session_id, resource_database_id
-    FROM    sys.dm_tran_locks
-    WHERE resource_type = N'DATABASE'
-    AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    LEFT OUTER JOIN sys.dm_exec_requests rBlocker ON tBlocked.blocking_session_id = rBlocker.session_id
-      WHERE NOT EXISTS (SELECT * FROM sys.dm_os_waiting_tasks tBlocker WHERE tBlocker.session_id = tBlocked.blocking_session_id AND tBlocker.blocking_session_id IS NOT NULL)
-      AND s.last_request_start_time < DATEADD(SECOND, -30, SYSDATETIMEOFFSET())
-    */
+    IF @@VERSION NOT LIKE '%Azure%' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
+    BEGIN
+        SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+            SELECT 5 AS CheckID,
+                1 AS Priority,
+                ''Query Problems'' AS FindingGroup,
+                ''Long-Running Query Blocking Others'' AS Finding,
+                ''http://www.BrentOzar.com/go/blocking'' AS URL,
+                ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
+                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' ' 
+					+ @LineFeed + @LineFeed + 
+					'+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '''') AS NVARCHAR(2000)) AS Details,
+                ''KILL '' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + '';'' AS HowToStopIt,
+                (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
+                COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+                    (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id)) AS QueryText,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                r.[database_id] AS DatabaseID,
+                DB_NAME(r.database_id) AS DatabaseName,
+                0 AS OpenTransactionCount
+            FROM sys.dm_os_waiting_tasks tBlocked
+	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
+            LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+            INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+            WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000;'
+		EXECUTE sp_executesql @StringToExecute;
+    END
 
     /* Query Problems - Plan Cache Erased Recently */
     IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
@@ -959,7 +993,23 @@ BEGIN
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-
+		
+		/* Highlight if non SQL processes are using >25% CPU */
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
+            FROM (
+                SELECT record,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+					,record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS SQLUsage
+                FROM (
+                    SELECT TOP 1 CONVERT(XML, record) AS record
+                    FROM sys.dm_os_ring_buffers
+                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+                    AND record LIKE '%<SystemHealth>%'
+                    ORDER BY timestamp DESC) AS rb
+            ) AS y
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+		
         END /* IF @Seconds < 30 */
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
@@ -1005,49 +1055,52 @@ BEGIN
 		   FROM sys.dm_os_wait_stats os
 		) x
 		   WHERE x.wait_type NOT IN (
-		       'REQUEST_FOR_DEADLOCK_SEARCH',
-		       'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
-		       'SQLTRACE_BUFFER_FLUSH',
-		       'LAZYWRITER_SLEEP',
-		       'XE_TIMER_EVENT',
-		       'XE_DISPATCHER_WAIT',
-		       'FT_IFTS_SCHEDULER_IDLE_WAIT',
-		       'LOGMGR_QUEUE',
-		       'CHECKPOINT_QUEUE',
-		       'BROKER_TO_FLUSH',
-		       'BROKER_TASK_STOP',
-		       'BROKER_EVENTHANDLER',
-		       'SLEEP_TASK',
-		       'WAITFOR',
-		       'DBMIRROR_DBM_MUTEX',
-		       'DBMIRROR_EVENTS_QUEUE',
-		       'DBMIRRORING_CMD',
-		       'DISPATCHER_QUEUE_SEMAPHORE',
-		       'BROKER_RECEIVE_WAITFOR',
-		       'CLR_AUTO_EVENT',
-		       'DIRTY_PAGE_POLL',
-		       'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
-		       'ONDEMAND_TASK_QUEUE',
-		       'FT_IFTSHC_MUTEX',
-		       'CLR_MANUAL_EVENT',
-		       'CLR_SEMAPHORE',
-		       'DBMIRROR_WORKER_QUEUE',
-		       'DBMIRROR_DBM_EVENT',
-		       'SP_SERVER_DIAGNOSTICS_SLEEP',
-		       'HADR_CLUSAPI_CALL',
-		       'HADR_LOGCAPTURE_WAIT',
-		       'HADR_NOTIFICATION_DEQUEUE',
-		       'HADR_TIMER_TASK',
-		       'HADR_WORK_QUEUE',
-		       'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',
-		       'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',
-		       'RESOURCE_GOVERNOR_IDLE',
-		       'QDS_ASYNC_QUEUE',
-		       'QDS_SHUTDOWN_QUEUE',
-		       'SLEEP_SYSTEMTASK',
-		       'BROKER_TRANSMITTER',
-		       'REDO_THREAD_PENDING_WORK',
-		       'UCS_SESSION_REGISTRATION'
+                  'BROKER_EVENTHANDLER'
+                , 'BROKER_RECEIVE_WAITFOR'
+                , 'BROKER_TASK_STOP'
+                , 'BROKER_TO_FLUSH'
+                , 'BROKER_TRANSMITTER'
+                , 'CHECKPOINT_QUEUE'
+                , 'CLR_AUTO_EVENT'
+                , 'CLR_MANUAL_EVENT'
+                , 'CLR_SEMAPHORE'
+                , 'DBMIRROR_DBM_EVENT'
+                , 'DBMIRROR_DBM_MUTEX'
+                , 'DBMIRROR_EVENTS_QUEUE'
+                , 'DBMIRROR_WORKER_QUEUE'
+                , 'DBMIRRORING_CMD'
+                , 'DIRTY_PAGE_POLL'
+                , 'DISPATCHER_QUEUE_SEMAPHORE'
+                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
+                , 'FT_IFTSHC_MUTEX'
+                , 'HADR_CLUSAPI_CALL'
+                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
+                , 'HADR_LOGCAPTURE_WAIT'
+                , 'HADR_NOTIFICATION_DEQUEUE'
+                , 'HADR_TIMER_TASK'
+                , 'HADR_WORK_QUEUE'
+                , 'LAZYWRITER_SLEEP'
+                , 'LOGMGR_QUEUE'
+                , 'ONDEMAND_TASK_QUEUE'
+                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
+                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
+                , 'QDS_ASYNC_QUEUE'
+                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
+                , 'QDS_SHUTDOWN_QUEUE'
+                , 'REDO_THREAD_PENDING_WORK'
+                , 'REQUEST_FOR_DEADLOCK_SEARCH'
+                , 'SLEEP_SYSTEMTASK'
+                , 'SLEEP_TASK'
+                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
+                , 'SQLTRACE_BUFFER_FLUSH'
+                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
+                , 'UCS_SESSION_REGISTRATION'
+                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
+                , 'WAITFOR'
+                , 'XE_DISPATCHER_WAIT'
+                , 'XE_LIVE_TARGET_TVF'
+                , 'XE_TIMER_EVENT'
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -1312,7 +1365,7 @@ BEGIN
     SELECT TOP 10 6 AS CheckID,
         200 AS Priority,
         'Wait Stats' AS FindingGroup,
-        wNow.wait_type AS Finding,
+        wNow.wait_type AS Finding, /* IF YOU CHANGE THIS, STUFF WILL BREAK. Other checks look for wait type names in the Finding field. See checks 11, 12 as example. */
         N'http://www.brentozar.com/sql/wait-stats/#' + wNow.wait_type AS URL,
         'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
@@ -1322,47 +1375,70 @@ BEGIN
     WHERE wNow.wait_time_ms > (wBase.wait_time_ms + (.5 * (DATEDIFF(ss,@StartSampleTime,@FinishSampleTime)) * 1000)) /* Only look for things we've actually waited on for half of the time or more */
     ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
 
-    /* Server Performance - Slow Data File Reads - CheckID 11 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
-    SELECT TOP 10 11 AS CheckID,
-        50 AS Priority,
+    /* Server Performance - Poison Wait Detected - CheckID 30 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
+    SELECT 30 AS CheckID,
+        10 AS Priority,
         'Server Performance' AS FindingGroup,
-        'Slow Data File Reads' AS Finding,
-        'http://www.BrentOzar.com/go/slow/' AS URL,
-        'File: ' + fNow.PhysicalName + @LineFeed
-            + 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed
-            + 'Seconds spent waiting on storage for these reads: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed
-            + 'Average read latency during the sample: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed
-            + 'Microsoft guidance for data file read speed: 20ms or less.' + @LineFeed + @LineFeed AS Details,
+        'Poison Wait Detected: ' + wNow.wait_type AS Finding,
+        N'http://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
-        fNow.DatabaseID,
-        fNow.DatabaseName
-    FROM #FileStats fNow
-    INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_reads > fBase.num_of_reads AND fNow.io_stall_read_ms > (fBase.io_stall_read_ms + 1000)
-    WHERE (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) >= @FileLatencyThresholdMS
-        AND fNow.TypeDesc = 'ROWS'
-    ORDER BY (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) DESC;
+        ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
+    FROM #WaitStats wNow
+    LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
+    WHERE wNow.wait_type IN ('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL') AND wNow.wait_time_ms > wBase.wait_time_ms;
+
+
+    /* Server Performance - Slow Data File Reads - CheckID 11 */
+	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE Finding LIKE 'PAGEIOLATCH%')
+	BEGIN
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+		SELECT TOP 10 11 AS CheckID,
+			50 AS Priority,
+			'Server Performance' AS FindingGroup,
+			'Slow Data File Reads' AS Finding,
+			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'Your server is experiencing PAGEIOLATCH% waits due to slow data file reads. This file is one of the reasons why.' + @LineFeed
+				+ 'File: ' + fNow.PhysicalName + @LineFeed
+				+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed
+				+ 'Seconds spent waiting on storage for these reads: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed
+				+ 'Average read latency during the sample: ' + CAST(((fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed
+				+ 'Microsoft guidance for data file read speed: 20ms or less.' + @LineFeed + @LineFeed AS Details,
+			'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
+			fNow.DatabaseID,
+			fNow.DatabaseName
+		FROM #FileStats fNow
+		INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_reads > fBase.num_of_reads AND fNow.io_stall_read_ms > (fBase.io_stall_read_ms + 1000)
+		WHERE (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) >= @FileLatencyThresholdMS
+			AND fNow.TypeDesc = 'ROWS'
+		ORDER BY (fNow.io_stall_read_ms - fBase.io_stall_read_ms) / (fNow.num_of_reads - fBase.num_of_reads) DESC;
+	END	
 
     /* Server Performance - Slow Log File Writes - CheckID 12 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
-    SELECT TOP 10 12 AS CheckID,
-        50 AS Priority,
-        'Server Performance' AS FindingGroup,
-        'Slow Log File Writes' AS Finding,
-        'http://www.BrentOzar.com/go/slow/' AS URL,
-        'File: ' + fNow.PhysicalName + @LineFeed
-            + 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed
-            + 'Seconds spent waiting on storage for these writes: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed
-            + 'Average write latency during the sample: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed
-            + 'Microsoft guidance for log file write speed: 3ms or less.' + @LineFeed + @LineFeed AS Details,
-        'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
-        fNow.DatabaseID,
-        fNow.DatabaseName
-    FROM #FileStats fNow
-    INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_writes > fBase.num_of_writes AND fNow.io_stall_write_ms > (fBase.io_stall_write_ms + 1000)
-    WHERE (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) >= @FileLatencyThresholdMS
-        AND fNow.TypeDesc = 'LOG'
-    ORDER BY (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) DESC;
+	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE Finding LIKE 'WRITELOG%')
+	BEGIN
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
+		SELECT TOP 10 12 AS CheckID,
+			50 AS Priority,
+			'Server Performance' AS FindingGroup,
+			'Slow Log File Writes' AS Finding,
+			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'Your server is experiencing WRITELOG waits due to slow log file writes. This file is one of the reasons why.' + @LineFeed
+				+ 'File: ' + fNow.PhysicalName + @LineFeed
+				+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed
+				+ 'Seconds spent waiting on storage for these writes: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / 1000.0) AS NVARCHAR(20)) + @LineFeed
+				+ 'Average write latency during the sample: ' + CAST(((fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) ) AS NVARCHAR(20)) + ' milliseconds' + @LineFeed
+				+ 'Microsoft guidance for log file write speed: 3ms or less.' + @LineFeed + @LineFeed AS Details,
+			'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
+			fNow.DatabaseID,
+			fNow.DatabaseName
+		FROM #FileStats fNow
+		INNER JOIN #FileStats fBase ON fNow.DatabaseID = fBase.DatabaseID AND fNow.FileID = fBase.FileID AND fNow.SampleTime > fBase.SampleTime AND fNow.num_of_writes > fBase.num_of_writes AND fNow.io_stall_write_ms > (fBase.io_stall_write_ms + 1000)
+		WHERE (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) >= @FileLatencyThresholdMS
+			AND fNow.TypeDesc = 'LOG'
+		ORDER BY (fNow.io_stall_write_ms - fBase.io_stall_write_ms) / (fNow.num_of_writes - fBase.num_of_writes) DESC;
+	END
 
 
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
@@ -1408,7 +1484,9 @@ BEGIN
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
-        'Find out why plans are not being reused, and consider enabling Forced Parameterization. See the URL for more details.' AS HowToStopIt
+        'To find the queries that are compiling, start with:' + @LineFeed
+            + 'sp_BlitzCache @SortOrder = ''recent compilations''' + @LineFeed
+            + 'If dynamic SQL or non-parameterized strings are involved, consider enabling Forced Parameterization. See the URL for more details.' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':SQL Statistics' AND psComp.counter_name = 'SQL Compilations/sec' AND psComp.value_delta > 0
     WHERE ps.Pass = 2
@@ -1427,7 +1505,9 @@ BEGIN
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
-        'Find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' AS HowToStopIt
+        'To find the queries that are being forced to recompile, start with:' + @LineFeed
+            + 'sp_BlitzCache @SortOrder = ''recent compilations''' + @LineFeed
+            + 'Examine those plans to find out which objects are changing so quickly that they hit the stats update threshold. See the URL for more details.' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':SQL Statistics' AND psComp.counter_name = 'SQL Re-Compilations/sec' AND psComp.value_delta > 0
     WHERE ps.Pass = 2
@@ -1435,6 +1515,78 @@ BEGIN
         AND ps.counter_name = 'Batch Requests/sec'
         AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
         AND (psComp.value_delta * 10) > ps.value_delta /* Recompilations are more than 10% of batch requests per second */
+
+    /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 29 AS CheckID,
+        40 AS Priority,
+        'Table Problems' AS FindingGroup,
+        'Forwarded Fetches/Sec High' AS Finding,
+        'https://BrentOzar.com/go/fetch/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(20)) + ' Forwarded Records (from SQLServer:Access Methods counter)' + @LineFeed
+            + 'Check your heaps: they need to be rebuilt, or they need a clustered index applied.' + @LineFeed AS Details,
+        'Rebuild your heaps. If you use Ola Hallengren maintenance scripts, those do not rebuild heaps by default: https://www.brentozar.com/archive/2016/07/fix-forwarded-records/' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':Access Methods' AND psComp.counter_name = 'Forwarded Records/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name = @ServiceName + ':Access Methods'
+        AND ps.counter_name = 'Forwarded Records/sec'
+        AND ps.value_delta > (100 * @Seconds) /* Ignore servers sitting idle */
+
+
+    /* In-Memory OLTP - Garbage Collection in Progress - CheckID 31 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 31 AS CheckID,
+        50 AS Priority,
+        'In-Memory OLTP' AS FindingGroup,
+        'Garbage Collection in Progress' AS Finding,
+        'https://BrentOzar.com/go/garbage/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
+            + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
+            + 'due to transactional workloads that constantly insert/delete data.' AS Details,
+        'Sadly, you cannot choose when garbage collection occurs. This is one of the many gotchas of Hekaton. Learn more: http://nedotter.com/archive/2016/04/row-version-lifecycle-for-in-memory-oltp/' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Garbage Collection' AND psComp.counter_name = 'Rows processed/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name LIKE '%XTP Garbage Collection'
+        AND ps.counter_name = 'Rows processed/sec'
+        AND ps.value_delta > (100 * @Seconds) /* Ignore servers sitting idle */
+
+    /* In-Memory OLTP - Transactions Aborted - CheckID 32 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 32 AS CheckID,
+        100 AS Priority,
+        'In-Memory OLTP' AS FindingGroup,
+        'Transactions Aborted' AS Finding,
+        'https://BrentOzar.com/go/aborted/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' transactions aborted (from SQL Server YYYY XTP Transactions:Transactions aborted/sec counter)'  + @LineFeed 
+            + 'This may indicate that data is changing, or causing folks to retry their transactions, thereby increasing load.' AS Details,
+        'Dig into your In-Memory OLTP transactions to figure out which ones are failing and being retried.' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Transactions' AND psComp.counter_name = 'Transactions aborted/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name LIKE '%XTP Transactions'
+        AND ps.counter_name = 'Transactions aborted/sec'
+        AND ps.value_delta > (10 * @Seconds) /* Ignore servers sitting idle */
+
+    /* Query Problems - Suboptimal Plans/Sec High - CheckID 33 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 32 AS CheckID,
+        100 AS Priority,
+        'Query Problems' AS FindingGroup,
+        'Suboptimal Plans/Sec High' AS Finding,
+        'https://BrentOzar.com/go/suboptimal/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(50)) + ' plans reported in the ' + CAST(ps.instance_name AS NVARCHAR(100)) + ' workload group (from Workload GroupStats:Suboptimal plans/sec counter)'  + @LineFeed 
+            + 'Even if you are not using Resource Governor, it still tracks information about user queries, memory grants, etc.' AS Details,
+        'Check out sp_BlitzCache to get more information about recent queries, or try sp_BlitzWho to see currently running queries.' AS HowToStopIt
+    FROM #PerfmonStats ps
+        INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name = @ServiceName + ':Workload GroupStats' AND psComp.counter_name = 'Suboptimal plans/sec' AND psComp.value_delta > 100
+    WHERE ps.Pass = 2
+        AND ps.object_name = @ServiceName + ':Workload GroupStats' 
+        AND ps.counter_name = 'Suboptimal plans/sec'
+        AND ps.value_delta > (10 * @Seconds) /* Ignore servers sitting idle */
+
+
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
@@ -1678,7 +1830,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 127)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 121)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -1714,7 +1866,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
@@ -1800,7 +1952,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -1832,7 +1984,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -1908,7 +2060,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
 
@@ -1934,7 +2086,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
     END
@@ -2008,7 +2160,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
     END
@@ -2030,7 +2182,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 127) + ''', '
+            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
     END
@@ -2387,60 +2539,35 @@ BEGIN
 
 
             -------------------------
-            --What happened: #FileStats
+            --What happened: #QueryStats
             -------------------------
-            SELECT
-                [qsNow].[ID] AS [Now-ID],
-                [qsNow].[Pass] AS [Now-Pass],
-                [qsNow].[SampleTime] AS [Now-SampleTime],
-                [qsNow].[sql_handle] AS [Now-sql_handle],
-                [qsNow].[statement_start_offset] AS [Now-statement_start_offset],
-                [qsNow].[statement_end_offset] AS [Now-statement_end_offset],
-                [qsNow].[plan_generation_num] AS [Now-plan_generation_num],
-                [qsNow].[plan_handle] AS [Now-plan_handle],
-                [qsNow].[execution_count] AS [Now-execution_count],
-                [qsNow].[total_worker_time] AS [Now-total_worker_time],
-                [qsNow].[total_physical_reads] AS [Now-total_physical_reads],
-                [qsNow].[total_logical_writes] AS [Now-total_logical_writes],
-                [qsNow].[total_logical_reads] AS [Now-total_logical_reads],
-                [qsNow].[total_clr_time] AS [Now-total_clr_time],
-                [qsNow].[total_elapsed_time] AS [Now-total_elapsed_time],
-                [qsNow].[creation_time] AS [Now-creation_time],
-                [qsNow].[query_hash] AS [Now-query_hash],
-                [qsNow].[query_plan_hash] AS [Now-query_plan_hash],
-                [qsNow].[Points] AS [Now-Points],
-                [qsFirst].[ID] AS [First-ID],
-                [qsFirst].[Pass] AS [First-Pass],
-                [qsFirst].[SampleTime] AS [First-SampleTime],
-                [qsFirst].[sql_handle] AS [First-sql_handle],
-                [qsFirst].[statement_start_offset] AS [First-statement_start_offset],
-                [qsFirst].[statement_end_offset] AS [First-statement_end_offset],
-                [qsFirst].[plan_generation_num] AS [First-plan_generation_num],
-                [qsFirst].[plan_handle] AS [First-plan_handle],
-                [qsFirst].[execution_count] AS [First-execution_count],
-                [qsFirst].[total_worker_time] AS [First-total_worker_time],
-                [qsFirst].[total_physical_reads] AS [First-total_physical_reads],
-                [qsFirst].[total_logical_writes] AS [First-total_logical_writes],
-                [qsFirst].[total_logical_reads] AS [First-total_logical_reads],
-                [qsFirst].[total_clr_time] AS [First-total_clr_time],
-                [qsFirst].[total_elapsed_time] AS [First-total_elapsed_time],
-                [qsFirst].[creation_time] AS [First-creation_time],
-                [qsFirst].[query_hash] AS [First-query_hash],
-                [qsFirst].[query_plan_hash] AS [First-query_plan_hash],
-                [qsFirst].[Points] AS [First-Points]
+            IF @CheckProcedureCache = 1
+			BEGIN
+			
+			SELECT qsNow.*, qsFirst.*
             FROM #QueryStats qsNow
               INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
             WHERE qsNow.Pass = 2
+			END
+			ELSE
+			BEGIN
+			SELECT 'Plan Cache' AS [Pattern], 'Plan cache not analyzed' AS [Finding], 'Use @CheckProcedureCache = 1 or run sp_BlitzCache for more analysis' AS [More Info], CONVERT(XML, @StockDetailsHeader + 'firstresponderkit.org' + @StockDetailsFooter) AS [Details]
+			END
         END
 
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
     BEGIN
-		IF OBJECT_ID('dbo.sp_BlitzWho') IS NOT NULL
+		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
-			EXEC [dbo].[sp_BlitzWho]
+			PRINT N'sp_BlitzWho is not installed in the current database_files.  You can get a copy from http://FirstResponderKit.org'
+		END
+		ELSE
+		BEGIN
+			EXEC (@BlitzWho)
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
 

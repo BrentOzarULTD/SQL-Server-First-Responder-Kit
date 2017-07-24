@@ -1,11 +1,11 @@
 USE [master];
 GO
 
-IF OBJECT_ID('dbo.sp_foreachdb') IS NOT NULL
-    DROP PROCEDURE dbo.sp_foreachdb
+IF OBJECT_ID('dbo.sp_foreachdb') IS  NULL
+    EXEC ('CREATE PROCEDURE dbo.sp_foreachdb AS RETURN 0');
 GO
 
-CREATE PROCEDURE dbo.sp_foreachdb
+ALTER PROCEDURE dbo.sp_foreachdb
     @command NVARCHAR(MAX) ,
     @replace_character NCHAR(1) = N'?' ,
     @print_dbname BIT = 0 ,
