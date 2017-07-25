@@ -2984,6 +2984,7 @@ AS
 									FROM sys.dm_os_nodes n 
 									INNER JOIN sys.[dm_os_wait_stats] w ON w.wait_type = 'CMEMTHREAD'
 									WHERE n.node_id = 0 AND n.online_scheduler_count >= 8
+										AND EXISTS (SELECT * FROM sys.dm_os_nodes WHERE node_id > 0 AND node_state_desc NOT LIKE '%DAC')
 									GROUP BY w.wait_type
 								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
