@@ -3950,37 +3950,40 @@ IF @ProductVersionMajor >= 10
 					IF EXISTS ( SELECT  1
 											FROM    sys.all_objects
 											WHERE   name = 'dm_server_memory_dumps' )
-					BEGIN
-						IF 5 <= (SELECT COUNT(*) FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(year, -1, GETDATE()))
-						  
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 171) WITH NOWAIT;
-						  
-						  INSERT    INTO [#BlitzResults]
-									( [CheckID] ,
-									  [Priority] ,
-									  [FindingsGroup] ,
-									  [Finding] ,
-									  [URL] ,
-									  [Details] )
+						BEGIN
+							IF 5 <= (SELECT COUNT(*) FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(YEAR, -1, GETDATE()))
 
-							SELECT
-							171 AS [CheckID] ,
-							20 AS [Priority] ,
-							'Reliability' AS [FindingsGroup] ,
-							'Memory Dumps Have Occurred' AS [Finding] ,
-							'https://BrentOzar.com/go/dump' AS [URL] ,
-							( 'That ain''t good. I''ve had ' + 
-								CAST(COUNT(*) AS VARCHAR(100)) + ' memory dumps between ' + 
-								CAST(CAST(MIN([creation_time]) AS DATETIME) AS VARCHAR(100)) +
-								' and ' +
-								CAST(CAST(MAX([creation_time]) AS DATETIME) AS VARCHAR(100)) +
-								'!'
-							   ) AS [Details]
-						  FROM
-							[sys].[dm_server_memory_dumps]
-						  WHERE [creation_time] >= DATEADD(year, -1, GETDATE());
+							BEGIN
+							  
+							  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 171) WITH NOWAIT;
+							  
+							  INSERT    INTO [#BlitzResults]
+										( [CheckID] ,
+										  [Priority] ,
+										  [FindingsGroup] ,
+										  [Finding] ,
+										  [URL] ,
+										  [Details] )
 
-					END; 
+								SELECT
+								171 AS [CheckID] ,
+								20 AS [Priority] ,
+								'Reliability' AS [FindingsGroup] ,
+								'Memory Dumps Have Occurred' AS [Finding] ,
+								'https://BrentOzar.com/go/dump' AS [URL] ,
+								( 'That ain''t good. I''ve had ' + 
+									CAST(COUNT(*) AS VARCHAR(100)) + ' memory dumps between ' + 
+									CAST(CAST(MIN([creation_time]) AS DATETIME) AS VARCHAR(100)) +
+									' and ' +
+									CAST(CAST(MAX([creation_time]) AS DATETIME) AS VARCHAR(100)) +
+									'!'
+								   ) AS [Details]
+							  FROM
+								[sys].[dm_server_memory_dumps]
+							  WHERE [creation_time] >= DATEADD(year, -1, GETDATE());
+
+							END; 
+						END;
 					END;
 
 /*Checks to see if you're on Developer or Evaluation*/
