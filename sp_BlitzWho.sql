@@ -224,7 +224,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,
-						wg.name AS workload_group_name, 
+						r.percent_complete , 
+						wg.name AS workload_group_name , 
 						rp.name AS resource_pool_name
 			    FROM    sys.dm_exec_sessions AS s
 			    LEFT JOIN    sys.dm_exec_requests AS r
@@ -434,6 +435,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,
+						r.percent_complete , 
 						wg.name AS workload_group_name, 
 						rp.name AS resource_pool_name
 						FROM sys.dm_exec_sessions AS s
