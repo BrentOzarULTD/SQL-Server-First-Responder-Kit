@@ -5254,15 +5254,16 @@ IF @ProductVersionMajor >= 10
 				Finding,
 				URL,
 				Details)
-		  SELECT  DISTINCT 60 AS CheckID,
+		  SELECT 60 AS CheckID,
 		  ''?'' as DatabaseName,
 		  100 AS Priority,
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
 		  ''https://BrentOzar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has objects with fill factor < 80%. This can cause memory and storage performance problems, but may also prevent page splits.''
+		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance problems, but may also prevent page splits.''
 		  FROM    [?].sys.indexes
-		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0 OPTION (RECOMPILE);';
+		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0 
+		  GROUP BY fill_factor OPTION (RECOMPILE);';
 							END;
 
 
