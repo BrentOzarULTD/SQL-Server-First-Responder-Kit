@@ -6022,7 +6022,7 @@ IF @ProductVersionMajor >= 10
                         ) AS [Details]
 					FROM sys.database_mirroring_endpoints ep
 					LEFT OUTER JOIN sys.dm_server_services s ON SUSER_NAME(ep.principal_id) = s.service_account
-					WHERE s.service_account IS NULL;
+					WHERE s.service_account IS NULL AND ep.principal_id <> 1;
     		END;
 
 		/*Check for the last good DBCC CHECKDB date */
