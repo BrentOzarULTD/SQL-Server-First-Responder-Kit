@@ -55,6 +55,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Remote Admin Connections Disabled | https://www.BrentOzar.com/go/dac | 100 |
 | 50 | Reliability | TempDB File Error | https://www.BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
+| 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | https://www.BrentOzar.com/go/hekaton | 147 |
 | 100 | Features | Missing Features | https://www.BrentOzar.com/ | 189 |
 | 100 | Performance | Change Tracking Enabled | https://www.BrentOzar.com/go/tracking | 112 |

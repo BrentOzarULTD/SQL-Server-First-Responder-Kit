@@ -102,8 +102,8 @@ END
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.1';
-SET @VersionDate = '20170701';
+SET @Version = '1.6';
+SET @VersionDate = '20170801';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -144,6 +144,91 @@ IF (
 			
 			RETURN;
 		END 
+
+/*
+Make sure xp_cmdshell is enabled
+*/
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+		BEGIN 		
+			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+/*
+Make sure Ola Hallengren's scripts are installed in master
+*/
+IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+/*
+Make sure sp_DatabaseRestore is installed in master
+*/
+IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
+		BEGIN 		
+			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+
+IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+    BEGIN
+
+		IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
+
+		SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
+		FROM msdb.dbo.restore_configuration c
+		WHERE configuration_name = N'log restore path';
+
+
+		IF @restore_path_base IS NULL
+			BEGIN
+				RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
+				RETURN;
+			END;
+
+        IF CHARINDEX('**', @restore_path_base) <> 0
+            BEGIN
+
+                /* If they passed in a dynamic **DATABASENAME**, stop at that folder looking for databases. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/993 */
+                IF CHARINDEX('**DATABASENAME**', @restore_path_base) <> 0
+                    BEGIN
+                    SET @restore_path_base = SUBSTRING(@restore_path_base, 1, CHARINDEX('**DATABASENAME**',@restore_path_base) - 2);
+                    END;
+
+                SET @restore_path_base = REPLACE(@restore_path_base, '**AVAILABILITYGROUP**', '');
+                SET @restore_path_base = REPLACE(@restore_path_base, '**BACKUPTYPE**', 'FULL');
+                SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAME**', REPLACE(CAST(SERVERPROPERTY('servername') AS nvarchar(max)),'\','$'));
+
+                IF CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) > 0
+                    BEGIN
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), 1, (CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - 1)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))), (LEN(CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max)))) + 1));
+                    END
+                    ELSE /* No instance installed */
+                    BEGIN
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', CAST(SERVERPROPERTY('servername') AS nvarchar(max)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', 'DEFAULT');
+                    END
+
+                IF CHARINDEX('**CLUSTER**', @restore_path_base) <> 0
+                    BEGIN
+                    DECLARE @ClusterName NVARCHAR(128);
+                    IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_hadr_cluster')
+                        BEGIN
+                            SELECT @ClusterName = cluster_name FROM sys.dm_hadr_cluster;
+                        END
+                    SET @restore_path_base = REPLACE(@restore_path_base, '**CLUSTER**', COALESCE(@ClusterName,''));
+                    END;
+
+            END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
+                    
+    END /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
 
 /*
@@ -318,6 +403,18 @@ Pollster:
 	
 			
 			END; 
+
+        /* Check to make sure job is still enabled */
+		IF NOT EXISTS (
+						SELECT *
+						FROM msdb.dbo.sysjobs 
+						WHERE name = 'sp_AllNightLog_PollForNewDatabases'
+                        AND enabled = 1
+						)
+            BEGIN
+				RAISERROR('sp_AllNightLog_PollForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				RETURN;
+            END        
 		
 		END;-- End Pollster loop
 	
@@ -359,19 +456,6 @@ DiskPollster:
 	IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
 	
 		BEGIN
-				IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
-
-				SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
-				FROM msdb.dbo.restore_configuration c
-				WHERE configuration_name = N'log restore path';
-
-
-					IF @restore_path_base IS NULL
-						BEGIN
-							RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
-							RETURN;
-						END;
-
 		
 			WHILE @PollDiskForNewDatabases = 1
 			
@@ -379,7 +463,8 @@ DiskPollster:
 				
 				BEGIN TRY
 			
-					IF @Debug = 1 RAISERROR('Checking restore path for new databases...', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR('Checking for new databases in: ', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR(@restore_path_base, 0, 1) WITH NOWAIT;
 
 					/*
 					
@@ -403,6 +488,7 @@ DiskPollster:
 									END  
 						
 						
+                        DELETE @FileList;
 						INSERT INTO @FileList (BackupFile)
 						EXEC master.sys.xp_cmdshell @cmd; 
 						
@@ -438,7 +524,6 @@ DiskPollster:
 									RETURN;
 						
 								END
-
 
 						INSERT msdb.dbo.restore_worker (database_name) 
 						SELECT fl.BackupFile
@@ -504,6 +589,17 @@ DiskPollster:
 						
 						*/
 
+                    /* Check to make sure job is still enabled */
+		            IF NOT EXISTS (
+						            SELECT *
+						            FROM msdb.dbo.sysjobs 
+						            WHERE name = 'sp_AllNightLog_PollDiskForNewDatabases'
+                                    AND enabled = 1
+						            )
+                        BEGIN
+				            RAISERROR('sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				            RETURN;
+                        END        
 	
 					IF @Debug = 1 RAISERROR('Waiting for 1 minute', 0, 1) WITH NOWAIT;
 					
@@ -710,6 +806,20 @@ LogShamer:
 						BEGIN
 							IF @Debug = 1 RAISERROR('No databases to back up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
 							WAITFOR DELAY '00:00:03.000';
+
+                            /* Check to make sure job is still enabled */
+		                    IF NOT EXISTS (
+						                    SELECT *
+						                    FROM msdb.dbo.sysjobs 
+						                    WHERE name LIKE 'sp_AllNightLog_Backup%'
+                                            AND enabled = 1
+						                    )
+                                BEGIN
+				                    RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				                    RETURN;
+                                END        
+
+
 						END
 	
 	
@@ -853,6 +963,7 @@ LogShamer:
 
 
 						END; -- End update for successful backup	
+
 										
 				END; -- End @Backup WHILE loop
 
@@ -883,6 +994,18 @@ Restoregasm_Addict:
 IF @Restore = 1
 	IF @Debug = 1 RAISERROR('Beginning Restores', 0, 1) WITH NOWAIT;
 	
+    /* Check to make sure backup jobs aren't enabled */
+	IF EXISTS (
+					SELECT *
+					FROM msdb.dbo.sysjobs 
+					WHERE name LIKE 'sp_AllNightLog_Backup%'
+                    AND enabled = 1
+					)
+        BEGIN
+			RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
+			RETURN;
+        END        
+
 	IF OBJECT_ID('msdb.dbo.restore_worker') IS NOT NULL
 	
 		BEGIN
@@ -916,18 +1039,7 @@ IF @Restore = 1
 									RETURN;
 								END;	
 	
-	
-						SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
-						FROM msdb.dbo.restore_configuration c
-						WHERE configuration_name = N'log restore path';
-	
-							
-							IF @restore_path_base IS NULL
-								BEGIN
-									RAISERROR('@restore_path cannot be NULL. Please check the msdb.dbo.restore_configuration table', 0, 1) WITH NOWAIT;
-									RETURN;
-								END;	
-	
+		
 				END;
 	
 			ELSE
@@ -1046,6 +1158,31 @@ IF @Restore = 1
 						BEGIN
 							IF @Debug = 1 RAISERROR('No databases to restore up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
 							WAITFOR DELAY '00:00:03.000';
+
+                            /* Check to make sure backup jobs aren't enabled */
+	                        IF EXISTS (
+					                        SELECT *
+					                        FROM msdb.dbo.sysjobs 
+					                        WHERE name LIKE 'sp_AllNightLog_Backup%'
+                                            AND enabled = 1
+					                        )
+                                BEGIN
+			                        RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
+			                        RETURN;
+                                END        
+
+                            /* Check to make sure job is still enabled */
+		                    IF NOT EXISTS (
+						                    SELECT *
+						                    FROM msdb.dbo.sysjobs 
+						                    WHERE name LIKE 'sp_AllNightLog_Restore%'
+                                            AND enabled = 1
+						                    )
+                                BEGIN
+				                    RAISERROR('sp_AllNightLog_Restore jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+				                    RETURN;
+                                END        
+
 						END
 	
 	
@@ -1108,7 +1245,8 @@ IF @Restore = 1
 
 											BEGIN
 
-												IF @Debug = 1 RAISERROR('Starting first Full restore', 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR('Starting first Full restore from: ', 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR(@restore_path_full, 0, 1) WITH NOWAIT;
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,

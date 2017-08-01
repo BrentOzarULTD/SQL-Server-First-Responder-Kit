@@ -21,6 +21,8 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@Jobs TINYINT = 10,
 				@RunSetup BIT = 0,
 				@UpdateSetup BIT = 0,
+                @EnableBackupJobs INT = NULL,
+                @EnableRestoreJobs INT = NULL,
 				@Debug BIT = 0,
 				@Help BIT = 0,
 				@VersionDate DATETIME = NULL OUTPUT
@@ -133,8 +135,8 @@ END; /* IF @Help = 1 */
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.1';
-SET @VersionDate = '201700701';
+SET @Version = '1.6';
+SET @VersionDate = '20170801';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -149,11 +151,15 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
 
 
-/*These variables control the loop to create jobs*/
+/*These variables control the loop to create/modify jobs*/
 DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
 DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
 DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
 DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
+DECLARE @jobs_to_change TABLE(name SYSNAME); -- list of jobs we need to enable or disable
+DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
+DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
+DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when disabling jobs
 
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
@@ -228,6 +234,51 @@ IF (@RPOSeconds >= 14400)
 			RETURN;
 		END;
 
+
+/*
+
+Can't enable both the backup and restore jobs at the same time
+
+*/
+
+IF @EnableBackupJobs = 1 AND @EnableRestoreJobs = 1
+		BEGIN
+
+			RAISERROR('You are not allowed to enable both the backup and restore jobs at the same time. Pick one, bucko.', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
+/*
+Make sure xp_cmdshell is enabled
+*/
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+		BEGIN 		
+			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+/*
+Make sure Ola Hallengren's scripts are installed in master
+*/
+IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+/*
+Make sure sp_DatabaseRestore is installed in master
+*/
+IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
+		BEGIN 		
+			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
 /*
 
 Basic path sanity checks
@@ -254,6 +305,8 @@ IF @UpdateSetup = 1
 		 AND @BackupPath IS NULL 
 		 AND @RPOSeconds IS NULL 
 		 AND @RestorePath IS NULL
+         AND @EnableBackupJobs IS NULL
+         AND @EnableRestoreJobs IS NULL
 		)
 
 		BEGIN
@@ -304,10 +357,7 @@ BEGIN
 					END;
 				
 				END 
-		
-
-			ELSE
-		
+				
 
 				BEGIN
 
@@ -422,7 +472,10 @@ BEGIN
 																				is_started BIT DEFAULT 0, 
 																				is_completed BIT DEFAULT 0, 
 																				error_number INT DEFAULT NULL, 
-																				last_error_date DATETIME DEFAULT NULL
+																				last_error_date DATETIME DEFAULT NULL,
+																				ignore_database BIT DEFAULT 0,
+																				full_backup_required BIT DEFAULT 0,
+																				diff_backup_required BIT DEFAULT 0
 																				);
 											
 										END;
@@ -555,7 +608,10 @@ BEGIN
 																		 is_started BIT DEFAULT 0, 
 																		 is_completed BIT DEFAULT 0, 
 																		 error_number INT DEFAULT NULL, 
-																		 last_error_date DATETIME DEFAULT NULL
+																		 last_error_date DATETIME DEFAULT NULL,
+																		 ignore_database BIT DEFAULT 0,
+																		 full_restore_required BIT DEFAULT 0,
+																		 diff_restore_required BIT DEFAULT 0
 																		 );
 								
 							END;
@@ -614,7 +670,7 @@ BEGIN
 													 @freq_subday_interval = 10, 
 													 @freq_relative_interval = 0, 
 													 @freq_recurrence_factor = 0, 
-													 @active_start_date = 19900101, 
+													 @active_start_date = @active_start_date, 
 													 @active_end_date = 99991231, 
 													 @active_start_time = 0, 
 													 @active_end_time = 235959;
@@ -644,13 +700,22 @@ BEGIN
 					
 					RAISERROR('Creating pollster job', 0, 1) WITH NOWAIT;
 
-						
-						EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
-												 @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
-												 @category_name = 'Database Maintenance', 
-												 @owner_login_name = 'sa',
-												 @enabled = 0;
-					
+						IF @EnableBackupJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END		
+                        ELSE			
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END		
 					
 					
 					RAISERROR('Adding job step', 0, 1) WITH NOWAIT;
@@ -704,11 +769,22 @@ BEGIN
 					RAISERROR('Creating restore pollster job', 0, 1) WITH NOWAIT;
 
 						
-						EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-												 @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
-												 @category_name = 'Database Maintenance', 
-												 @owner_login_name = 'sa',
-												 @enabled = 0;
+						IF @EnableRestoreJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END
+                        ELSE
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END
 					
 					
 					
@@ -787,10 +863,18 @@ BEGIN
 											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_backups + ', 
 																	 @description = ' + @job_description_backups + ', 
 																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',
-																	 @enabled = 0;
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableBackupJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
 								  
 											
+                                            SET @job_sql = @job_sql + '
 											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_backups + ', 
 																		 @step_name = ' + @job_name_backups + ', 
 																		 @subsystem = ''TSQL'', 
@@ -875,9 +959,18 @@ BEGIN
 											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_restores + ', 
 																	 @description = ' + @job_description_restores + ', 
 																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',
-																	 @enabled = 0;
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableRestoreJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
 								  
+											
+                                            SET @job_sql = @job_sql + '
 											
 											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_restores + ', 
 																		 @step_name = ' + @job_name_restores + ', 
@@ -1016,6 +1109,105 @@ IF @UpdateSetup = 1
 				BEGIN
 
 					BEGIN TRY
+
+                        EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
+
+                        IF @EnableRestoreJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs_to_change(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs_to_change
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs_to_change;
+                            END;
+
+                        /* If they wanted to turn off restore jobs, wait to make sure that finishes before we start enabling the backup jobs */
+                        IF @EnableRestoreJobs = 0
+                            BEGIN
+                            SET @started_waiting_for_jobs = GETDATE();
+                            SELECT  @counter = COUNT(*)
+		                            FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                            INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                            ON [ja].[job_id] = [j].[job_id]
+		                            WHERE    [ja].[session_id] = (
+										                            SELECT    TOP 1 [session_id]
+										                            FROM    [msdb].[dbo].[syssessions]
+										                            ORDER BY [agent_start_date] DESC
+									                            )
+				                            AND [start_execution_date] IS NOT NULL
+				                            AND [stop_execution_date] IS NULL
+				                            AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+
+                            WHILE @counter > 0
+                                BEGIN
+                                    IF DATEADD(SS, 120, @started_waiting_for_jobs) < GETDATE()
+                                        BEGIN
+                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 16, 1) WITH NOWAIT;
+                                        RETURN
+                                        END
+                                    SET @msg = N'Waiting for ' + CAST(@counter AS NVARCHAR(100)) + N' sp_AllNightLog_Restore job(s) to finish.'
+                                    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+                                    WAITFOR DELAY '0:00:01'; -- Wait until the restore jobs are fully stopped
+	
+	                                SELECT  @counter = COUNT(*)
+		                                FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                                INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                                ON [ja].[job_id] = [j].[job_id]
+		                                WHERE    [ja].[session_id] = (
+										                                SELECT    TOP 1 [session_id]
+										                                FROM    [msdb].[dbo].[syssessions]
+										                                ORDER BY [agent_start_date] DESC
+									                                )
+				                                AND [start_execution_date] IS NOT NULL
+				                                AND [stop_execution_date] IS NULL
+				                                AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+                                END
+                            END /* IF @EnableRestoreJobs = 0 */
+
+
+                        IF @EnableBackupJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing backup job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs_to_change(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Backup%' OR name = 'sp_AllNightLog_PollForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs_to_change
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableBackupJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs_to_change;
+                            END;
+
 
 						
 						IF @RTOSeconds IS NOT NULL

@@ -12,8 +12,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.5';
-	SET @VersionDate = '20170701';
+	SET @Version = '5.6';
+	SET @VersionDate = '20170801';
 
 
 	IF @Help = 1
@@ -136,7 +136,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
-							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
+							CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
 							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
 								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
@@ -153,9 +153,9 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                               / 2 ) + 1), dest.text) AS query_text ,
 			            derp.query_plan ,
 			            qmg.query_cost ,					
-						CASE WHEN r.blocking_session_id = 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
-							 WHEN r.blocking_session_id = 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
-						ELSE 0 END
+						CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
+							 WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
+						ELSE NULL END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
 			            COALESCE(r.logical_reads, s.logical_reads) AS request_logical_reads,
@@ -224,7 +224,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,
-						wg.name AS workload_group_name, 
+						r.percent_complete , 
+						wg.name AS workload_group_name , 
 						rp.name AS resource_pool_name
 			    FROM    sys.dm_exec_sessions AS s
 			    LEFT JOIN    sys.dm_exec_requests AS r
@@ -334,7 +335,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 					    SELECT  GETDATE() AS run_date ,
 			            COALESCE(
-							CONVERT(VARCHAR(20), (r.total_elapsed_time / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (r.total_elapsed_time / 1000), 0), 114) ,
+							CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
 							CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
 								+ CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
 								) AS [elapsed_time] ,
@@ -343,7 +344,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,
 						'+
 						CASE @SessionWaits
-							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) -1) AS top_session_waits ,'
+							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
 							 ELSE N''
 						END
 						+' 
@@ -357,9 +358,9 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                               / 2 ) + 1), dest.text) AS query_text ,
 			            derp.query_plan ,
 			            qmg.query_cost ,					
-						CASE WHEN r.blocking_session_id = 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
-							 WHEN r.blocking_session_id = 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
-						ELSE 0 END
+						CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL THEN r.blocking_session_id
+							 WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id THEN blocked.blocking_session_id
+						ELSE NULL END
 						 AS blocking_session_id,
 			            COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
 			            COALESCE(r.logical_reads, s.logical_reads) AS request_logical_reads,
@@ -434,6 +435,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,
+						r.percent_complete , 
 						wg.name AS workload_group_name, 
 						rp.name AS resource_pool_name
 						FROM sys.dm_exec_sessions AS s

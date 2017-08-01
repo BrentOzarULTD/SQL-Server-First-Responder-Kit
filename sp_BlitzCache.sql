@@ -207,6 +207,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		index_spool_rows FLOAT,
 		is_spool_expensive BIT,
 		is_spool_more_rows BIT,
+		estimated_rows FLOAT,
+		is_bad_estimate BIT, 
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -248,8 +250,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.5';
-SET @VersionDate = '20170701';
+SET @Version = '5.6';
+SET @VersionDate = '20170801';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -880,6 +882,8 @@ BEGIN
 		index_spool_rows FLOAT,
 		is_spool_expensive BIT,
 		is_spool_more_rows BIT,
+		estimated_rows FLOAT,
+		is_bad_estimate BIT, 
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2044,6 +2048,7 @@ SELECT  QueryHash ,
         q.n.query('.') AS statement
 FROM    ##bou_BlitzCacheProcs p
         CROSS APPLY p.QueryPlan.nodes('//p:StmtCursor') AS q(n) 
+WHERE p.SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2161,6 +2166,24 @@ table_dml AS (
 	ON t.QueryHash = b.QueryHash
 	WHERE t.table_dml = 1
 	AND b.SPID = @@SPID
+	OPTION (RECOMPILE);
+
+
+RAISERROR(N'Gathering row estimates', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES ('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p ),
+est_rows AS(
+SELECT s.SqlHandle, c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
+FROM   #statements AS s
+CROSS APPLY s.statement.nodes('//p:StmtSimple') AS c(n)
+WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
+)
+	UPDATE b
+		SET b.estimated_rows = er.estimated_rows
+	FROM ##bou_BlitzCacheProcs AS b
+	JOIN est_rows er
+	ON er.SqlHandle = b.SqlHandle
+	WHERE b.SPID = @@SPID
+	AND b.QueryType = 'Statement'
 	OPTION (RECOMPILE);
 
 
@@ -2893,7 +2916,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   long_running_low_cpu = CASE WHEN AverageDuration > AverageCPU * 4 THEN 1 END,
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END,
 	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
-	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END
+	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
+	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 10000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 10000) THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
@@ -2990,7 +3014,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
-				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END    			   
+				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  			   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -3056,7 +3081,8 @@ SELECT  DISTINCT
 				  CASE WHEN stale_stats = 1 THEN + ', Statistics used have > 100k modifications in the last 7 days' ELSE '' END +
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
-				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END    
+				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3433,7 +3459,8 @@ BEGIN
 				  CASE WHEN stale_stats = 1 THEN '', 52'' ELSE '''' END +
 				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END	+
 				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
-				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END    
+				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
+				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -4208,7 +4235,20 @@ BEGIN
                      'Index Spools Many Rows',
                      'You have an index spool that spools more rows than the query returns',
                      'No URL yet',
-                     'Check operator predicates and output for index definition guidance') ;						 				 
+                     'Check operator predicates and output for index definition guidance') ;
+					 
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_bad_estimate = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     56,
+                     100,
+                     'Potentially bad cardinality estimates',
+                     'Estimated rows are different from average rows by a factor of 10000',
+                     'No URL yet',
+                     'This may indicate a performance problem if mismatches occur regularly') ;						 						 				 
 
 		IF @v >= 14
 			BEGIN	

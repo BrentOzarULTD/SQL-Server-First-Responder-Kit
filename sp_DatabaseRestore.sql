@@ -26,8 +26,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 	DECLARE @Version NVARCHAR(30);
-	SET @Version = '5.5';
-	SET @VersionDate = '20170701';
+	SET @Version = '5.6';
+	SET @VersionDate = '20170801';
 
 
 IF @Help = 1
@@ -325,10 +325,30 @@ IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
 		SET @BackupPathLog += N'\';
 	END;
 
+/*Move Data File*/
+IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
+		SET @MoveDataDrive += N'\';
+	END;
+
+/*Move Log File*/
+IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
+		SET @MoveLogDrive += N'\';
+	END;
+
 
 
 IF @RestoreDatabaseName IS NULL
-	SET @RestoreDatabaseName = @Database;
+	BEGIN
+		SET @RestoreDatabaseName = QUOTENAME(@Database);
+	END
+ELSE
+	BEGIN
+		SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName)
+	END
 
 
 IF @BackupPathFull IS NOT NULL
@@ -460,12 +480,16 @@ IF @MoveFiles = 1
 				CASE
 					WHEN Type = 'D' THEN @MoveDataDrive
 					WHEN Type = 'L' THEN @MoveLogDrive
-				END + REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' AS logicalcmds
+				END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
+					  ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
+					  END AS logicalcmds
 			FROM #FileListParameters)
 		
 		SELECT @MoveOption = @MoveOption + Files.logicalcmds
 		FROM Files;
-	
+		
+		IF @Debug = 1 PRINT @MoveOption
+
 	END;
 
 
@@ -516,7 +540,7 @@ ELSE
 		SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 		FROM master.sys.databases d
 		JOIN master.sys.master_files f ON d.database_id = f.database_id
-		WHERE d.name = @RestoreDatabaseName AND f.file_id = 1;
+		WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
 	
 	END;
 
