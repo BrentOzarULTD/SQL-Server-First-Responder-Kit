@@ -859,6 +859,8 @@ AS
 					BEGIN
 						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
 
+						BEGIN
+
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 3) WITH NOWAIT;
 
 						INSERT  INTO #BlitzResults
@@ -881,6 +883,7 @@ AS
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
 								ORDER BY backup_set_id ASC;
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -888,6 +891,8 @@ AS
 								WHERE   DatabaseName IS NULL AND CheckID = 186 )
 					BEGIN
 						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
+
+						BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 186) WITH NOWAIT;
 							
@@ -911,6 +916,7 @@ AS
 											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 									FROM    msdb.dbo.backupset bs
 									ORDER BY backup_set_id ASC;
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -1960,6 +1966,8 @@ AS
 							 WHERE  severity BETWEEN 19 AND 25
 						   ) < 7
 
+						   BEGIN
+
 						   IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 30) WITH NOWAIT;
 
 							INSERT  INTO #BlitzResults
@@ -1976,6 +1984,7 @@ AS
 											'Not All Alerts Configured' AS Finding ,
 											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'Not all SQL Server Agent alerts have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
+							END;
 					END;
 
 
@@ -1990,6 +1999,8 @@ AS
 											AND COALESCE(has_notification, 0) = 0
 											AND (job_id IS NULL OR job_id = 0x))
 
+							BEGIN
+							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 59) WITH NOWAIT;
 
 							INSERT  INTO #BlitzResults
@@ -2006,6 +2017,8 @@ AS
 											'Alerts Configured without Follow Up' AS Finding ,
 											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'SQL Server Agent alerts have been configured but they either do not notify anyone or else they do not take any action.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
+					
+							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2015,6 +2028,8 @@ AS
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
 										WHERE   message_id IN ( 823, 824, 825 ) )
+							
+							BEGIN;
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 96) WITH NOWAIT;
 							
@@ -2032,6 +2047,8 @@ AS
 											'No Alerts for Corruption' AS Finding ,
 											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'SQL Server Agent alerts do not exist for errors 823, 824, and 825.  These three errors can give you notification about early hardware failure. Enabling them can prevent you a lot of heartbreak.' ) AS Details;
+					
+							END;
 					END;
 
 
@@ -2042,6 +2059,8 @@ AS
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
 										WHERE   severity BETWEEN 19 AND 25 )
+							
+							BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 61) WITH NOWAIT;
 							
@@ -2059,6 +2078,9 @@ AS
 											'No Alerts for Sev 19-25' AS Finding ,
 											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'SQL Server Agent alerts do not exist for severity levels 19 through 25.  These are some very severe SQL Server errors. Knowing that these are happening may let you recover from errors faster.' ) AS Details;
+					
+							END;
+
 					END;
 
 		--check for disabled alerts
@@ -2069,6 +2091,8 @@ AS
 						IF EXISTS ( SELECT  name
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 0 )
+							
+							BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 98) WITH NOWAIT;
 							
@@ -2089,6 +2113,9 @@ AS
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 0;
+					
+							END;
+					
 					END;
 
 
@@ -2099,6 +2126,8 @@ AS
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
 										WHERE   enabled = 1 )
+							
+							BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 31) WITH NOWAIT;
 							
@@ -2116,6 +2145,8 @@ AS
 											'No Operators Configured/Enabled' AS Finding ,
 											'https://BrentOzar.com/go/op' AS URL ,
 											( 'No SQL Server Agent operators (emails) have been configured.  This is a free, easy way to get notified of corruption, job failures, or major outages even before monitoring systems pick it up.' ) AS Details;
+					
+							END;
 					END;
 
 
@@ -2337,6 +2368,13 @@ AS
 							END;
 					END;
 
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 183 )
+
+				BEGIN
+
 						IF ( SELECT COUNT (distinct [size])
 							FROM   tempdb.sys.database_files
 							WHERE  type_desc = 'ROWS'
@@ -2364,6 +2402,7 @@ AS
 										  'TempDB data files are not configured with the same size.  Unevenly sized tempdb data files will result in unevenly sized workloads.'
 										);
 							END;
+				END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -3148,6 +3187,9 @@ AS
 
 
 						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+						AND NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 125 )
 						BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 125) WITH NOWAIT;
@@ -3166,6 +3208,9 @@ AS
 						END;
 
 						IF EXISTS (SELECT * FROM sys.configurations WHERE name = 'priority boost' AND (value = 1 OR value_in_use = 1))
+						AND NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 126 )
 						BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 126) WITH NOWAIT;
@@ -3487,6 +3532,10 @@ AS
 											
 						IF @TraceFileIssue = 1
 							BEGIN
+						IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 199 )								
+								
 								INSERT  INTO #BlitzResults
 								            ( CheckID ,
 								                DatabaseName ,
@@ -4089,10 +4138,12 @@ IF @ProductVersionMajor >= 10
 			IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 176 )
+								BEGIN
+			
 			IF EXISTS ( SELECT  1
 														FROM    sys.all_objects
 														WHERE   name = 'dm_xe_sessions' )
-								BEGIN
+								
 								BEGIN
 									
 									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 176) WITH NOWAIT;
@@ -4127,6 +4178,7 @@ IF @ProductVersionMajor >= 10
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 177 )
 								BEGIN
+								
 								IF EXISTS ( SELECT  1
 														FROM    sys.all_objects
 														WHERE   name = 'dm_server_registry' )
@@ -4483,6 +4535,8 @@ IF @ProductVersionMajor >= 10
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
 			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
+			AND d.application_name NOT LIKE '%Sentry%'
+			
 
 			HAVING COUNT(*) > 0;
 			
@@ -5614,6 +5668,9 @@ IF @ProductVersionMajor >= 10
 					END; /* IF @CheckUserDatabaseObjects = 1 */
 
 				IF @CheckProcedureCache = 1
+					
+					IF @Debug IN (1, 2) RAISERROR('Begin checking procedure cache', 0, 1) WITH NOWAIT;
+					
 					BEGIN
 
 						IF NOT EXISTS ( SELECT  1
