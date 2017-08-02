@@ -145,7 +145,9 @@ AS
 			,@MinServerMemory bigint
 			,@MaxServerMemory bigint
 			,@ColumnStoreIndexesInUse bit
-			,@TraceFileIssue bit;
+			,@TraceFileIssue bit
+			-- Flag for Windows OS to help with Linux support
+			,@IsWindowsOperatingSystem BIT;
 
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -235,11 +237,35 @@ AS
 							WHERE   DatabaseName IS NULL AND CheckID = 106 )
 							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
 			BEGIN
+				-- Flag for Windows OS to help with Linux support
+				IF EXISTS ( SELECT  1
+								FROM    sys.all_objects
+								WHERE   name = 'dm_os_host_info' )
+					BEGIN
+						SELECT @IsWindowsOperatingSystem = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info ;
+					END;
+					ELSE
+					BEGIN
+						SELECT @IsWindowsOperatingSystem = 1 ;
+					END;
+
 					select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
 					set @curr_tracefilename = reverse(@curr_tracefilename);
-					select @indx = patindex('%\%', @curr_tracefilename) ;
-					set @curr_tracefilename = reverse(@curr_tracefilename) ;
-					set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
+
+					-- Set the trace file path separator based on underlying OS
+					IF (@IsWindowsOperatingSystem = 1)
+					BEGIN
+						select @indx = patindex('%\%', @curr_tracefilename) ;
+						set @curr_tracefilename = reverse(@curr_tracefilename) ;
+						set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '\log.trc' ;
+					END;
+					ELSE
+					BEGIN
+						select @indx = patindex('%/%', @curr_tracefilename) ;
+						set @curr_tracefilename = reverse(@curr_tracefilename) ;
+						set @base_tracefilename = left( @curr_tracefilename,len(@curr_tracefilename) - @indx) + '/log.trc' ;
+					END;
+
 			END;
 
 		/* If the server has any databases on Antiques Roadshow, skip the checks that would break due to CTEs. */
@@ -6523,12 +6549,12 @@ IF @ProductVersionMajor >= 10
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 172 )
 					BEGIN
-					IF EXISTS ( SELECT  1
-											FROM    sys.all_objects
-											WHERE   name = 'dm_os_windows_info' )
-
+					-- sys.dm_os_host_info includes both Windows and Linux info
+					IF EXISTS (SELECT 1
+									FROM	sys.all_objects
+									WHERE	name = 'dm_os_host_info' )
 					BEGIN
-						  
+
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 172) WITH NOWAIT;
 						  
 						  INSERT    INTO [#BlitzResults]
@@ -6543,21 +6569,65 @@ IF @ProductVersionMajor >= 10
 							172 AS [CheckID] ,
 							250 AS [Priority] ,
 							'Server Info' AS [FindingsGroup] ,
-							'Windows Version' AS [Finding] ,
-							'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
+							'Operating System Version' AS [Finding] ,
+							( CASE WHEN @IsWindowsOperatingSystem = 1
+								THEN 'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions'
+								ELSE 'https://en.wikipedia.org/wiki/List_of_Linux_distributions'
+								END
+							) AS [URL] ,
 							( CASE 
-								WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								WHEN [owi].[windows_release] = '6.2' THEN 'You''re running a rather modern version of Windows: Server 2012 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								WHEN [owi].[windows_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: Server 2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								WHEN [owi].[windows_release] > '6.3' THEN 'Hot dog! You''re living in the future! You''re running version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-								ELSE 'I have no idea which version of Windows you''re on. Sorry.'
+								WHEN [ohi].[host_platform] = 'Linux' THEN 'You''re running the ' + CAST([ohi].[host_distribution] AS VARCHAR(35)) + ' distribution of ' + CAST([ohi].[host_platform] AS VARCHAR(35)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] > '5' AND [ohi].[host_release] < '6' THEN 'You''re running a really old version: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] >= '6' AND [ohi].[host_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '6.2' THEN 'You''re running a rather modern version of Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] > '6.3' THEN 'Hot dog! You''re living in the future! You''re running ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								ELSE 'You''re running ' + CAST([ohi].[host_distribution] AS VARCHAR(35)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
 								END
 							   ) AS [Details]
-							 FROM [sys].[dm_os_windows_info] [owi];
-
+							 FROM [sys].[dm_os_host_info] [ohi];
 					END;
+					ELSE
+					BEGIN
+					-- Otherwise, stick with Windows-only detection
+
+						IF EXISTS ( SELECT  1
+												FROM    sys.all_objects
+												WHERE   name = 'dm_os_windows_info' )
+
+							BEGIN
+						  
+								  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 172) WITH NOWAIT;
+						  
+								  INSERT    INTO [#BlitzResults]
+											( [CheckID] ,
+											  [Priority] ,
+											  [FindingsGroup] ,
+											  [Finding] ,
+											  [URL] ,
+											  [Details] )
+
+									SELECT
+									172 AS [CheckID] ,
+									250 AS [Priority] ,
+									'Server Info' AS [FindingsGroup] ,
+									'Windows Version' AS [Finding] ,
+									'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
+									( CASE 
+										WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] = '6.2' THEN 'You''re running a rather modern version of Windows: Server 2012 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: Server 2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] > '6.3' THEN 'Hot dog! You''re living in the future! You''re running version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										ELSE 'I have no idea which version of Windows you''re on. Sorry.'
+										END
+									   ) AS [Details]
+									 FROM [sys].[dm_os_windows_info] [owi];
+
+							END;
+						END;
 					END;
 
 /*
@@ -6730,13 +6800,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 83) WITH NOWAIT;
 										
+				-- DATETIMEOFFSET and DATETIME have different minimum values, so there's
+				-- a small workaround here to force 1753-01-01 if the minimum is detected
 										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT  83 AS CheckID ,
 				250 AS Priority ,
 				''Server Info'' AS FindingsGroup ,
 				''Services'' AS Finding ,
 				'''' AS URL ,
-				N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CAST(last_startup_time AS DATETIME) AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.''
+				N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CASE WHEN YEAR(last_startup_time) <= 1753 THEN CAST(''17530101'' as datetime) ELSE CAST(last_startup_time AS DATETIME) END AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.''
 				FROM sys.dm_server_services OPTION (RECOMPILE);';
 										
 										IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
