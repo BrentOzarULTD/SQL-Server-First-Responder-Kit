@@ -498,7 +498,7 @@ IF @ContinueLogs = 0
 
 		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE [' + @RestoreDatabaseName + N'] FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
 		
 		IF @Debug = 1
 		BEGIN
@@ -623,7 +623,7 @@ WHERE BackupFile LIKE N'%.bak'
 
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE [' + @RestoreDatabaseName + N'] FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
 		
 		IF @Debug = 1
 		BEGIN
@@ -824,7 +824,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 
 				RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
 				
-				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
+				SET @sql = N'RESTORE LOG [' + @RestoreDatabaseName + N'] FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
 				
 					IF @Debug = 1
 					BEGIN
