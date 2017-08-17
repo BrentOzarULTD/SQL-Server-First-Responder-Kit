@@ -350,7 +350,6 @@ ELSE
 		SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName)
 	END
 
-
 IF @BackupPathFull IS NOT NULL
 
 BEGIN
