@@ -469,6 +469,11 @@ SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 
+/* by passing full backup already restored successfully*/
+SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+exec(@sql);
+set @sql='';
+
 IF @MoveFiles = 1
 	BEGIN
 		
@@ -493,62 +498,66 @@ IF @MoveFiles = 1
 	END;
 
 
-IF @ContinueLogs = 0
-	BEGIN
-
-		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
-	
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
-		
-		IF @Debug = 1
-		BEGIN
-			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
-			PRINT @sql;
-		END;
-		
-		IF @Debug IN (0, 1)
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-	
-	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
-	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
-			
-		IF @Debug = 1
-		BEGIN
-			IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
-			PRINT @sql;
-		END;
-	    
-	    EXECUTE (@sql);
-	    
-	      --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
-		  SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
-	    
-		  SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
-
-			IF @Debug = 1
-			BEGIN
-				IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
-				PRINT @BackupDateTime;
-			END;                                            
-	    
-	END;
-
+	 
+IF EXISTS(select * from #Headers h
+			INNER JOIN sys.master_files m ON h.DatabaseName=m.name
+			where 
+				m.file_id=1 and m.type=0 
+				and h.LastLSN<=m.redo_start_lsn)
+BEGIN
+	DELETE FROM #Headers where BackupType=1
+	PRINT 'That file already restored. Full restore operation by passed.'
+END
 ELSE
+BEGIN
 
-	BEGIN
+	SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
 		
-		SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
-		FROM master.sys.databases d
-		JOIN master.sys.master_files f ON d.database_id = f.database_id
-		WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
-	
+	IF @Debug = 1
+	BEGIN
+		IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
+		PRINT @sql;
 	END;
+		
+	IF @Debug IN (0, 1)
+		EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+	
+	--get the backup completed data so we can apply tlogs from that point forwards                                                   
+	SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+			
+	IF @Debug = 1
+	BEGIN
+		IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
+		PRINT @sql;
+	END;
+	    
+	EXECUTE (@sql);
+	    
+	--setting the @BackupDateTime to a numeric string so that it can be used in comparisons
+	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
+	    
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
 
---Clear out table variables for differential
-DELETE FROM @FileList;
-
+	IF @Debug = 1
+	BEGIN
+		IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
+		PRINT @BackupDateTime;
+	END;                                            
+	    
 END
 
+	 
+ 
+	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
+	FROM master.sys.databases d
+	JOIN master.sys.master_files f ON d.database_id = f.database_id
+	WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
+ 
+
+	--Clear out table variables for differential
+	DELETE FROM @FileList;
+
+END
 
 IF @BackupPathDiff IS NOT NULL
 
@@ -609,6 +618,12 @@ EXEC master.sys.xp_cmdshell @cmd;
 /*End folder sanity check*/
 
 
+
+--unnecessary diff restore check
+
+
+
+
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
@@ -664,7 +679,7 @@ DELETE FROM @FileList;
    
  END      
 
- IF @BackupPathLog IS NOT NULL
+IF @BackupPathLog IS NOT NULL
 
 BEGIN
 
@@ -735,10 +750,11 @@ IF (@OnlyLogsAfter IS NOT NULL)
 END
 
 
-
+ 
 --check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
+	 
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
@@ -778,7 +794,7 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 		OPEN BackupFiles;
 	END;
 
-
+	print @HeadersSQL
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
 	WHILE @@FETCH_STATUS = 0
@@ -787,7 +803,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			
 			BEGIN
 		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathLog + @BackupFile);
-			
+			 
 				IF @Debug = 1
 				BEGIN
 					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @BackupPathLog, @BackupFile';
