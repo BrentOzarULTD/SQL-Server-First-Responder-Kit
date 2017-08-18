@@ -473,6 +473,19 @@ SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
 exec(@sql);
 set @sql='';
 
+
+
+	--setting the @BackupDateTime to a numeric string so that it can be used in comparisons
+	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
+	    
+	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
+
+	IF @Debug = 1
+	BEGIN
+		IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
+		PRINT @BackupDateTime;
+	END; 
+
 IF @MoveFiles = 1
 	BEGIN
 		
@@ -531,19 +544,9 @@ BEGIN
 	END;
 	    
 	EXECUTE (@sql);
-	    
-	--setting the @BackupDateTime to a numeric string so that it can be used in comparisons
-	SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
-	    
-	SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
-
-	IF @Debug = 1
-	BEGIN
-		IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
-		PRINT @BackupDateTime;
-	END;                                            
-	    
 END
+
+    
 
 	 
  
@@ -618,7 +621,6 @@ EXEC master.sys.xp_cmdshell @cmd;
 
 
 
---unnecessary diff restore check
 
 
 
@@ -633,6 +635,37 @@ WHERE BackupFile LIKE N'%.bak'
 	--set the @BackupDateTime so that it can be used for comparisons
 	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
 	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
+
+	--unnecessary diff restore check
+	--get the backup completed data so we can apply tlogs from that point forwards                                                   
+	SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
+	exec(@sql)
+	SET @sql='';
+	declare @DatabaseBackupLSN numeric(25,0)
+	
+	select  @DatabaseBackupLSN=MAX(s.last_lsn)
+	from    msdb..backupset s 
+		inner join msdb..backupmediafamily f on s.media_set_id = f.media_set_id
+	where   s.database_name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) 
+	and s.type='D'
+
+	if exists(select * from sys.master_files where name=SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) and redo_start_lsn> @DatabaseBackupLSN)
+	BEGIN
+		set @RestoreDiff=0
+		print 'There is no suitable DIFF backup on the stage'
+	END
+	ELSE
+	BEGIN
+		--can apply diff
+		select @DatabaseBackupLSN=redo_start_lsn from sys.master_files where name=SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) 
+
+		IF EXISTS(select  * from #Headers
+					where DatabaseBackupLSN>@DatabaseBackupLSN)
+		  BEGIN
+			set @RestoreDiff=0;
+			print 'That differential file already restored. DIFF restore operation by passed.'
+		  END
+	END
 
 
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
@@ -649,16 +682,12 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
-		--get the backup completed data so we can apply tlogs from that point forwards                                                   
-		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
 		
 		IF @Debug = 1
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
 		END;  
-		
-		EXECUTE (@sql);
 
 			IF @Debug = 1
 				BEGIN
@@ -753,13 +782,15 @@ END
 --check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
-	 
+	  print '@ContinueLogs'+cast(@ContinueLogs as varchar(40))
+	  print '@BackupDateTime'+cast(@BackupDateTime as varchar(40))
+
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
 			WHERE BackupFile LIKE N'%.trn'
 			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
+			  AND @ContinueLogs = 1 AND (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime)
 			  ORDER BY BackupFile;
 		
 		OPEN BackupFiles;
@@ -768,6 +799,7 @@ IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 
 IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
 	BEGIN
+	 
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
@@ -779,15 +811,19 @@ IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)
 		OPEN BackupFiles;
 	END
 
+ 
+
 
 IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
 	BEGIN
+	 
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
 			FROM @FileList
 			WHERE BackupFile LIKE N'%.trn'
 			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) 
+			  AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  ORDER BY BackupFile;
 		
 		OPEN BackupFiles;
@@ -913,4 +949,3 @@ IF @TestRestore = 1
 
 	END;
 
-GO 
