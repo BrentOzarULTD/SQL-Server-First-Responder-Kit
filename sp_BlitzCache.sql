@@ -380,6 +380,11 @@ BEGIN
     SELECT N'@OnlySqlHandles',
            N'VARCHAR(MAX)',
            N'One or more sql_handles to use for filtering results.'
+    
+	UNION ALL
+    SELECT N'@IgnoreSqlHandles',
+           N'VARCHAR(MAX)',
+           N'One or more sql_handles to ignore.'
 
     UNION ALL
     SELECT N'@DatabaseName',
