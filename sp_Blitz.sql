@@ -4524,13 +4524,34 @@ IF @ProductVersionMajor >= 10
 					'. This does not include CHECKDB and other usually benign DBCC events.'
 					AS Details
 			FROM    #dbcc_events_from_trace d
-			WHERE d.[dbcc_event_trunc_upper] NOT IN (
-			N'DBCC CHECKDB', N' DBCC CHECKALLOC' , N'DBCC CHECKTABLE', N'DBCC CHECKCATALOG', N'DBCC CHECKFILEGROUP', --CHECKDB related
-			N'DBCC TRACEON', N'DBCC TRACEOFF', N'DBCC DBINFO', N'DBCC LOGINFO', N'DBCC INPUTBUFFER', N'DBCC TRACESTATUS', --Usually monitoring tool related
-			N'DBCC CHECKIDENT', N'DBCC SHOW_STATISTICS', N'DBCC CHECKCONSTRAINTS',  --Probably rational
-			N'DBCC CLEANTABLE', N'DBCC CHECKPRIMARYFILE', N'DBCC OPENTRAN', 'DBCC SHOWFILESTATS' --Weird but okay
-													)
-			AND d.dbcc_event_full_upper NOT IN('DBCC SQLPERF(NETSTATS)', 'DBCC SQLPERF(LOGSPACE)')
+			/* This WHERE clause below looks horrible, but it's because users can run stuff like
+			   DBCC     LOGINFO
+			   with lots of spaces (or carriage returns, or comments) in between the DBCC and the
+			   command they're trying to run. See Github issues 1062, 1074, 1075.
+			*/
+			WHERE d.dbcc_event_full_upper NOT LIKE '%DBCC%ADDINSTANCE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKALLOC%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCATALOG%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCONSTRAINTS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKFILEGROUP%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKIDENT%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKPRIMARYFILE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKTABLE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CLEANTABLE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%DBINFO%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%ERRORLOG%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%INCREMENTINSTANCE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%INPUTBUFFER%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%LOGINFO%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%OPENTRAN%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%SETINSTANCE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%SHOWFILESTATS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%SHOW_STATISTICS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%SQLPERF%NETSTATS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%SQLPERF%LOGSPACE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEON%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEOFF%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACESTATUS%'
 			AND d.application_name NOT LIKE 'Critical Care(R) Collector'
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
