@@ -36,8 +36,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.6';
-SET @VersionDate = '20170801';
+SET @Version = '5.7';
+SET @VersionDate = '20170901';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -1942,8 +1942,8 @@ BEGIN
         system_type_name + 
             CASE max_length WHEN -1 THEN N' (max)' ELSE
                 CASE  
-                    WHEN system_type_name IN (N'char',N'nchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
-                    WHEN system_type_name IN (N'varchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+                    WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
+                    WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
                     ELSE '' 
                 END
             END

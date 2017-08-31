@@ -22,10 +22,15 @@ ALTER PROCEDURE dbo.sp_foreachdb
     @is_read_only BIT = 0 ,
     @is_auto_close_on BIT = NULL ,
     @is_auto_shrink_on BIT = NULL ,
-    @is_broker_enabled BIT = NULL
+    @is_broker_enabled BIT = NULL , 
+	@VersionDate DATETIME = NULL OUTPUT
 AS
     BEGIN
         SET NOCOUNT ON;
+		DECLARE @Version VARCHAR(30);
+		SET @Version = '1.7';
+		SET @VersionDate = '20170901';
+
 
         DECLARE @sql NVARCHAR(MAX) ,
             @dblist NVARCHAR(MAX) ,
@@ -106,9 +111,9 @@ AS
                    THEN ' AND name NOT IN (' + @exlist + ')'
                    ELSE ''
               END + CASE WHEN @name_pattern <> N'%'
-                         THEN ' AND name LIKE N''%' + REPLACE(@name_pattern,
+                         THEN ' AND name LIKE N''' + REPLACE(@name_pattern,
                                                               '''', '''''')
-                              + '%'''
+                              + ''''
                          ELSE ''
                     END + CASE WHEN @dblist IS NOT NULL
                                THEN ' AND name IN (' + @dblist + ')'
