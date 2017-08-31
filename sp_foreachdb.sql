@@ -106,9 +106,9 @@ AS
                    THEN ' AND name NOT IN (' + @exlist + ')'
                    ELSE ''
               END + CASE WHEN @name_pattern <> N'%'
-                         THEN ' AND name LIKE N''%' + REPLACE(@name_pattern,
+                         THEN ' AND name LIKE N''' + REPLACE(@name_pattern,
                                                               '''', '''''')
-                              + '%'''
+                              + ''''
                          ELSE ''
                     END + CASE WHEN @dblist IS NOT NULL
                                THEN ' AND name IN (' + @dblist + ')'
