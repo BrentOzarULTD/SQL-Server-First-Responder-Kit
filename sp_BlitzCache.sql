@@ -380,6 +380,11 @@ BEGIN
     SELECT N'@OnlySqlHandles',
            N'VARCHAR(MAX)',
            N'One or more sql_handles to use for filtering results.'
+    
+	UNION ALL
+    SELECT N'@IgnoreSqlHandles',
+           N'VARCHAR(MAX)',
+           N'One or more sql_handles to ignore.'
 
     UNION ALL
     SELECT N'@DatabaseName',
@@ -2170,18 +2175,20 @@ table_dml AS (
 
 
 RAISERROR(N'Gathering row estimates', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES ('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p ),
-est_rows AS(
-SELECT s.SqlHandle, c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
+WITH XMLNAMESPACES ('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+SELECT DISTINCT 
+		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(c.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
+		c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
+INTO #est_rows
 FROM   #statements AS s
-CROSS APPLY s.statement.nodes('//p:StmtSimple') AS c(n)
+CROSS APPLY s.statement.nodes('/p:StmtSimple') AS c(n)
 WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
-)
+
 	UPDATE b
 		SET b.estimated_rows = er.estimated_rows
 	FROM ##bou_BlitzCacheProcs AS b
-	JOIN est_rows er
-	ON er.SqlHandle = b.SqlHandle
+	JOIN #est_rows er
+	ON er.QueryHash = b.QueryHash
 	WHERE b.SPID = @@SPID
 	AND b.QueryType = 'Statement'
 	OPTION (RECOMPILE);
@@ -2605,7 +2612,7 @@ BEGIN
 	WHERE   qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 	AND SPID = @@SPID
 	AND query_plan.exist('/p:QueryPlan/@NonParallelPlanReason') = 1
-	AND ##bou_BlitzCacheProcs.is_parallel IS NULL
+	AND (##bou_BlitzCacheProcs.is_parallel = 0 OR ##bou_BlitzCacheProcs.is_parallel IS NULL)
 	OPTION (RECOMPILE);
 	
 	
