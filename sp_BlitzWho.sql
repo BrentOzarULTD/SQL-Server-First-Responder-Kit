@@ -12,8 +12,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.6';
-	SET @VersionDate = '20170801';
+	SET @Version = '5.7';
+	SET @VersionDate = '20170901';
 
 
 	IF @Help = 1
@@ -254,10 +254,6 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			    LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 			    ON      qmg.resource_semaphore_id = qrs.resource_semaphore_id
 					    AND qmg.pool_id = qrs.pool_id
-			    LEFT JOIN sys.dm_db_task_space_usage tsu
-				ON tsu.request_id = r.request_id
-				AND tsu.session_id = r.session_id
-				AND tsu.session_id = s.session_id
 				LEFT JOIN sys.resource_governor_workload_groups wg 
 				ON 		s.group_id = wg.group_id
 				LEFT JOIN sys.resource_governor_resource_pools rp 
@@ -273,7 +269,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 				OUTER APPLY (
-						SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+						SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
 						FROM sys.dm_db_task_space_usage tsu
 						WHERE tsu.request_id = r.request_id
 						AND tsu.session_id = r.session_id
@@ -488,7 +484,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 						OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 						OUTER APPLY (
-								SELECT CONVERT(DECIMAL(38,2), SUM( ((tsu.user_objects_alloc_page_count * 8) / 1024.) ) ) AS tempdb_allocations_mb
+								SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
 								FROM sys.dm_db_task_space_usage tsu
 								WHERE tsu.request_id = r.request_id
 								AND tsu.session_id = r.session_id
