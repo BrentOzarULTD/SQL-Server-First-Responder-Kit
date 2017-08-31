@@ -5669,6 +5669,8 @@ IF @ProductVersionMajor >= 10
 
 				IF @CheckProcedureCache = 1
 					
+					BEGIN
+
 					IF @Debug IN (1, 2) RAISERROR('Begin checking procedure cache', 0, 1) WITH NOWAIT;
 					
 					BEGIN
@@ -6060,6 +6062,7 @@ IF @ProductVersionMajor >= 10
 							END;
 
 					END; /* IF @CheckProcedureCache = 1 */
+				END;
 									  
 		/*Check to see if the HA endpoint account is set at the same as the SQL Server Service Account*/
 		IF @ProductVersionMajor >= 10
