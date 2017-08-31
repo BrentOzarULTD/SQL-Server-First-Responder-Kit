@@ -250,6 +250,20 @@ AS
 			PRINT 'The database-level checks rely on CTEs, which are not supported in SQL 2000 compat level databases.';
 			PRINT 'Get with the cool kids and switch to a current compatibility level, Grandpa. To find the problems, run:';
 			PRINT 'SELECT * FROM sys.databases WHERE compatibility_level < 90;';
+			INSERT  INTO #BlitzResults
+			( CheckID ,
+				Priority ,
+				FindingsGroup ,
+				Finding ,
+				URL ,
+				Details
+			)
+			SELECT 201 AS CheckID ,
+					0 AS Priority ,
+					'Informational' AS FindingsGroup ,
+					'@CheckUserDatabaseObjects Disabled' AS Finding ,
+					'https://www.BrentOzar.com/blitz/' AS URL ,
+					'Since you have databases with compatibility_level < 90, we can''t run @CheckUserDatabaseObjects = 1. To find them: SELECT * FROM sys.databases WHERE compatibility_level < 90' AS Details;
 		END;
 
 
@@ -584,6 +598,20 @@ AS
 			SET @CheckUserDatabaseObjects = 0;
 			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary insanity for the server and/or user.';
 			PRINT 'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
+			INSERT  INTO #BlitzResults
+			( CheckID ,
+				Priority ,
+				FindingsGroup ,
+				Finding ,
+				URL ,
+				Details
+			)
+			SELECT 201 AS CheckID ,
+					0 AS Priority ,
+					'Informational' AS FindingsGroup ,
+					'@CheckUserDatabaseObjects Disabled' AS Finding ,
+					'https://www.BrentOzar.com/blitz/' AS URL ,
+					'If you want to check 50+ databases, you have to also use @BringThePain = 1.' AS Details;
 			END;
 
 		/* Sanitize our inputs */

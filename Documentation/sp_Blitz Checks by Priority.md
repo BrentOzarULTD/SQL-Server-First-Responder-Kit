@@ -9,6 +9,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
+| 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 201 |
 | 1 | Backup | Backing Up to Same Drive Where Databases Reside | https://www.BrentOzar.com/go/backup | 93 |
 | 1 | Backup | Backups Not Performed Recently | https://www.BrentOzar.com/go/nobak | 1 |
 | 1 | Backup | Full Recovery Mode w/o Log Backups | https://www.BrentOzar.com/go/biglogs | 2 |
