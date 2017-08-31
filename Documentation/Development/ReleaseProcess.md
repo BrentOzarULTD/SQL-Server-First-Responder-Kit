@@ -23,7 +23,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
         * These get moved to AWS for testing
     * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
 * If it passes, bump all the version numbers inside the scripts and re-run the PowerShell commands so combined scripts reflect correct version and date.
-    * sp_foreachdb (no version number yet)
+    * sp_foreachdb @Version and @VersionDate
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
     * sp_BlitzFirst @VersionDate (no version) 
