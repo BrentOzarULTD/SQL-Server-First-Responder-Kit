@@ -123,7 +123,8 @@ DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name o
 DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd 
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0 --We use this one
-DECLARE @only_logs_after NVARCHAR(30) = N''
+DECLARE @only_logs_after NVARCHAR(30) = N'' --Stripped down date used to prevent trying to restore a bunch of logs we've already restored
+DECLARE @full_restore_retry INT = 1 --Need a controlled retry loop if initial full fails
 
 
 /*
@@ -1255,6 +1256,76 @@ IF @Restore = 1
 																				   @RunRecovery = 0,
 																				   @Debug = @Debug
 	
+											/*	
+												The fastest way to see if a restore completed is to see if the database is in sys.databases. 
+												Failures don't seem to log anywhere reliably
+											*/		
+
+											IF NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database)
+													
+												IF @Debug = 1 RAISERROR('Database not found in sys.databases, starting retry loop', 0, 1) WITH NOWAIT;
+
+												BEGIN
+													
+													/*
+													
+													If at first you don't succeed, try three more times
+													
+													*/
+
+													WHILE NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database) 
+														AND @full_restore_retry < 3
+
+
+														BEGIN
+
+																IF @Debug = 1 RAISERROR('Try number: [%d]', 0, 1, @full_restore_retry) WITH NOWAIT;
+
+																EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
+																								   @BackupPathFull = @restore_path_full,
+																								   @BackupPathLog = @restore_path_log,
+																								   @ContinueLogs = 0,
+																								   @RunRecovery = 0,
+																								   @Debug = @Debug
+
+																SET @full_restore_retry += 1
+
+																/*
+																	Throttle it. 
+																	Like a good boy, throttle it. 
+																	--Fadgadget
+																*/
+																
+																IF @Debug = 1 RAISERROR('Waiting 30 seconds', 0, 1) WITH NOWAIT;
+
+																WAITFOR DELAY '00:00:30.000'
+
+														END
+													
+													/*
+														If we still don't have the database after three retries, give the thing a thing.													
+													*/
+
+													IF NOT EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database)
+
+														BEGIN
+
+														IF @Debug = 1 RAISERROR('Database not restore after three retry attempts, passing on for human intervention', 0, 1) WITH NOWAIT;
+
+																	UPDATE rw
+																			SET rw.is_started = 0,
+																				rw.is_completed = 1,
+																				rw.last_log_restore_start_time = '19000101',
+																				rw.error_number = 666,
+																				rw.last_error_date = GETDATE()
+																	FROM msdb.dbo.restore_worker rw 
+																	WHERE rw.database_name = @database;
+
+														END
+
+												END
+											
+
 											END
 
 
@@ -1277,7 +1348,9 @@ IF @Restore = 1
 	
 					BEGIN CATCH
 	
-						IF  @error_number IS NOT NULL
+						IF  @error_number IS NOT NULL AND EXISTS (SELECT 1 FROM sys.databases AS d WHERE d.name = @database) /* Added this in case the restore fails after a partial.
+																																This catches different oddballs than the retry loop error.
+																															 */
 
 						/*
 						
@@ -1292,7 +1365,7 @@ IF @Restore = 1
 								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
 								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 								
-								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
+								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful restore';
 								RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	
 								
@@ -1342,7 +1415,7 @@ IF @Restore = 1
 	
 							IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
 								
-							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful restore';
 							IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	
 								
