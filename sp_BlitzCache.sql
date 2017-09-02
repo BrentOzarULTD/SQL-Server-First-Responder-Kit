@@ -209,6 +209,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
+		is_paul_white_electric BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -889,6 +890,7 @@ BEGIN
 		is_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
+		is_paul_white_electric BIT,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -2806,6 +2808,24 @@ WHERE SPID = @@SPID
 OPTION(RECOMPILE);
 END
 
+
+RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+is_paul_white_electric AS (
+SELECT 1 AS [is_paul_white_electric], 
+r.SqlHandle
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('//p:RelOp') c(n)
+WHERE c.n.exist('@PhysicalOp[.="Switch"]') = 1
+)
+UPDATE b
+SET    b.is_paul_white_electric = ipwe.is_paul_white_electric
+FROM   ##bou_BlitzCacheProcs AS b
+JOIN is_paul_white_electric ipwe 
+ON ipwe.SqlHandle = b.SqlHandle 
+WHERE b.SPID = @@SPID
+OPTION (RECOMPILE);
+
 IF @SkipAnalysis = 1
     BEGIN
 	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
@@ -3022,7 +3042,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  			   
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END	   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -3089,7 +3110,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3467,7 +3489,8 @@ BEGIN
 				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END	+
 				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
-				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END
+				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
+				  CASE WHEN b.is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -4255,7 +4278,20 @@ BEGIN
                      'Potentially bad cardinality estimates',
                      'Estimated rows are different from average rows by a factor of 10000',
                      'No URL yet',
-                     'This may indicate a performance problem if mismatches occur regularly') ;						 						 				 
+                     'This may indicate a performance problem if mismatches occur regularly') ;	
+					 					 						 				 
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_paul_white_electric = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     998,
+                     200,
+                     'Is Paul White Electric?',
+                     'This query has a Switch operator in it!',
+                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
 
 		IF @v >= 14
 			BEGIN	
