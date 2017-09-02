@@ -933,6 +933,41 @@ BEGIN
     AND counter_name LIKE 'Page life expectancy%'
     AND cntr_value < 300
 
+    /* Server Performance - Too Much Free Memory - CheckID 34 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 34 AS CheckID,
+        50 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'Too Much Free Memory' AS Finding,
+        'https://BrentOzar.com/go/freememory' AS URL,
+		CAST((CAST(cFree.cntr_value AS BIGINT) / 1024 / 1024 ) AS NVARCHAR(100)) + N'GB of free memory inside SQL Server''s buffer pool,' + @LineFeed + ' which is ' + CAST((CAST(cTotal.cntr_value AS BIGINT) / 1024 / 1024) AS NVARCHAR(100)) + N'GB. You would think lots of free memory would be good, but check out the URL for more information.' AS Details,
+        'Run sp_BlitzCache @SortOrder = ''memory grant'' to find queries with huge memory grants and tune them.' AS HowToStopIt
+		FROM sys.dm_os_performance_counters cFree
+		INNER JOIN sys.dm_os_performance_counters cTotal ON cTotal.object_name LIKE N'%Memory Manager%'
+			AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
+		WHERE cFree.object_name LIKE N'%Memory Manager%'
+			AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
+			AND CAST(cTotal.cntr_value AS BIGINT) > 20480000000
+			AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
+            AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
+
+    /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 35 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'Target Memory Lower Than Max' AS Finding,
+        'https://BrentOzar.com/go/target' AS URL,
+		N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
+            + N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
+        'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
+        FROM sys.configurations cMax
+        INNER JOIN sys.dm_os_performance_counters cTarget ON cTarget.object_name LIKE N'%Memory Manager%'
+	        AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
+        WHERE cMax.name = 'max server memory (MB)'
+            AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
+            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647; /* Not set to default of unlimited */
+
     /* Server Info - Database Size, Total GB - CheckID 21 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 21 AS CheckID,

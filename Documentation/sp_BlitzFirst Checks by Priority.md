@@ -19,6 +19,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 1 | SQL Server Internal Maintenance | Log File Growing | https://BrentOzar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | https://BrentOzar.com/go/logsize | 14 |
 | 10 | Server Performance | Poison Wait Detected | https://BrentOzar.com/go/poison | 30 |
+| 10 | Server Performance | Target Memory Lower Than Max | https://BrentOzar.com/go/target | 35 |
 | 40 | Table Problems | Forwarded Fetches/Sec High | https://BrentOzar.com/go/fetch | 29 |
 | 50 | In-Memory OLTP | Garbage Collection in Progress | https://BrentOzar.com/go/garbage | 31 |
 | 50 | Query Problems | Compilations/Sec High | https://BrentOzar.com/go/compile | 15 |
@@ -29,6 +30,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Server Performance | Page Life Expectancy Low | https://BrentOzar.com/go/ple | 10 |
 | 50 | Server Performance | Slow Data File Reads | https://BrentOzar.com/go/slow | 11 |
 | 50 | Server Performance | Slow Log File Writes | https://BrentOzar.com/go/slow | 12 |
+| 50 | Server Performance | Too Much Free Memory | https://BrentOzar.com/go/freememory | 34 |
 | 100 | In-Memory OLTP | Transactions aborted | https://BrentOzar.com/go/aborted | 32 |
 | 100 | Query Problems | Suboptimal Plans/Sec High | https://BrentOzar.com/go/suboptimal | 33 |
 | 200 | Wait Stats | (One per wait type) | https://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
