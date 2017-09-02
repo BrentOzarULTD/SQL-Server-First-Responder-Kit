@@ -744,6 +744,7 @@ LogShamer:
 												    bw.is_started = 0
 												AND bw.is_completed = 1
 												AND bw.last_log_backup_start_time < DATEADD(SECOND, (@rpo * -1), GETDATE()) 
+                                                AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    
 											  (		/*This section picks up newly added databases by Pollster*/
@@ -751,6 +752,7 @@ LogShamer:
 											  	AND bw.is_completed = 0
 											  	AND bw.last_log_backup_start_time = '1900-01-01 00:00:00.000'
 											  	AND bw.last_log_backup_finish_time = '9999-12-31 00:00:00.000'
+                                                AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										ORDER BY bw.last_log_backup_start_time ASC, bw.last_log_backup_finish_time ASC, bw.database_name ASC;
 	
@@ -1096,6 +1098,8 @@ IF @Restore = 1
 												    rw.is_started = 0
 												AND rw.is_completed = 1
 												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
+                                                AND rw.error_number > 0 /* negative numbers indicate human attention required */
+                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    
 											  (		/*This section picks up newly added databases by DiskPollster*/
@@ -1103,6 +1107,7 @@ IF @Restore = 1
 											  	AND rw.is_completed = 0
 											  	AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
 											  	AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
+                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
 	
@@ -1328,7 +1333,8 @@ IF @Restore = 1
 							END; -- End update of unsuccessful restore
 	
 					END CATCH;
-	
+
+
 					IF  @database IS NOT NULL AND @error_number IS NULL
 
 					/*
@@ -1341,17 +1347,36 @@ IF @Restore = 1
 						BEGIN
 	
 							IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
+
+                            /* Make sure database actually exists and is in the restoring state */
+                            IF EXISTS (SELECT * FROM sys.databases WHERE name = @database AND state = 1) /* Restoring */
+								BEGIN
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
-							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
-							IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
-	
+								    UPDATE rw
+										    SET rw.is_started = 0,
+											    rw.is_completed = 1,
+											    rw.last_log_restore_finish_time = GETDATE()
+								    FROM msdb.dbo.restore_worker rw 
+								    WHERE rw.database_name = @database;
+
+                                END
+                            ELSE /* The database doesn't exist, or it's not in the restoring state */
+                                BEGIN
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful backup';
+							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
-								UPDATE rw
-										SET rw.is_started = 0,
-											rw.is_completed = 1,
-											rw.last_log_restore_finish_time = GETDATE()
-								FROM msdb.dbo.restore_worker rw 
-								WHERE rw.database_name = @database;
+								    UPDATE rw
+										    SET rw.is_started = 0,
+											    rw.is_completed = 1,
+                                                rw.error_number = -1, /* unknown, human attention required */
+                                                rw.last_error_date = GETDATE()
+											    /* rw.last_log_restore_finish_time = GETDATE()    don't change this - the last log may still be successful */
+								    FROM msdb.dbo.restore_worker rw 
+								    WHERE rw.database_name = @database;
+                                END
+
 
 								
 							/*
