@@ -52,6 +52,7 @@ BEGIN
 	
 		Known limitations of this version:
 		 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000! And really, maybe not even anything less than 2016. Heh.
+         - When restoring encrypted backups, the encryption certificate must already be installed.
 	
 		Unknown limitations of this version:
 		 - None.  (If we knew them, they would be known. Duh.)
@@ -113,6 +114,9 @@ DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
 DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
 DECLARE @rto INT; --Used to hold the RPO value in our configuration table
 DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @encrypt NVARCHAR(MAX); --Config table: Y = encrypt the backup. N (default) = do not encrypt.
+DECLARE @encryptionalgorithm NVARCHAR(MAX); --Config table: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256
+DECLARE @servercertificate NVARCHAR(MAX); --Config table: server certificate that is used to encrypt the backup
 DECLARE @restore_path_base NVARCHAR(MAX); --Used to hold the base backup path in our configuration table
 DECLARE @restore_path_full NVARCHAR(MAX); --Used to hold the full backup path in our configuration table
 DECLARE @restore_path_log NVARCHAR(MAX); --Used to hold the log backup path in our configuration table
@@ -124,6 +128,7 @@ DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0 --We use this one
 DECLARE @only_logs_after NVARCHAR(30) = N''
+
 
 
 /*
@@ -676,7 +681,8 @@ LogShamer:
 	
 						SELECT @rpo  = CONVERT(INT, configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup frequency';
+						WHERE configuration_name = N'log backup frequency'
+                          AND database_name = N'all';
 	
 							
 							IF @rpo IS NULL
@@ -688,12 +694,34 @@ LogShamer:
 	
 						SELECT @backup_path = CONVERT(NVARCHAR(512), configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup path';
+						WHERE configuration_name = N'log backup path'
+                          AND database_name = N'all';
 	
 							
 							IF @backup_path IS NULL
 								BEGIN
 									RAISERROR('@backup_path cannot be NULL. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
+									RETURN;
+								END;	
+
+						SELECT @encrypt = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'encrypt'
+                          AND database_name = N'all';
+
+						SELECT @encryptionalgorithm = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'encryptionalgorithm'
+                          AND database_name = N'all';
+
+						SELECT @servercertificate = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'servercertificate'
+                          AND database_name = N'all';
+
+							IF @encrypt = N'Y' AND (@encryptionalgorithm IS NULL OR @servercertificate IS NULL)
+								BEGIN
+									RAISERROR('If encryption is Y, then both the encryptionalgorithm and servercertificate must be set. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
 								END;	
 	
@@ -847,15 +875,28 @@ LogShamer:
 										
 										*/
 
-	
-										EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
-																	   @BackupType = 'LOG', --Going for the LOGs
-																	   @Directory = @backup_path, --The path we need to back up to
-																	   @Verify = 'N', --We don't want to verify these, it eats into job time
-																	   @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
-																	   @CheckSum = 'Y', --These are a good idea
-																	   @Compress = 'Y', --This is usually a good idea
-																	   @LogToTable = 'Y'; --We should do this for posterity
+	                                    IF @encrypt = 'Y'
+										    EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+																	       @BackupType = 'LOG', --Going for the LOGs
+																	       @Directory = @backup_path, --The path we need to back up to
+																	       @Verify = 'N', --We don't want to verify these, it eats into job time
+																	       @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
+																	       @CheckSum = 'Y', --These are a good idea
+																	       @Compress = 'Y', --This is usually a good idea
+																	       @LogToTable = 'Y', --We should do this for posterity
+                                                                           @Encrypt = @encrypt,
+                                                                           @EncryptionAlgorithm = @encryptionalgorithm,
+                                                                           @ServerCertificate = @servercertificate;
+
+                                        ELSE
+									        EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+																	        @BackupType = 'LOG', --Going for the LOGs
+																	        @Directory = @backup_path, --The path we need to back up to
+																	        @Verify = 'N', --We don't want to verify these, it eats into job time
+																	        @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
+																	        @CheckSum = 'Y', --These are a good idea
+																	        @Compress = 'Y', --This is usually a good idea
+																	        @LogToTable = 'Y'; --We should do this for posterity
 	
 										
 										/*
