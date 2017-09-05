@@ -906,6 +906,36 @@ AS
 							EXECUTE(@StringToExecute);
 						END;
 
+                     IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 202 )
+						AND EXISTS ( SELECT *
+									 FROM   sys.all_columns c
+									 WHERE  c.name = 'pvt_key_last_backup_date' )
+						AND EXISTS ( SELECT *
+									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
+									 WHERE  c.TABLE_NAME = 'backupset' AND c.COLUMN_NAME = 'encryptor_thumbprint' )
+						BEGIN
+
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT;
+
+							SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+								SELECT DISTINCT 202 AS CheckID,
+								1 AS Priority,
+								''Backup'' AS FindingsGroup,
+								''Encryption Certificate Not Backed Up Recently'' AS Finding,
+								''https://BrentOzar.com/go/tde'' AS URL,
+								''The certificate '' + c.name + '' is used to encrypt database backups. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
+								FROM sys.certificates c
+                                INNER JOIN msdb.dbo.backupset bs ON c.thumbprint = bs.encryptor_thumbprint
+                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE);';
+							
+							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+							
+							EXECUTE(@StringToExecute);
+						END;
+
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
