@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 								@Restore BIT = 0,
 								@Debug BIT = 0,
 								@Help BIT = 0,
+								@ChangeBackupType NVARCHAR(MAX)= 'Y',
 								@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -882,7 +883,7 @@ LogShamer:
 																	       @BackupType = 'LOG', --Going for the LOGs
 																	       @Directory = @backup_path, --The path we need to back up to
 																	       @Verify = 'N', --We don't want to verify these, it eats into job time
-																	       @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
+																	       @ChangeBackupType = @ChangeBackupType, --If we need to switch to a FULL because one hasn't been taken
 																	       @CheckSum = 'Y', --These are a good idea
 																	       @Compress = 'Y', --This is usually a good idea
 																	       @LogToTable = 'Y', --We should do this for posterity
@@ -895,7 +896,7 @@ LogShamer:
 																	        @BackupType = 'LOG', --Going for the LOGs
 																	        @Directory = @backup_path, --The path we need to back up to
 																	        @Verify = 'N', --We don't want to verify these, it eats into job time
-																	        @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
+																	        @ChangeBackupType = @ChangeBackupType, --If we need to switch to a FULL because one hasn't been taken
 																	        @CheckSum = 'Y', --These are a good idea
 																	        @Compress = 'Y', --This is usually a good idea
 																	        @LogToTable = 'Y'; --We should do this for posterity
