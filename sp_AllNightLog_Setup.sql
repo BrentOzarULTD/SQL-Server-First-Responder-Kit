@@ -1047,6 +1047,39 @@ IF @UpdateSetup = 1
 	
 	BEGIN
 
+        /* If we're enabling backup jobs, we may need to run restore with recovery on msdbCentral to bring it online: */
+        IF @EnableBackupJobs = 1 AND EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 1)
+            BEGIN 
+				RAISERROR('msdbCentral exists, but is in restoring state. Running restore with recovery...', 0, 1) WITH NOWAIT;
+
+                BEGIN TRY
+                    RESTORE DATABASE [msdbCentral] WITH RECOVERY;
+                END TRY
+
+				BEGIN CATCH
+
+					SELECT @error_number = ERROR_NUMBER(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+
+					SELECT @msg = N'Error running restore with recovery on msdbCentral, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+						
+					RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+				END CATCH;
+
+            END
+
+            /* Only check for this after trying to restore msdbCentral: */
+            IF @EnableBackupJobs = 1 AND NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 0)
+                    BEGIN
+        				RAISERROR('msdbCentral is not online. Repair that first, then try to enable backup jobs.', 0, 1) WITH NOWAIT;
+                        RETURN
+                    END
+
+
 			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
 
 				RAISERROR('Found backup config, checking variables...', 0, 1) WITH NOWAIT;
