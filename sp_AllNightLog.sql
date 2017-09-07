@@ -20,7 +20,6 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 								@Restore BIT = 0,
 								@Debug BIT = 0,
 								@Help BIT = 0,
-								@ChangeBackupType NVARCHAR(MAX)= 'Y',
 								@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -115,6 +114,7 @@ DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
 DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
 DECLARE @rto INT; --Used to hold the RPO value in our configuration table
 DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @changebackuptype NVARCHAR(MAX); --Config table: Y = escalate to full backup, MSDB = escalate if MSDB history doesn't show a recent full.
 DECLARE @encrypt NVARCHAR(MAX); --Config table: Y = encrypt the backup. N (default) = do not encrypt.
 DECLARE @encryptionalgorithm NVARCHAR(MAX); --Config table: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256
 DECLARE @servercertificate NVARCHAR(MAX); --Config table: server certificate that is used to encrypt the backup
@@ -705,6 +705,11 @@ LogShamer:
 									RETURN;
 								END;	
 
+						SELECT @changebackuptype = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'change backup type'
+                          AND database_name = N'all';
+
 						SELECT @encrypt = configuration_setting
 						FROM msdbCentral.dbo.backup_configuration c
 						WHERE configuration_name = N'encrypt'
@@ -883,7 +888,7 @@ LogShamer:
 																	       @BackupType = 'LOG', --Going for the LOGs
 																	       @Directory = @backup_path, --The path we need to back up to
 																	       @Verify = 'N', --We don't want to verify these, it eats into job time
-																	       @ChangeBackupType = @ChangeBackupType, --If we need to switch to a FULL because one hasn't been taken
+																	       @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
 																	       @CheckSum = 'Y', --These are a good idea
 																	       @Compress = 'Y', --This is usually a good idea
 																	       @LogToTable = 'Y', --We should do this for posterity
@@ -896,7 +901,7 @@ LogShamer:
 																	        @BackupType = 'LOG', --Going for the LOGs
 																	        @Directory = @backup_path, --The path we need to back up to
 																	        @Verify = 'N', --We don't want to verify these, it eats into job time
-																	        @ChangeBackupType = @ChangeBackupType, --If we need to switch to a FULL because one hasn't been taken
+																	        @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
 																	        @CheckSum = 'Y', --These are a good idea
 																	        @Compress = 'Y', --This is usually a good idea
 																	        @LogToTable = 'Y'; --We should do this for posterity
