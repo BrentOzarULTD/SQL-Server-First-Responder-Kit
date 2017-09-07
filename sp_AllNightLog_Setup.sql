@@ -455,6 +455,9 @@ BEGIN
 															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
 									
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''change backup type'', ''For Ola Hallengren DatabaseBackup @ChangeBackupType param: Y = escalate to fulls, MSDB = escalate by checking msdb backup history.'', ''MSDB'');									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''encrypt'', ''For Ola Hallengren DatabaseBackup: Y = encrypt the backup. N (default) = do not encrypt.'', NULL);									
 									
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
