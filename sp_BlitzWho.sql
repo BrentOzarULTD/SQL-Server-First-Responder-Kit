@@ -98,12 +98,16 @@ DECLARE  @ProductVersion NVARCHAR(128)
 								AND r.plan_handle = session_stats.plan_handle
 						        AND r.statement_start_offset = session_stats.statement_start_offset
 						        AND r.statement_end_offset = session_stats.statement_end_offset' 
+		,@QueryStatsXML BIT = 0
+		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
+		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
 
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
-@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
-
+       @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+	SET @QueryStatsXML = 1;
 
 
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
@@ -343,6 +347,11 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
 							 ELSE N''
 						END
+						+
+						CASE @QueryStatsXML
+							 WHEN 1 THEN + @QueryStatsXMLselect
+							 ELSE N''
+						END
 						+' 
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
@@ -490,6 +499,14 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 								AND tsu.session_id = r.session_id
 								AND tsu.session_id = s.session_id
 						) as tempdb_allocations
+						'
+						+
+						CASE @QueryStatsXML
+							 WHEN 1 THEN @QueryStatsXMLSQL
+							 ELSE N''
+						END
+						+ 
+						'
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
 						'
