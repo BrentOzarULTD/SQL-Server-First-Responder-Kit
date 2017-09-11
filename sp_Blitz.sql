@@ -344,6 +344,9 @@ AS
 			  DbName NVARCHAR(128) NULL
 			)
 
+		IF OBJECT_ID('tempdb..#dbcc_events_from_trace') IS NOT NULL
+			DROP TABLE #dbcc_events_from_trace
+
 
 		IF OBJECT_ID('tempdb..#LogInfo2012') IS NOT NULL
 			DROP TABLE #LogInfo2012;
