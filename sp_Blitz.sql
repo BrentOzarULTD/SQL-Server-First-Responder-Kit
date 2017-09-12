@@ -4617,6 +4617,7 @@ IF @ProductVersionMajor >= 10
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKALLOC%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCATALOG%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCONSTRAINTS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKDB%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKFILEGROUP%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKIDENT%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKPRIMARYFILE%'
