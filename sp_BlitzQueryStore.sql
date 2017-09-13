@@ -705,7 +705,8 @@ CREATE TABLE #plan_cost
 (
 	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64),
-	INDEX px_ix_ids CLUSTERED (sql_handle)
+	plan_id INT,
+	INDEX px_ix_ids CLUSTERED (sql_handle, plan_id)
 );
 
 
@@ -2166,10 +2167,11 @@ WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #plan_cost WITH (TABLOCK)
-	( query_plan_cost, sql_handle )
+	( query_plan_cost, sql_handle, plan_id )
 SELECT  DISTINCT
 		s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
-		s.sql_handle
+		s.sql_handle,
+		s.plan_id
 FROM    #statements s
 OUTER APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
@@ -2178,15 +2180,16 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle
+	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle, pc.plan_id
 	FROM #plan_cost AS pc
-	GROUP BY pc.sql_handle
+	GROUP BY pc.sql_handle, pc.plan_id
 	)
 	UPDATE b
 		SET b.query_cost = ISNULL(pc.queryplancostsum, 0)
 		FROM  #working_warnings AS b
 		JOIN pc
 		ON pc.sql_handle = b.sql_handle
+		AND pc.plan_id = b.plan_id
 OPTION (RECOMPILE);
 
 
