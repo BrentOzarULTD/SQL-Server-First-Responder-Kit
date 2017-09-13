@@ -1945,7 +1945,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'None'
-   AND ww.proc_or_function_name IS NOT NULL
+   AND ww.proc_or_function_name = 'Statement'
 OPTION (RECOMPILE);
 
 
