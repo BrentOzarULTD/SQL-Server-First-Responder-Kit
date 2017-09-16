@@ -3837,6 +3837,20 @@ BEGIN
 			FROM rowcount_worst
 			OPTION (RECOMPILE);
 
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   #warning_results AS bcr
+                       WHERE  bcr.Priority = 2147483646
+				      )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (2147483646,
+                    255,
+                    'Need more help?' ,
+                    'Paste your plan on the internet!',
+                    'http://pastetheplan.com',
+                    'This makes it easy to share plans and post them to Q&A sites like https://dba.stackexchange.com/!') ;
+
+
         IF NOT EXISTS (SELECT 1/0
 					   FROM   #warning_results AS bcr
                        WHERE  bcr.Priority = 2147483647
