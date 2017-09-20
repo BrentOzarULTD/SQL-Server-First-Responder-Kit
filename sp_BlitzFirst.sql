@@ -316,7 +316,7 @@ BEGIN
 			);
 		END /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
 
-	IF 504 <> (SELECT SUM(1) FROM ##WaitCategories)
+	IF 504 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory) VALUES ('ASYNC_IO_COMPLETION','Other Disk IO');
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory) VALUES ('ASYNC_NETWORK_IO','Network IO');
@@ -2695,7 +2695,7 @@ BEGIN
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND w.CheckDate > wPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wMiddle ON w.ServerName = wMiddle.ServerName AND w.wait_type = wMiddle.wait_type AND w.CheckDate > wMiddle.CheckDate AND wMiddle.CheckDate > wPrior.CheckDate' + @LineFeed
-                + 'WHERE wMiddle.ID IS NULL;'')'
+                + 'WHERE wMiddle.ID IS NULL AND (w.wait_time_ms - wPrior.wait_time_ms) > 0;;'')'
             EXEC(@StringToExecute);
             END
 
