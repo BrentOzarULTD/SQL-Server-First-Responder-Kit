@@ -103,6 +103,7 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
+    @OutputTableNameWaitStats_Categories NVARCHAR(256),
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
 
@@ -110,7 +111,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 SELECT
     @OutputTableNameFileStats_View = QUOTENAME(@OutputTableNameFileStats + '_Deltas'),
     @OutputTableNamePerfmonStats_View = QUOTENAME(@OutputTableNamePerfmonStats + '_Deltas'),
-    @OutputTableNameWaitStats_View = QUOTENAME(@OutputTableNameWaitStats + '_Deltas');
+    @OutputTableNameWaitStats_View = QUOTENAME(@OutputTableNameWaitStats + '_Deltas'),
+    @OutputTableNameWaitStats_Categories = QUOTENAME(@OutputTableNameWaitStats + '_Categories');
 
 SELECT
     @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
@@ -2675,10 +2677,36 @@ BEGIN
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
                 waiting_tasks_count BIGINT ,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID));' + @LineFeed
+			+ 'CREATE NONCLUSTERED INDEX IX_ServerName_wait_type_CheckDate_Includes ON ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
+			+ '(ServerName, wait_type, CheckDate) INCLUDE (wait_time_ms, signal_wait_time_ms, waiting_tasks_count);'
+
         EXEC(@StringToExecute);
 
-        /* Create the view */
+        /* Create the wait stats category table */
+        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_Categories;
+        IF OBJECT_ID(@ObjectFullName) IS NULL
+            BEGIN
+            SET @StringToExecute = 'USE '
+                + @OutputDatabaseName
+                + '; EXEC (''CREATE TABLE '
+                + @OutputSchemaName + '.'
+                + @OutputTableNameWaitStats_Categories + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL);'')'
+            EXEC(@StringToExecute);
+            END
+
+		/* Make sure the wait stats category table has the current number of rows */
+		SET @StringToExecute = 'USE '
+            + @OutputDatabaseName
+            + '; EXEC (''IF (SELECT COALESCE(SUM(1),0) FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
+			+ 'BEGIN ' + @LineFeed
+			+ 'TRUNCATE TABLE '  + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + @LineFeed
+			+ 'INSERT INTO ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' (WaitType, WaitCategory) SELECT WaitType, WaitCategory FROM ##WaitCategories;' + @LineFeed
+			+ 'END'')'
+        EXEC(@StringToExecute);
+
+
+        /* Create the wait stats view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
@@ -2687,7 +2715,7 @@ BEGIN
                 + '; EXEC (''CREATE VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNameWaitStats_View + ' AS ' + @LineFeed
-                + 'SELECT w.ServerName, w.CheckDate, w.wait_type' + @LineFeed
+                + 'SELECT w.ServerName, w.CheckDate, w.wait_type, wc.WaitCategory' + @LineFeed
                 + ', DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS ElapsedSeconds' + @LineFeed
                 + ', (w.wait_time_ms - wPrior.wait_time_ms) AS wait_time_ms_delta' + @LineFeed
                 + ', (w.signal_wait_time_ms - wPrior.signal_wait_time_ms) AS signal_wait_time_ms_delta' + @LineFeed
@@ -2695,6 +2723,7 @@ BEGIN
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND w.CheckDate > wPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wMiddle ON w.ServerName = wMiddle.ServerName AND w.wait_type = wMiddle.wait_type AND w.CheckDate > wMiddle.CheckDate AND wMiddle.CheckDate > wPrior.CheckDate' + @LineFeed
+				+ 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
                 + 'WHERE wMiddle.ID IS NULL AND (w.wait_time_ms - wPrior.wait_time_ms) > 0;;'')'
             EXEC(@StringToExecute);
             END
