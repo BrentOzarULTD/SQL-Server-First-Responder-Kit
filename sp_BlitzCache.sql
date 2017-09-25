@@ -210,6 +210,8 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
+		implicit_conversion_info XML,
+		cached_execution_parameters XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -891,6 +893,8 @@ BEGIN
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
+		implicit_conversion_info XML,
+		cached_execution_parameters XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -1017,6 +1021,9 @@ IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
     DROP TABLE #configuration;
 
+IF OBJECT_ID ('tempdb..#stored_proc_info') IS NOT NULL
+    DROP TABLE #stored_proc_info;
+
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
@@ -1055,6 +1062,19 @@ CREATE TABLE #configuration (
     parameter_name VARCHAR(100),
     value DECIMAL(38,0)
 );
+
+CREATE TABLE #stored_proc_info
+(
+    SPID INT,
+    QueryHash BINARY(8),
+    variable_name NVARCHAR(128),
+    variable_datatype NVARCHAR(128),
+    compile_time_value NVARCHAR(128),
+    proc_name NVARCHAR(300),
+    column_name NVARCHAR(128),
+    converted_to NVARCHAR(128)
+);
+
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -1100,7 +1120,6 @@ ON      cp.plan_handle = qs.plan_handle
 WHERE   cp.usecounts = 1
         AND cp.cacheobjtype = 'Compiled Plan'
 OPTION (RECOMPILE) ;
-
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -2826,6 +2845,164 @@ ON ipwe.SqlHandle = b.SqlHandle
 WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
+IF EXISTS ( SELECT 1 
+			FROM ##bou_BlitzCacheProcs AS bbcp 
+			WHERE bbcp.implicit_conversions = 1
+			OR bbcp.QueryType LIKE 'Procedure or Function:%' )
+BEGIN
+
+RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, variables_types
+AS ( SELECT qp.QueryHash,
+            qp.SqlHandle,
+            SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
+            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+     FROM   #query_plan AS qp
+     JOIN   ##bou_BlitzCacheProcs AS b
+     ON b.QueryHash = qp.QueryHash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+     WHERE  qp.QueryHash IS NOT NULL
+	 AND b.implicit_conversions = 1 ),
+  convert_implicit
+AS ( SELECT qp.QueryHash,
+            qp.SqlHandle,
+            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
+                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+     FROM   #query_plan AS qp
+     JOIN   ##bou_BlitzCacheProcs AS b
+     ON b.QueryHash = qp.QueryHash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+            AND qp.QueryHash IS NOT NULL 
+			AND b.implicit_conversions = 1 )
+INSERT #stored_proc_info ( SPID, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT @@SPID,
+       vt.QueryHash,
+       vt.variable_name,
+       vt.variable_datatype,
+       vt.compile_time_value,
+       vt.proc_name,
+       ci.column_name,
+       ci.converted_to
+FROM   variables_types AS vt
+JOIN   convert_implicit AS ci
+ON ci.variable_name = vt.variable_name
+   AND ci.QueryHash = vt.QueryHash
+OPTION(RECOMPILE);
+
+WITH precheck AS (
+SELECT spi.SPID,
+       spi.QueryHash,
+	   spi.proc_name,
+			CONVERT(XML, 
+			'<?ClickMe -- '
+			+ CHAR(10)
+			+ 'The stored procedure ' 
+			+ spi.proc_name 
+			+ ' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						CHAR(10)
+						+ 'The variable '
+						+ spi2.variable_name
+						+ ' has a data type of '
+						+ spi2.variable_datatype
+						+ ' which caused implicit conversion on the column '
+						+ spi2.column_name
+				FROM #stored_proc_info AS spi2
+				WHERE spi.QueryHash = spi2.QueryHash
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ ' -- ?>'
+			) AS implicit_conversion_info,
+			CONVERT(XML, 
+			'<?ClickMe -- '
+			+ CHAR(10)
+			+ 'This statement ' 
+			+ ' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						CHAR(10)
+						+ 'The variable '
+						+ spi2.variable_name
+						+ ' has a data type of '
+						+ spi2.variable_datatype
+						+ ' which caused implicit conversion on the column '
+						+ spi2.column_name
+				FROM #stored_proc_info AS spi2
+				WHERE spi.QueryHash = spi2.QueryHash
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ ' -- ?>'
+			) AS implicit_conversion_info_statement,
+			CONVERT(XML, 
+			'<?ClickMe -- '
+			+ CHAR(10)
+			+ 'EXEC ' 
+			+ spi.proc_name 
+			+ ' '
+			+ STUFF((
+				SELECT DISTINCT ', ' 
+						+ spi2.variable_name 
+						+ ' = ' 
+						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.QueryHash = spi2.QueryHash
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ ' -- ?>'
+			) AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.SPID, spi.QueryHash, spi.proc_name	
+)
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.QueryType = 'Statement' THEN implicit_conversion_info_statement ELSE pk.implicit_conversion_info END,
+	b.cached_execution_parameters = pk.cached_execution_parameters
+FROM ##bou_BlitzCacheProcs AS b
+JOIN precheck pk
+ON pk.QueryHash = b.QueryHash
+AND pk.SPID = b.SPID
+AND b.implicit_conversions = 1 
+OPTION(RECOMPILE);
+
+END --End implicit conversion information gathering
+
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+FROM ##bou_BlitzCacheProcs AS b
+WHERE SPID = @@SPID
+OPTION(RECOMPILE)
+
 IF @SkipAnalysis = 1
     BEGIN
 	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
@@ -3396,6 +3573,8 @@ BEGIN
     QueryText AS [Query Text],
     QueryType AS [Query Type],
     Warnings AS [Warnings],
+	implicit_conversion_info AS [Implicit Conversion Info],
+	cached_execution_parameters AS [Cached Execution Parameters],
     ExecutionCount AS [# Executions],
     ExecutionsPerMinute AS [Executions / Minute],
     PercentExecutions AS [Execution Weight],
