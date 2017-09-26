@@ -2992,14 +2992,14 @@ AND pk.SPID = b.SPID
 AND b.implicit_conversions = 1 
 OPTION(RECOMPILE);
 
-END --End implicit conversion information gathering
+END; --End implicit conversion information gathering
 
 UPDATE b
 SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
 	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
 FROM ##bou_BlitzCacheProcs AS b
-WHERE SPID = @@SPID
-OPTION(RECOMPILE)
+WHERE b.SPID = @@SPID
+OPTION(RECOMPILE);
 
 IF @SkipAnalysis = 1
     BEGIN
