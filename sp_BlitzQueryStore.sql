@@ -95,13 +95,13 @@ OPTION (RECOMPILE);
 SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID(@DatabaseName)
-AND mf.type_desc = 'LOG'
+AND mf.type_desc = 'LOG';
 
 /*Grab avg tempdb file size*/
 SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID('tempdb')
-AND mf.type_desc = 'ROWS'
+AND mf.type_desc = 'ROWS';
 
 
 /*Help section*/
@@ -173,8 +173,8 @@ IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
 			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 			PRINT @msg;
 			RETURN;
-		END
-	END
+		END;
+	END;
 ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
 	BEGIN
 		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
@@ -200,7 +200,7 @@ IF  (	SELECT COUNT(*)
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
 IF (@is_azure_db = 1)
-	SET @DatabaseName = DB_NAME()
+	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
 
@@ -251,11 +251,11 @@ END;
 
 /*Check database compat level*/
 
-RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT
+RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT;
 
 SELECT @compatibility_level = d.compatibility_level
 FROM sys.databases AS d
-WHERE d.name = @DatabaseName
+WHERE d.name = @DatabaseName;
 
 RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
 
@@ -610,6 +610,8 @@ CREATE TABLE #working_warnings
 	is_big_log BIT,
 	is_big_tempdb BIT,
 	is_paul_white_electric BIT,
+	implicit_conversion_info XML,
+	cached_execution_parameters XML,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -757,7 +759,22 @@ CREATE TABLE #warning_results
     FindingsGroup NVARCHAR(50),
     Finding NVARCHAR(200),
     URL NVARCHAR(200),
-    Details NVARCHAR(4000) 
+    Details NVARCHAR(4000)
+);
+
+DROP TABLE IF EXISTS #stored_proc_info;	
+
+CREATE TABLE #stored_proc_info
+(
+	sql_handle VARBINARY(64),
+    query_hash BINARY(8),
+    variable_name NVARCHAR(128),
+    variable_datatype NVARCHAR(128),
+    compile_time_value NVARCHAR(128),
+    proc_name NVARCHAR(300),
+    column_name NVARCHAR(128),
+    converted_to NVARCHAR(128),
+	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 /*Sets up WHERE clause that gets used quite a bit*/
@@ -878,8 +895,8 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 IF @StoredProcName IS NOT NULL
 	BEGIN 
 	
-	DECLARE @sql NVARCHAR(MAX)
-	DECLARE @out INT
+	DECLARE @sql NVARCHAR(MAX);
+	DECLARE @out INT;
 	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT, @i_out INT OUTPUT';
 	
 	
@@ -904,16 +921,16 @@ IF @StoredProcName IS NOT NULL
 		BEGIN	
 
 		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + N' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
-					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.'
+					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.';
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers]
+		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers];
 	
 		RETURN;
 	
-		END 
+		END; 
 	
-	END
+	END;
 
 
 
@@ -1460,7 +1477,7 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 	   ((qsrs.last_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.min_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.max_query_max_used_memory * 8 ) / 1024.), 
-	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,'
+	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,';
 		
 		IF @new_columns = 1
 			BEGIN
@@ -1474,8 +1491,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			((qsrs.last_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.min_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.max_tempdb_space_used * 8 ) / 1024.)
-			'
-			END	
+			';
+			END;	
 		IF @new_columns = 0
 			BEGIN
 			SET @sql_select += N'
@@ -1491,8 +1508,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			NULL,
 			NULL,
 			NULL
-			'
-			END
+			';
+			END;
 SET @sql_select +=
 N'FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
@@ -2153,7 +2170,7 @@ SELECT DISTINCT
 		c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
 FROM   #statements AS s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS c(n)
-WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
+WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1;
 
 	UPDATE b
 		SET b.estimated_rows = er.estimated_rows
@@ -2652,6 +2669,159 @@ JOIN is_paul_white_electric ipwe
 ON ipwe.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
 
+IF EXISTS ( SELECT 1 
+			FROM #working_warnings AS ww
+			WHERE ww.implicit_conversions = 1 
+			OR ww.proc_or_function_name <> N'Statement')
+BEGIN
+
+RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, variables_types
+AS ( 
+
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+            b.proc_or_function_name AS proc_name,
+            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+     WHERE  b.implicit_conversions = 1 ),
+  convert_implicit
+AS ( 
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+			b.proc_or_function_name AS proc_name,
+            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
+                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+			AND qp.query_hash IS NOT NULL 
+			AND b.implicit_conversions = 1 )
+INSERT #stored_proc_info ( query_hash, sql_handle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT DISTINCT
+       COALESCE(vt.query_hash, ci.query_hash) AS query_hash,
+	   COALESCE(vt.sql_handle, ci.sql_handle) AS sql_handle,
+       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
+       ci.column_name,
+       ci.converted_to
+FROM   variables_types AS vt
+RIGHT JOIN   convert_implicit AS ci
+ON (ci.variable_name = vt.variable_name
+   AND ci.query_hash = vt.query_hash)
+OPTION(RECOMPILE);
+
+WITH precheck AS (
+SELECT 
+	   spi.sql_handle,
+	   spi.proc_name,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'The ' 
+			+ CASE WHEN spi.proc_name <> 'Statement' 
+				   THEN N'stored procedure ' + spi.proc_name 
+				   ELSE N'Statement' 
+			  END
+			+ N' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						@cr + @lf
+						+ N'The variable '
+						+ spi2.variable_name
+						+ N' has a data type of '
+						+ spi2.variable_datatype
+						+ N' which caused implicit conversion on the column '
+						+ spi2.column_name
+						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
+							   THEN N' and is a declared variable.' 
+							   ELSE N' and is a parameter of the stored procedure.' 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ N' -- ?>'
+			) AS implicit_conversion_info,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'EXEC ' 
+			+ spi.proc_name 
+			+ N' '
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ spi2.variable_name 
+						+ N' = ' 
+						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				AND spi2.proc_name <> 'Statement'
+				AND spi2.compile_time_value <> '*declared in proc*'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ @cr + @lf
+			+ N' -- ?>'
+			) AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.sql_handle, spi.proc_name	
+)
+UPDATE b
+SET b.implicit_conversion_info = pk.implicit_conversion_info,
+	b.cached_execution_parameters = pk.cached_execution_parameters
+FROM #working_warnings AS b
+JOIN precheck pk
+ON pk.sql_handle = b.sql_handle
+AND b.implicit_conversions = 1 
+OPTION(RECOMPILE);
+
+END; --End implicit conversion information gathering
+
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+FROM #working_warnings AS b
+OPTION(RECOMPILE);
+
+
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
 
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2862,9 +3032,10 @@ BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
+
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -2893,7 +3064,7 @@ RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -3954,6 +4125,10 @@ OPTION (RECOMPILE);
 SELECT '#est_rows' AS table_name,  * 
 FROM #est_rows AS er
 OPTION (RECOMPILE);
+
+SELECT '#stored_proc_info' AS table_name, *
+FROM #stored_proc_info AS spi
+OPTION(RECOMPILE);
 
 END; 
 
