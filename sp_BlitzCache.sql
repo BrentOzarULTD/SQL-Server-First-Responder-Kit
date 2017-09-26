@@ -1066,6 +1066,7 @@ CREATE TABLE #configuration (
 CREATE TABLE #stored_proc_info
 (
     SPID INT,
+	SqlHandle VARBINARY(64),
     QueryHash BINARY(8),
     variable_name NVARCHAR(128),
     variable_datatype NVARCHAR(128),
@@ -2847,15 +2848,19 @@ OPTION (RECOMPILE);
 
 IF EXISTS ( SELECT 1 
 			FROM ##bou_BlitzCacheProcs AS bbcp 
-			WHERE bbcp.implicit_conversions = 1
-			OR bbcp.QueryType LIKE 'Procedure or Function:%' )
+			WHERE bbcp.implicit_conversions = 1 
+			OR bbcp.QueryType LIKE 'Procedure or Function:%')
 BEGIN
 
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
 WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 , variables_types
-AS ( SELECT qp.QueryHash,
+AS ( 
+
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.QueryHash,
             qp.SqlHandle,
             SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
             q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
@@ -2865,11 +2870,14 @@ AS ( SELECT qp.QueryHash,
      JOIN   ##bou_BlitzCacheProcs AS b
      ON b.QueryHash = qp.QueryHash
      CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-     WHERE  qp.QueryHash IS NOT NULL
-	 AND b.implicit_conversions = 1 ),
+     WHERE  b.implicit_conversions = 1 ),
   convert_implicit
-AS ( SELECT qp.QueryHash,
+AS ( 
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.QueryHash,
             qp.SqlHandle,
+			SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
             qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
             SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
@@ -2897,99 +2905,89 @@ AS ( SELECT qp.QueryHash,
      ON b.QueryHash = qp.QueryHash
      CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
      WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
-            AND qp.QueryHash IS NOT NULL 
+			AND qp.QueryHash IS NOT NULL 
 			AND b.implicit_conversions = 1 )
-INSERT #stored_proc_info ( SPID, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
-SELECT @@SPID,
-       vt.QueryHash,
-       vt.variable_name,
-       vt.variable_datatype,
-       vt.compile_time_value,
-       vt.proc_name,
+INSERT #stored_proc_info ( SPID, QueryHash, SqlHandle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT DISTINCT
+	   @@SPID AS SPID,
+       COALESCE(vt.QueryHash, ci.QueryHash) AS QueryHash,
+	   COALESCE(vt.SqlHandle, ci.SqlHandle) AS SqlHandle,
+       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
        ci.column_name,
        ci.converted_to
 FROM   variables_types AS vt
-JOIN   convert_implicit AS ci
-ON ci.variable_name = vt.variable_name
-   AND ci.QueryHash = vt.QueryHash
+RIGHT JOIN   convert_implicit AS ci
+ON (ci.variable_name = vt.variable_name
+   AND ci.QueryHash = vt.QueryHash)
 OPTION(RECOMPILE);
 
 WITH precheck AS (
 SELECT spi.SPID,
-       spi.QueryHash,
+	   spi.SqlHandle,
 	   spi.proc_name,
 			CONVERT(XML, 
-			'<?ClickMe -- '
-			+ CHAR(10)
-			+ 'The stored procedure ' 
-			+ spi.proc_name 
-			+ ' had the following implicit conversions: '
+			N'<?ClickMe -- '
+			+ @nl
+			+ N'The ' 
+			+ CASE WHEN spi.proc_name <> 'Statement' 
+				   THEN N'stored procedure ' + spi.proc_name 
+				   ELSE N'Statement' 
+			  END
+			+ N' had the following implicit conversions: '
 			+ CHAR(10)
 			+ STUFF((
 				SELECT DISTINCT 
-						CHAR(10)
-						+ 'The variable '
+						@nl
+						+ N'The variable '
 						+ spi2.variable_name
-						+ ' has a data type of '
+						+ N' has a data type of '
 						+ spi2.variable_datatype
-						+ ' which caused implicit conversion on the column '
+						+ N' which caused implicit conversion on the column '
 						+ spi2.column_name
+						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
+							   THEN N' and is a declared variable.' 
+							   ELSE N' and is a parameter of the stored procedure.' 
+						  END
 				FROM #stored_proc_info AS spi2
-				WHERE spi.QueryHash = spi2.QueryHash
+				WHERE spi.SqlHandle = spi2.SqlHandle
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 			+ CHAR(10)
-			+ ' -- ?>'
+			+ N' -- ?>'
 			) AS implicit_conversion_info,
 			CONVERT(XML, 
-			'<?ClickMe -- '
-			+ CHAR(10)
-			+ 'This statement ' 
-			+ ' had the following implicit conversions: '
-			+ CHAR(10)
-			+ STUFF((
-				SELECT DISTINCT 
-						CHAR(10)
-						+ 'The variable '
-						+ spi2.variable_name
-						+ ' has a data type of '
-						+ spi2.variable_datatype
-						+ ' which caused implicit conversion on the column '
-						+ spi2.column_name
-				FROM #stored_proc_info AS spi2
-				WHERE spi.QueryHash = spi2.QueryHash
-				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ CHAR(10)
-			+ ' -- ?>'
-			) AS implicit_conversion_info_statement,
-			CONVERT(XML, 
-			'<?ClickMe -- '
-			+ CHAR(10)
-			+ 'EXEC ' 
+			N'<?ClickMe -- '
+			+ @nl
+			+ N'EXEC ' 
 			+ spi.proc_name 
-			+ ' '
+			+ N' '
 			+ STUFF((
-				SELECT DISTINCT ', ' 
+				SELECT DISTINCT N', ' 
 						+ spi2.variable_name 
-						+ ' = ' 
+						+ N' = ' 
 						+ CASE WHEN spi2.compile_time_value = 'NULL' 
 							   THEN spi2.compile_time_value 
 							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
 						  END
 				FROM #stored_proc_info AS spi2
-				WHERE spi.QueryHash = spi2.QueryHash
+				WHERE spi.SqlHandle = spi2.SqlHandle
+				AND spi2.proc_name <> 'Statement'
+				AND spi2.compile_time_value <> '*declared in proc*'
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ CHAR(10)
-			+ ' -- ?>'
+			+ @nl
+			+ N' -- ?>'
 			) AS cached_execution_parameters
 FROM #stored_proc_info AS spi
-GROUP BY spi.SPID, spi.QueryHash, spi.proc_name	
+GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name	
 )
 UPDATE b
-SET b.implicit_conversion_info = CASE WHEN b.QueryType = 'Statement' THEN implicit_conversion_info_statement ELSE pk.implicit_conversion_info END,
+SET b.implicit_conversion_info = pk.implicit_conversion_info,
 	b.cached_execution_parameters = pk.cached_execution_parameters
 FROM ##bou_BlitzCacheProcs AS b
 JOIN precheck pk
-ON pk.QueryHash = b.QueryHash
+ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 AND b.implicit_conversions = 1 
 OPTION(RECOMPILE);
