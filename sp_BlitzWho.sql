@@ -530,3 +530,4 @@ IF @Debug = 1
 EXEC(@StringToExecute);
 
 END
+GO 
