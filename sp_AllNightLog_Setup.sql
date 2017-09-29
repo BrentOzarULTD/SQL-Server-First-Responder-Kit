@@ -135,8 +135,8 @@ END; /* IF @Help = 1 */
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.7';
-SET @VersionDate = '20170901';
+SET @Version = '1.8';
+SET @VersionDate = '20171001';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -451,12 +451,22 @@ BEGIN
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between Log Backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
 											
-											
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''change backup type'', ''For Ola Hallengren DatabaseBackup @ChangeBackupType param: Y = escalate to fulls, MSDB = escalate by checking msdb backup history.'', ''MSDB'');									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encrypt'', ''For Ola Hallengren DatabaseBackup: Y = encrypt the backup. N (default) = do not encrypt.'', NULL);									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encryptionalgorithm'', ''For Ola Hallengren DatabaseBackup: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256.'', NULL);									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''servercertificate'', ''For Ola Hallengren DatabaseBackup: server certificate that is used to encrypt the backup.'', NULL);									
+									
+																		
 									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_worker'') IS NULL
 										
 										BEGIN
@@ -587,10 +597,8 @@ BEGIN
 								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 												  VALUES ('all', 'log restore frequency', 'The length of time in second between Log Restores.', @RTOSeconds);
 								
-								
 								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
-
 
 
 						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
@@ -1041,6 +1049,39 @@ UpdateConfigs:
 IF @UpdateSetup = 1
 	
 	BEGIN
+
+        /* If we're enabling backup jobs, we may need to run restore with recovery on msdbCentral to bring it online: */
+        IF @EnableBackupJobs = 1 AND EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 1)
+            BEGIN 
+				RAISERROR('msdbCentral exists, but is in restoring state. Running restore with recovery...', 0, 1) WITH NOWAIT;
+
+                BEGIN TRY
+                    RESTORE DATABASE [msdbCentral] WITH RECOVERY;
+                END TRY
+
+				BEGIN CATCH
+
+					SELECT @error_number = ERROR_NUMBER(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+
+					SELECT @msg = N'Error running restore with recovery on msdbCentral, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+						
+					RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+				END CATCH;
+
+            END
+
+            /* Only check for this after trying to restore msdbCentral: */
+            IF @EnableBackupJobs = 1 AND NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 0)
+                    BEGIN
+        				RAISERROR('msdbCentral is not online. Repair that first, then try to enable backup jobs.', 0, 1) WITH NOWAIT;
+                        RETURN
+                    END
+
 
 			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
 

@@ -54,8 +54,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '1.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '1.8';
+	SET @VersionDate = '20171001';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -95,13 +95,13 @@ OPTION (RECOMPILE);
 SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID(@DatabaseName)
-AND mf.type_desc = 'LOG'
+AND mf.type_desc = 'LOG';
 
 /*Grab avg tempdb file size*/
 SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID('tempdb')
-AND mf.type_desc = 'ROWS'
+AND mf.type_desc = 'ROWS';
 
 
 /*Help section*/
@@ -173,8 +173,8 @@ IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
 			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 			PRINT @msg;
 			RETURN;
-		END
-	END
+		END;
+	END;
 ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
 	BEGIN
 		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
@@ -200,7 +200,7 @@ IF  (	SELECT COUNT(*)
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
 IF (@is_azure_db = 1)
-	SET @DatabaseName = DB_NAME()
+	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
 
@@ -251,11 +251,11 @@ END;
 
 /*Check database compat level*/
 
-RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT
+RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT;
 
 SELECT @compatibility_level = d.compatibility_level
 FROM sys.databases AS d
-WHERE d.name = @DatabaseName
+WHERE d.name = @DatabaseName;
 
 RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
 
@@ -609,6 +609,9 @@ CREATE TABLE #working_warnings
 	is_bad_estimate BIT, 
 	is_big_log BIT,
 	is_big_tempdb BIT,
+	is_paul_white_electric BIT,
+	implicit_conversion_info XML,
+	cached_execution_parameters XML,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -704,7 +707,8 @@ CREATE TABLE #plan_cost
 (
 	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64),
-	INDEX px_ix_ids CLUSTERED (sql_handle)
+	plan_id INT,
+	INDEX px_ix_ids CLUSTERED (sql_handle, plan_id)
 );
 
 
@@ -755,7 +759,22 @@ CREATE TABLE #warning_results
     FindingsGroup NVARCHAR(50),
     Finding NVARCHAR(200),
     URL NVARCHAR(200),
-    Details NVARCHAR(4000) 
+    Details NVARCHAR(4000)
+);
+
+DROP TABLE IF EXISTS #stored_proc_info;	
+
+CREATE TABLE #stored_proc_info
+(
+	sql_handle VARBINARY(64),
+    query_hash BINARY(8),
+    variable_name NVARCHAR(128),
+    variable_datatype NVARCHAR(128),
+    compile_time_value NVARCHAR(128),
+    proc_name NVARCHAR(300),
+    column_name NVARCHAR(128),
+    converted_to NVARCHAR(128),
+	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 /*Sets up WHERE clause that gets used quite a bit*/
@@ -876,8 +895,8 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 IF @StoredProcName IS NOT NULL
 	BEGIN 
 	
-	DECLARE @sql NVARCHAR(MAX)
-	DECLARE @out INT
+	DECLARE @sql NVARCHAR(MAX);
+	DECLARE @out INT;
 	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT, @i_out INT OUTPUT';
 	
 	
@@ -902,16 +921,16 @@ IF @StoredProcName IS NOT NULL
 		BEGIN	
 
 		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + N' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
-					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.'
+					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.';
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers]
+		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers];
 	
 		RETURN;
 	
-		END 
+		END; 
 	
-	END
+	END;
 
 
 
@@ -1458,7 +1477,7 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 	   ((qsrs.last_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.min_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.max_query_max_used_memory * 8 ) / 1024.), 
-	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,'
+	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,';
 		
 		IF @new_columns = 1
 			BEGIN
@@ -1472,8 +1491,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			((qsrs.last_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.min_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.max_tempdb_space_used * 8 ) / 1024.)
-			'
-			END	
+			';
+			END;	
 		IF @new_columns = 0
 			BEGIN
 			SET @sql_select += N'
@@ -1489,8 +1508,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			NULL,
 			NULL,
 			NULL
-			'
-			END
+			';
+			END;
 SET @sql_select +=
 N'FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
@@ -1944,7 +1963,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'None'
-   AND ww.proc_or_function_name IS NOT NULL
+   AND ww.proc_or_function_name = 'Statement'
 OPTION (RECOMPILE);
 
 
@@ -2151,7 +2170,7 @@ SELECT DISTINCT
 		c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
 FROM   #statements AS s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS c(n)
-WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
+WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1;
 
 	UPDATE b
 		SET b.estimated_rows = er.estimated_rows
@@ -2165,10 +2184,11 @@ WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #plan_cost WITH (TABLOCK)
-	( query_plan_cost, sql_handle )
+	( query_plan_cost, sql_handle, plan_id )
 SELECT  DISTINCT
 		s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
-		s.sql_handle
+		s.sql_handle,
+		s.plan_id
 FROM    #statements s
 OUTER APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
@@ -2177,15 +2197,16 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle
+	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle, pc.plan_id
 	FROM #plan_cost AS pc
-	GROUP BY pc.sql_handle
+	GROUP BY pc.sql_handle, pc.plan_id
 	)
 	UPDATE b
 		SET b.query_cost = ISNULL(pc.queryplancostsum, 0)
 		FROM  #working_warnings AS b
 		JOIN pc
 		ON pc.sql_handle = b.sql_handle
+		AND pc.plan_id = b.plan_id
 OPTION (RECOMPILE);
 
 
@@ -2632,6 +2653,173 @@ JOIN #trace_flags tf
 ON tf.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
 
+RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+is_paul_white_electric AS (
+SELECT 1 AS [is_paul_white_electric], 
+r.sql_handle
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('//p:RelOp') c(n)
+WHERE c.n.exist('@PhysicalOp[.="Switch"]') = 1
+)
+UPDATE b
+SET    b.is_paul_white_electric = ipwe.is_paul_white_electric
+FROM   #working_warnings AS b
+JOIN is_paul_white_electric ipwe 
+ON ipwe.sql_handle = b.sql_handle 
+OPTION (RECOMPILE);
+
+IF EXISTS ( SELECT 1 
+			FROM #working_warnings AS ww
+			WHERE ww.implicit_conversions = 1 
+			OR ww.proc_or_function_name <> N'Statement')
+BEGIN
+
+RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, variables_types
+AS ( 
+
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+            b.proc_or_function_name AS proc_name,
+            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+     WHERE  b.implicit_conversions = 1 ),
+  convert_implicit
+AS ( 
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+			b.proc_or_function_name AS proc_name,
+            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
+                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+			AND qp.query_hash IS NOT NULL 
+			AND b.implicit_conversions = 1 )
+INSERT #stored_proc_info ( query_hash, sql_handle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT DISTINCT
+       COALESCE(vt.query_hash, ci.query_hash) AS query_hash,
+	   COALESCE(vt.sql_handle, ci.sql_handle) AS sql_handle,
+       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
+       ci.column_name,
+       ci.converted_to
+FROM   variables_types AS vt
+RIGHT JOIN   convert_implicit AS ci
+ON (ci.variable_name = vt.variable_name
+   AND ci.query_hash = vt.query_hash)
+OPTION(RECOMPILE);
+
+WITH precheck AS (
+SELECT 
+	   spi.sql_handle,
+	   spi.proc_name,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'The ' 
+			+ CASE WHEN spi.proc_name <> 'Statement' 
+				   THEN N'stored procedure ' + spi.proc_name 
+				   ELSE N'Statement' 
+			  END
+			+ N' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						@cr + @lf
+						+ N'The variable '
+						+ spi2.variable_name
+						+ N' has a data type of '
+						+ spi2.variable_datatype
+						+ N' which caused implicit conversion on the column '
+						+ spi2.column_name
+						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
+							   THEN N' and is a declared variable.' 
+							   ELSE N' and is a parameter of the stored procedure.' 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ N' -- ?>'
+			) AS implicit_conversion_info,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'EXEC ' 
+			+ spi.proc_name 
+			+ N' '
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ spi2.variable_name 
+						+ N' = ' 
+						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				AND spi2.proc_name <> 'Statement'
+				AND spi2.compile_time_value <> '*declared in proc*'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ @cr + @lf
+			+ N' -- ?>'
+			) AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.sql_handle, spi.proc_name	
+)
+UPDATE b
+SET b.implicit_conversion_info = pk.implicit_conversion_info,
+	b.cached_execution_parameters = pk.cached_execution_parameters
+FROM #working_warnings AS b
+JOIN precheck pk
+ON pk.sql_handle = b.sql_handle
+AND b.implicit_conversions = 1 
+OPTION(RECOMPILE);
+
+END; --End implicit conversion information gathering
+
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+FROM #working_warnings AS b
+OPTION(RECOMPILE);
 
 
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
@@ -2723,7 +2911,8 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN b.is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END +
 				  CASE WHEN b.is_big_log = 1 THEN + ', High log use' ELSE '' END +
-				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END  
+				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END +
+				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -2760,55 +2949,55 @@ UPDATE b
 SET b.parameter_sniffing_symptoms = 
 	SUBSTRING(  
 				/*Duration*/
-				CASE WHEN (b.min_duration * 10000) < (b.avg_duration) THEN ', Fast sometimes' ELSE '' END +
-				CASE WHEN (b.max_duration) > (b.avg_duration * 10000) THEN ', Slow sometimes' ELSE '' END +
-				CASE WHEN (b.last_duration * 10000) < (b.avg_duration)  THEN ', Fast last run' ELSE '' END +
-				CASE WHEN (b.last_duration) > (b.avg_duration * 10000) THEN ', Slow last run' ELSE '' END +
+				CASE WHEN (b.min_duration * 100) < (b.avg_duration) THEN ', Fast sometimes' ELSE '' END +
+				CASE WHEN (b.max_duration) > (b.avg_duration * 100) THEN ', Slow sometimes' ELSE '' END +
+				CASE WHEN (b.last_duration * 100) < (b.avg_duration)  THEN ', Fast last run' ELSE '' END +
+				CASE WHEN (b.last_duration) > (b.avg_duration * 100) THEN ', Slow last run' ELSE '' END +
 				/*CPU*/
-				CASE WHEN (b.min_cpu_time / b.avg_dop) * 10000 < (b.avg_cpu_time / b.avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
-				CASE WHEN (b.max_cpu_time / b.max_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
-				CASE WHEN (b.last_cpu_time / b.last_dop) * 10000 < (b.avg_cpu_time / b.avg_dop)  THEN ', Low CPU last run' ELSE '' END +
-				CASE WHEN (b.last_cpu_time / b.last_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
+				CASE WHEN (b.min_cpu_time / b.avg_dop) * 100 < (b.avg_cpu_time / b.avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
+				CASE WHEN (b.max_cpu_time / b.max_dop) > (b.avg_cpu_time / b.avg_dop) * 100 THEN ', High CPU sometimes' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) * 100 < (b.avg_cpu_time / b.avg_dop)  THEN ', Low CPU last run' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) > (b.avg_cpu_time / b.avg_dop) * 100 THEN ', High CPU last run' ELSE '' END +
 				/*Logical Reads*/
-				CASE WHEN (b.min_logical_io_reads * 10000) < (b.avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
-				CASE WHEN (b.max_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads sometimes' ELSE '' END +
-				CASE WHEN (b.last_logical_io_reads * 10000) < (b.avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
-				CASE WHEN (b.last_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads last run' ELSE '' END +
+				CASE WHEN (b.min_logical_io_reads * 100) < (b.avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_reads) > (b.avg_logical_io_reads * 100) THEN ', High reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads * 100) < (b.avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads) > (b.avg_logical_io_reads * 100) THEN ', High reads last run' ELSE '' END +
 				/*Logical Writes*/
-				CASE WHEN (b.min_logical_io_writes * 10000) < (b.avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
-				CASE WHEN (b.max_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes sometimes' ELSE '' END +
-				CASE WHEN (b.last_logical_io_writes * 10000) < (b.avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
-				CASE WHEN (b.last_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes last run' ELSE '' END +
+				CASE WHEN (b.min_logical_io_writes * 100) < (b.avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_writes) > (b.avg_logical_io_writes * 100) THEN ', High writes sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes * 100) < (b.avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes) > (b.avg_logical_io_writes * 100) THEN ', High writes last run' ELSE '' END +
 				/*Physical Reads*/
-				CASE WHEN (b.min_physical_io_reads * 10000) < (b.avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
-				CASE WHEN (b.max_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads sometimes' ELSE '' END +
-				CASE WHEN (b.last_physical_io_reads * 10000) < (b.avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
-				CASE WHEN (b.last_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads last run' ELSE '' END +
+				CASE WHEN (b.min_physical_io_reads * 100) < (b.avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_physical_io_reads) > (b.avg_physical_io_reads * 100) THEN ', High physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads * 100) < (b.avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads) > (b.avg_physical_io_reads * 100) THEN ', High physical reads last run' ELSE '' END +
 				/*Memory*/
-				CASE WHEN (b.min_query_max_used_memory * 10000) < (b.avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
-				CASE WHEN (b.max_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory sometimes' ELSE '' END +
-				CASE WHEN (b.last_query_max_used_memory * 10000) < (b.avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
-				CASE WHEN (b.last_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory last run' ELSE '' END +
+				CASE WHEN (b.min_query_max_used_memory * 100) < (b.avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
+				CASE WHEN (b.max_query_max_used_memory) > (b.avg_query_max_used_memory * 100) THEN ', High memory sometimes' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory * 100) < (b.avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory) > (b.avg_query_max_used_memory * 100) THEN ', High memory last run' ELSE '' END +
 				/*Duration*/
-				CASE WHEN b.min_rowcount * 10000 < b.avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
-				CASE WHEN b.max_rowcount > b.avg_rowcount * 10000 THEN ', High row count sometimes' ELSE '' END +
-				CASE WHEN b.last_rowcount * 10000 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
-				CASE WHEN b.last_rowcount > b.avg_rowcount * 10000 THEN ', High row count last run' ELSE '' END +
+				CASE WHEN b.min_rowcount * 100 < b.avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
+				CASE WHEN b.max_rowcount > b.avg_rowcount * 100 THEN ', High row count sometimes' ELSE '' END +
+				CASE WHEN b.last_rowcount * 100 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
+				CASE WHEN b.last_rowcount > b.avg_rowcount * 100 THEN ', High row count last run' ELSE '' END +
 				/*DOP*/
 				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
 				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
 				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
 				/*tempdb*/
-				CASE WHEN b.min_tempdb_space_used * 10000 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
-				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb sometimes' ELSE '' END +
-				CASE WHEN b.last_tempdb_space_used * 10000 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
-				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb last run' ELSE '' END +
+				CASE WHEN b.min_tempdb_space_used * 100 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
+				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb sometimes' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used * 100 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb last run' ELSE '' END +
 				/*tlog*/
-				CASE WHEN b.min_log_bytes_used * 10000 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
-				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use sometimes' ELSE '' END +
-				CASE WHEN b.last_log_bytes_used * 10000 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
-				CASE WHEN b.last_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use last run' ELSE '' END 
+				CASE WHEN b.min_log_bytes_used * 100 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
+				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 100 THEN ', High log use sometimes' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used * 100 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used > b.avg_log_bytes_used * 100 THEN ', High log use last run' ELSE '' END 
 	, 2, 200000) 
 FROM #working_metrics AS b
 OPTION (RECOMPILE);
@@ -2843,9 +3032,10 @@ BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
+
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -2874,7 +3064,7 @@ RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -3680,7 +3870,20 @@ BEGIN
                      'High tempdb use',
                      'This query uses more than half of a data file on average',
                      'No URL yet',
-                     'You should take a look at tempdb waits to see if you''re having problems') ;						
+                     'You should take a look at tempdb waits to see if you''re having problems') ;	
+					
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_paul_white_electric = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     998,
+                     200,
+                     'Is Paul White Electric?',
+                     'This query has a Switch operator in it!',
+                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;						 					
 				
 				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 				
@@ -3805,6 +4008,20 @@ BEGIN
 			FROM rowcount_worst
 			OPTION (RECOMPILE);
 
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   #warning_results AS bcr
+                       WHERE  bcr.Priority = 2147483646
+				      )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (2147483646,
+                    255,
+                    'Need more help?' ,
+                    'Paste your plan on the internet!',
+                    'http://pastetheplan.com',
+                    'This makes it easy to share plans and post them to Q&A sites like https://dba.stackexchange.com/!') ;
+
+
         IF NOT EXISTS (SELECT 1/0
 					   FROM   #warning_results AS bcr
                        WHERE  bcr.Priority = 2147483647
@@ -3922,6 +4139,10 @@ OPTION (RECOMPILE);
 SELECT '#est_rows' AS table_name,  * 
 FROM #est_rows AS er
 OPTION (RECOMPILE);
+
+SELECT '#stored_proc_info' AS table_name, *
+FROM #stored_proc_info AS spi
+OPTION(RECOMPILE);
 
 END; 
 

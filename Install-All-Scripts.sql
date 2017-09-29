@@ -52,6 +52,7 @@ BEGIN
 	
 		Known limitations of this version:
 		 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000! And really, maybe not even anything less than 2016. Heh.
+         - When restoring encrypted backups, the encryption certificate must already be installed.
 	
 		Unknown limitations of this version:
 		 - None.  (If we knew them, they would be known. Duh.)
@@ -102,8 +103,8 @@ END
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.7';
-SET @VersionDate = '20170901';
+SET @Version = '1.8';
+SET @VersionDate = '20171001';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -113,6 +114,10 @@ DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
 DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
 DECLARE @rto INT; --Used to hold the RPO value in our configuration table
 DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @changebackuptype NVARCHAR(MAX); --Config table: Y = escalate to full backup, MSDB = escalate if MSDB history doesn't show a recent full.
+DECLARE @encrypt NVARCHAR(MAX); --Config table: Y = encrypt the backup. N (default) = do not encrypt.
+DECLARE @encryptionalgorithm NVARCHAR(MAX); --Config table: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256
+DECLARE @servercertificate NVARCHAR(MAX); --Config table: server certificate that is used to encrypt the backup
 DECLARE @restore_path_base NVARCHAR(MAX); --Used to hold the base backup path in our configuration table
 DECLARE @restore_path_full NVARCHAR(MAX); --Used to hold the full backup path in our configuration table
 DECLARE @restore_path_log NVARCHAR(MAX); --Used to hold the log backup path in our configuration table
@@ -124,6 +129,7 @@ DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0 --We use this one
 DECLARE @only_logs_after NVARCHAR(30) = N''
+
 
 
 /*
@@ -676,7 +682,8 @@ LogShamer:
 	
 						SELECT @rpo  = CONVERT(INT, configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup frequency';
+						WHERE configuration_name = N'log backup frequency'
+                          AND database_name = N'all';
 	
 							
 							IF @rpo IS NULL
@@ -688,12 +695,39 @@ LogShamer:
 	
 						SELECT @backup_path = CONVERT(NVARCHAR(512), configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup path';
+						WHERE configuration_name = N'log backup path'
+                          AND database_name = N'all';
 	
 							
 							IF @backup_path IS NULL
 								BEGIN
 									RAISERROR('@backup_path cannot be NULL. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
+									RETURN;
+								END;	
+
+						SELECT @changebackuptype = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'change backup type'
+                          AND database_name = N'all';
+
+						SELECT @encrypt = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'encrypt'
+                          AND database_name = N'all';
+
+						SELECT @encryptionalgorithm = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'encryptionalgorithm'
+                          AND database_name = N'all';
+
+						SELECT @servercertificate = configuration_setting
+						FROM msdbCentral.dbo.backup_configuration c
+						WHERE configuration_name = N'servercertificate'
+                          AND database_name = N'all';
+
+							IF @encrypt = N'Y' AND (@encryptionalgorithm IS NULL OR @servercertificate IS NULL)
+								BEGIN
+									RAISERROR('If encryption is Y, then both the encryptionalgorithm and servercertificate must be set. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
 								END;	
 	
@@ -744,6 +778,7 @@ LogShamer:
 												    bw.is_started = 0
 												AND bw.is_completed = 1
 												AND bw.last_log_backup_start_time < DATEADD(SECOND, (@rpo * -1), GETDATE()) 
+                                                AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    
 											  (		/*This section picks up newly added databases by Pollster*/
@@ -751,6 +786,7 @@ LogShamer:
 											  	AND bw.is_completed = 0
 											  	AND bw.last_log_backup_start_time = '1900-01-01 00:00:00.000'
 											  	AND bw.last_log_backup_finish_time = '9999-12-31 00:00:00.000'
+                                                AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										ORDER BY bw.last_log_backup_start_time ASC, bw.last_log_backup_finish_time ASC, bw.database_name ASC;
 	
@@ -847,15 +883,28 @@ LogShamer:
 										
 										*/
 
-	
-										EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
-																	   @BackupType = 'LOG', --Going for the LOGs
-																	   @Directory = @backup_path, --The path we need to back up to
-																	   @Verify = 'N', --We don't want to verify these, it eats into job time
-																	   @ChangeBackupType = 'Y', --If we need to switch to a FULL because one hasn't been taken
-																	   @CheckSum = 'Y', --These are a good idea
-																	   @Compress = 'Y', --This is usually a good idea
-																	   @LogToTable = 'Y'; --We should do this for posterity
+	                                    IF @encrypt = 'Y'
+										    EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+																	       @BackupType = 'LOG', --Going for the LOGs
+																	       @Directory = @backup_path, --The path we need to back up to
+																	       @Verify = 'N', --We don't want to verify these, it eats into job time
+																	       @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
+																	       @CheckSum = 'Y', --These are a good idea
+																	       @Compress = 'Y', --This is usually a good idea
+																	       @LogToTable = 'Y', --We should do this for posterity
+                                                                           @Encrypt = @encrypt,
+                                                                           @EncryptionAlgorithm = @encryptionalgorithm,
+                                                                           @ServerCertificate = @servercertificate;
+
+                                        ELSE
+									        EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+																	        @BackupType = 'LOG', --Going for the LOGs
+																	        @Directory = @backup_path, --The path we need to back up to
+																	        @Verify = 'N', --We don't want to verify these, it eats into job time
+																	        @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
+																	        @CheckSum = 'Y', --These are a good idea
+																	        @Compress = 'Y', --This is usually a good idea
+																	        @LogToTable = 'Y'; --We should do this for posterity
 	
 										
 										/*
@@ -1096,6 +1145,8 @@ IF @Restore = 1
 												    rw.is_started = 0
 												AND rw.is_completed = 1
 												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
+                                                AND rw.error_number > 0 /* negative numbers indicate human attention required */
+                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    
 											  (		/*This section picks up newly added databases by DiskPollster*/
@@ -1103,6 +1154,7 @@ IF @Restore = 1
 											  	AND rw.is_completed = 0
 											  	AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
 											  	AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
+                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
 	
@@ -1328,7 +1380,8 @@ IF @Restore = 1
 							END; -- End update of unsuccessful restore
 	
 					END CATCH;
-	
+
+
 					IF  @database IS NOT NULL AND @error_number IS NULL
 
 					/*
@@ -1341,17 +1394,36 @@ IF @Restore = 1
 						BEGIN
 	
 							IF @Debug = 1 RAISERROR('Error number IS NULL', 0, 1) WITH NOWAIT;
+
+                            /* Make sure database actually exists and is in the restoring state */
+                            IF EXISTS (SELECT * FROM sys.databases WHERE name = @database AND state = 1) /* Restoring */
+								BEGIN
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
-							SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
-							IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
-	
+								    UPDATE rw
+										    SET rw.is_started = 0,
+											    rw.is_completed = 1,
+											    rw.last_log_restore_finish_time = GETDATE()
+								    FROM msdb.dbo.restore_worker rw 
+								    WHERE rw.database_name = @database;
+
+                                END
+                            ELSE /* The database doesn't exist, or it's not in the restoring state */
+                                BEGIN
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful backup';
+							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
-								UPDATE rw
-										SET rw.is_started = 0,
-											rw.is_completed = 1,
-											rw.last_log_restore_finish_time = GETDATE()
-								FROM msdb.dbo.restore_worker rw 
-								WHERE rw.database_name = @database;
+								    UPDATE rw
+										    SET rw.is_started = 0,
+											    rw.is_completed = 1,
+                                                rw.error_number = -1, /* unknown, human attention required */
+                                                rw.last_error_date = GETDATE()
+											    /* rw.last_log_restore_finish_time = GETDATE()    don't change this - the last log may still be successful */
+								    FROM msdb.dbo.restore_worker rw 
+								    WHERE rw.database_name = @database;
+                                END
+
 
 								
 							/*
@@ -1385,6 +1457,8 @@ RETURN;
 
 
 END; -- Final END for stored proc
+
+GO 
 SET ANSI_NULLS ON;
 SET ANSI_PADDING ON;
 SET ANSI_WARNINGS ON;
@@ -1522,8 +1596,8 @@ END; /* IF @Help = 1 */
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.7';
-SET @VersionDate = '20170901';
+SET @Version = '1.8';
+SET @VersionDate = '20171001';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -1838,12 +1912,22 @@ BEGIN
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between Log Backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
 											
-											
 											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''change backup type'', ''For Ola Hallengren DatabaseBackup @ChangeBackupType param: Y = escalate to fulls, MSDB = escalate by checking msdb backup history.'', ''MSDB'');									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encrypt'', ''For Ola Hallengren DatabaseBackup: Y = encrypt the backup. N (default) = do not encrypt.'', NULL);									
 									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encryptionalgorithm'', ''For Ola Hallengren DatabaseBackup: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256.'', NULL);									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''servercertificate'', ''For Ola Hallengren DatabaseBackup: server certificate that is used to encrypt the backup.'', NULL);									
+									
+																		
 									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_worker'') IS NULL
 										
 										BEGIN
@@ -1974,10 +2058,8 @@ BEGIN
 								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 												  VALUES ('all', 'log restore frequency', 'The length of time in second between Log Restores.', @RTOSeconds);
 								
-								
 								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
-
 
 
 						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
@@ -2429,6 +2511,39 @@ IF @UpdateSetup = 1
 	
 	BEGIN
 
+        /* If we're enabling backup jobs, we may need to run restore with recovery on msdbCentral to bring it online: */
+        IF @EnableBackupJobs = 1 AND EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 1)
+            BEGIN 
+				RAISERROR('msdbCentral exists, but is in restoring state. Running restore with recovery...', 0, 1) WITH NOWAIT;
+
+                BEGIN TRY
+                    RESTORE DATABASE [msdbCentral] WITH RECOVERY;
+                END TRY
+
+				BEGIN CATCH
+
+					SELECT @error_number = ERROR_NUMBER(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+
+					SELECT @msg = N'Error running restore with recovery on msdbCentral, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+						
+					RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+				END CATCH;
+
+            END
+
+            /* Only check for this after trying to restore msdbCentral: */
+            IF @EnableBackupJobs = 1 AND NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 0)
+                    BEGIN
+        				RAISERROR('msdbCentral is not online. Repair that first, then try to enable backup jobs.', 0, 1) WITH NOWAIT;
+                        RETURN
+                    END
+
+
 			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
 
 				RAISERROR('Found backup config, checking variables...', 0, 1) WITH NOWAIT;
@@ -2690,8 +2805,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '5.8';
+	SET @VersionDate = '20171001';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -3557,6 +3672,36 @@ AS
 								''The certificate '' + c.name + '' is used to encrypt database '' + db_name(dek.database_id) + ''. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
 								FROM sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
 								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+							
+							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+							
+							EXECUTE(@StringToExecute);
+						END;
+
+                     IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 202 )
+						AND EXISTS ( SELECT *
+									 FROM   sys.all_columns c
+									 WHERE  c.name = 'pvt_key_last_backup_date' )
+						AND EXISTS ( SELECT *
+									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
+									 WHERE  c.TABLE_NAME = 'backupset' AND c.COLUMN_NAME = 'encryptor_thumbprint' )
+						BEGIN
+
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT;
+
+							SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+								SELECT DISTINCT 202 AS CheckID,
+								1 AS Priority,
+								''Backup'' AS FindingsGroup,
+								''Encryption Certificate Not Backed Up Recently'' AS Finding,
+								''https://BrentOzar.com/go/tde'' AS URL,
+								''The certificate '' + c.name + '' is used to encrypt database backups. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
+								FROM sys.certificates c
+                                INNER JOIN msdb.dbo.backupset bs ON c.thumbprint = bs.encryptor_thumbprint
+                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -6879,7 +7024,7 @@ IF @ProductVersionMajor >= 10
 													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
 												WHERE [name] NOT IN
-												('system_health', 'sp_server_diagnostics session', 'hkenginexesession', 'telemetry_xevents')
+												( 'AlwaysOn_health', 'system_health', 'telemetry_xevents', 'sp_server_diagnostics', 'hkenginexesession' )
 												AND name NOT LIKE '%$A%'
 											  HAVING COUNT_BIG(*) >= 2; 
 								END;	
@@ -7245,6 +7390,7 @@ IF @ProductVersionMajor >= 10
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKALLOC%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCATALOG%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCONSTRAINTS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKDB%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKFILEGROUP%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKIDENT%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKPRIMARYFILE%'
@@ -10367,8 +10513,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '1.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '1.8';
+	SET @VersionDate = '20171001';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12073,6 +12219,9 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
+		is_paul_white_electric BIT,
+		implicit_conversion_info XML,
+		cached_execution_parameters XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -12114,8 +12263,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.7';
-SET @VersionDate = '20170901';
+SET @Version = '5.8';
+SET @VersionDate = '20171001';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -12753,6 +12902,9 @@ BEGIN
 		is_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
+		is_paul_white_electric BIT,
+		implicit_conversion_info XML,
+		cached_execution_parameters XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX)
     );
@@ -12879,6 +13031,9 @@ IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
     DROP TABLE #configuration;
 
+IF OBJECT_ID ('tempdb..#stored_proc_info') IS NOT NULL
+    DROP TABLE #stored_proc_info;
+
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
@@ -12917,6 +13072,20 @@ CREATE TABLE #configuration (
     parameter_name VARCHAR(100),
     value DECIMAL(38,0)
 );
+
+CREATE TABLE #stored_proc_info
+(
+    SPID INT,
+	SqlHandle VARBINARY(64),
+    QueryHash BINARY(8),
+    variable_name NVARCHAR(128),
+    variable_datatype NVARCHAR(128),
+    compile_time_value NVARCHAR(128),
+    proc_name NVARCHAR(300),
+    column_name NVARCHAR(128),
+    converted_to NVARCHAR(128)
+);
+
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -12962,7 +13131,6 @@ ON      cp.plan_handle = qs.plan_handle
 WHERE   cp.usecounts = 1
         AND cp.cacheobjtype = 'Compiled Plan'
 OPTION (RECOMPILE) ;
-
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -14670,6 +14838,179 @@ WHERE SPID = @@SPID
 OPTION(RECOMPILE);
 END
 
+
+RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+is_paul_white_electric AS (
+SELECT 1 AS [is_paul_white_electric], 
+r.SqlHandle
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('//p:RelOp') c(n)
+WHERE c.n.exist('@PhysicalOp[.="Switch"]') = 1
+)
+UPDATE b
+SET    b.is_paul_white_electric = ipwe.is_paul_white_electric
+FROM   ##bou_BlitzCacheProcs AS b
+JOIN is_paul_white_electric ipwe 
+ON ipwe.SqlHandle = b.SqlHandle 
+WHERE b.SPID = @@SPID
+OPTION (RECOMPILE);
+
+IF EXISTS ( SELECT 1 
+			FROM ##bou_BlitzCacheProcs AS bbcp 
+			WHERE bbcp.implicit_conversions = 1 
+			OR bbcp.QueryType LIKE 'Procedure or Function:%')
+BEGIN
+
+RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, variables_types
+AS ( 
+
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.QueryHash,
+            qp.SqlHandle,
+            SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
+            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+     FROM   #query_plan AS qp
+     JOIN   ##bou_BlitzCacheProcs AS b
+     ON b.QueryHash = qp.QueryHash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+     WHERE  b.implicit_conversions = 1 ),
+  convert_implicit
+AS ( 
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.QueryHash,
+            qp.SqlHandle,
+			SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
+            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
+                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+     FROM   #query_plan AS qp
+     JOIN   ##bou_BlitzCacheProcs AS b
+     ON b.QueryHash = qp.QueryHash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+			AND qp.QueryHash IS NOT NULL 
+			AND b.implicit_conversions = 1 )
+INSERT #stored_proc_info ( SPID, QueryHash, SqlHandle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT DISTINCT
+	   @@SPID AS SPID,
+       COALESCE(vt.QueryHash, ci.QueryHash) AS QueryHash,
+	   COALESCE(vt.SqlHandle, ci.SqlHandle) AS SqlHandle,
+       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
+       ci.column_name,
+       ci.converted_to
+FROM   variables_types AS vt
+RIGHT JOIN   convert_implicit AS ci
+ON (ci.variable_name = vt.variable_name
+   AND ci.QueryHash = vt.QueryHash)
+OPTION(RECOMPILE);
+
+WITH precheck AS (
+SELECT spi.SPID,
+	   spi.SqlHandle,
+	   spi.proc_name,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @nl
+			+ N'The ' 
+			+ CASE WHEN spi.proc_name <> 'Statement' 
+				   THEN N'stored procedure ' + spi.proc_name 
+				   ELSE N'Statement' 
+			  END
+			+ N' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						@nl
+						+ N'The variable '
+						+ spi2.variable_name
+						+ N' has a data type of '
+						+ spi2.variable_datatype
+						+ N' which caused implicit conversion on the column '
+						+ spi2.column_name
+						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
+							   THEN N' and is a declared variable.' 
+							   ELSE N' and is a parameter of the stored procedure.' 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.SqlHandle = spi2.SqlHandle
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ N' -- ?>'
+			) AS implicit_conversion_info,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @nl
+			+ N'EXEC ' 
+			+ spi.proc_name 
+			+ N' '
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ spi2.variable_name 
+						+ N' = ' 
+						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.SqlHandle = spi2.SqlHandle
+				AND spi2.proc_name <> 'Statement'
+				AND spi2.compile_time_value <> '*declared in proc*'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ @nl
+			+ N' -- ?>'
+			) AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name	
+)
+UPDATE b
+SET b.implicit_conversion_info = pk.implicit_conversion_info,
+	b.cached_execution_parameters = pk.cached_execution_parameters
+FROM ##bou_BlitzCacheProcs AS b
+JOIN precheck pk
+ON pk.SqlHandle = b.SqlHandle
+AND pk.SPID = b.SPID
+AND b.implicit_conversions = 1 
+OPTION(RECOMPILE);
+
+END; --End implicit conversion information gathering
+
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+FROM ##bou_BlitzCacheProcs AS b
+WHERE b.SPID = @@SPID
+OPTION(RECOMPILE);
+
 IF @SkipAnalysis = 1
     BEGIN
 	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
@@ -14886,7 +15227,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  			   
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END	   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -14953,7 +15295,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -15238,6 +15581,8 @@ BEGIN
     QueryText AS [Query Text],
     QueryType AS [Query Type],
     Warnings AS [Warnings],
+	implicit_conversion_info AS [Implicit Conversion Info],
+	cached_execution_parameters AS [Cached Execution Parameters],
     ExecutionCount AS [# Executions],
     ExecutionsPerMinute AS [Executions / Minute],
     PercentExecutions AS [Execution Weight],
@@ -15331,7 +15676,8 @@ BEGIN
 				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END	+
 				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
-				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END
+				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
+				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END
     
@@ -15385,7 +15731,9 @@ BEGIN
         StatementStartOffset,
         StatementEndOffset,
 		[Remove Plan Handle From Cache],
-		[Remove SQL Handle From Cache] ';
+		[Remove SQL Handle From Cache],
+		implicit_conversion_info AS [Implicit Conversion Info],
+		cached_execution_parameters AS [Cached Execution Parameters] ';
 END
 
 
@@ -16119,7 +16467,20 @@ BEGIN
                      'Potentially bad cardinality estimates',
                      'Estimated rows are different from average rows by a factor of 10000',
                      'No URL yet',
-                     'This may indicate a performance problem if mismatches occur regularly') ;						 						 				 
+                     'This may indicate a performance problem if mismatches occur regularly') ;	
+					 					 						 				 
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_paul_white_electric = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     998,
+                     200,
+                     'Is Paul White Electric?',
+                     'This query has a Switch operator in it!',
+                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
 
 		IF @v >= 14
 			BEGIN	
@@ -16203,6 +16564,20 @@ BEGIN
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 		END 
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   ##bou_BlitzCacheResults AS bcr
+                       WHERE  bcr.Priority = 2147483646
+				      )
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    2147483646,
+                    255,
+                    'Need more help?' ,
+                    'Paste your plan on the internet!',
+                    'http://pastetheplan.com',
+                    'This makes it easy to share plans and post them to Q&A sites like https://dba.stackexchange.com/!') ;
+
 
 
         IF NOT EXISTS (SELECT 1/0
@@ -16295,6 +16670,8 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            QueryText NVARCHAR(MAX),
            QueryType NVARCHAR(256),
            Warnings VARCHAR(MAX),
+		   implicit_conversion_info XML,
+		   cached_execution_parameters XML,
            ExecutionCount BIGINT,
            ExecutionsPerMinute MONEY,
            ExecutionWeight MONEY,
@@ -16345,7 +16722,7 @@ SELECT  @MemGrant = CASE WHEN (
                               ) THEN 0
                          ELSE 1
                     END;
-
+		 
 
 IF LOWER(@SortOrder) = 'all'
 BEGIN
@@ -16353,7 +16730,7 @@ RAISERROR('Beginning for ALL', 0, 1) WITH NOWAIT;
 SET @AllSortSql += N'
 					DECLARE @ISH NVARCHAR(MAX) = N''''
 
-					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16364,7 +16741,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16375,7 +16752,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16386,7 +16763,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16397,7 +16774,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16412,7 +16789,12 @@ SET @AllSortSql += N'
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL
+												   OPTION (RECOMPILE);
 
 												   UPDATE ##bou_BlitzCacheProcs
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
@@ -16428,7 +16810,7 @@ SET @AllSortSql += N'
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
-										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 				 
@@ -16438,7 +16820,12 @@ SET @AllSortSql += N'
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);'
 						IF @ExportToExcel = 1
 						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL
+												   OPTION (RECOMPILE);
 
 												   UPDATE ##bou_BlitzCacheProcs
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
@@ -16459,7 +16846,7 @@ RAISERROR('Beginning for ALL AVG', 0, 1) WITH NOWAIT;
 SET @AllSortSql += N' 
 					DECLARE @ISH NVARCHAR(MAX) = N'''' 
 					
-					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16470,7 +16857,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16481,7 +16868,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16492,7 +16879,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16503,7 +16890,7 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 					 
@@ -16518,7 +16905,12 @@ SET @AllSortSql += N'
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL
+												   OPTION (RECOMPILE);
 
 												   UPDATE ##bou_BlitzCacheProcs
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
@@ -16534,7 +16926,7 @@ SET @AllSortSql += N'
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
-										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryPlan, SetOptions ) 				 
@@ -16544,7 +16936,12 @@ SET @AllSortSql += N'
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);'
 						IF @ExportToExcel = 1
 						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort SET QueryPlan = NULL OPTION (RECOMPILE);
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL
+												   OPTION (RECOMPILE);
 
 												   UPDATE ##bou_BlitzCacheProcs
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
@@ -16596,8 +16993,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.7';
-SET @VersionDate = '20170901';
+SET @Version = '5.8';
+SET @VersionDate = '20171001';
 
 
 IF @Help = 1 PRINT '
@@ -16669,6 +17066,7 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
+    @OutputTableNameWaitStats_Categories NVARCHAR(256),
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
 
@@ -16676,7 +17074,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 SELECT
     @OutputTableNameFileStats_View = QUOTENAME(@OutputTableNameFileStats + '_Deltas'),
     @OutputTableNamePerfmonStats_View = QUOTENAME(@OutputTableNamePerfmonStats + '_Deltas'),
-    @OutputTableNameWaitStats_View = QUOTENAME(@OutputTableNameWaitStats + '_Deltas');
+    @OutputTableNameWaitStats_View = QUOTENAME(@OutputTableNameWaitStats + '_Deltas'),
+    @OutputTableNameWaitStats_Categories = QUOTENAME(@OutputTableNameWaitStats + '_Categories');
 
 SELECT
     @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
@@ -16871,6 +17270,539 @@ BEGIN
     IF OBJECT_ID('tempdb..#FilterPlansByDatabase') IS NOT NULL
         DROP TABLE #FilterPlansByDatabase;
     CREATE TABLE #FilterPlansByDatabase (DatabaseID INT PRIMARY KEY CLUSTERED);
+
+    IF OBJECT_ID('tempdb..##WaitCategories') IS NULL
+		BEGIN
+			/* We reuse this one by default rather than recreate it every time. */
+			CREATE TABLE ##WaitCategories
+			(
+				WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED,
+				WaitCategory NVARCHAR(128) NOT NULL,
+				Ignorable BIT DEFAULT 0
+			);
+		END /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
+
+	IF 504 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
+		BEGIN
+		    TRUNCATE TABLE ##WaitCategories;
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('ASYNC_IO_COMPLETION','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('ASYNC_NETWORK_IO','Network IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BACKUPIO','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_CONNECTION_RECEIVE_TASK','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_DISPATCHER','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_ENDPOINT_STATE_MUTEX','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_EVENTHANDLER','Service Broker',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_FORWARDER','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_INIT','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_MASTERSTART','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_RECEIVE_WAITFOR','User Wait',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_REGISTERALLENDPOINTS','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_SERVICE','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_SHUTDOWN','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_START','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TASK_SHUTDOWN','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TASK_STOP','Service Broker',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TASK_SUBMIT','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TO_FLUSH','Service Broker',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TRANSMISSION_OBJECT','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TRANSMISSION_TABLE','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TRANSMISSION_WORK','Service Broker',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('BROKER_TRANSMITTER','Service Broker',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CHECKPOINT_QUEUE','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CHKPT','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_AUTO_EVENT','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_CRST','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_JOIN','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_MANUAL_EVENT','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_MEMORY_SPY','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_MONITOR','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_RWLOCK_READER','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_RWLOCK_WRITER','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_SEMAPHORE','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLR_TASK_START','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CLRHOST_STATE_ACCESS','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CMEMPARTITIONED','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CMEMTHREAD','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CXPACKET','Parallelism',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_DBM_EVENT','Mirroring',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_DBM_MUTEX','Mirroring',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_EVENTS_QUEUE','Mirroring',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_SEND','Mirroring',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_WORKER_QUEUE','Mirroring',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRRORING_CMD','Mirroring',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DIRTY_PAGE_POLL','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DISPATCHER_QUEUE_SEMAPHORE','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_ABORT_REQUEST','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_RESOLVE','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_STATE','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_TMDOWN_REQUEST','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_WAITFOR_OUTCOME','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCNEW_ENLIST','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCNEW_PREPARE','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCNEW_RECOVERY','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCNEW_TM','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCNEW_TRANSACTION_ENLISTMENT','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTCPNTSYNC','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('EE_PMOLOCK','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('EXCHANGE','Parallelism',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('EXTERNAL_SCRIPT_NETWORK_IOF','Network IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FCB_REPLICA_READ','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FCB_REPLICA_WRITE','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_COMPROWSET_RWLOCK','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_RWLOCK','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_SCHEDULER_IDLE_WAIT','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSHC_MUTEX','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSISM_MUTEX','Full Text Search',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE_COORDINATOR','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_METADATA_MUTEX','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_PROPERTYLIST_CACHE','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_RESTART_CRAWL','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FULLTEXT GATHERER','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_AG_MUTEX','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_AR_CRITICAL_SECTION_ENTRY','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_AR_MANAGER_MUTEX','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_AR_UNLOAD_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_ARCONTROLLER_NOTIFICATIONS_SUBSCRIBER_LIST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_BACKUP_BULK_LOCK','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_BACKUP_QUEUE','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_CLUSAPI_CALL','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_COMPRESSED_CACHE_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_CONNECTIVITY_INFO','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DATABASE_FLOW_CONTROL','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DATABASE_VERSIONING_STATE','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DATABASE_WAIT_FOR_RECOVERY','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DATABASE_WAIT_FOR_RESTART','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DATABASE_WAIT_FOR_TRANSITION_TO_VERSIONING','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DB_COMMAND','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DB_OP_COMPLETION_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DB_OP_START_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DBR_SUBSCRIBER','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DBR_SUBSCRIBER_FILTER_LIST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DBSEEDING','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DBSEEDING_LIST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_DBSTATECHANGE_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FABRIC_CALLBACK','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_BLOCK_FLUSH','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_FILE_CLOSE','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_FILE_REQUEST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_IOMGR','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_IOMGR_IOCOMPLETION','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_MANAGER','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_FILESTREAM_PREPROC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_GROUP_COMMIT','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_LOGCAPTURE_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_LOGCAPTURE_WAIT','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_LOGPROGRESS_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_NOTIFICATION_DEQUEUE','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_NOTIFICATION_WORKER_EXCLUSIVE_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_NOTIFICATION_WORKER_STARTUP_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_NOTIFICATION_WORKER_TERMINATION_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_PARTNER_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_READ_ALL_NETWORKS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_RECOVERY_WAIT_FOR_CONNECTION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_RECOVERY_WAIT_FOR_UNDO','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_REPLICAINFO_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_CANCELLATION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_FILE_LIST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_LIMIT_BACKUPS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_SYNC_COMPLETION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_TIMEOUT_TASK','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SEEDING_WAIT_FOR_COMPLETION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SYNC_COMMIT','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_SYNCHRONIZING_THROTTLE','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TDS_LISTENER_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TDS_LISTENER_SYNC_PROCESSING','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_THROTTLE_LOG_RATE_GOVERNOR','Log Rate Governor',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TIMER_TASK','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TRANSPORT_DBRLIST','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TRANSPORT_FLOW_CONTROL','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_TRANSPORT_SESSION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_WORK_POOL','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_WORK_QUEUE','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('HADR_XRF_STACK_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('INSTANCE_LOG_RATE_GOVERNOR','Log Rate Governor',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('IO_COMPLETION','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('IO_QUEUE_LIMIT','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('IO_RETRY','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_DT','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_EX','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_KP','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_NL','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_SH','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LATCH_UP','Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LAZYWRITER_SLEEP','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_BU','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_BU_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_BU_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IS_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IS_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IU','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IU_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IU_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IX','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IX_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_IX_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_NL','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_NL_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_NL_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_S','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_S_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_S_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_U','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_U_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_U_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_X','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_X_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RIn_X_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_S','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_S_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_S_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_U','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_U_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RS_U_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_S','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_S_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_S_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_U','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_U_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_U_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_X','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_X_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_RX_X_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_S','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_S_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_S_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_M','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_M_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_M_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_S','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_S_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SCH_S_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIU','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIU_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIU_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIX','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIX_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_SIX_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_U','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_U_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_U_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_UIX','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_UIX_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_UIX_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X_ABORT_BLOCKERS','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGBUFFER','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR_FLUSH','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR_PMM_LOG','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR_QUEUE','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR_RESERVE_APPEND','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('MEMORY_ALLOCATION_EXT','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('MEMORY_GRANT_UPDATE','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('MSQL_XACT_MGR_MUTEX','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('MSQL_XACT_MUTEX','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('MSSEARCH','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('NET_WAITFOR_PACKET','Network IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('ONDEMAND_TASK_QUEUE','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_DT','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_EX','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_KP','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_NL','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_SH','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGEIOLATCH_UP','Buffer IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_DT','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_EX','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_KP','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_NL','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_SH','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_UP','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('POOL_LOG_RATE_GOVERNOR','Log Rate Governor',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ABR','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPMEDIA','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPTAPE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPVDIDEVICE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLUSAPI_CLUSTERRESOURCECONTROL','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_COCREATEINSTANCE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_COGETCLASSOBJECT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_CREATEACCESSOR','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_DELETEROWS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_GETCOMMANDTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_GETDATA','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_GETNEXTROWS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_GETRESULT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_GETROWSBYBOOKMARK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBFLUSH','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBLOCKREGION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBREADAT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBSETSIZE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBSTAT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBUNLOCKREGION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_LBWRITEAT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_QUERYINTERFACE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_RELEASE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_RELEASEACCESSOR','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_RELEASEROWS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_RELEASESESSION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_RESTARTPOSITION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_SEQSTRMREAD','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_SEQSTRMREADANDWRITE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_SETDATAFAILURE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_SETPARAMETERINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_SETPARAMETERPROPERTIES','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMLOCKREGION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMSEEKANDREAD','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMSEEKANDWRITE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMSETSIZE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMSTAT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_COM_STRMUNLOCKREGION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CONSOLEWRITE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CREATEPARAM','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DEBUG','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSADDLINK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSLINKEXISTCHECK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSLINKHEALTHCHECK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSREMOVELINK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSREMOVEROOT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSROOTFOLDERCHECK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSROOTINIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DFSROOTSHARECHECK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_ABORT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_ABORTREQUESTDONE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_BEGINTRANSACTION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_COMMITREQUESTDONE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_ENLIST','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_DTC_PREPAREREQUESTDONE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_FILESIZEGET','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_FSAOLEDB_ABORTTRANSACTION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_FSAOLEDB_COMMITTRANSACTION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_FSAOLEDB_STARTTRANSACTION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_FSRECOVER_UNCONDITIONALUNDO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_GETRMINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM','Preemptive',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_HTTP_EVENT_WAIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_HTTP_REQUEST','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_LOCKMONITOR','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_MSS_RELEASE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ODBCOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLE_UNINIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_ABORTORCOMMITTRAN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_ABORTTRAN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_GETDATASOURCE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_GETLITERALINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_GETPROPERTIES','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_GETPROPERTYINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_GETSCHEMALOCK','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_JOINTRANSACTION','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_RELEASE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDB_SETPROPERTIES','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OLEDBOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_ACCEPTSECURITYCONTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_ACQUIRECREDENTIALSHANDLE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_AUTHENTICATIONOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_AUTHORIZATIONOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_AUTHZGETINFORMATIONFROMCONTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_AUTHZINITIALIZECONTEXTFROMSID','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_AUTHZINITIALIZERESOURCEMANAGER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_BACKUPREAD','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CLOSEHANDLE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CLUSTEROPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_COMOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_COMPLETEAUTHTOKEN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_COPYFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CREATEDIRECTORY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CREATEFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CRYPTACQUIRECONTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CRYPTIMPORTKEY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_CRYPTOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DECRYPTMESSAGE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DELETEFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DELETESECURITYCONTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DEVICEIOCONTROL','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DEVICEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DIRSVC_NETWORKOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DISCONNECTNAMEDPIPE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DOMAINSERVICESOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DSGETDCNAME','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_DTCOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_ENCRYPTMESSAGE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FILEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FINDFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FLUSHFILEBUFFERS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FORMATMESSAGE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FREECREDENTIALSHANDLE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_FREELIBRARY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GENERICOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETADDRINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETCOMPRESSEDFILESIZE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETDISKFREESPACE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETFILEATTRIBUTES','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETFILESIZE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETFINALFILEPATHBYHANDLE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETLONGPATHNAME','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETPROCADDRESS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETVOLUMENAMEFORVOLUMEMOUNTPOINT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_GETVOLUMEPATHNAME','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_INITIALIZESECURITYCONTEXT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_LIBRARYOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_LOADLIBRARY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_LOGONUSER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_LOOKUPACCOUNTSID','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_MESSAGEQUEUEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_MOVEFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETGROUPGETUSERS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETLOCALGROUPGETMEMBERS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETUSERGETGROUPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETUSERGETLOCALGROUPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETUSERMODALSGET','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETVALIDATEPASSWORDPOLICY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_NETVALIDATEPASSWORDPOLICYFREE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_OPENDIRECTORY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_PDH_WMI_INIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_PIPEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_PROCESSOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_QUERYCONTEXTATTRIBUTES','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_QUERYREGISTRY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_QUERYSECURITYCONTEXTTOKEN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_REMOVEDIRECTORY','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_REPORTEVENT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_REVERTTOSELF','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_RSFXDEVICEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SECURITYOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SERVICEOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SETENDOFFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SETFILEPOINTER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SETFILEVALIDDATA','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SETNAMEDSECURITYINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SQLCLROPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_SQMLAUNCH','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_VERIFYSIGNATURE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_VERIFYTRUST','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_VSSOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_WAITFORSINGLEOBJECT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_WINSOCKOPS','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_WRITEFILE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_WRITEFILEGATHER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_OS_WSASETLASTERROR','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_REENLIST','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_RESIZELOG','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ROLLFORWARDREDO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ROLLFORWARDUNDO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SB_STOPENDPOINT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SERVER_STARTUP','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SETRMINFO','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SHAREDMEM_GETDATA','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SNIOPEN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SOSHOST','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SOSTESTING','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS','Preemptive',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_STARTRM','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_STREAMFCB_CHECKPOINT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_STREAMFCB_RECOVER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_STRESSDRIVER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_TESTING','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_TRANSIMPORT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_UNMARSHALPROPAGATIONTOKEN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_VSS_CREATESNAPSHOT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_VSS_CREATEVOLUMESNAPSHOT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CALLBACKEXECUTE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CX_FILE_OPEN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CX_HTTP_CALL','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_DISPATCHER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_ENGINEINIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_GETTARGETSTATE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_SESSIONCOMMIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_TARGETFINALIZE','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_TARGETINIT','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_TIMERRUN','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XETESTING','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_ACTION_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_CHANGE_NOTIFIER_TERMINATION_SYNC','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_CLUSTER_INTEGRATION','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_FAILOVER_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_JOIN','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_OFFLINE_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_ONLINE_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_POST_ONLINE_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_SERVER_READY_CONNECTIONS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADR_WORKITEM_COMPLETED','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_HADRSIM','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PWAIT_RESOURCE_SEMAPHORE_FT_PARALLEL_QUERY_SYNC','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('QDS_ASYNC_QUEUE','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('QDS_PERSIST_TASK_MAIN_LOOP_SLEEP','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('QDS_SHUTDOWN_QUEUE','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('QUERY_TRACEOUT','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REDO_THREAD_PENDING_WORK','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_CACHE_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_HISTORYCACHE_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_SCHEMA_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_TRANFSINFO_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_TRANHASHTABLE_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPL_TRANTEXTINFO_ACCESS','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REPLICA_WRITES','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('REQUEST_FOR_DEADLOCK_SEARCH','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('RESERVED_MEMORY_ALLOCATION_EXT','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('RESOURCE_SEMAPHORE','Memory',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('RESOURCE_SEMAPHORE_QUERY_COMPILE','Compilation',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_BPOOL_FLUSH','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_BUFFERPOOL_HELPLW','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_DBSTARTUP','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_DCOMSTARTUP','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_MASTERDBREADY','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_MASTERMDREADY','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_MASTERUPGRADED','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_MEMORYPOOL_ALLOCATEPAGES','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_MSDBSTARTUP','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_RETRY_VIRTUALALLOC','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_SYSTEMTASK','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_TASK','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_TEMPDBSTARTUP','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SLEEP_WORKSPACE_ALLOCATEPAGE','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SOS_SCHEDULER_YIELD','CPU',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SP_SERVER_DIAGNOSTICS_SLEEP','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLCLR_APPDOMAIN','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLCLR_ASSEMBLY','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLCLR_DEADLOCK_DETECTION','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLCLR_QUANTUM_PUNISHMENT','SQL CLR',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_BUFFER_FLUSH','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_FILE_BUFFER','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_FILE_READ_IO_COMPLETION','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_FILE_WRITE_IO_COMPLETION','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_INCREMENTAL_FLUSH_SLEEP','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_PENDING_BUFFER_WRITERS','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_SHUTDOWN','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('SQLTRACE_WAIT_ENTRIES','Idle',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('THREADPOOL','Worker Thread',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRACE_EVTNOTIF','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRACEWRITE','Tracing',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_DT','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_EX','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_KP','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_NL','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_SH','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRAN_MARKLATCH_UP','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('TRANSACTION_MUTEX','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('UCS_SESSION_REGISTRATION','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('WAIT_FOR_RESULTS','User Wait',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('WAIT_XTP_OFFLINE_CKPT_NEW_LOG','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('WAITFOR','User Wait',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('WRITE_COMPLETION','Other Disk IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('WRITELOG','Tran Log IO',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XACT_OWN_TRANSACTION','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XACT_RECLAIM_SESSION','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XACTLOCKINFO','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XACTWORKSPACE_MUTEX','Transaction',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XE_DISPATCHER_WAIT','Idle',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XE_LIVE_TARGET_TVF','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('XE_TIMER_EVENT','Idle',1);
+		END /* IF SELECT SUM(1) FROM ##WaitCategories <> 504 */
+
+
 
     IF OBJECT_ID('tempdb..#MasterFiles') IS NOT NULL
         DROP TABLE #MasterFiles;
@@ -17498,6 +18430,41 @@ BEGIN
     WHERE object_name LIKE 'SQLServer:Buffer Manager%'
     AND counter_name LIKE 'Page life expectancy%'
     AND cntr_value < 300
+
+    /* Server Performance - Too Much Free Memory - CheckID 34 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 34 AS CheckID,
+        50 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'Too Much Free Memory' AS Finding,
+        'https://BrentOzar.com/go/freememory' AS URL,
+		CAST((CAST(cFree.cntr_value AS BIGINT) / 1024 / 1024 ) AS NVARCHAR(100)) + N'GB of free memory inside SQL Server''s buffer pool,' + @LineFeed + ' which is ' + CAST((CAST(cTotal.cntr_value AS BIGINT) / 1024 / 1024) AS NVARCHAR(100)) + N'GB. You would think lots of free memory would be good, but check out the URL for more information.' AS Details,
+        'Run sp_BlitzCache @SortOrder = ''memory grant'' to find queries with huge memory grants and tune them.' AS HowToStopIt
+		FROM sys.dm_os_performance_counters cFree
+		INNER JOIN sys.dm_os_performance_counters cTotal ON cTotal.object_name LIKE N'%Memory Manager%'
+			AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
+		WHERE cFree.object_name LIKE N'%Memory Manager%'
+			AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
+			AND CAST(cTotal.cntr_value AS BIGINT) > 20480000000
+			AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
+            AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
+
+    /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 35 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'Target Memory Lower Than Max' AS Finding,
+        'https://BrentOzar.com/go/target' AS URL,
+		N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
+            + N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
+        'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
+        FROM sys.configurations cMax
+        INNER JOIN sys.dm_os_performance_counters cTarget ON cTarget.object_name LIKE N'%Memory Manager%'
+	        AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
+        WHERE cMax.name = 'max server memory (MB)'
+            AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
+            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647; /* Not set to default of unlimited */
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
@@ -18676,7 +19643,9 @@ BEGIN
             + @OutputDatabaseName
             + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
             + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNameWaitStats + ''') CREATE TABLE '
+            + @OutputTableNameWaitStats + ''') ' + @LineFeed
+			+ 'BEGIN' + @LineFeed
+			+ 'CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -18686,10 +19655,37 @@ BEGIN
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
                 waiting_tasks_count BIGINT ,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID));' + @LineFeed
+			+ 'CREATE NONCLUSTERED INDEX IX_ServerName_wait_type_CheckDate_Includes ON ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
+			+ '(ServerName, wait_type, CheckDate) INCLUDE (wait_time_ms, signal_wait_time_ms, waiting_tasks_count);' + @LineFeed
+			+ 'END'
+
         EXEC(@StringToExecute);
 
-        /* Create the view */
+        /* Create the wait stats category table */
+        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_Categories;
+        IF OBJECT_ID(@ObjectFullName) IS NULL
+            BEGIN
+            SET @StringToExecute = 'USE '
+                + @OutputDatabaseName
+                + '; EXEC (''CREATE TABLE '
+                + @OutputSchemaName + '.'
+                + @OutputTableNameWaitStats_Categories + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')'
+            EXEC(@StringToExecute);
+            END
+
+		/* Make sure the wait stats category table has the current number of rows */
+		SET @StringToExecute = 'USE '
+            + @OutputDatabaseName
+            + '; EXEC (''IF (SELECT COALESCE(SUM(1),0) FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
+			+ 'BEGIN ' + @LineFeed
+			+ 'TRUNCATE TABLE '  + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + @LineFeed
+			+ 'INSERT INTO ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
+			+ 'END'')'
+        EXEC(@StringToExecute);
+
+
+        /* Create the wait stats view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
@@ -18698,15 +19694,18 @@ BEGIN
                 + '; EXEC (''CREATE VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNameWaitStats_View + ' AS ' + @LineFeed
-                + 'SELECT w.ServerName, w.CheckDate, w.wait_type' + @LineFeed
+                + 'SELECT w.ServerName, w.CheckDate, w.wait_type, COALESCE(wc.WaitCategory, ''''Other'''') AS WaitCategory, COALESCE(wc.Ignorable,0) AS Ignorable' + @LineFeed
                 + ', DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS ElapsedSeconds' + @LineFeed
                 + ', (w.wait_time_ms - wPrior.wait_time_ms) AS wait_time_ms_delta' + @LineFeed
+                + ', (w.wait_time_ms - wPrior.wait_time_ms) / 60000.0 AS wait_time_minutes_delta' + @LineFeed
+                + ', (w.wait_time_ms - wPrior.wait_time_ms) / 1000.0 / DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS wait_time_minutes_per_minute' + @LineFeed
                 + ', (w.signal_wait_time_ms - wPrior.signal_wait_time_ms) AS signal_wait_time_ms_delta' + @LineFeed
                 + ', (w.waiting_tasks_count - wPrior.waiting_tasks_count) AS waiting_tasks_count_delta' + @LineFeed
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND w.CheckDate > wPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wMiddle ON w.ServerName = wMiddle.ServerName AND w.wait_type = wMiddle.wait_type AND w.CheckDate > wMiddle.CheckDate AND wMiddle.CheckDate > wPrior.CheckDate' + @LineFeed
-                + 'WHERE wMiddle.ID IS NULL;'')'
+				+ 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
+                + 'WHERE wMiddle.ID IS NULL AND (w.wait_time_ms - wPrior.wait_time_ms) > 0;;'')'
             EXEC(@StringToExecute);
             END
 
@@ -18959,6 +19958,7 @@ BEGIN
                     b.SampleTime AS [Sample Ended],
                     CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
                     wd1.wait_type,
+					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
@@ -18982,6 +19982,7 @@ BEGIN
                 CROSS APPLY (SELECT
                     CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
                     CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
@@ -18998,6 +19999,7 @@ BEGIN
                     b.SampleTime AS [Sample Ended],
                     DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Seconds Sample],
                     wd1.wait_type,
+					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     c.[Wait Time (Seconds)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
@@ -19021,6 +20023,7 @@ BEGIN
                 CROSS APPLY (SELECT
                     CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
                     CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
@@ -19227,8 +20230,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.7';
-SET @VersionDate = '20170901';
+SET @Version = '5.8';
+SET @VersionDate = '20171001';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -23540,8 +24543,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '1.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '1.8';
+	SET @VersionDate = '20171001';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -23581,13 +24584,13 @@ OPTION (RECOMPILE);
 SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID(@DatabaseName)
-AND mf.type_desc = 'LOG'
+AND mf.type_desc = 'LOG';
 
 /*Grab avg tempdb file size*/
 SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
 FROM sys.master_files AS mf
 WHERE mf.database_id = DB_ID('tempdb')
-AND mf.type_desc = 'ROWS'
+AND mf.type_desc = 'ROWS';
 
 
 /*Help section*/
@@ -23659,8 +24662,8 @@ IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
 			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
 			PRINT @msg;
 			RETURN;
-		END
-	END
+		END;
+	END;
 ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
 	BEGIN
 		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
@@ -23686,7 +24689,7 @@ IF  (	SELECT COUNT(*)
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
 IF (@is_azure_db = 1)
-	SET @DatabaseName = DB_NAME()
+	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
 
@@ -23737,11 +24740,11 @@ END;
 
 /*Check database compat level*/
 
-RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT
+RAISERROR('Checking database compatibility level', 0, 1) WITH NOWAIT;
 
 SELECT @compatibility_level = d.compatibility_level
 FROM sys.databases AS d
-WHERE d.name = @DatabaseName
+WHERE d.name = @DatabaseName;
 
 RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
 
@@ -24095,6 +25098,9 @@ CREATE TABLE #working_warnings
 	is_bad_estimate BIT, 
 	is_big_log BIT,
 	is_big_tempdb BIT,
+	is_paul_white_electric BIT,
+	implicit_conversion_info XML,
+	cached_execution_parameters XML,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -24190,7 +25196,8 @@ CREATE TABLE #plan_cost
 (
 	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64),
-	INDEX px_ix_ids CLUSTERED (sql_handle)
+	plan_id INT,
+	INDEX px_ix_ids CLUSTERED (sql_handle, plan_id)
 );
 
 
@@ -24241,7 +25248,22 @@ CREATE TABLE #warning_results
     FindingsGroup NVARCHAR(50),
     Finding NVARCHAR(200),
     URL NVARCHAR(200),
-    Details NVARCHAR(4000) 
+    Details NVARCHAR(4000)
+);
+
+DROP TABLE IF EXISTS #stored_proc_info;	
+
+CREATE TABLE #stored_proc_info
+(
+	sql_handle VARBINARY(64),
+    query_hash BINARY(8),
+    variable_name NVARCHAR(128),
+    variable_datatype NVARCHAR(128),
+    compile_time_value NVARCHAR(128),
+    proc_name NVARCHAR(300),
+    column_name NVARCHAR(128),
+    converted_to NVARCHAR(128),
+	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 /*Sets up WHERE clause that gets used quite a bit*/
@@ -24362,8 +25384,8 @@ IF (@ExportToExcel = 1 OR @SkipXML = 1)
 IF @StoredProcName IS NOT NULL
 	BEGIN 
 	
-	DECLARE @sql NVARCHAR(MAX)
-	DECLARE @out INT
+	DECLARE @sql NVARCHAR(MAX);
+	DECLARE @out INT;
 	DECLARE @proc_params NVARCHAR(MAX) = N'@sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT, @i_out INT OUTPUT';
 	
 	
@@ -24388,16 +25410,16 @@ IF @StoredProcName IS NOT NULL
 		BEGIN	
 
 		SET @msg = N'We couldn''t find the Stored Procedure ' + QUOTENAME(@StoredProcName) + N' in the Query Store views for ' + QUOTENAME(@DatabaseName) + N' between ' + CONVERT(NVARCHAR(30), ISNULL(@StartDate, DATEADD(DAY, -7, DATEDIFF(DAY, 0, SYSDATETIME() ))) ) + N' and ' + CONVERT(NVARCHAR(30), ISNULL(@EndDate, SYSDATETIME())) +
-					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.'
+					 '. Try removing schema prefixes or adjusting dates. If it was executed from a different database context, try searching there instead.';
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers]
+		SELECT @msg AS [Blue Flowers, Blue Flowers, Blue Flowers];
 	
 		RETURN;
 	
-		END 
+		END; 
 	
-	END
+	END;
 
 
 
@@ -24944,7 +25966,7 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 	   ((qsrs.last_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.min_query_max_used_memory * 8 ) / 1024.), 
 	   ((qsrs.max_query_max_used_memory * 8 ) / 1024.), 
-	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,'
+	   qsrs.avg_rowcount, qsrs.last_rowcount, qsrs.min_rowcount, qsrs.max_rowcount,';
 		
 		IF @new_columns = 1
 			BEGIN
@@ -24958,8 +25980,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			((qsrs.last_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.min_tempdb_space_used * 8 ) / 1024.),
 			((qsrs.max_tempdb_space_used * 8 ) / 1024.)
-			'
-			END	
+			';
+			END;	
 		IF @new_columns = 0
 			BEGIN
 			SET @sql_select += N'
@@ -24975,8 +25997,8 @@ SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.
 			NULL,
 			NULL,
 			NULL
-			'
-			END
+			';
+			END;
 SET @sql_select +=
 N'FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
@@ -25430,7 +26452,7 @@ JOIN   #working_metrics AS wm
 ON ww.plan_id = wm.plan_id
    AND ww.query_id = wm.query_id
    AND wm.query_parameterization_type_desc = 'None'
-   AND ww.proc_or_function_name IS NOT NULL
+   AND ww.proc_or_function_name = 'Statement'
 OPTION (RECOMPILE);
 
 
@@ -25637,7 +26659,7 @@ SELECT DISTINCT
 		c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
 FROM   #statements AS s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS c(n)
-WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
+WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1;
 
 	UPDATE b
 		SET b.estimated_rows = er.estimated_rows
@@ -25651,10 +26673,11 @@ WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT #plan_cost WITH (TABLOCK)
-	( query_plan_cost, sql_handle )
+	( query_plan_cost, sql_handle, plan_id )
 SELECT  DISTINCT
 		s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') query_plan_cost,
-		s.sql_handle
+		s.sql_handle,
+		s.plan_id
 FROM    #statements s
 OUTER APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE s.statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
@@ -25663,15 +26686,16 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle
+	SELECT SUM(DISTINCT pc.query_plan_cost) AS queryplancostsum, pc.sql_handle, pc.plan_id
 	FROM #plan_cost AS pc
-	GROUP BY pc.sql_handle
+	GROUP BY pc.sql_handle, pc.plan_id
 	)
 	UPDATE b
 		SET b.query_cost = ISNULL(pc.queryplancostsum, 0)
 		FROM  #working_warnings AS b
 		JOIN pc
 		ON pc.sql_handle = b.sql_handle
+		AND pc.plan_id = b.plan_id
 OPTION (RECOMPILE);
 
 
@@ -26118,6 +27142,173 @@ JOIN #trace_flags tf
 ON tf.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
 
+RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+is_paul_white_electric AS (
+SELECT 1 AS [is_paul_white_electric], 
+r.sql_handle
+FROM #relop AS r
+CROSS APPLY r.relop.nodes('//p:RelOp') c(n)
+WHERE c.n.exist('@PhysicalOp[.="Switch"]') = 1
+)
+UPDATE b
+SET    b.is_paul_white_electric = ipwe.is_paul_white_electric
+FROM   #working_warnings AS b
+JOIN is_paul_white_electric ipwe 
+ON ipwe.sql_handle = b.sql_handle 
+OPTION (RECOMPILE);
+
+IF EXISTS ( SELECT 1 
+			FROM #working_warnings AS ww
+			WHERE ww.implicit_conversions = 1 
+			OR ww.proc_or_function_name <> N'Statement')
+BEGIN
+
+RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, variables_types
+AS ( 
+
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+            b.proc_or_function_name AS proc_name,
+            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+     WHERE  b.implicit_conversions = 1 ),
+  convert_implicit
+AS ( 
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			SELECT 
+			qp.query_hash,
+            qp.sql_handle,
+			b.proc_or_function_name AS proc_name,
+            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
+                CHARINDEX(']',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
+                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+     FROM   #query_plan AS qp
+     JOIN   #working_warnings AS b
+     ON b.query_hash = qp.query_hash
+     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+			AND qp.query_hash IS NOT NULL 
+			AND b.implicit_conversions = 1 )
+INSERT #stored_proc_info ( query_hash, sql_handle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+SELECT DISTINCT
+       COALESCE(vt.query_hash, ci.query_hash) AS query_hash,
+	   COALESCE(vt.sql_handle, ci.sql_handle) AS sql_handle,
+       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
+       ci.column_name,
+       ci.converted_to
+FROM   variables_types AS vt
+RIGHT JOIN   convert_implicit AS ci
+ON (ci.variable_name = vt.variable_name
+   AND ci.query_hash = vt.query_hash)
+OPTION(RECOMPILE);
+
+WITH precheck AS (
+SELECT 
+	   spi.sql_handle,
+	   spi.proc_name,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'The ' 
+			+ CASE WHEN spi.proc_name <> 'Statement' 
+				   THEN N'stored procedure ' + spi.proc_name 
+				   ELSE N'Statement' 
+			  END
+			+ N' had the following implicit conversions: '
+			+ CHAR(10)
+			+ STUFF((
+				SELECT DISTINCT 
+						@cr + @lf
+						+ N'The variable '
+						+ spi2.variable_name
+						+ N' has a data type of '
+						+ spi2.variable_datatype
+						+ N' which caused implicit conversion on the column '
+						+ spi2.column_name
+						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
+							   THEN N' and is a declared variable.' 
+							   ELSE N' and is a parameter of the stored procedure.' 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ CHAR(10)
+			+ N' -- ?>'
+			) AS implicit_conversion_info,
+			CONVERT(XML, 
+			N'<?ClickMe -- '
+			+ @cr + @lf
+			+ N'EXEC ' 
+			+ spi.proc_name 
+			+ N' '
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ spi2.variable_name 
+						+ N' = ' 
+						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.sql_handle = spi2.sql_handle
+				AND spi2.proc_name <> 'Statement'
+				AND spi2.compile_time_value <> '*declared in proc*'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			+ @cr + @lf
+			+ N' -- ?>'
+			) AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.sql_handle, spi.proc_name	
+)
+UPDATE b
+SET b.implicit_conversion_info = pk.implicit_conversion_info,
+	b.cached_execution_parameters = pk.cached_execution_parameters
+FROM #working_warnings AS b
+JOIN precheck pk
+ON pk.sql_handle = b.sql_handle
+AND b.implicit_conversions = 1 
+OPTION(RECOMPILE);
+
+END; --End implicit conversion information gathering
+
+UPDATE b
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+FROM #working_warnings AS b
+OPTION(RECOMPILE);
 
 
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
@@ -26209,7 +27400,8 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN b.is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END +
 				  CASE WHEN b.is_big_log = 1 THEN + ', High log use' ELSE '' END +
-				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END  
+				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END +
+				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -26246,55 +27438,55 @@ UPDATE b
 SET b.parameter_sniffing_symptoms = 
 	SUBSTRING(  
 				/*Duration*/
-				CASE WHEN (b.min_duration * 10000) < (b.avg_duration) THEN ', Fast sometimes' ELSE '' END +
-				CASE WHEN (b.max_duration) > (b.avg_duration * 10000) THEN ', Slow sometimes' ELSE '' END +
-				CASE WHEN (b.last_duration * 10000) < (b.avg_duration)  THEN ', Fast last run' ELSE '' END +
-				CASE WHEN (b.last_duration) > (b.avg_duration * 10000) THEN ', Slow last run' ELSE '' END +
+				CASE WHEN (b.min_duration * 100) < (b.avg_duration) THEN ', Fast sometimes' ELSE '' END +
+				CASE WHEN (b.max_duration) > (b.avg_duration * 100) THEN ', Slow sometimes' ELSE '' END +
+				CASE WHEN (b.last_duration * 100) < (b.avg_duration)  THEN ', Fast last run' ELSE '' END +
+				CASE WHEN (b.last_duration) > (b.avg_duration * 100) THEN ', Slow last run' ELSE '' END +
 				/*CPU*/
-				CASE WHEN (b.min_cpu_time / b.avg_dop) * 10000 < (b.avg_cpu_time / b.avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
-				CASE WHEN (b.max_cpu_time / b.max_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU sometimes' ELSE '' END +
-				CASE WHEN (b.last_cpu_time / b.last_dop) * 10000 < (b.avg_cpu_time / b.avg_dop)  THEN ', Low CPU last run' ELSE '' END +
-				CASE WHEN (b.last_cpu_time / b.last_dop) > (b.avg_cpu_time / b.avg_dop) * 10000 THEN ', High CPU last run' ELSE '' END +
+				CASE WHEN (b.min_cpu_time / b.avg_dop) * 100 < (b.avg_cpu_time / b.avg_dop) THEN ', Low CPU sometimes' ELSE '' END +
+				CASE WHEN (b.max_cpu_time / b.max_dop) > (b.avg_cpu_time / b.avg_dop) * 100 THEN ', High CPU sometimes' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) * 100 < (b.avg_cpu_time / b.avg_dop)  THEN ', Low CPU last run' ELSE '' END +
+				CASE WHEN (b.last_cpu_time / b.last_dop) > (b.avg_cpu_time / b.avg_dop) * 100 THEN ', High CPU last run' ELSE '' END +
 				/*Logical Reads*/
-				CASE WHEN (b.min_logical_io_reads * 10000) < (b.avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
-				CASE WHEN (b.max_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads sometimes' ELSE '' END +
-				CASE WHEN (b.last_logical_io_reads * 10000) < (b.avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
-				CASE WHEN (b.last_logical_io_reads) > (b.avg_logical_io_reads * 10000) THEN ', High reads last run' ELSE '' END +
+				CASE WHEN (b.min_logical_io_reads * 100) < (b.avg_logical_io_reads) THEN ', Low reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_reads) > (b.avg_logical_io_reads * 100) THEN ', High reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads * 100) < (b.avg_logical_io_reads)  THEN ', Low reads last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_reads) > (b.avg_logical_io_reads * 100) THEN ', High reads last run' ELSE '' END +
 				/*Logical Writes*/
-				CASE WHEN (b.min_logical_io_writes * 10000) < (b.avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
-				CASE WHEN (b.max_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes sometimes' ELSE '' END +
-				CASE WHEN (b.last_logical_io_writes * 10000) < (b.avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
-				CASE WHEN (b.last_logical_io_writes) > (b.avg_logical_io_writes * 10000) THEN ', High writes last run' ELSE '' END +
+				CASE WHEN (b.min_logical_io_writes * 100) < (b.avg_logical_io_writes) THEN ', Low writes sometimes' ELSE '' END +
+				CASE WHEN (b.max_logical_io_writes) > (b.avg_logical_io_writes * 100) THEN ', High writes sometimes' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes * 100) < (b.avg_logical_io_writes)  THEN ', Low writes last run' ELSE '' END +
+				CASE WHEN (b.last_logical_io_writes) > (b.avg_logical_io_writes * 100) THEN ', High writes last run' ELSE '' END +
 				/*Physical Reads*/
-				CASE WHEN (b.min_physical_io_reads * 10000) < (b.avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
-				CASE WHEN (b.max_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads sometimes' ELSE '' END +
-				CASE WHEN (b.last_physical_io_reads * 10000) < (b.avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
-				CASE WHEN (b.last_physical_io_reads) > (b.avg_physical_io_reads * 10000) THEN ', High physical reads last run' ELSE '' END +
+				CASE WHEN (b.min_physical_io_reads * 100) < (b.avg_physical_io_reads) THEN ', Low physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.max_physical_io_reads) > (b.avg_physical_io_reads * 100) THEN ', High physical reads sometimes' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads * 100) < (b.avg_physical_io_reads)  THEN ', Low physical reads last run' ELSE '' END +
+				CASE WHEN (b.last_physical_io_reads) > (b.avg_physical_io_reads * 100) THEN ', High physical reads last run' ELSE '' END +
 				/*Memory*/
-				CASE WHEN (b.min_query_max_used_memory * 10000) < (b.avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
-				CASE WHEN (b.max_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory sometimes' ELSE '' END +
-				CASE WHEN (b.last_query_max_used_memory * 10000) < (b.avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
-				CASE WHEN (b.last_query_max_used_memory) > (b.avg_query_max_used_memory * 10000) THEN ', High memory last run' ELSE '' END +
+				CASE WHEN (b.min_query_max_used_memory * 100) < (b.avg_query_max_used_memory) THEN ', Low memory sometimes' ELSE '' END +
+				CASE WHEN (b.max_query_max_used_memory) > (b.avg_query_max_used_memory * 100) THEN ', High memory sometimes' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory * 100) < (b.avg_query_max_used_memory)  THEN ', Low memory last run' ELSE '' END +
+				CASE WHEN (b.last_query_max_used_memory) > (b.avg_query_max_used_memory * 100) THEN ', High memory last run' ELSE '' END +
 				/*Duration*/
-				CASE WHEN b.min_rowcount * 10000 < b.avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
-				CASE WHEN b.max_rowcount > b.avg_rowcount * 10000 THEN ', High row count sometimes' ELSE '' END +
-				CASE WHEN b.last_rowcount * 10000 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
-				CASE WHEN b.last_rowcount > b.avg_rowcount * 10000 THEN ', High row count last run' ELSE '' END +
+				CASE WHEN b.min_rowcount * 100 < b.avg_rowcount THEN ', Low row count sometimes' ELSE '' END +
+				CASE WHEN b.max_rowcount > b.avg_rowcount * 100 THEN ', High row count sometimes' ELSE '' END +
+				CASE WHEN b.last_rowcount * 100 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
+				CASE WHEN b.last_rowcount > b.avg_rowcount * 100 THEN ', High row count last run' ELSE '' END +
 				/*DOP*/
 				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
 				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
 				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
 				/*tempdb*/
-				CASE WHEN b.min_tempdb_space_used * 10000 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
-				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb sometimes' ELSE '' END +
-				CASE WHEN b.last_tempdb_space_used * 10000 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
-				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 10000 THEN ', High tempdb last run' ELSE '' END +
+				CASE WHEN b.min_tempdb_space_used * 100 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
+				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb sometimes' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used * 100 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
+				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb last run' ELSE '' END +
 				/*tlog*/
-				CASE WHEN b.min_log_bytes_used * 10000 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
-				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use sometimes' ELSE '' END +
-				CASE WHEN b.last_log_bytes_used * 10000 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
-				CASE WHEN b.last_log_bytes_used > b.avg_log_bytes_used * 10000 THEN ', High log use last run' ELSE '' END 
+				CASE WHEN b.min_log_bytes_used * 100 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
+				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 100 THEN ', High log use sometimes' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used * 100 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
+				CASE WHEN b.last_log_bytes_used > b.avg_log_bytes_used * 100 THEN ', High log use last run' ELSE '' END 
 	, 2, 200000) 
 FROM #working_metrics AS b
 OPTION (RECOMPILE);
@@ -26329,9 +27521,10 @@ BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
+
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -26360,7 +27553,7 @@ RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -27166,7 +28359,20 @@ BEGIN
                      'High tempdb use',
                      'This query uses more than half of a data file on average',
                      'No URL yet',
-                     'You should take a look at tempdb waits to see if you''re having problems') ;						
+                     'You should take a look at tempdb waits to see if you''re having problems') ;	
+					
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_paul_white_electric = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     998,
+                     200,
+                     'Is Paul White Electric?',
+                     'This query has a Switch operator in it!',
+                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;						 					
 				
 				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 				
@@ -27291,6 +28497,20 @@ BEGIN
 			FROM rowcount_worst
 			OPTION (RECOMPILE);
 
+
+        IF NOT EXISTS (SELECT 1/0
+					   FROM   #warning_results AS bcr
+                       WHERE  bcr.Priority = 2147483646
+				      )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (2147483646,
+                    255,
+                    'Need more help?' ,
+                    'Paste your plan on the internet!',
+                    'http://pastetheplan.com',
+                    'This makes it easy to share plans and post them to Q&A sites like https://dba.stackexchange.com/!') ;
+
+
         IF NOT EXISTS (SELECT 1/0
 					   FROM   #warning_results AS bcr
                        WHERE  bcr.Priority = 2147483647
@@ -27409,6 +28629,10 @@ SELECT '#est_rows' AS table_name,  *
 FROM #est_rows AS er
 OPTION (RECOMPILE);
 
+SELECT '#stored_proc_info' AS table_name, *
+FROM #stored_proc_info AS spi
+OPTION(RECOMPILE);
+
 END; 
 
 END TRY
@@ -27489,8 +28713,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '5.8';
+	SET @VersionDate = '20171001';
 
 
 	IF @Help = 1
@@ -27575,12 +28799,16 @@ DECLARE  @ProductVersion NVARCHAR(128)
 								AND r.plan_handle = session_stats.plan_handle
 						        AND r.statement_start_offset = session_stats.statement_start_offset
 						        AND r.statement_end_offset = session_stats.statement_end_offset' 
+		,@QueryStatsXML BIT = 0
+		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
+		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
 
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
-@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
-
+       @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+	SET @QueryStatsXML = 1;
 
 
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
@@ -27820,6 +29048,11 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							 WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
 							 ELSE N''
 						END
+						+
+						CASE @QueryStatsXML
+							 WHEN 1 THEN + @QueryStatsXMLselect
+							 ELSE N''
+						END
 						+' 
 			            s.status ,
 			            ISNULL(SUBSTRING(dest.text,
@@ -27967,6 +29200,14 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 								AND tsu.session_id = r.session_id
 								AND tsu.session_id = s.session_id
 						) as tempdb_allocations
+						'
+						+
+						CASE @QueryStatsXML
+							 WHEN 1 THEN @QueryStatsXMLSQL
+							 ELSE N''
+						END
+						+ 
+						'
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
 						'
@@ -27990,6 +29231,7 @@ IF @Debug = 1
 EXEC(@StringToExecute);
 
 END
+GO 
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -28018,8 +29260,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 	DECLARE @Version NVARCHAR(30);
-	SET @Version = '5.7';
-	SET @VersionDate = '20170901';
+	SET @Version = '5.8';
+	SET @VersionDate = '20171001';
 
 
 IF @Help = 1
@@ -28921,8 +30163,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '1.7';
-		SET @VersionDate = '20170901';
+		SET @Version = '1.8';
+		SET @VersionDate = '20171001';
 
 
         DECLARE @sql NVARCHAR(MAX) ,

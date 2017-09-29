@@ -28,8 +28,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '1.7';
-		SET @VersionDate = '20170901';
+		SET @Version = '1.8';
+		SET @VersionDate = '20171001';
 
 
         DECLARE @sql NVARCHAR(MAX) ,
