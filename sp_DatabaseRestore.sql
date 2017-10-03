@@ -386,6 +386,18 @@ EXEC master.sys.xp_cmdshell @cmd;
 	IF (
 		SELECT COUNT(*) 
 		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'Access is denied.'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
 		) = 1
 	AND (
 		SELECT COUNT(*) 
@@ -591,6 +603,18 @@ EXEC master.sys.xp_cmdshell @cmd;
 	IF (
 		SELECT COUNT(*) 
 		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'Access is denied.'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
 		) = 1
 	AND (
 		SELECT COUNT(*) 
@@ -698,6 +722,18 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+
+		END;
+
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'Access is denied.'
+		) = 1
+
+		BEGIN
+	
+			RAISERROR('Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
 
 		END;
 
