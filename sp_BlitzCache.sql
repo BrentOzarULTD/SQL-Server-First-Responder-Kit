@@ -245,6 +245,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
     @MinimumExecutionCount INT = 0,
+	@Debug BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -1024,6 +1025,26 @@ IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
 IF OBJECT_ID ('tempdb..#stored_proc_info') IS NOT NULL
     DROP TABLE #stored_proc_info;
 
+IF OBJECT_ID ('tempdb..#plan_creation') IS NOT NULL
+    DROP TABLE #plan_creation;
+
+IF OBJECT_ID ('tempdb..#est_rows') IS NOT NULL
+    DROP TABLE #est_rows;
+
+IF OBJECT_ID ('tempdb..#plan_cost') IS NOT NULL
+    DROP TABLE #plan_cost;
+
+IF OBJECT_ID ('tempdb..#proc_costs') IS NOT NULL
+    DROP TABLE #proc_costs;
+
+IF OBJECT_ID ('tempdb..#stats_agg') IS NOT NULL
+    DROP TABLE #stats_agg;
+
+IF OBJECT_ID ('tempdb..#trace_flags') IS NOT NULL
+    DROP TABLE #trace_flags;
+
+
+
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
@@ -1076,6 +1097,54 @@ CREATE TABLE #stored_proc_info
     converted_to NVARCHAR(128)
 );
 
+CREATE TABLE #plan_creation
+(
+    percent_24 DECIMAL(5, 2),
+    percent_4 DECIMAL(5, 2),
+    percent_1 DECIMAL(5, 2),
+    SPID INT
+);
+
+CREATE TABLE #est_rows
+(
+    QueryHash BINARY(8),
+    estimated_rows FLOAT
+);
+
+CREATE TABLE #plan_cost
+(
+    QueryPlanCost FLOAT,
+    SqlHandle VARBINARY(64),
+    QueryHash BINARY(8),
+    QueryPlanHash BINARY(8)
+);
+
+CREATE TABLE #proc_costs
+(
+    PlanTotalQuery FLOAT,
+    PlanHandle VARBINARY(64),
+    SqlHandle VARBINARY(64)
+);
+
+CREATE TABLE #stats_agg
+(
+    SqlHandle VARBINARY(64),
+	LastUpdate DATETIME2(7),
+    ModificationCount INT,
+    SamplingPercent FLOAT,
+    [Statistics] NVARCHAR(256),
+    [Table] NVARCHAR(256),
+    [Schema] NVARCHAR(256),
+    [Database] NVARCHAR(256),
+);
+
+CREATE TABLE #trace_flags
+(
+    SqlHandle VARBINARY(64),
+    QueryHash BINARY(8),
+    global_trace_flags VARCHAR(1000),
+    session_trace_flags VARCHAR(1000)
+);
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -1085,11 +1154,11 @@ SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THE
 	   COUNT(deqs.creation_time) AS [total_plans]
 FROM sys.dm_exec_query_stats AS deqs
 )
+INSERT INTO #plan_creation
 SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
 	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
 	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   @@SPID AS SPID
-INTO #plan_creation
 FROM x
 OPTION (RECOMPILE) ;
 
@@ -1849,20 +1918,20 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
 
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
-/*
---Debugging section
-SELECT DATALENGTH(@sql)
-PRINT SUBSTRING(@sql, 0, 4000)
-PRINT SUBSTRING(@sql, 4000, 8000)
-PRINT SUBSTRING(@sql, 8000, 12000)
-PRINT SUBSTRING(@sql, 12000, 16000)
-PRINT SUBSTRING(@sql, 16000, 20000)
-PRINT SUBSTRING(@sql, 20000, 24000)
-PRINT SUBSTRING(@sql, 24000, 28000)
-PRINT SUBSTRING(@sql, 28000, 32000)
-PRINT SUBSTRING(@sql, 32000, 36000)
-PRINT SUBSTRING(@sql, 36000, 40000)
-*/
+
+IF @Debug = 1
+    BEGIN
+        PRINT SUBSTRING(@sql, 0, 4000);
+        PRINT SUBSTRING(@sql, 4000, 8000);
+        PRINT SUBSTRING(@sql, 8000, 12000);
+        PRINT SUBSTRING(@sql, 12000, 16000);
+        PRINT SUBSTRING(@sql, 16000, 20000);
+        PRINT SUBSTRING(@sql, 20000, 24000);
+        PRINT SUBSTRING(@sql, 24000, 28000);
+        PRINT SUBSTRING(@sql, 28000, 32000);
+        PRINT SUBSTRING(@sql, 32000, 36000);
+        PRINT SUBSTRING(@sql, 36000, 40000);
+    END;
 
 IF @Reanalyze = 0
 BEGIN
@@ -2198,10 +2267,10 @@ table_dml AS (
 
 RAISERROR(N'Gathering row estimates', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES ('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+INSERT INTO #est_rows
 SELECT DISTINCT 
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(c.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
 		c.n.value('(/p:StmtSimple/@StatementEstRows)[1]', 'FLOAT') AS estimated_rows
-INTO #est_rows
 FROM   #statements AS s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS c(n)
 WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
@@ -2219,12 +2288,12 @@ WHERE  c.n.exist('/p:StmtSimple[@StatementEstRows > 0]') = 1
 --Gather costs
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+INSERT INTO #plan_cost
 SELECT  DISTINCT
 		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') QueryPlanCost,
 		s.SqlHandle,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryPlanHash
-INTO #plan_cost
 FROM #statements s
 CROSS APPLY s.statement.nodes('/p:StmtSimple') AS q(n)
 WHERE statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') > 0
@@ -2271,8 +2340,8 @@ RAISERROR(N'Gathering stored procedure costs', 0, 1) WITH NOWAIT;
     qc.SqlHandle
   FROM QueryCost qc
 )
+INSERT INTO #proc_costs
 SELECT qcu.PlanTotalQuery, PlanHandle, SqlHandle
-INTO #proc_costs
 FROM QueryCostUpdate AS qcu
 
 UPDATE b
@@ -2690,6 +2759,7 @@ BEGIN
 
 RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+INSERT INTO #stats_agg
 SELECT qp.SqlHandle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
 	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
@@ -2698,7 +2768,6 @@ SELECT qp.SqlHandle,
 	   x.c.value('@Table', 'NVARCHAR(256)') AS [Table], 
 	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
 	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
-INTO #stats_agg
 FROM #query_plan AS qp
 CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
 
@@ -2799,6 +2868,7 @@ SELECT  qp.QueryHash,
 FROM    #query_plan qp
 CROSS APPLY qp.query_plan.nodes('/p:QueryPlan/p:TraceFlags/p:TraceFlag') AS q(n)
 )
+INSERT INTO #trace_flags
 SELECT DISTINCT tf1.SqlHandle , tf1.QueryHash,
     STUFF((
           SELECT DISTINCT ', ' + CONVERT(VARCHAR(5), tf2.trace_flag)
@@ -2816,7 +2886,6 @@ SELECT DISTINCT tf1.SqlHandle , tf1.QueryHash,
 		  AND tf2.scope = 'Session'
         FOR XML PATH(N'')), 1, 2, N''
       ) AS session_trace_flags
-INTO #trace_flags
 FROM tf_pretty AS tf1
 OPTION (RECOMPILE);
 
@@ -3424,7 +3493,21 @@ BEGIN
 		  QueryPlanCost FLOAT,
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
-    EXEC sp_executesql @insert_sql ;
+    		IF @Debug = 1
+			BEGIN
+			    PRINT SUBSTRING(@insert_sql, 0, 4000);
+			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+			END;
+
+	EXEC sp_executesql @insert_sql ;
 
 
     SET @insert_sql =N' IF EXISTS(SELECT * FROM '
@@ -3469,6 +3552,20 @@ BEGIN
 
     SET @insert_sql += N' OPTION (RECOMPILE) ; '    
     
+    	IF @Debug = 1
+		BEGIN
+		    PRINT SUBSTRING(@insert_sql, 0, 4000);
+		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+		END;
+
     EXEC sp_executesql @insert_sql, N'@Top INT, @minimumExecutionCount INT', @Top, @MinimumExecutionCount;
 
     RETURN
@@ -3554,6 +3651,20 @@ BEGIN
                               END + N' DESC '
 
     SET @sql += N' OPTION (RECOMPILE) ; '
+
+	IF @Debug = 1
+	BEGIN
+	    PRINT SUBSTRING(@sql, 0, 4000);
+	    PRINT SUBSTRING(@sql, 4000, 8000);
+	    PRINT SUBSTRING(@sql, 8000, 12000);
+	    PRINT SUBSTRING(@sql, 12000, 16000);
+	    PRINT SUBSTRING(@sql, 16000, 20000);
+	    PRINT SUBSTRING(@sql, 20000, 24000);
+	    PRINT SUBSTRING(@sql, 24000, 28000);
+	    PRINT SUBSTRING(@sql, 28000, 32000);
+	    PRINT SUBSTRING(@sql, 32000, 36000);
+	    PRINT SUBSTRING(@sql, 36000, 40000);
+	END;
 
     EXEC sp_executesql @sql, N'@Top INT, @minimumExecutionCount INT', @Top, @MinimumExecutionCount;
 END
@@ -3751,6 +3862,19 @@ SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
                                END + N' DESC '
 SET @sql += N' OPTION (RECOMPILE) ; '
 
+IF @Debug = 1
+    BEGIN
+        PRINT SUBSTRING(@sql, 0, 4000);
+        PRINT SUBSTRING(@sql, 4000, 8000);
+        PRINT SUBSTRING(@sql, 8000, 12000);
+        PRINT SUBSTRING(@sql, 12000, 16000);
+        PRINT SUBSTRING(@sql, 16000, 20000);
+        PRINT SUBSTRING(@sql, 20000, 24000);
+        PRINT SUBSTRING(@sql, 24000, 28000);
+        PRINT SUBSTRING(@sql, 28000, 32000);
+        PRINT SUBSTRING(@sql, 32000, 36000);
+        PRINT SUBSTRING(@sql, 36000, 40000);
+    END;
 
 EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT', @Top, @@SPID, @MinimumExecutionCount ;
 
@@ -4604,6 +4728,84 @@ BEGIN
     OPTION (RECOMPILE);
 END
 
+IF @Debug = 1
+    BEGIN
+		
+		SELECT '##bou_BlitzCacheResults' AS table_name, *
+		FROM   ##bou_BlitzCacheResults
+		OPTION ( RECOMPILE );
+		
+		SELECT '##bou_BlitzCacheProcs' AS table_name, *
+		FROM   ##bou_BlitzCacheProcs
+		OPTION ( RECOMPILE );
+		
+		SELECT '#statements' AS table_name,  *
+		FROM #statements AS s
+		OPTION (RECOMPILE);
+
+		SELECT '#query_plan' AS table_name,  *
+		FROM #query_plan AS qp
+		OPTION (RECOMPILE);
+		
+		SELECT '#relop' AS table_name,  *
+		FROM #relop AS r
+		OPTION (RECOMPILE);
+
+		SELECT '#only_query_hashes' AS table_name, *
+		FROM   #only_query_hashes
+		OPTION ( RECOMPILE );
+		
+		SELECT '#ignore_query_hashes' AS table_name, *
+		FROM   #ignore_query_hashes
+		OPTION ( RECOMPILE );
+		
+		SELECT '#only_sql_handles' AS table_name, *
+		FROM   #only_sql_handles
+		OPTION ( RECOMPILE );
+		
+		SELECT '#ignore_sql_handles' AS table_name, *
+		FROM   #ignore_sql_handles
+		OPTION ( RECOMPILE );
+		
+		SELECT '#p' AS table_name, *
+		FROM   #p
+		OPTION ( RECOMPILE );
+		
+		SELECT '#checkversion' AS table_name, *
+		FROM   #checkversion
+		OPTION ( RECOMPILE );
+		
+		SELECT '#configuration' AS table_name, *
+		FROM   #configuration
+		OPTION ( RECOMPILE );
+		
+		SELECT '#stored_proc_info' AS table_name, *
+		FROM   #stored_proc_info
+		OPTION ( RECOMPILE );
+		
+		SELECT '#plan_creation' AS table_name, *
+		FROM   #plan_creation
+		OPTION ( RECOMPILE );
+		
+		SELECT '#plan_cost' AS table_name, *
+		FROM   #plan_cost
+		OPTION ( RECOMPILE );
+		
+		SELECT '#proc_costs' AS table_name, *
+		FROM   #proc_costs
+		OPTION ( RECOMPILE );
+		
+		SELECT '#stats_agg' AS table_name, *
+		FROM   #stats_agg
+		OPTION ( RECOMPILE );
+		
+		SELECT '#trace_flags' AS table_name, *
+		FROM   #trace_flags
+		OPTION ( RECOMPILE );
+
+    END;
+
+
 RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
@@ -4943,6 +5145,20 @@ SET @AllSortSql += N'
 										  OPTION(RECOMPILE);  '
 				    END
 END
+
+					IF @Debug = 1
+						BEGIN
+						    PRINT SUBSTRING(@AllSortSql, 0, 4000);
+						    PRINT SUBSTRING(@AllSortSql, 4000, 8000);
+						    PRINT SUBSTRING(@AllSortSql, 8000, 12000);
+						    PRINT SUBSTRING(@AllSortSql, 12000, 16000);
+						    PRINT SUBSTRING(@AllSortSql, 16000, 20000);
+						    PRINT SUBSTRING(@AllSortSql, 20000, 24000);
+						    PRINT SUBSTRING(@AllSortSql, 24000, 28000);
+						    PRINT SUBSTRING(@AllSortSql, 28000, 32000);
+						    PRINT SUBSTRING(@AllSortSql, 32000, 36000);
+						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
+						END;
 
 					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top
 
