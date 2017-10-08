@@ -1091,6 +1091,7 @@ CREATE TABLE #stored_proc_info
     QueryHash BINARY(8),
     variable_name NVARCHAR(128),
     variable_datatype NVARCHAR(128),
+	converted_column_name NVARCHAR(128),
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
@@ -2903,7 +2904,10 @@ AS (
 			SELECT 
 			qp.QueryHash,
             qp.SqlHandle,
-            SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
+            CASE WHEN b.QueryType = 'Statement' 
+				 THEN b.QueryType 
+				 ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) 
+			END AS proc_name,
             q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
             q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
             q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
@@ -2918,15 +2922,31 @@ AS (
 			SELECT 
 			qp.QueryHash,
             qp.SqlHandle,
-			SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) AS proc_name,
+			CASE WHEN b.QueryType = 'Statement' 
+				 THEN b.QueryType 
+				 ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) 
+			END AS proc_name,
             qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
-            SUBSTRING(
+            CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 
+			THEN
+			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
                 CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
                 CHARINDEX(']',
                           qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
                           CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
-                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) AS variable_name,
+                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) 
+				ELSE N'**no_variable**' END AS variable_name,
+			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
+			THEN 
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
+                ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
+			ELSE N'**no_column**' END AS converted_column_name,
             SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
                 CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
@@ -2948,13 +2968,14 @@ AS (
      WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
 			AND qp.QueryHash IS NOT NULL 
 			AND b.implicit_conversions = 1 )
-INSERT #stored_proc_info ( SPID, QueryHash, SqlHandle, variable_name, variable_datatype, compile_time_value, proc_name, column_name, converted_to )
+INSERT INTO #stored_proc_info
 SELECT DISTINCT
 	   @@SPID AS SPID,
-       COALESCE(vt.QueryHash, ci.QueryHash) AS QueryHash,
 	   COALESCE(vt.SqlHandle, ci.SqlHandle) AS SqlHandle,
+       COALESCE(vt.QueryHash, ci.QueryHash) AS QueryHash,
        COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
        COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+	   COALESCE(converted_column_name, '**no_column**') AS converted_column_name, 
        COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
        COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
        ci.column_name,
@@ -2964,6 +2985,8 @@ RIGHT JOIN   convert_implicit AS ci
 ON (ci.variable_name = vt.variable_name
    AND ci.QueryHash = vt.QueryHash)
 OPTION(RECOMPILE);
+
+
 
 WITH precheck AS (
 SELECT spi.SPID,
@@ -2975,22 +2998,34 @@ SELECT spi.SPID,
 			+ N'The ' 
 			+ CASE WHEN spi.proc_name <> 'Statement' 
 				   THEN N'stored procedure ' + spi.proc_name 
-				   ELSE N'Statement' 
+				   ELSE N'ad hoc statement' 
 			  END
 			+ N' had the following implicit conversions: '
 			+ CHAR(10)
 			+ STUFF((
 				SELECT DISTINCT 
 						@nl
-						+ N'The variable '
-						+ spi2.variable_name
+						+ CASE WHEN spi2.variable_name <> '**no_variable**'
+							   THEN N'The variable '
+							   ELSE N'The column '
+						  END 
+						+ CASE WHEN spi2.variable_name <> '**no_variable**'
+							   THEN spi2.variable_name
+							   ELSE spi2.converted_column_name
+						  END 
 						+ N' has a data type of '
 						+ spi2.variable_datatype
 						+ N' which caused implicit conversion on the column '
 						+ spi2.column_name
 						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
-							   THEN N' and is a declared variable.' 
-							   ELSE N' and is a parameter of the stored procedure.' 
+									AND spi2.variable_name <> '**no_variable**'
+							   THEN N' and is a declared variable or unused.' 
+							   /*Figure out if the variable is declared or passed in*/
+							   WHEN spi2.compile_time_value = '*declared in proc*' 
+									AND spi2.converted_column_name <> '**no_column**'
+							   THEN N' and is used in column to column correlation.' 
+							   /*Figure out if it's a column*/
+							   ELSE N' and is a used parameter of the stored procedure.' 
 						  END
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
