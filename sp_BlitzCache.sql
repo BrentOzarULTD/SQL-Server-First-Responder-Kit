@@ -1094,35 +1094,6 @@ FROM x
 OPTION (RECOMPILE) ;
 
 
-RAISERROR(N'Checking plan stub count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS plan_stubs_percent,
-        COUNT(*) AS total_plan_stubs,
-		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
-        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
-		@@SPID AS SPID
-INTO #plan_stubs_warning
-FROM    sys.dm_exec_cached_plans cp
-LEFT JOIN sys.dm_exec_query_stats qs
-ON      cp.plan_handle = qs.plan_handle
-WHERE   cp.cacheobjtype = 'Compiled Plan Stub'
-OPTION (RECOMPILE) ;
-
-
-RAISERROR(N'Checking single use plan count', 0, 1) WITH NOWAIT;
-SELECT  CONVERT(DECIMAL(9, 2), (CAST(NULLIF(COUNT(*), 0) AS DECIMAL(9, 2)) / ( SELECT COUNT (*) FROM sys.dm_exec_cached_plans ) )) AS single_use_plans_percent,
-        COUNT(*) AS total_single_use_plans,
-		(SELECT COUNT (*) FROM sys.dm_exec_cached_plans) AS total_plans,
-        ISNULL(AVG(DATEDIFF(HOUR, qs.creation_time, GETDATE())), 0) AS avg_plan_age,
-		@@SPID AS SPID
-INTO #single_use_plans_warning
-FROM    sys.dm_exec_cached_plans cp
-LEFT JOIN sys.dm_exec_query_stats qs
-ON      cp.plan_handle = qs.plan_handle
-WHERE   cp.usecounts = 1
-        AND cp.cacheobjtype = 'Compiled Plan'
-OPTION (RECOMPILE) ;
-
-
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
 SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
@@ -4506,38 +4477,6 @@ BEGIN
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
-
-        IF EXISTS (SELECT 1/0
-                   FROM   #single_use_plans_warning p
-                   WHERE p.total_plans >= 1000
-				   AND p.single_use_plans_percent >= 10.
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            SELECT SPID,
-                    999,
-                    255,
-                    'Plan Cache Information',
-                    'Your plan cache is ' + CONVERT(NVARCHAR(10), p.single_use_plans_percent) + '% single use plans with an average age of ' + CONVERT(NVARCHAR(10), p.avg_plan_age) + ' minutes.',
-                    '',
-                    'Having a lot of single use plans indicates plan cache bloat. This can be cause by non-parameterized dynamic SQL and EF code, or lots of ad hoc queries.'
-			FROM   #single_use_plans_warning p	;
-
-        IF EXISTS (SELECT 1/0
-                   FROM   #plan_stubs_warning p
-                   WHERE p.total_plans >= 1000
-				   AND p.plan_stubs_percent >= 30.
-				   AND p.total_plan_stubs >= (40009 * 4) 
-				   AND SPID = @@SPID)
-            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            SELECT SPID,
-                    999,
-                    255,
-                    'Plan Cache Information',
-                    'Your plan cache has ' + CONVERT(NVARCHAR(10), ISNULL(p.total_plan_stubs, 0)) + ' plan stubs, with an average age of ' + CONVERT(NVARCHAR(10),ISNULL(p.avg_plan_age, 0)) + ' minutes.',
-                    'https://www.brentozar.com/blitz/poison-wait-detected/',
-                    'A high number of plan stubs may result in CMEMTHREAD waits, which you have ' 
-						+ CONVERT(VARCHAR(10), (SELECT CONVERT(DECIMAL(9,0), (ISNULL(dows.wait_time_ms / 60000., 0))) FROM sys.dm_os_wait_stats AS dows WHERE dows.wait_type = 'CMEMTHREAD')) + ' minutes of.'
-			FROM   #plan_stubs_warning p	;			
 		
 		IF @v >= 11
 		BEGIN	
