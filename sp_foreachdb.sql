@@ -1,13 +1,19 @@
 USE [master];
 GO
 
-IF OBJECT_ID('dbo.sp_foreachdb') IS  NULL
+IF OBJECT_ID('dbo.sp_foreachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_foreachdb AS RETURN 0');
 GO
 
 ALTER PROCEDURE dbo.sp_foreachdb
-    @command NVARCHAR(MAX) ,
-    @replace_character NCHAR(1) = N'?' ,
+    -- Original fields from sp_MSforeachdb...
+    @command1 NVARCHAR(MAX) ,
+    @replacechar NCHAR(1) = N'?' ,
+    @command2 NVARCHAR(MAX) = NULL ,
+    @command3 NVARCHAR(MAX) = NULL ,
+    @precommand NVARCHAR(MAX) = NULL ,
+    @postcommand NVARCHAR(MAX) = NULL ,
+    -- Additional fields for our sp_foreachdb!
     @print_dbname BIT = 0 ,
     @print_command_only BIT = 0 ,
     @suppress_quotename BIT = 0 ,
@@ -162,7 +168,7 @@ AS
 
         WHILE @@FETCH_STATUS = 0
             BEGIN
-                SET @sql = REPLACE(@command, @replace_character, @db);
+                SET @sql = REPLACE(@command1, @replacechar, @db);
 
                 IF @print_command_only = 1
                     BEGIN
