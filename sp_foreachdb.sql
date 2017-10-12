@@ -169,6 +169,8 @@ AS
             BEGIN
                 SET @sql = REPLACE(@command, @replace_character, @db);
 
+                IF @suppress_quotename = 0 SET @sql = REPLACE(REPLACE(@sql,'[[','['),']]',']');
+
                 IF @print_command_only = 1
                     BEGIN
                         PRINT '/* For ' + @db + ': */' + CHAR(13) + CHAR(10)
