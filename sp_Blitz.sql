@@ -31,8 +31,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.0';
-	SET @VersionDate = '20170307';
+	SET @Version = '5.3';
+	SET @VersionDate = '20170501';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -506,13 +506,6 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('XE_DISPATCHER_WAIT');
 		INSERT INTO #IgnorableWaits VALUES ('XE_LIVE_TARGET_TVF');
 		INSERT INTO #IgnorableWaits VALUES ('XE_TIMER_EVENT');
-
-
-        /* Used for the default trace checks. */
-        DECLARE @TracePath NVARCHAR(256);
-        SELECT @TracePath=CAST(value as NVARCHAR(256))
-            FROM sys.fn_trace_getinfo(1)
-            WHERE traceid=1 AND property=2;
         
         SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0
             FROM    sys.databases
@@ -571,7 +564,7 @@ AS
 		/* Get the major and minor build numbers */
 		SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 		SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
-			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2)
+			@ProductVersionMinor = PARSENAME(CONVERT(varchar(32), @ProductVersion), 2);
 		
 		/*
 		Whew! we're finally done with the setup, and we can start doing checks.
@@ -633,7 +626,7 @@ AS
 										AND d.name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 															FROM  #SkipChecks
-															WHERE CheckID IS NULL )
+															WHERE CheckID IS NULL OR CheckID = 1)
 										/*
 										The above NOT IN filters out the databases we're not supposed to check.
 										*/
@@ -690,7 +683,7 @@ AS
 										AND d.name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 															FROM  #SkipChecks
-															WHERE CheckID IS NULL )
+															WHERE CheckID IS NULL OR CheckID = 2)
 										AND NOT EXISTS ( SELECT *
 														 FROM   msdb.dbo.backupset b
 														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
@@ -1098,7 +1091,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 12)
 					END
 
 
@@ -1128,7 +1121,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL);
+														  WHERE CheckID IS NULL OR CheckID = 13);
 					END
 
 
@@ -1156,7 +1149,7 @@ AS
 					  FROM sys.databases
 					  WHERE page_verify_option < 2
 					  AND name <> ''tempdb''
-					  and name not in (select distinct DatabaseName from #SkipChecks) OPTION (RECOMPILE);'
+					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 14) OPTION (RECOMPILE);'
 								EXECUTE(@StringToExecute)
 							END;
 					END
@@ -1188,7 +1181,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 15)
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -1217,7 +1210,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 16)
 					END
 
 
@@ -1247,7 +1240,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 17)
 					END
 
 
@@ -1276,7 +1269,7 @@ AS
 								WHERE   is_parameterization_forced = 1
 										AND name NOT IN ( SELECT  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 18)
 					END
 
 
@@ -1306,7 +1299,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 20)
 					END
 
 
@@ -1335,7 +1328,7 @@ AS
 					  (''Database ['' + [name] + ''] has Transparent Data Encryption enabled.  Make absolutely sure you have backed up the certificate and private key, or else you will not be able to restore this database.'') AS Details
 					  FROM sys.databases
 					  WHERE is_encrypted = 1
-					  and name not in (select distinct DatabaseName from #SkipChecks) OPTION (RECOMPILE);'
+					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 21) OPTION (RECOMPILE);'
 								EXECUTE(@StringToExecute)
 							END;
 					END
@@ -1699,7 +1692,8 @@ AS
 										AND DB_NAME(database_id) NOT IN (
 										SELECT DISTINCT
 												DatabaseName
-										FROM    #SkipChecks )
+										FROM    #SkipChecks
+										WHERE CheckID IS NULL OR CheckID = 26 )
 					END
 
 
@@ -2128,6 +2122,7 @@ AS
 						IF ( SELECT COUNT (distinct [size])
 							FROM   tempdb.sys.database_files
 							WHERE  type_desc = 'ROWS'
+							HAVING MAX((size * 8) / (1024. * 1024)) - MIN((size * 8) / (1024. * 1024)) > 1.
 							) <> 1
 							BEGIN
 								INSERT  INTO #BlitzResults
@@ -2340,7 +2335,7 @@ AS
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL);
+														  WHERE CheckID IS NULL OR CheckID = 55);
 					END
 
 				IF NOT EXISTS ( SELECT  1
@@ -2446,7 +2441,7 @@ AS
 								WHERE   name NOT IN ( SELECT DISTINCT
 																DatabaseName
 													  FROM      #SkipChecks 
-													  WHERE CheckID IS NULL)
+													  WHERE CheckID IS NULL OR CheckID = 62)
 										AND compatibility_level <= 90
 					END
 
@@ -3022,7 +3017,7 @@ AS
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
 											                        FROM    #SkipChecks 
-																	WHERE CheckID IS NULL)
+																	WHERE CheckID IS NULL OR CheckID = 148)
 	                        END
 
                         /* Reliability - Database Files Stored in Azure */
@@ -3052,7 +3047,7 @@ AS
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
 											                        FROM    #SkipChecks 
-																	WHERE CheckID IS NULL)
+																	WHERE CheckID IS NULL OR CheckID = 149)
 	                        END
 
 
@@ -3060,7 +3055,7 @@ AS
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 150 )
-                            AND @TracePath IS NOT NULL
+                            AND @base_tracefilename IS NOT NULL
 	                        BEGIN
 
 		                        INSERT  INTO #BlitzResults
@@ -3079,7 +3074,7 @@ AS
 						                        'Errors Logged Recently in the Default Trace' AS Finding ,
 						                        'https://BrentOzar.com/go/defaulttrace' AS URL ,
 						                         CAST(t.TextData AS NVARCHAR(4000)) AS Details
-                                        FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
+                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
                                         WHERE t.EventClass = 22
                                           AND t.Severity >= 17
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
@@ -3090,7 +3085,7 @@ AS
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
 				                        WHERE   DatabaseName IS NULL AND CheckID = 151 )
-                            AND @TracePath IS NOT NULL
+                            AND @base_tracefilename IS NOT NULL
 	                        BEGIN
 		                        INSERT  INTO #BlitzResults
 				                        ( CheckID ,
@@ -3108,7 +3103,7 @@ AS
 						                        'File Growths Slow' AS Finding ,
 						                        'https://BrentOzar.com/go/filegrowth' AS URL ,
 						                        CAST(COUNT(*) AS NVARCHAR(100)) + ' growths took more than 15 seconds each. Consider setting file autogrowth to a smaller increment.' AS Details
-                                        FROM    sys.fn_trace_gettable(@TracePath, DEFAULT) t
+                                        FROM    sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
                                         WHERE t.EventClass IN (92, 93)
                                           AND t.StartTime > DATEADD(dd, -30, GETDATE())
                                           AND t.Duration > 15000000
@@ -3179,7 +3174,7 @@ AS
 									AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
 								WHERE cFree.object_name LIKE N'%Memory Manager%'
 									AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
-									AND CAST(cTotal.cntr_value AS BIGINT) > 4000
+									AND CAST(cTotal.cntr_value AS BIGINT) > 20480000000
 									AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
                                     AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%'
 
@@ -3443,6 +3438,7 @@ IF @ProductVersionMajor >= 10
 
 /*This counts memory dumps and gives min and max date of in view*/
 IF @ProductVersionMajor >= 10
+               AND NOT (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 4297) /* Skip due to crash bug: https://support.microsoft.com/en-us/help/2908087 */
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )
@@ -3840,6 +3836,251 @@ IF @ProductVersionMajor >= 10
 		
 		   END;
 
+/*Begin: checking default trace for odd DBCC activity*/
+		
+		--Grab relevant event data
+		SELECT UPPER(
+					REPLACE(
+						SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 0, 
+								ISNULL(
+									NULLIF(
+										CHARINDEX('(', CONVERT(NVARCHAR(MAX), t.TextData)), 
+										 0), 
+									  LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 )) --This replaces everything up to an open paren, if one exists. 
+										, SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 
+											ISNULL(
+												NULLIF(
+													CHARINDEX(' WITH ',CONVERT(NVARCHAR(MAX), t.TextData))
+													, 0), 
+												LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1), 
+													LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 )
+					   , '') --This replaces any optional WITH clause to a DBCC command, like tableresults.
+					) AS [dbcc_event_trunc_upper],
+			UPPER(
+				REPLACE(
+					CONVERT(NVARCHAR(MAX), t.TextData), SUBSTRING(CONVERT(NVARCHAR(MAX), t.TextData), 
+											ISNULL(
+												NULLIF(
+													CHARINDEX(' WITH ',CONVERT(NVARCHAR(MAX), t.TextData))
+													, 0), 
+												LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1), 
+													LEN(CONVERT(NVARCHAR(MAX), t.TextData)) + 1 ), '')) AS [dbcc_event_full_upper],
+			MIN(t.StartTime) OVER (PARTITION BY CONVERT(NVARCHAR(128), t.TextData)) AS	min_start_time,
+			MAX(t.StartTime) OVER (PARTITION BY CONVERT(NVARCHAR(128), t.TextData)) AS max_start_time,
+			t.NTUserName AS [nt_user_name], 
+			t.NTDomainName AS [nt_domain_name], 
+			t.HostName AS [host_name],
+		    t.ApplicationName AS [application_name], 
+			t.LoginName [login_name], 
+			t.DBUserName AS [db_user_name]
+		 	INTO #dbcc_events_from_trace
+		    FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+			WHERE t.EventClass = 116
+			OPTION(RECOMPILE);
+
+			/*Overall count of DBCC events excluding silly stuff*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+			SELECT 199 AS CheckID ,
+			        50 AS Priority ,
+			        'DBCC Events' AS FindingsGroup ,
+			        'Overall Events' AS Finding ,
+			        '' AS URL ,
+			        CAST(COUNT(*) AS NVARCHAR(100)) + ' DBCC events have taken place between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+					'. This does not include CHECKDB and other usually benign DBCC events.'
+					AS Details
+			FROM    #dbcc_events_from_trace d
+			WHERE d.[dbcc_event_trunc_upper] NOT IN (
+			N'DBCC CHECKDB', N' DBCC CHECKALLOC' , N'DBCC CHECKTABLE', N'DBCC CHECKCATALOG', N'DBCC CHECKFILEGROUP', --CHECKDB related
+			N'DBCC TRACEON', N'DBCC TRACEOFF', N'DBCC DBINFO', N'DBCC LOGINFO', N'DBCC INPUTBUFFER', N'DBCC TRACESTATUS', --Usually monitoring tool related
+			N'DBCC CHECKIDENT', N'DBCC SHOW_STATISTICS', N'DBCC CHECKCONSTRAINTS',  --Probably rational
+			N'DBCC CLEANTABLE', N'DBCC CHECKPRIMARYFILE', N'DBCC OPENTRAN', 'DBCC SHOWFILESTATS' --Weird but okay
+													)
+			AND d.dbcc_event_full_upper NOT IN('DBCC SQLPERF(NETSTATS)', 'DBCC SQLPERF(LOGSPACE)')
+			HAVING COUNT(*) > 0
+			
+				END
+
+			/*Check for someone running drop clean buffers*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 200 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC DROPCLEANBUFFERS' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC DROPCLEANBUFFERS'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END 
+
+			/*Check for someone running free proc cache*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 201 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC FREEPROCCACHE' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC FREEPROCCACHE'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END
+
+			/*Check for someone clearing wait stats*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+					SELECT 202 AS CheckID ,
+					        50 AS Priority ,
+					        'DBCC Events' AS FindingsGroup ,
+					        'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)' AS Finding ,
+					        '' AS URL ,
+					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+							'. Why are you clearing wait stats? What are you hiding?'
+							AS Details
+					FROM    #dbcc_events_from_trace d
+					WHERE d.dbcc_event_full_upper = N'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)'
+					GROUP BY COALESCE(d.nt_user_name, d.login_name)
+					HAVING COUNT(*) > 0
+
+					END
+
+			/*Check for someone writing to pages. Yeah, right?*/
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+						SELECT 203 AS CheckID ,
+						        50 AS Priority ,
+						        'DBCC Events' AS FindingsGroup ,
+						        'DBCC WRITEPAGE' AS Finding ,
+						        '' AS URL ,
+						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								AS Details
+						FROM    #dbcc_events_from_trace d
+						WHERE d.dbcc_event_trunc_upper = N'DBCC WRITEPAGE'
+						GROUP BY COALESCE(d.nt_user_name, d.login_name)
+						HAVING COUNT(*) > 0
+
+						END
+
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+						SELECT 204 AS CheckID ,
+						        50 AS Priority ,
+						        'DBCC Events' AS FindingsGroup ,
+						        'DBCC SHRINK%' AS Finding ,
+						        '' AS URL ,
+						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
+								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								AS Details
+						FROM    #dbcc_events_from_trace d
+						WHERE d.dbcc_event_trunc_upper LIKE N'DBCC SHRINK%'
+						GROUP BY COALESCE(d.nt_user_name, d.login_name)
+						HAVING COUNT(*) > 0
+
+						END
+
+
+/*End: checking default trace for odd DBCC activity*/
+				
+				/*Begin check for autoshrink events*/
+
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 205 )
+					BEGIN
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+						SELECT	205 AS CheckID ,
+								        50 AS Priority ,
+								        'Autoshrink events' AS FindingsGroup ,
+								        'File shrinking' AS Finding ,
+								        '' AS URL , 
+										N'The database ' + QUOTENAME(t.DatabaseName) + N' has had ' 
+											+ CONVERT(NVARCHAR(10), COUNT(*)) 
+												+ N' auto shrink events between ' 
+													+ CONVERT(NVARCHAR(30), MIN(t.StartTime)) + ' and ' + CONVERT(NVARCHAR(30), MAX(t.StartTime)) 
+														+ ' that lasted on average ' 
+															+ CONVERT(NVARCHAR(10), AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)))
+																+ ' seconds.' AS Details
+						FROM sys.fn_trace_gettable( @base_tracefilename, DEFAULT) AS t
+						WHERE t.EventClass IN (94, 95)
+						GROUP BY t.DatabaseName
+						HAVING AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)) > 5
+				
+				END
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
@@ -4084,7 +4325,7 @@ IF @ProductVersionMajor >= 10
 								        WHERE   name NOT IN ( SELECT DISTINCT
 																        DatabaseName
 													          FROM      #SkipChecks 
-													          WHERE CheckID IS NULL)
+													          WHERE CheckID IS NULL OR CheckID = 19)
 										        AND is_published = 1
 										        OR is_subscribed = 1
 										        OR is_merge_published = 1
@@ -4455,7 +4696,7 @@ IF @ProductVersionMajor >= 10
 																AND dbname NOT IN ( SELECT DISTINCT
 																						  DatabaseName
 																					FROM  #SkipChecks 
-																					WHERE CheckID IS NULL)
+																					WHERE CheckID IS NULL OR CheckID = 72)
 												DROP TABLE #partdb
 											END
 
@@ -4663,7 +4904,7 @@ IF @ProductVersionMajor >= 10
 									FROM [?].sys.database_scoped_configurations dsc 
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
 									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (dsc.value = def.default_value OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
-									LEFT OUTER JOIN #SkipChecks sk ON def.CheckID = sk.CheckID AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
+									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
 									 OPTION (RECOMPILE);';
 					        END
@@ -5120,7 +5361,7 @@ IF @ProductVersionMajor >= 10
 																  DatabaseName
 																FROM
 																  #SkipChecks 
-																WHERE CheckID IS NULL)
+																WHERE CheckID IS NULL OR CheckID = 68)
 											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 																  -14,
 																  CURRENT_TIMESTAMP)
@@ -5251,6 +5492,8 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
 											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
 										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
+											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN ' 8017 is enabled globally, which is the default for express edition.'
+                                             WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 8017 is enabled globally. Using this Trace Flag disables creation schedulers for all logical processors. Not good.'
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END 
 										AS Details
 								FROM    #TraceStatus T
@@ -5283,7 +5526,8 @@ IF @ProductVersionMajor >= 10
 										AND DB_NAME(a.database_id) NOT IN (
 										SELECT DISTINCT
 												DatabaseName
-										FROM    #SkipChecks )
+										FROM    #SkipChecks 
+										WHERE CheckID = 75 OR CheckID IS NULL)
 										AND a.size > 125000 /* Size is measured in pages here, so this gets us log files over 1GB. */
 										AND a.size > ( SELECT   SUM(CAST(b.size AS BIGINT))
 													   FROM     sys.master_files b
@@ -5323,7 +5567,7 @@ IF @ProductVersionMajor >= 10
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks 
-														  WHERE CheckID IS NULL)
+														  WHERE CheckID IS NULL OR CheckID = 76)
 										AND collation_name <> ( SELECT
 																  collation_name
 																FROM
@@ -5359,10 +5603,9 @@ IF @ProductVersionMajor >= 10
 								FROM    sys.databases dSnap
 										INNER JOIN sys.databases dOriginal ON dSnap.source_database_id = dOriginal.database_id
 																  AND dSnap.name NOT IN (
-																  SELECT DISTINCT
-																  DatabaseName
-																  FROM
-																  #SkipChecks )
+																  SELECT DISTINCT DatabaseName
+																  FROM #SkipChecks 
+																  WHERE CheckID = 77 OR CheckID IS NULL)
 					END
 
 				IF NOT EXISTS ( SELECT  1
