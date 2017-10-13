@@ -533,7 +533,9 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
         )
 
         CREATE TABLE #DatabaseList (
-			DatabaseName NVARCHAR(256)
+			DatabaseName NVARCHAR(256),
+            secondary_role_allow_connections_desc NVARCHAR(50)
+
         )
 
 		CREATE TABLE #PartitionCompressionInfo (
@@ -623,6 +625,32 @@ IF @GetAllDatabases = 1
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND is_distributor = 0;
+
+        /* Skip non-readable databases in an AG - see Github issue #1160 */
+        IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
+            BEGIN
+            SET @dsql = N'UPDATE #DatabaseList SET secondary_role_allow_connections_desc = ''NO'' WHERE DatabaseName IN (
+                        SELECT d.name 
+                        FROM sys.dm_hadr_availability_replica_states rs
+                        INNER JOIN sys.databases d ON rs.replica_id = d.replica_id
+                        INNER JOIN sys.availability_replicas r ON rs.replica_id = r.replica_id
+                        WHERE rs.role_desc = ''SECONDARY''
+                        AND r.secondary_role_allow_connections_desc = ''NO'');'
+            EXEC sp_executesql @dsql;
+
+            IF EXISTS (SELECT * FROM #DatabaseList WHERE secondary_role_allow_connections_desc = 'NO')
+                BEGIN
+                INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, database_name, URL, details, index_definition,
+                                                index_usage_summary, index_size_summary )
+                VALUES  ( 1, 0 , 
+		               N'Skipped non-readable AG secondary databases.',
+                       N'You are running this on an AG secondary, and some of your databases are configured as non-readable when this is a secondary node.',
+				       N'To analyze those databases, run sp_BlitzIndex on the primary, or on a readable secondary.',
+                       'http://FirstResponderKit.org', '', '', '', ''
+                        );        
+                END
+            END
+
     END
 ELSE
     BEGIN
@@ -700,7 +728,7 @@ BEGIN CATCH
 DECLARE c1 CURSOR 
 LOCAL FAST_FORWARD 
 FOR 
-SELECT DatabaseName FROM #DatabaseList ORDER BY DatabaseName
+SELECT DatabaseName FROM #DatabaseList WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') <> 'NO' ORDER BY DatabaseName
 
 OPEN c1
 FETCH NEXT FROM c1 INTO @DatabaseName
