@@ -7,14 +7,15 @@ First of all, welcome! We're excited that you'd like to contribute. How would yo
 * [I'd like to fix bugs in T-SQL checks](#how-to-fix-bugs-in-existing-t-sql-checks)
 * [I'd like to test checks written by someone else](#how-to-test-checks-written-by-someone-else)
 * [I'd like to write or update documentation](#how-to-write-or-update-documentation)
+* [I don't know how to upload code to GitHub](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/)
 
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](#the-contributor-covenant-code-of-conduct).
 
-Wanna do something else, or have a question not answered here? Hop into Slack and ask us questions before you get started. [Join SQLServer.slack.com](https://sql-server-slack.herokuapp.com/), and we're in the [#FirstResponderKit channel](https://sqlserver.slack.com/messages/firstresponderkit/). We welcome newcomers, and there's always a way you can help.
+Wanna do something else, or have a question not answered here? Hop into Slack and ask us questions before you get started. [Get an invite to SQLCommunity.slack.com](https://sqlps.io/slack/), and we're in the [#FirstResponderKit channel](https://sqlcommunity.slack.com/messages/firstresponderkit/). We welcome newcomers, and there's always a way you can help.
 
 ## How to Report Bugs or Request Enhancements
 
-[Check out the Github issues list.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) Search for what you're interested in - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+Check out the [Github issues list]. Search for what you're interested in - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
 
 If you can't find a similar issue, go ahead and open your own. Include as much detail as you can - what you're seeing now, and what you'd like to see.
 
@@ -24,11 +25,11 @@ When requesting new checks, keep in mind that we want to focus on:
 * Performance issues or reliability risks - if it's just a setting we don't agree with, let's set that aside
 * Things that end users or managers will notice - if we're going to have someone change a setting on their system, we want it to be worth their time
 
-Now [head on over to the Github issues list](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) and get started.
+Now head on over to the [Github issues list] and get started.
 
 ## How to Write New T-SQL Checks
 
-Before you code, check the [Github issues list](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues) for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+Before you code, check the [Github issues list] for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
 
 If you've got a new idea that isn't covered in an existing issue, open a Github issue for it. Outline what you'd like to do, and how you'd like to code it. This just helps make sure other users agree that it's a good idea to add to these tools.
 
@@ -100,5 +101,61 @@ Project maintainers who do not follow or enforce the Code of Conduct in good fai
 This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 1.4,
 available at [http://contributor-covenant.org/version/1/4][version]
 
+
+## Git Flow for pull requests
+<a name="git-flow"></a>
+
+1. [Fork] the project, clone your fork, and configure the remotes:
+
+   ```bash
+   # Clone your fork of the repo into the current directory
+   git clone git@github.com:<YOUR_USERNAME>/SQL-Server-First-Responder-Kit.git
+   # Navigate to the newly cloned directory
+   cd SQL-Server-First-Responder-Kit
+   # Assign the original repo to a remote called "upstream"
+   git remote add upstream https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+   ```
+
+2. If you cloned a while ago, get the latest changes from upstream:
+
+   ```bash
+   git checkout master
+   git pull upstream master
+   ```
+
+3. Create a new topic branch (off the main project development branch) to
+   contain your feature, change, or fix:
+
+   ```bash
+   git checkout -b <topic-branch-name>
+   ```
+
+4. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
+   or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
+   feature to tidy up your commits before making them public.
+
+5. Locally merge (or rebase) the upstream development branch into your topic branch:
+
+   ```bash
+   git pull [--rebase] upstream master
+   ```
+
+6. Push your topic branch up to your fork:
+
+   ```bash
+   git push origin <topic-branch-name>
+   ```
+
+7. [Open a Pull Request] with a clear title and description.
+
+**IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
+
+
 [homepage]: http://contributor-covenant.org
 [version]: http://contributor-covenant.org/version/1/4/
+[Github issues list]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
+[Fork]:https://help.github.com/articles/fork-a-repo/
+[git commit message guidelines]:http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
+[interactive rebase]:https://help.github.com/articles/about-git-rebase/
+[Open a Pull Request]:https://help.github.com/articles/about-pull-requests/
+[LICENSE]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md

@@ -1,6 +1,20 @@
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright for portions of sp_Blitz are held by Microsoft as part of project 
+tigertoolbox and are provided under the MIT license:
+https://github.com/Microsoft/tigertoolbox
+All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2017 as
+described below.
+
+Copyright for portions of DatabaseRestore are held by GregWhiteDBA as part
+of project MSSQLAutoRestore and are provided under the MIT license:
+https://github.com/GregWhiteDBA/MSSQLAutoRestore
+All other copyrights for DatabaseRestore are held by Brent Ozar Unlimited, 2017
+as described below.
+
+
+
+Copyright (c) 2017 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
