@@ -985,6 +985,29 @@ BEGIN TRY
                 EXEC sp_executesql @dsql;
 
 
+        RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
+        IF @BringThePain = 0 AND @SkipPartitions = 0
+            BEGIN
+                /* Count the total number of partitions */
+                SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                        SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
+                IF @Rowcount > 100
+                    BEGIN
+                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
+                        SET @SkipPartitions = 1;
+                        INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
+                                                        index_usage_summary, index_size_summary )
+                        VALUES  ( 1, 0 , 
+		                       'Some Checks Were Skipped',
+                               '@SkipPartitions Forced to 1',
+                               'http://FirstResponderKit.org', CAST(@Rowcount AS VARCHAR(50)) + ' partitions found. To analyze them, use @BringThePain = 1.', 'We try to keep things quick - and warning, running @BringThePain = 1 can take tens of minutes.', '', ''
+                                );
+                    END
+            END
+
+
+
 		 IF (@SkipPartitions = 0)
 			BEGIN			
 			IF (SELECT LEFT(@SQLServerProductVersion,
