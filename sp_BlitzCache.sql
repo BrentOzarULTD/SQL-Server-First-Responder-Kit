@@ -1095,7 +1095,9 @@ CREATE TABLE #stored_proc_info
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
-    converted_to NVARCHAR(128)
+    converted_to NVARCHAR(128),
+	parameterization_type INT,
+	optimization_level VARCHAR(100)
 );
 
 CREATE TABLE #plan_creation
@@ -2897,9 +2899,18 @@ BEGIN
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
 WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-, variables_types
+, 
+parameterization_type AS (
+			SELECT
+			qp.n.value('@StatementParameterizationType', 'INT') AS StatementParameterizationType,
+			qp.n.value('@StatementOptmLevel', 'VARCHAR(100)') AS StatementOptmLevel,
+			b.*
+			FROM ##bou_BlitzCacheProcs AS b
+			CROSS APPLY b.QueryPlan.nodes('//p:StmtSimple') AS qp(n)
+			WHERE b.SPID = @@SPID
+), 
+variables_types
 AS ( 
-
 			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 			SELECT 
 			qp.QueryHash,
@@ -2915,7 +2926,8 @@ AS (
      JOIN   ##bou_BlitzCacheProcs AS b
      ON b.QueryHash = qp.QueryHash
      CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-     WHERE  b.implicit_conversions = 1 ),
+     WHERE  b.implicit_conversions = 1
+	 AND b.SPID = @@SPID ),
   convert_implicit
 AS ( 
 			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -2927,7 +2939,8 @@ AS (
 				 ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType)) 
 			END AS proc_name,
             qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
-            CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 
+            
+			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 
 			THEN
 			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
@@ -2937,6 +2950,7 @@ AS (
                           CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
                 ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) 
 				ELSE N'**no_variable**' END AS variable_name,
+			
 			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
 			THEN 
             SUBSTRING(
@@ -2947,28 +2961,38 @@ AS (
                           CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
                 ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
 			ELSE N'**no_column**' END AS converted_column_name,
-            SUBSTRING(
+            
+			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
+			THEN
+			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
-                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
-                CHARINDEX(']',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
-                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
-                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
-            SUBSTRING(
+                0, 
+                CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1
+					)				
+			ELSE N'**no_column **'
+			END AS column_name,
+            
+			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
                 CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
                 CHARINDEX(',',
                           qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
                           CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
-                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
+                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to,
+			
+			p.StatementParameterizationType,
+			p.StatementOptmLevel
      FROM   #query_plan AS qp
      JOIN   ##bou_BlitzCacheProcs AS b
      ON b.QueryHash = qp.QueryHash
+	 JOIN parameterization_type AS p
+	 ON p.QueryHash = qp.QueryHash
      CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
      WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
 			AND qp.QueryHash IS NOT NULL 
-			AND b.implicit_conversions = 1 )
-INSERT INTO #stored_proc_info
+			AND b.implicit_conversions = 1
+			AND b.SPID = @@SPID )
+INSERT INTO #stored_proc_info ( SPID, SqlHandle, QueryHash, variable_name, variable_datatype, converted_column_name, compile_time_value, proc_name, column_name, converted_to, parameterization_type, optimization_level )
 SELECT DISTINCT
 	   @@SPID AS SPID,
 	   COALESCE(vt.SqlHandle, ci.SqlHandle) AS SqlHandle,
@@ -2979,11 +3003,14 @@ SELECT DISTINCT
        COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
        COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
        ci.column_name,
-       ci.converted_to
+       ci.converted_to,
+	   ci.StatementParameterizationType,
+	   ci.StatementOptmLevel
 FROM   variables_types AS vt
 RIGHT JOIN   convert_implicit AS ci
 ON (ci.variable_name = vt.variable_name
    AND ci.QueryHash = vt.QueryHash)
+WHERE 1=1 
 OPTION(RECOMPILE);
 
 
