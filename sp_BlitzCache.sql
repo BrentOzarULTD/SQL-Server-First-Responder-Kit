@@ -2961,7 +2961,7 @@ AS (
                           CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
                 ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
 			ELSE N'**no_column**' END AS converted_column_name,
-            
+            			
 			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
 			THEN
 			SUBSTRING(
@@ -2969,6 +2969,17 @@ AS (
                 0, 
                 CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1
 					)				
+			
+				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0
+			THEN
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
+                ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)		
+			
 			ELSE N'**no_column **'
 			END AS column_name,
             
