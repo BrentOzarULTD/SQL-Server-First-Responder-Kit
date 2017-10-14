@@ -2961,8 +2961,19 @@ AS (
                           CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
                 ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
 			ELSE N'**no_column**' END AS converted_column_name,
-            			
-			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
+           						
+			CASE 
+				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0 AND b.QueryType = 'Statement'
+			THEN
+            SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
+                CHARINDEX(',',
+                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
+                          CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
+                ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)				
+			
+				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
 			THEN
 			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
@@ -2991,6 +3002,14 @@ AS (
                           CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
                 ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to,
 			
+			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0  AND b.QueryType = 'Statement'
+			THEN SUBSTRING(
+                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
+                CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, 
+                LEN(qq.c.value('@Expression', 'NVARCHAR(128)'))
+					) 
+			ELSE '*idk_man*' END AS compile_time_value,
+
 			p.StatementParameterizationType,
 			p.StatementOptmLevel
      FROM   #query_plan AS qp
@@ -3011,7 +3030,7 @@ SELECT DISTINCT
        COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
        COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
 	   COALESCE(converted_column_name, '**no_column**') AS converted_column_name, 
-       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
+       COALESCE(vt.compile_time_value, ci.compile_time_value, '*declared in proc*') AS compile_time_value,
        COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
        ci.column_name,
        ci.converted_to,
@@ -3045,26 +3064,21 @@ SELECT spi.SPID,
 						@nl
 						+ CASE WHEN spi2.variable_name <> '**no_variable**'
 							   THEN N'The variable '
+							   WHEN spi2.variable_name = '**no_variable**' AND spi2.column_name = spi2.converted_column_name
+							   THEN N'The compiled value '
 							   ELSE N'The column '
 						  END 
 						+ CASE WHEN spi2.variable_name <> '**no_variable**'
 							   THEN spi2.variable_name
+							   WHEN spi2.variable_name = '**no_variable**' AND spi2.column_name = spi2.converted_column_name
+							   THEN spi2.compile_time_value
 							   ELSE spi2.converted_column_name
 						  END 
 						+ N' has a data type of '
 						+ spi2.variable_datatype
 						+ N' which caused implicit conversion on the column '
 						+ spi2.column_name
-						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
-									AND spi2.variable_name <> '**no_variable**'
-							   THEN N' and is a declared variable or unused.' 
-							   /*Figure out if the variable is declared or passed in*/
-							   WHEN spi2.compile_time_value = '*declared in proc*' 
-									AND spi2.converted_column_name <> '**no_column**'
-							   THEN N' and is used in column to column correlation.' 
-							   /*Figure out if it's a column*/
-							   ELSE N' and is a used parameter of the stored procedure.' 
-						  END
+						+ '.'
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
