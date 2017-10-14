@@ -2962,23 +2962,14 @@ AS (
                 ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
 			ELSE N'**no_column**' END AS converted_column_name,
            						
-			CASE 
-				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0 AND b.QueryType = 'Statement'
-			THEN
-            SUBSTRING(
-                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
-                CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
-                CHARINDEX(',',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
-                          CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
-                ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)				
+			CASE 				
 			
 				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
 			THEN
 			SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
                 0, 
-                CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1
+                CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)'))
 					)				
 			
 				WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0
@@ -2990,7 +2981,7 @@ AS (
                           qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
                           CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
                 ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)		
-			
+
 			ELSE N'**no_column **'
 			END AS column_name,
             
@@ -3002,12 +2993,15 @@ AS (
                           CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
                 ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to,
 			
-			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0  AND b.QueryType = 'Statement'
+			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0  
+				 AND b.QueryType = 'Statement'
+				 AND qq.c.value('@Expression', 'NVARCHAR(128)') NOT LIKE '%=CONVERT_IMPLICIT%'
 			THEN SUBSTRING(
                 qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
                 CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, 
                 LEN(qq.c.value('@Expression', 'NVARCHAR(128)'))
 					) 
+
 			ELSE '*idk_man*' END AS compile_time_value,
 
 			p.StatementParameterizationType,
@@ -3062,22 +3056,37 @@ SELECT spi.SPID,
 			+ STUFF((
 				SELECT DISTINCT 
 						@nl
-						+ CASE WHEN spi2.variable_name <> '**no_variable**'
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**'
 							   THEN N'The variable '
-							   WHEN spi2.variable_name = '**no_variable**' AND spi2.column_name = spi2.converted_column_name
+							   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
 							   THEN N'The compiled value '
 							   ELSE N'The column '
 						  END 
-						+ CASE WHEN spi2.variable_name <> '**no_variable**'
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**'
 							   THEN spi2.variable_name
-							   WHEN spi2.variable_name = '**no_variable**' AND spi2.column_name = spi2.converted_column_name
+							   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
 							   THEN spi2.compile_time_value
-							   ELSE spi2.converted_column_name
+							   ELSE spi2.column_name
 						  END 
 						+ N' has a data type of '
 						+ spi2.variable_datatype
 						+ N' which caused implicit conversion on the column '
-						+ spi2.column_name
+						+ CASE WHEN spi2.column_name LIKE N'%CONVERT_IMPLICIT%'
+							   THEN spi2.converted_column_name
+							   WHEN spi2.column_name = N'**no_column**'
+							   THEN spi2.converted_column_name
+							   WHEN spi2.converted_column_name = N'**no_column**'
+							   THEN spi2.column_name
+							   WHEN spi2.column_name <> spi2.converted_column_name
+							   THEN spi2.converted_column_name
+							   ELSE spi2.column_name
+						  END
+						+ CASE WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
+							   THEN N''
+							   WHEN spi2.compile_time_value NOT IN ('*declared in proc*', '*idk_man*')
+							   THEN ' with the value ' + RTRIM(spi2.compile_time_value)
+							ELSE N''
+						 END 
 						+ '.'
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
@@ -3093,16 +3102,24 @@ SELECT spi.SPID,
 			+ N' '
 			+ STUFF((
 				SELECT DISTINCT N', ' 
-						+ spi2.variable_name 
-						+ N' = ' 
-						+ CASE WHEN spi2.compile_time_value = 'NULL' 
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'*idk_man*'
+								THEN spi2.variable_name
+								ELSE N'' 
+						  END
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'*idk_man*'
+							   THEN N' = ' 
+							   ELSE N''
+						  END 
+						+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'*idk_man*'
+							   THEN N''
+							   WHEN spi2.compile_time_value = N'NULL' 
 							   THEN spi2.compile_time_value 
-							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
+							   ELSE RTRIM(spi2.compile_time_value)
 						  END
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
-				AND spi2.proc_name <> 'Statement'
-				AND spi2.compile_time_value <> '*declared in proc*'
+				AND spi2.proc_name <> N'Statement'
+				AND spi2.compile_time_value <> N'*declared in proc*'
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 			+ @nl
 			+ N' -- ?>'
