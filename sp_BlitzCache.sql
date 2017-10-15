@@ -246,6 +246,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
     @MinimumExecutionCount INT = 0,
 	@Debug BIT = 0,
+    @CheckDateOverride DATETIMEOFFSET = NULL,
 	@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -3516,7 +3517,10 @@ BEGIN
 
 	EXEC sp_executesql @insert_sql ;
 
-
+    IF @CheckDateOverride IS NULL
+        BEGIN
+        SET @CheckDateOverride = SYSDATETIMEOFFSET();
+        END
     SET @insert_sql =N' IF EXISTS(SELECT * FROM '
           + @OutputDatabaseName
           + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
@@ -3530,7 +3534,7 @@ BEGIN
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost ) '
           + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', SYSDATETIMEOFFSET(),'
+          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
@@ -3573,7 +3577,7 @@ BEGIN
 		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
 		END;
 
-    EXEC sp_executesql @insert_sql, N'@Top INT, @minimumExecutionCount INT', @Top, @MinimumExecutionCount;
+    EXEC sp_executesql @insert_sql, N'@Top INT, @minimumExecutionCount INT, @CheckDateOverride DATETIMEOFFSET', @Top, @MinimumExecutionCount, @CheckDateOverride;
 
     RETURN;
 END;
