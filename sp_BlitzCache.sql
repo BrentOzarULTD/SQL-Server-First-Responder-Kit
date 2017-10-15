@@ -3659,7 +3659,7 @@ BEGIN
    
    IF @MinimumExecutionCount IS NOT NULL
       BEGIN
-		SET @insert_sql += N' AND ExecutionCount >= @minimumExecutionCount ';
+		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
 	  END;
 
    IF @MinutesBack IS NOT NULL
@@ -3700,7 +3700,7 @@ BEGIN
 		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
 		END;
 
-    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
+    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
 
     RETURN;
 END;
