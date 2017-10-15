@@ -17,12 +17,14 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNameFileStats NVARCHAR(256) = NULL ,
     @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
+    @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
 	@ShowSleepingSPIDs TINYINT = 0 ,
+    @Debug BIT = 0,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
@@ -53,6 +55,8 @@ Known limitations of this version:
    but not our session, this stored proc will fail with an error saying the
    temp table #CustomPerfmonCounters does not exist.
  - @OutputServerName is not functional yet.
+ - If @OutputDatabaseName, SchemaName, TableName, etc are quoted with brackets,
+   the write to table may silently fail. Look, I never said I was good at this.
 
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
@@ -105,7 +109,12 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameWaitStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_Categories NVARCHAR(256),
     @ObjectFullName NVARCHAR(2000),
-	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
+	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
+    @BlitzCacheMinutesBack INT,
+    @BlitzCacheSortOrder VARCHAR(50),
+    @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
+    @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
+    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
 
 /* Sanitize our inputs */
 SELECT
@@ -121,6 +130,7 @@ SELECT
     @OutputTableNameFileStats = QUOTENAME(@OutputTableNameFileStats),
     @OutputTableNamePerfmonStats = QUOTENAME(@OutputTableNamePerfmonStats),
     @OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
+    /* @OutputTableNameBlitzCache = QUOTENAME(@OutputTableNameBlitzCache),  We purposely don't sanitize this because sp_BlitzCache will */
     @LineFeed = CHAR(13) + CHAR(10),
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
@@ -2258,8 +2268,6 @@ BEGIN
 
         END /* IF @Seconds < 30 */
 
-	RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
-
 
     /* If we didn't find anything, apologize. */
     IF NOT EXISTS (SELECT * FROM #BlitzFirstResults WHERE Priority < 250)
@@ -2336,7 +2344,129 @@ BEGIN
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details
                     END
 
+    RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
 
+
+    /* If they want to run sp_BlitzCache and export to table, go for it. */
+    IF @OutputTableNameBlitzCache IS NOT NULL
+        AND @OutputDatabaseName IS NOT NULL
+        AND @OutputSchemaName IS NOT NULL
+        AND EXISTS ( SELECT *
+                     FROM   sys.databases
+                     WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+    BEGIN
+    	RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
+
+        /* Set the sp_BlitzCache sort order based on their top wait type */
+
+        /* First, check for poison waits - CheckID 30 */
+        IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
+            BEGIN
+            SELECT TOP 1 @BlitzCacheSortOrder = CASE
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
+                                                WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_COMMIT_ACK' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_ROLLBACK_ACK' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_SLOW_SECONDARY_THROTTLE' THEN 'writes'
+                                            ELSE NULL
+                                            END
+                FROM #BlitzFirstResults
+                WHERE CheckID = 30
+                ORDER BY DetailsInt DESC;
+            END
+
+        /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34)
+            SET @BlitzCacheSortOrder = 'memory grant';
+
+        /* Next, Compilations/Sec High - CheckID 15 and 16 */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
+            SET @BlitzCacheSortOrder = 'compilations';
+
+        /* Still not set? Use the top wait type. */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
+            BEGIN
+            SELECT TOP 1 @BlitzCacheSortOrder = CASE
+                                                WHEN Finding = 'ASYNC_NETWORK_IO' THEN 'duration'
+                                                WHEN Finding = 'CXPACKET' THEN 'reads'
+                                                WHEN Finding = 'LATCH_EX' THEN 'reads'
+                                                WHEN Finding LIKE 'LCK%' THEN 'duration'
+                                                WHEN Finding LIKE 'PAGEIOLATCH%' THEN 'reads'
+                                                WHEN Finding = 'SOS_SCHEDULER_YIELD' THEN 'cpu'
+                                                WHEN Finding = 'WRITELOG' THEN 'writes'
+                                            ELSE NULL
+                                            END
+                FROM #BlitzFirstResults
+                WHERE CheckID = 6
+                ORDER BY DetailsInt DESC;
+            END
+        /* Still null? Just use the default. */
+
+
+
+        /* If they have an newer version of sp_BlitzCache that supports @MinutesBack and @CheckDateOverride */
+        IF EXISTS (SELECT * FROM sys.objects o 
+                        INNER JOIN sys.parameters pMB ON o.object_id = pMB.object_id AND pMB.name = '@MinutesBack'
+                        INNER JOIN sys.parameters pCDO ON o.object_id = pCDO.object_id AND pCDO.name = '@CheckDateOverride'
+                        WHERE o.name = 'sp_BlitzCache')
+            BEGIN
+                /* Get the most recent sp_BlitzFirst execution before this one */
+                SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+                    + @OutputDatabaseName
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+                    + @OutputSchemaName + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + @OutputDatabaseName + '.'
+                    + @OutputSchemaName + '.'
+                    + @OutputTableName
+                    + ' WHERE ServerName = ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''' ORDER BY CheckDate DESC;';
+                EXEC sp_executesql @StringToExecute, N'@BlitzCacheMinutesBack INT OUTPUT', @BlitzCacheMinutesBack OUTPUT;
+
+                /* If there's no data, let's just analyze the last 15 minutes of the plan cache */
+                IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
+                    SET @BlitzCacheMinutesBack = 15;
+
+                IF @BlitzCacheSortOrder IS NOT NULL
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = @BlitzCacheSortOrder,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug;
+                ELSE
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug;
+            END
+        ELSE /* No sp_BlitzCache found, or it's outdated */
+            BEGIN
+                INSERT  INTO #BlitzFirstResults
+                        ( CheckID ,
+                            Priority ,
+                            FindingsGroup ,
+                            Finding ,
+                            URL ,
+                            Details
+                        )
+                        SELECT 36 AS CheckID ,
+                                0 AS Priority ,
+                                'Outdated or Missing sp_BlitzCache' AS FindingsGroup ,
+                                'Update Your sp_BlitzCache' AS Finding ,
+                                'http://FirstResponderKit.org/' AS URL ,
+                                'You passed in @OutputTableNameBlitzCache, but we need a newer version of sp_BlitzCache in master or the current database.' AS Details
+            END
+
+    	RAISERROR('sp_BlitzCache Finished',10,1) WITH NOWAIT;
+
+    END /* End running sp_BlitzCache */
 
     /* @OutputTableName lets us export the results to a permanent table */
     IF @OutputDatabaseName IS NOT NULL
