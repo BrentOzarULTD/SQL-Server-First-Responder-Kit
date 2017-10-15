@@ -10,6 +10,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
 | 0 | Outdated sp_BlitzFirst | sp_BlitzFirst is Over 6 Months Old | http://FirstResponderKit.org/ | 27 |
 | 0 | Outdated or Missing sp_BlitzCache | Update Your sp_BlitzCache | http://FirstResponderKit.org/ | 36 |
+| 1 | Logged Message | Logged from sp_BlitzFirst | http://FirstResponderKit.org | 38 |
 | 1 | Maintenance Tasks Running | Backup Running | https://BrentOzar.com/askbrent/backups | 1 |
 | 1 | Maintenance Tasks Running | DBCC CHECK* Running | https://BrentOzar.com/askbrent/dbcc | 2 |
 | 1 | Maintenance Tasks Running | Restore Running | https://BrentOzar.com/askbrent/backups | 3 |
