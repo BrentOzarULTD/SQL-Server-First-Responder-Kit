@@ -145,6 +145,7 @@ The @SortOrder parameter lets you pick which top 10 queries you want to examine:
 * memory grant - if you're troubleshooting a RESOURCE_SEMAPHORE issue and want to find queries getting a lot of memory
 * writes - if you wanna find those pesky ETL processes
 * You can also use average or avg for a lot of the sorts, like @SortOrder = 'avg reads'
+* all - sorts by all the different sort order options, and returns a single result set of hot messes. (Note that @SortOrder = 'all' is incompatible with the @OutputTableName parameter because it produces a different result set shape.)
 
 Other common parameters include:
 
