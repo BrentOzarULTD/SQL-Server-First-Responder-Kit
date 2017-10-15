@@ -1367,7 +1367,7 @@ BEGIN
     END
 
     /* Query Problems - Plan Cache Erased Recently */
-    IF DATEADD(mi, -15, SYSDATETIMEOFFSET()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+    IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
@@ -1416,7 +1416,7 @@ BEGIN
     AND     request_status = N'GRANT'
     AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     WHERE s.status = 'sleeping'
-    AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIMEOFFSET())
+    AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
     AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
     AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'))
 
@@ -1726,7 +1726,7 @@ BEGIN
 
 
     /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
-    IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
+    IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIME()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
