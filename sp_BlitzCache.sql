@@ -3068,7 +3068,6 @@ FROM   variables_types AS vt
 RIGHT JOIN   convert_implicit AS ci
 ON (ci.variable_name = vt.variable_name
    AND ci.QueryHash = vt.QueryHash)
-WHERE 1=1 
 OPTION(RECOMPILE);
 
 UPDATE s
