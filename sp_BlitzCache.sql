@@ -3037,6 +3037,16 @@ ON (ci.variable_name = vt.variable_name
 WHERE 1=1 
 OPTION(RECOMPILE);
 
+UPDATE s
+SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
+                                      LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+                                  ELSE s.variable_datatype
+                             END,
+       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
+                                 LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+                             ELSE s.converted_to
+                        END
+FROM   #stored_proc_info AS s;
 
 
 WITH precheck AS (
