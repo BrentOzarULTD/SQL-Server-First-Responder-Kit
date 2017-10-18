@@ -895,7 +895,7 @@ IF @RunRecovery = 1
 
 			IF @Debug = 1
 			BEGIN
-				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
+				IF @sql IS NULL PRINT '@sql is NULL for SET RECOVERY SIMPLE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 
