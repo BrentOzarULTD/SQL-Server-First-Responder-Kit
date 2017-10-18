@@ -16,6 +16,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
+	  @ForceSimpleRecovery BIT = 0, 
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
@@ -865,7 +866,21 @@ IF @RunRecovery = 1
 		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
-	    
+
+-- ensure simple recovery model
+IF @ForceSimpleRecovery = 1
+	BEGIN
+		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
+
+			IF @Debug = 1
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
+				PRINT @sql;
+			END; 
+
+		IF @Debug IN (0, 1)
+			EXECUTE sp_executesql @sql;
+	END;
 
  --Run checkdb against this database
 IF @RunCheckDB = 1
