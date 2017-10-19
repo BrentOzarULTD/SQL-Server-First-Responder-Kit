@@ -326,6 +326,11 @@ IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
 	END;
 
 /*Move Data File*/
+IF NULLIF(@MoveDataDrive, '') IS NULL
+	BEGIN
+		RAISERROR('Getting default data drive for @MoveDataDrive', 0, 1) WITH NOWAIT;
+		SET @MoveDataDrive = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
+	END;
 IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
@@ -333,6 +338,11 @@ IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 	END;
 
 /*Move Log File*/
+IF NULLIF(@MoveLogDrive, '') IS NULL
+	BEGIN
+		RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
+		SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
+	END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
