@@ -12305,7 +12305,6 @@ FROM   variables_types AS vt
 RIGHT JOIN   convert_implicit AS ci
 ON (ci.variable_name = vt.variable_name
    AND ci.QueryHash = vt.QueryHash)
-WHERE 1=1 
 OPTION(RECOMPILE);
 
 UPDATE s
@@ -14541,7 +14540,7 @@ GO
 
 
 ALTER PROCEDURE [dbo].[sp_BlitzFirst]
-    @Question NVARCHAR(MAX) = NULL ,
+    @LogMessage NVARCHAR(4000) = NULL ,
     @Help TINYINT = 0 ,
     @AsOf DATETIMEOFFSET = NULL ,
     @ExpertMode TINYINT = 0 ,
@@ -14554,12 +14553,20 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNameFileStats NVARCHAR(256) = NULL ,
     @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
+    @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
 	@ShowSleepingSPIDs TINYINT = 0 ,
+    @LogMessageCheckID INT = 38,
+    @LogMessagePriority TINYINT = 1,
+    @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
+    @LogMessageFinding VARCHAR(200) = 'Logged from sp_BlitzFirst',
+    @LogMessageURL VARCHAR(200) = '',
+    @LogMessageCheckDate DATETIMEOFFSET = NULL,
+    @Debug BIT = 0,
     @VersionDate DATETIME = NULL OUTPUT
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
@@ -14590,6 +14597,8 @@ Known limitations of this version:
    but not our session, this stored proc will fail with an error saying the
    temp table #CustomPerfmonCounters does not exist.
  - @OutputServerName is not functional yet.
+ - If @OutputDatabaseName, SchemaName, TableName, etc are quoted with brackets,
+   the write to table may silently fail. Look, I never said I was good at this.
 
 Unknown limitations of this version:
  - None. Like Zombo.com, the only limit is yourself.
@@ -14642,7 +14651,12 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @OutputTableNameWaitStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_Categories NVARCHAR(256),
     @ObjectFullName NVARCHAR(2000),
-	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';';
+	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
+    @BlitzCacheMinutesBack INT,
+    @BlitzCacheSortOrder VARCHAR(50),
+    @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
+    @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
+    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
 
 /* Sanitize our inputs */
 SELECT
@@ -14658,12 +14672,41 @@ SELECT
     @OutputTableNameFileStats = QUOTENAME(@OutputTableNameFileStats),
     @OutputTableNamePerfmonStats = QUOTENAME(@OutputTableNamePerfmonStats),
     @OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
+    /* @OutputTableNameBlitzCache = QUOTENAME(@OutputTableNameBlitzCache),  We purposely don't sanitize this because sp_BlitzCache will */
     @LineFeed = CHAR(13) + CHAR(10),
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
 	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
     @OurSessionID = @@SPID;
 
+IF @LogMessage IS NOT NULL
+    BEGIN
+    IF @OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL OR @OutputTableName IS NULL
+            OR NOT EXISTS ( SELECT *
+                     FROM   sys.databases
+                     WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+		BEGIN
+        RAISERROR('We have a hard time logging a message without a valid @OutputDatabaseName, @OutputSchemaName, and @OutputTableName to log it to.', 0, 1) WITH NOWAIT;
+		RETURN;
+        END
+    IF @LogMessageCheckDate IS NULL
+        SET @LogMessageCheckDate = SYSDATETIMEOFFSET();
+    SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+        + @OutputDatabaseName
+        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+        + @OutputSchemaName + ''') INSERT '
+        + @OutputDatabaseName + '.'
+        + @OutputSchemaName + '.'
+        + @OutputTableName
+        + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, Details, URL) VALUES( '''
+        + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+        + ''', ''' + CONVERT(NVARCHAR(100), @LogMessageCheckDate, 121) + ''', @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageURL)'
+
+    EXECUTE sp_executesql @StringToExecute, 
+        N'@LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
+        @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+    RETURN;
+    END
 
 IF @SinceStartup = 1
     SELECT @Seconds = 0, @ExpertMode = 1;
@@ -14705,7 +14748,7 @@ BEGIN
 
 
 END /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL */
-ELSE IF @Question IS NULL /* IF @OutputType = 'SCHEMA' */
+ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
     IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
@@ -16795,8 +16838,6 @@ BEGIN
 
         END /* IF @Seconds < 30 */
 
-	RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
-
 
     /* If we didn't find anything, apologize. */
     IF NOT EXISTS (SELECT * FROM #BlitzFirstResults WHERE Priority < 250)
@@ -16873,7 +16914,129 @@ BEGIN
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details
                     END
 
+    RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
 
+
+    /* If they want to run sp_BlitzCache and export to table, go for it. */
+    IF @OutputTableNameBlitzCache IS NOT NULL
+        AND @OutputDatabaseName IS NOT NULL
+        AND @OutputSchemaName IS NOT NULL
+        AND EXISTS ( SELECT *
+                     FROM   sys.databases
+                     WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+    BEGIN
+    	RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
+
+        /* Set the sp_BlitzCache sort order based on their top wait type */
+
+        /* First, check for poison waits - CheckID 30 */
+        IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
+            BEGIN
+            SELECT TOP 1 @BlitzCacheSortOrder = CASE
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
+                                                WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_COMMIT_ACK' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_ROLLBACK_ACK' THEN 'writes'
+                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_SLOW_SECONDARY_THROTTLE' THEN 'writes'
+                                            ELSE NULL
+                                            END
+                FROM #BlitzFirstResults
+                WHERE CheckID = 30
+                ORDER BY DetailsInt DESC;
+            END
+
+        /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34)
+            SET @BlitzCacheSortOrder = 'memory grant';
+
+        /* Next, Compilations/Sec High - CheckID 15 and 16 */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
+            SET @BlitzCacheSortOrder = 'compilations';
+
+        /* Still not set? Use the top wait type. */
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
+            BEGIN
+            SELECT TOP 1 @BlitzCacheSortOrder = CASE
+                                                WHEN Finding = 'ASYNC_NETWORK_IO' THEN 'duration'
+                                                WHEN Finding = 'CXPACKET' THEN 'reads'
+                                                WHEN Finding = 'LATCH_EX' THEN 'reads'
+                                                WHEN Finding LIKE 'LCK%' THEN 'duration'
+                                                WHEN Finding LIKE 'PAGEIOLATCH%' THEN 'reads'
+                                                WHEN Finding = 'SOS_SCHEDULER_YIELD' THEN 'cpu'
+                                                WHEN Finding = 'WRITELOG' THEN 'writes'
+                                            ELSE NULL
+                                            END
+                FROM #BlitzFirstResults
+                WHERE CheckID = 6
+                ORDER BY DetailsInt DESC;
+            END
+        /* Still null? Just use the default. */
+
+
+
+        /* If they have an newer version of sp_BlitzCache that supports @MinutesBack and @CheckDateOverride */
+        IF EXISTS (SELECT * FROM sys.objects o 
+                        INNER JOIN sys.parameters pMB ON o.object_id = pMB.object_id AND pMB.name = '@MinutesBack'
+                        INNER JOIN sys.parameters pCDO ON o.object_id = pCDO.object_id AND pCDO.name = '@CheckDateOverride'
+                        WHERE o.name = 'sp_BlitzCache')
+            BEGIN
+                /* Get the most recent sp_BlitzCache execution before this one - don't use sp_BlitzFirst because user logs are added in there at any time */
+                SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+                    + @OutputDatabaseName
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+                    + @OutputSchemaName + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + @OutputDatabaseName + '.'
+                    + @OutputSchemaName + '.'
+                    + @OutputTableNameBlitzCache
+                    + ' WHERE ServerName = ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''' ORDER BY CheckDate DESC;';
+                EXEC sp_executesql @StringToExecute, N'@BlitzCacheMinutesBack INT OUTPUT', @BlitzCacheMinutesBack OUTPUT;
+
+                /* If there's no data, let's just analyze the last 15 minutes of the plan cache */
+                IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
+                    SET @BlitzCacheMinutesBack = 15;
+
+                IF @BlitzCacheSortOrder IS NOT NULL
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = @BlitzCacheSortOrder,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug;
+                ELSE
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug;
+            END
+        ELSE /* No sp_BlitzCache found, or it's outdated */
+            BEGIN
+                INSERT  INTO #BlitzFirstResults
+                        ( CheckID ,
+                            Priority ,
+                            FindingsGroup ,
+                            Finding ,
+                            URL ,
+                            Details
+                        )
+                        SELECT 36 AS CheckID ,
+                                0 AS Priority ,
+                                'Outdated or Missing sp_BlitzCache' AS FindingsGroup ,
+                                'Update Your sp_BlitzCache' AS Finding ,
+                                'http://FirstResponderKit.org/' AS URL ,
+                                'You passed in @OutputTableNameBlitzCache, but we need a newer version of sp_BlitzCache in master or the current database.' AS Details
+            END
+
+    	RAISERROR('sp_BlitzCache Finished',10,1) WITH NOWAIT;
+
+    END /* End running sp_BlitzCache */
 
     /* @OutputTableName lets us export the results to a permanent table */
     IF @OutputDatabaseName IS NOT NULL
@@ -17709,39 +17872,7 @@ IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
 		END
     END /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
 
-END /* IF @Question IS NULL */
-ELSE IF @Question IS NOT NULL
-
-/* We're playing Magic SQL 8 Ball, so give them an answer. */
-BEGIN
-    IF OBJECT_ID('tempdb..#BlitzFirstAnswers') IS NOT NULL
-        DROP TABLE #BlitzFirstAnswers;
-    CREATE TABLE #BlitzFirstAnswers(Answer VARCHAR(200) NOT NULL);
-    INSERT INTO #BlitzFirstAnswers VALUES ('It sounds like a SAN problem.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('You know what you need? Bacon.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Talk to the developers about that.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Let''s post that on StackOverflow.com and find out.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried adding an index?');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried dropping an index?');
-    INSERT INTO #BlitzFirstAnswers VALUES ('You can''t prove anything.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Please phrase the question in the form of an answer.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Outlook not so good. Access even worse.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Did you try asking the rubber duck? http://www.codinghorror.com/blog/2012/03/rubber-duck-problem-solving.html');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Oooo, I read about that once.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('I feel your pain.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('http://LMGTFY.com');
-    INSERT INTO #BlitzFirstAnswers VALUES ('No comprende Ingles, senor.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('I don''t have that problem on my Mac.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Is Priority Boost on?');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried rebooting your machine?');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Try defragging your cursors.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Why are you wearing that? Do you have a job interview later or something?');
-    INSERT INTO #BlitzFirstAnswers VALUES ('I''m ashamed that you don''t know the answer to that question.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Duh, Debra.');
-    INSERT INTO #BlitzFirstAnswers VALUES ('Have you tried restoring TempDB?');
-    SELECT TOP 1 Answer FROM #BlitzFirstAnswers ORDER BY NEWID();
-END
-
+END /* IF @LogMessage IS NULL */
 END /* ELSE IF @OutputType = 'SCHEMA' */
 
 SET NOCOUNT OFF;
@@ -22433,7 +22564,7 @@ EXEC sys.sp_executesql @nc_sql, @ws_params, @i_out = @nc_out OUTPUT;
 
 SELECT @new_columns = CASE @nc_out WHEN 12 THEN 1 ELSE 0 END;
 
-SET @msg = N'New query_store_runtime_stats columns ' + CASE @waitstats 
+SET @msg = N'New query_store_runtime_stats columns ' + CASE @new_columns 
 									WHEN 0 THEN N' do not exist, skipping.'
 									WHEN 1 THEN N' exist, will analyze.'
 							   END;
@@ -22466,6 +22597,8 @@ CREATE TABLE #grouped_interval
     total_avg_query_max_used_memory_mb DECIMAL(38, 2) NULL,
     total_rowcount DECIMAL(38, 2) NULL,
     total_count_executions BIGINT NULL,
+	total_avg_log_bytes_mb DECIMAL(38, 2) NULL,
+	total_avg_tempdb_space DECIMAL(38, 2) NULL,
 	INDEX gi_ix_dates CLUSTERED (start_range, end_range)
 );
 
@@ -22890,6 +23023,8 @@ CREATE TABLE #stored_proc_info
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
     converted_to NVARCHAR(128),
+	parameterization_type INT,
+	optimization_level VARCHAR(100),
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -23083,16 +23218,33 @@ SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flat_date,
          SUM((qsrs.avg_logical_io_writes* 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_logical_io_writes_mb,
          SUM(( qsrs.avg_query_max_used_memory * 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_query_max_used_memory_mb,
          SUM(qsrs.avg_rowcount) AS total_rowcount,
-         SUM(qsrs.count_executions) AS total_count_executions
-FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
-JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
-ON qsp.plan_id = qsrs.plan_id
-JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
-ON qsq.query_id = qsp.query_id
-WHERE    1 = 1
-       AND qsq.is_internal_query = 0
-	   AND qsp.query_plan IS NOT NULL
-	  ';
+         SUM(qsrs.count_executions) AS total_count_executions'
+		 IF @new_columns = 1
+			BEGIN
+				SET @sql_select += N',
+									 SUM((qsrs.avg_log_bytes_used) / 1048576.) / SUM(qsrs.count_executions) AS total_avg_log_bytes_mb,
+									 SUM(avg_tempdb_space_used) /  SUM(qsrs.count_executions) AS total_avg_tempdb_space 
+									 '
+			END
+		IF @new_columns = 0
+			BEGIN
+				SET @sql_select += N',
+									NULL AS total_avg_log_bytes_mb, 
+									NULL AS total_avg_tempdb_space
+									'
+			END
+
+
+SET @sql_select += N'FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+					 JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+					 ON qsp.plan_id = qsrs.plan_id
+					 JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+					 ON qsq.query_id = qsp.query_id
+					 WHERE  1 = 1
+					        AND qsq.is_internal_query = 0
+					 	    AND qsp.query_plan IS NOT NULL
+					 	  ';
+
 
 SET @sql_select += @sql_where;
 
@@ -23113,7 +23265,8 @@ IF @sql_select IS NULL
 INSERT #grouped_interval WITH (TABLOCK)
 		( flat_date, start_range, end_range, total_avg_duration_ms, 
 		  total_avg_cpu_time_ms, total_avg_logical_io_reads_mb, total_avg_physical_io_reads_mb, 
-		  total_avg_logical_io_writes_mb, total_avg_query_max_used_memory_mb, total_rowcount, total_count_executions )
+		  total_avg_logical_io_writes_mb, total_avg_query_max_used_memory_mb, total_rowcount, 
+		  total_count_executions, total_avg_log_bytes_mb, total_avg_tempdb_space )
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -23492,6 +23645,116 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
+
+IF @new_columns = 1
+BEGIN
+
+RAISERROR(N'Gathering new 2017 new column info...', 0, 1) WITH NOWAIT;
+
+--total_avg_log_bytes_mb, total_avg_tempdb_space
+--SUM(avg_tempdb_space_used) / 
+
+/*Get highest log byte count plans*/
+
+RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
+
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH rowcount_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_avg_log_bytes_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''log bytes''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     rowcount_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.avg_log_bytes_used DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
+/*Get highest row count plans*/
+
+RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
+
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH rowcount_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_avg_tempdb_space DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''tempdb space''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     rowcount_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.avg_tempdb_space_used DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
+END;
 
 
 /*
@@ -24785,183 +25048,254 @@ JOIN is_paul_white_electric ipwe
 ON ipwe.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
 
-IF EXISTS ( SELECT 1 
-			FROM #working_warnings AS ww
-			WHERE ww.implicit_conversions = 1 
-			OR ww.proc_or_function_name <> N'Statement')
-BEGIN
+IF EXISTS (   SELECT 1
+              FROM   #working_warnings AS ww
+              WHERE  ww.implicit_conversions = 1
+                     OR ww.proc_or_function_name <> N'Statement' )
+    BEGIN
 
-RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+        RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
-WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-, variables_types
-AS ( 
+        WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+        , parameterization_type
+        AS ( SELECT qp.n.value('@StatementParameterizationType', 'INT') AS StatementParameterizationType,
+                    qp.n.value('@StatementOptmLevel', 'VARCHAR(100)') AS StatementOptmLevel,
+                    wm.query_hash
+             FROM   #working_plan_text AS b
+             JOIN   #working_metrics AS wm
+             ON wm.plan_id = b.plan_id
+                AND wm.query_id = b.query_id
+             CROSS APPLY b.query_plan_xml.nodes('//p:StmtSimple') AS qp(n) ),
+          variables_types
+        AS (
+           --WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+           SELECT qp.query_hash,
+                  qp.sql_handle,
+                  b.proc_or_function_name AS proc_name,
+                  q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
+                  q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
+                  q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+           FROM   #query_plan AS qp
+           JOIN   #working_warnings AS b
+           ON b.query_hash = qp.query_hash
+           CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+           WHERE  b.implicit_conversions = 1 ),
+          convert_implicit
+        AS (
+           --WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+           SELECT qp.query_hash,
+                  qp.sql_handle,
+                  b.proc_or_function_name AS proc_name,
+                  qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
+                  CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 THEN
+                           SUBSTRING(
+                               qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
+                               CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
+                               CHARINDEX(']',
+                                         qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
+                                         CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
+                               ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')))
+                       ELSE N'**no_variable**'
+                  END AS variable_name,
+                  CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0 THEN
+                           SUBSTRING(
+                               qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                               CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
+                               CHARINDEX(',',
+                                         qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of end bracket
+                                         CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
+                               ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
+                       ELSE N'**no_column**'
+                  END AS converted_column_name,
+                  CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0 THEN
+                           SUBSTRING(qq.c.value('@Expression', 'NVARCHAR(128)'), -- Original Expression
+                                     0,
+                                     CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')))
+                       WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 THEN
+                           SUBSTRING(
+                               qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                               CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
+                               CHARINDEX(',',
+                                         qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of end bracket
+                                         CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
+                               ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
+                       ELSE N'**no_column **'
+                  END AS column_name,
+                  SUBSTRING(
+                      qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
+                      CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
+                      CHARINDEX(',',
+                                qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
+                                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
+                      ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to,
+                  CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
+                            AND b.proc_or_function_name = 'Statement'
+                            AND qq.c.value('@Expression', 'NVARCHAR(128)') NOT LIKE '%=CONVERT_IMPLICIT%' THEN
+                           SUBSTRING(
+                               qq.c.value('@Expression', 'NVARCHAR(128)'), -- Original Expression
+                               CHARINDEX('=', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1,
+                               LEN(qq.c.value('@Expression', 'NVARCHAR(128)')))
+                       ELSE '*idk_man*'
+                  END AS compile_time_value,
+                  p.StatementParameterizationType,
+                  p.StatementOptmLevel
+           FROM   #query_plan AS qp
+           JOIN   #working_warnings AS b
+           ON b.query_hash = qp.query_hash
+           JOIN   parameterization_type AS p
+           ON p.query_hash = qp.query_hash
+           CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+           WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+                  AND qp.query_hash IS NOT NULL
+                  AND b.implicit_conversions = 1 )
+        INSERT INTO #stored_proc_info ( 
+                                        sql_handle,
+                                        query_hash,
+                                        variable_name,
+                                        variable_datatype,
+                                        converted_column_name,
+                                        compile_time_value,
+                                        proc_name,
+                                        column_name,
+                                        converted_to,
+                                        parameterization_type,
+                                        optimization_level )
+        SELECT DISTINCT
+               COALESCE(vt.sql_handle, ci.sql_handle) AS SqlHandle,
+               COALESCE(vt.query_hash, ci.query_hash) AS QueryHash,
+               COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
+               COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
+               COALESCE(ci.converted_column_name, '**no_column**') AS converted_column_name,
+               COALESCE(vt.compile_time_value, ci.compile_time_value, '*declared in proc*') AS compile_time_value,
+               COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
+               ci.column_name,
+               ci.converted_to,
+               ci.StatementParameterizationType,
+               ci.StatementOptmLevel
+        FROM   variables_types AS vt
+        RIGHT JOIN convert_implicit AS ci
+        ON (   ci.variable_name = vt.variable_name
+               AND ci.query_hash = vt.query_hash )
+        OPTION ( RECOMPILE );
 
-			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-			SELECT 
-			qp.query_hash,
-            qp.sql_handle,
-            b.proc_or_function_name AS proc_name,
-            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
-            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
-            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
-     FROM   #query_plan AS qp
-     JOIN   #working_warnings AS b
-     ON b.query_hash = qp.query_hash
-     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-     WHERE  b.implicit_conversions = 1 ),
-  convert_implicit
-AS ( 
-			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-			SELECT 
-			qp.query_hash,
-            qp.sql_handle,
-			b.proc_or_function_name AS proc_name,
-            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression,
-            CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) > 0 
-			THEN
-			SUBSTRING(
-                qq.c.value('@Expression', 'NVARCHAR(128)'),                 --Original Expression
-                CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')), --Charindex of @+1
-                CHARINDEX(']',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    --Charindex of end bracket
-                          CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of the @ +1
-                ) - CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)'))) 
-				ELSE N'**no_variable**' END AS variable_name,
-			CASE WHEN CHARINDEX('@', qq.c.value('@Expression', 'NVARCHAR(128)')) = 0
-			THEN 
-            SUBSTRING(
-                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
-                CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of , + 1
-                CHARINDEX(',',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
-                          CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of , + 1
-                ) - CHARINDEX(',', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1)
-			ELSE N'**no_column**' END AS converted_column_name,
-            SUBSTRING(
-                qq.c.value('@Expression', 'NVARCHAR(128)'),                       -- Original Expression
-                CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3, --Charindex of ].[ + 3
-                CHARINDEX(']',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                      -- Charindex of end bracket
-                          CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) + 3 --Starting at the Charindex of ].[ + 3
-                ) - CHARINDEX('].[', qq.c.value('@Expression', 'NVARCHAR(128)')) - 3) AS column_name,
-            SUBSTRING(
-                qq.c.value('@Expression', 'NVARCHAR(128)'),                     -- Original Expression
-                CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1, --Charindex of ( + 1
-                CHARINDEX(',',
-                          qq.c.value('@Expression', 'NVARCHAR(128)'),                    -- Charindex of comma
-                          CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) + 1 --Starting at the Charindex of ( + 1
-                ) - CHARINDEX('(', qq.c.value('@Expression', 'NVARCHAR(128)')) - 1) AS converted_to
-     FROM   #query_plan AS qp
-     JOIN   #working_warnings AS b
-     ON b.query_hash = qp.query_hash
-     CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
-     WHERE  qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
-			AND qp.query_hash IS NOT NULL 
-			AND b.implicit_conversions = 1 )
-INSERT #stored_proc_info ( query_hash, sql_handle, variable_name, variable_datatype, converted_column_name, compile_time_value, proc_name, column_name, converted_to )
-SELECT DISTINCT
-       COALESCE(vt.query_hash, ci.query_hash) AS query_hash,
-	   COALESCE(vt.sql_handle, ci.sql_handle) AS sql_handle,
-       COALESCE(vt.variable_name, ci.variable_name) AS variable_name,
-       COALESCE(vt.variable_datatype, ci.converted_to) AS variable_datatype,
-	   COALESCE(converted_column_name, '**no_column**') AS converted_column_name, 
-       COALESCE(vt.compile_time_value, '*declared in proc*') AS compile_time_value,
-       COALESCE(vt.proc_name, ci.proc_name) AS proc_name,
-       ci.column_name,
-       ci.converted_to
-FROM   variables_types AS vt
-RIGHT JOIN   convert_implicit AS ci
-ON (ci.variable_name = vt.variable_name
-   AND ci.query_hash = vt.query_hash)
-OPTION(RECOMPILE);
+        UPDATE s
+        SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
+                                              LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+                                          ELSE s.variable_datatype
+                                     END,
+               s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
+                                         LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+                                     ELSE s.converted_to
+                                END
+        FROM   #stored_proc_info AS s;
 
-WITH precheck AS (
-SELECT 
-	   spi.sql_handle,
-	   spi.proc_name,
-			CONVERT(XML, 
-			N'<?ClickMe -- '
-			+ @cr + @lf
-			+ N'The ' 
-			+ CASE WHEN spi.proc_name <> 'Statement' 
-				   THEN N'stored procedure ' + spi.proc_name 
-				   ELSE N'ad hoc statement' 
-			  END
-			+ N' had the following implicit conversions: '
-			+ CHAR(10)
-			+ STUFF((
-				SELECT DISTINCT 
-						@cr + @lf
-						+ CASE WHEN spi2.variable_name <> '**no_variable**'
-							   THEN N'The variable '
-							   ELSE N'The column '
-						  END 
-						+ CASE WHEN spi2.variable_name <> '**no_variable**'
-							   THEN spi2.variable_name
-							   ELSE spi2.converted_column_name
-						  END 
-						+ N' has a data type of '
-						+ spi2.variable_datatype
-						+ N' which caused implicit conversion on the column '
-						+ spi2.column_name
-						+ CASE WHEN spi2.compile_time_value = '*declared in proc*' 
-									AND spi2.variable_name <> '**no_variable**'
-							   THEN N' and is a declared variable or unused.' 
-							   /*Figure out if the variable is declared or passed in*/
-							   WHEN spi2.compile_time_value = '*declared in proc*' 
-									AND spi2.converted_column_name <> '**no_column**'
-							   THEN N' and is used in column to column correlation.' 
-							   /*Figure out if it's a column*/
-							   ELSE N' and is a used parameter of the stored procedure.' 
-						  END
-				FROM #stored_proc_info AS spi2
-				WHERE spi.sql_handle = spi2.sql_handle
-				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ CHAR(10)
-			+ N' -- ?>'
-			) AS implicit_conversion_info,
-			CONVERT(XML, 
-			N'<?ClickMe -- '
-			+ @cr + @lf
-			+ N'EXEC ' 
-			+ spi.proc_name 
-			+ N' '
-			+ STUFF((
-				SELECT DISTINCT N', ' 
-						+ spi2.variable_name 
-						+ N' = ' 
-						+ CASE WHEN spi2.compile_time_value = 'NULL' 
-							   THEN spi2.compile_time_value 
-							   ELSE QUOTENAME(spi2.compile_time_value, '''') 
-						  END
-				FROM #stored_proc_info AS spi2
-				WHERE spi.sql_handle = spi2.sql_handle
-				AND spi2.proc_name <> 'Statement'
-				AND spi2.compile_time_value <> '*declared in proc*'
-				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ @cr + @lf
-			+ N' -- ?>'
-			) AS cached_execution_parameters
-FROM #stored_proc_info AS spi
-GROUP BY spi.sql_handle, spi.proc_name	
-)
+
+        WITH precheck
+        AS ( SELECT   spi.sql_handle,
+                      spi.proc_name,
+                      CONVERT(
+                          XML,
+                          N'<?ClickMe -- ' + @cr + @lf + N'The '
+                          + CASE WHEN spi.proc_name <> 'Statement' THEN N'stored procedure ' + spi.proc_name
+                                 ELSE N'ad hoc statement'
+                            END + N' had the following implicit conversions: ' + CHAR(10)
+                          + STUFF(
+                                (   SELECT DISTINCT @cr + @lf
+                                                    + CASE WHEN spi2.variable_name <> N'**no_variable**' THEN
+                                                               N'The variable '
+                                                           WHEN spi2.variable_name = N'**no_variable**'
+                                                                AND (   spi2.column_name = spi2.converted_column_name
+                                                                        OR spi2.column_name LIKE '%CONVERT_IMPLICIT%' ) THEN
+                                                               N'The compiled value '
+                                                           ELSE N'The column '
+                                                      END
+                                                    + CASE WHEN spi2.variable_name <> N'**no_variable**' THEN
+                                                               spi2.variable_name
+                                                           WHEN spi2.variable_name = N'**no_variable**'
+                                                                AND (   spi2.column_name = spi2.converted_column_name
+                                                                        OR spi2.column_name LIKE '%CONVERT_IMPLICIT%' ) THEN
+                                                               spi2.compile_time_value
+                                                           ELSE spi2.column_name
+                                                      END + N' has a data type of ' + spi2.variable_datatype
+                                                    + N' which caused implicit conversion on the column '
+                                                    + CASE WHEN spi2.column_name LIKE N'%CONVERT_IMPLICIT%' THEN
+                                                               spi2.converted_column_name
+                                                           WHEN spi2.column_name = N'**no_column**' THEN
+                                                               spi2.converted_column_name
+                                                           WHEN spi2.converted_column_name = N'**no_column**' THEN
+                                                               spi2.column_name
+                                                           WHEN spi2.column_name <> spi2.converted_column_name THEN
+                                                               spi2.converted_column_name
+                                                           ELSE spi2.column_name
+                                                      END
+                                                    + CASE WHEN spi2.variable_name = N'**no_variable**'
+                                                                AND (   spi2.column_name = spi2.converted_column_name
+                                                                        OR spi2.column_name LIKE '%CONVERT_IMPLICIT%' ) THEN
+                                                               N''
+                                                           WHEN spi2.compile_time_value NOT IN ( '*declared in proc*',
+                                                                                                 '*idk_man*' ) THEN
+                                                               ' with the value ' + RTRIM(spi2.compile_time_value)
+                                                           ELSE N''
+                                                      END + '.'
+                                    FROM   #stored_proc_info AS spi2
+                                    WHERE  spi.sql_handle = spi2.sql_handle
+                                    FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'),
+                                1,
+                                1,
+                                N'') + CHAR(10) + N' -- ?>') AS implicit_conversion_info,
+                      CONVERT(
+                          XML,
+                          N'<?ClickMe -- ' + @cr + @lf + N'EXEC ' + spi.proc_name + N' '
+                          + STUFF(
+                                (   SELECT DISTINCT N', '
+                                                    + CASE WHEN spi2.variable_name <> N'**no_variable**'
+                                                                AND spi2.compile_time_value <> N'*idk_man*' THEN
+                                                               spi2.variable_name
+                                                           ELSE N''
+                                                      END
+                                                    + CASE WHEN spi2.variable_name <> N'**no_variable**'
+                                                                AND spi2.compile_time_value <> N'*idk_man*' THEN N' = '
+                                                           ELSE N''
+                                                      END
+                                                    + CASE WHEN spi2.variable_name = N'**no_variable**'
+                                                                OR spi2.compile_time_value = N'*idk_man*' THEN N''
+                                                           WHEN spi2.compile_time_value = N'NULL' THEN
+                                                               spi2.compile_time_value
+                                                           ELSE RTRIM(spi2.compile_time_value)
+                                                      END
+                                    FROM   #stored_proc_info AS spi2
+                                    WHERE  spi.sql_handle = spi2.sql_handle
+                                           AND spi2.proc_name <> N'Statement'
+                                           AND spi2.compile_time_value <> N'*declared in proc*'
+                                    FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'),
+                                1,
+                                1,
+                                N'') + @cr + @lf + N' -- ?>') AS cached_execution_parameters
+             FROM     #stored_proc_info AS spi
+             GROUP BY spi.sql_handle, spi.proc_name )
+        UPDATE b
+        SET    b.implicit_conversion_info = pk.implicit_conversion_info,
+               b.cached_execution_parameters = pk.cached_execution_parameters
+        FROM   #working_warnings AS b
+        JOIN   precheck AS pk
+        ON pk.sql_handle = b.sql_handle
+           AND b.implicit_conversions = 1
+        OPTION ( RECOMPILE );
+
+    END; --End implicit conversion information gathering
+
+
 UPDATE b
-SET b.implicit_conversion_info = pk.implicit_conversion_info,
-	b.cached_execution_parameters = pk.cached_execution_parameters
-FROM #working_warnings AS b
-JOIN precheck pk
-ON pk.sql_handle = b.sql_handle
-AND b.implicit_conversions = 1 
-OPTION(RECOMPILE);
-
-END; --End implicit conversion information gathering
-
-UPDATE b
-SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
-	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
-FROM #working_warnings AS b
-OPTION(RECOMPILE);
+SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN 
+											N'<?NoNeedToClickMe -- N/A --?>'
+                                         ELSE b.implicit_conversion_info
+                                    END,
+       b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN
+                                                N'<?NoNeedToClickMe -- N/A --?>'
+                                            ELSE b.cached_execution_parameters
+                                       END
+FROM   #working_warnings AS b
+OPTION ( RECOMPILE );
 
 
 
@@ -24972,9 +25306,9 @@ UPDATE b
 SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END ,
 	   b.near_parallel = CASE WHEN b.query_cost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
 	   b.long_running = CASE WHEN wm.avg_duration > @long_running_query_warning_seconds THEN 1
-						   WHEN wm.max_duration > @long_running_query_warning_seconds THEN 1
-                           WHEN wm.avg_cpu_time > @long_running_query_warning_seconds THEN 1
-                           WHEN wm.max_cpu_time > @long_running_query_warning_seconds THEN 1 END,
+						     WHEN wm.max_duration > @long_running_query_warning_seconds THEN 1
+                             WHEN wm.avg_cpu_time > @long_running_query_warning_seconds THEN 1
+                             WHEN wm.max_cpu_time > @long_running_query_warning_seconds THEN 1 END,
 	   b.is_key_lookup_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_sort_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
@@ -25195,7 +25529,7 @@ JOIN #working_metrics AS wm
 SELECT *
 FROM x
 WHERE x.rn = 1
-ORDER BY x.query_cost DESC
+ORDER BY x.last_execution_time
 OPTION (RECOMPILE);
 
 END;
@@ -25207,7 +25541,8 @@ RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, 
+	   wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -25224,7 +25559,7 @@ JOIN #working_metrics AS wm
 SELECT *
 FROM x
 WHERE x.rn = 1
-ORDER BY x.query_cost DESC
+ORDER BY x.last_execution_time
 OPTION (RECOMPILE);
 
 END;
@@ -25257,7 +25592,7 @@ JOIN #working_metrics AS wm
 SELECT *
 FROM x
 WHERE x.rn = 1
-ORDER BY x.query_cost DESC
+ORDER BY x.last_execution_time
 OPTION (RECOMPILE);
 
 END;
@@ -25283,7 +25618,7 @@ JOIN #working_metrics AS wm
 SELECT *
 FROM x
 WHERE x.rn = 1
-ORDER BY x.avg_cpu_time DESC
+ORDER BY x.last_execution_time
 OPTION (RECOMPILE);
 
 END;
@@ -26082,6 +26417,8 @@ BEGIN
 			       gi.total_avg_logical_io_writes_mb,
 			       gi.total_avg_query_max_used_memory_mb,
 			       gi.total_rowcount,
+				   gi.total_avg_log_bytes_mb,
+				   gi.total_avg_tempdb_space,
 				   CONVERT(NVARCHAR(20), gi.flat_date) AS worst_date,
 				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN ' midnight '
 						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am '
@@ -26127,6 +26464,16 @@ BEGIN
 			SELECT TOP 1 'Your worst row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_rowcount DESC
+				), 
+				logbytes_worst AS (
+			SELECT TOP 1 'Your worst log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_log_bytes_mb DESC
+				), 
+				tempdb_worst AS (
+			SELECT TOP 1 'Your worst tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_avg_tempdb_space DESC
 				)
 			INSERT #warning_results ( CheckID, Priority, FindingsGroup, Finding, URL, Details )
 			SELECT 1002, 255, 'Worsts', 'Worst Duration', 'N/A', duration_worst.msg
@@ -26149,6 +26496,12 @@ BEGIN
 			UNION ALL
 			SELECT 1002, 255, 'Worsts', 'Worst Row Counts', 'N/A', rowcount_worst.msg
 			FROM rowcount_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Log Bytes', 'N/A', logbytes_worst.msg
+			FROM logbytes_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst tempdb', 'N/A', tempdb_worst.msg
+			FROM tempdb_worst
 			OPTION (RECOMPILE);
 
 
