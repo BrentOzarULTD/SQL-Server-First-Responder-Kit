@@ -1134,6 +1134,7 @@ CREATE TABLE #plan_creation
     percent_24 DECIMAL(5, 2),
     percent_4 DECIMAL(5, 2),
     percent_1 DECIMAL(5, 2),
+	total_plans INT,
     SPID INT
 );
 
@@ -1186,10 +1187,11 @@ SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THE
 	   COUNT(deqs.creation_time) AS [total_plans]
 FROM sys.dm_exec_query_stats AS deqs
 )
-INSERT INTO #plan_creation
+INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
 SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
 	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
 	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
+	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
 OPTION (RECOMPILE) ;
@@ -4775,7 +4777,14 @@ BEGIN
                     999,
                     254,
                     'Plan Cache Information',
-                    'You have ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_24, 0)) + '% plans created in the past 24 hours, ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_4, 0)) + '% created in the past 4 hours, and ' + CONVERT(NVARCHAR(10), ISNULL(p.percent_1, 0)) + '% created in the past 1 hour.',
+                    'You have ' + CONVERT(NVARCHAR(10), ISNULL(p.total_plans, 0)) 
+								+ ' total plans in your cache, with ' 
+								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_24, 0)) 
+								+ '% plans created in the past 24 hours, ' 
+								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_4, 0)) 
+								+ '% created in the past 4 hours, and ' 
+								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_1, 0)) 
+								+ '% created in the past 1 hour.',
                     '',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
