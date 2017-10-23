@@ -1579,7 +1579,7 @@ BEGIN
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -3350,15 +3350,13 @@ EXEC dbo.sp_BlitzFirst
 With extra diagnostic info:
 EXEC dbo.sp_BlitzFirst @ExpertMode = 1;
 
-In Ask a Question mode:
-EXEC dbo.sp_BlitzFirst 'Is this cursor bad?';
-
 Saving output to tables:
-EXEC sp_BlitzFirst @Seconds = 60
+EXEC sp_BlitzFirst
 , @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
-, @OutputTableName = 'BlitzFirstResults'
-, @OutputTableNameFileStats = 'BlitzFirstResults_FileStats'
-, @OutputTableNamePerfmonStats = 'BlitzFirstResults_PerfmonStats'
-, @OutputTableNameWaitStats = 'BlitzFirstResults_WaitStats'
+, @OutputTableName = 'BlitzFirst'
+, @OutputTableNameFileStats = 'BlitzFirst_FileStats'
+, @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats'
+, @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
+, @OutputTableNameBlitzCache = 'BlitzCache'
 */
