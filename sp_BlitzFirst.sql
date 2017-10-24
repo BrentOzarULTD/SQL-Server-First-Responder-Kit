@@ -205,10 +205,11 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' WHERE CheckDate >= DATEADD(mi, -15, ''' + CAST(@AsOf AS NVARCHAR(100)) + ''')'
-            + ' AND CheckDate <= DATEADD(mi, 15, ''' + CAST(@AsOf AS NVARCHAR(100)) + ''')'
+            + ' WHERE CheckDate >= DATEADD(mi, -15, CONVERT(DATETIMEOFFSET, ''' + CAST(@AsOf AS NVARCHAR(100)) + '''))'
+            + ' AND CheckDate <= DATEADD(mi, 15, CONVERT(DATETIMEOFFSET, ''' + CAST(@AsOf AS NVARCHAR(100)) + '''))'
             + ' /*ORDER BY CheckDate, Priority , FindingsGroup , Finding , Details*/;';
-        EXEC(@StringToExecute);
+        PRINT(@StringToExecute)
+		EXEC(@StringToExecute);
 
 
 END /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL */
