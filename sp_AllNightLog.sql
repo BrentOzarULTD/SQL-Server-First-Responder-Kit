@@ -103,8 +103,8 @@ END
 SET NOCOUNT ON;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.8';
-SET @VersionDate = '20171001';
+SET @Version = '1.9';
+SET @VersionDate = '20171101';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
