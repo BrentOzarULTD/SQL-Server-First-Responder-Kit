@@ -2812,7 +2812,9 @@ IF EXISTS (   SELECT 1
 
         WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
         , parameterization_type
-        AS ( SELECT qp.n.value('@StatementParameterizationType', 'INT') AS StatementParameterizationType,
+        AS ( 
+             --WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+			 SELECT qp.n.value('@StatementParameterizationType', 'INT') AS StatementParameterizationType,
                     qp.n.value('@StatementOptmLevel', 'VARCHAR(100)') AS StatementOptmLevel,
                     wm.query_hash
              FROM   #working_plan_text AS b
@@ -2833,7 +2835,7 @@ IF EXISTS (   SELECT 1
            JOIN   #working_warnings AS b
            ON b.query_hash = qp.query_hash
            CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-           WHERE  b.implicit_conversions = 1 ),
+			),
           convert_implicit
         AS (
            --WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -2927,7 +2929,7 @@ IF EXISTS (   SELECT 1
                ci.StatementParameterizationType,
                ci.StatementOptmLevel
         FROM   variables_types AS vt
-        RIGHT JOIN convert_implicit AS ci
+        FULL JOIN convert_implicit AS ci
         ON (   ci.variable_name = vt.variable_name
                AND ci.query_hash = vt.query_hash )
         OPTION ( RECOMPILE );
@@ -2940,7 +2942,15 @@ IF EXISTS (   SELECT 1
                s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
                                          LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
                                      ELSE s.converted_to
-                                END
+                                END,
+			    s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' THEN
+			    				SUBSTRING(s.compile_time_value, 
+			    							CHARINDEX('(', s.compile_time_value) + 1,
+			    							CHARINDEX(')', s.compile_time_value) - 1
+			    							- CHARINDEX('(', s.compile_time_value)
+			    							)
+			    					 ELSE s.compile_time_value 
+			    				END
         FROM   #stored_proc_info AS s;
 
 
@@ -3033,7 +3043,7 @@ IF EXISTS (   SELECT 1
         FROM   #working_warnings AS b
         JOIN   precheck AS pk
         ON pk.sql_handle = b.sql_handle
-           AND b.implicit_conversions = 1
+           AND (b.implicit_conversions = 1 OR b.proc_or_function_name <> 'Statement')
         OPTION ( RECOMPILE );
 
     END; --End implicit conversion information gathering
