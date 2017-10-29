@@ -23,7 +23,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
-	@ShowSleepingSPIDs TINYINT = 0 ,
+    @ShowSleepingSPIDs TINYINT = 0 ,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -145,6 +145,25 @@ SELECT
 
 IF @LogMessage IS NOT NULL
     BEGIN
+
+    RAISERROR('Saving LogMessage to table',10,1) WITH NOWAIT;
+
+    /* Try to set the output table parameters if they don't exist */
+    IF @OutputSchemaName IS NULL AND @OutputTableName IS NULL AND @OutputDatabaseName IS NULL
+        BEGIN
+            SET @OutputSchemaName = N'[dbo]';
+            SET @OutputTableName = N'[BlitzFirst]';
+
+            /* Look for the table in the current database */
+            SELECT TOP 1 @OutputDatabaseName = QUOTENAME(TABLE_CATALOG)
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'BlitzFirst';
+
+            IF @OutputDatabaseName IS NULL AND EXISTS (SELECT * FROM sys.databases WHERE name = 'DBAtools')
+                SET @OutputDatabaseName = '[DBAtools]';
+
+        END
+
     IF @OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL OR @OutputTableName IS NULL
             OR NOT EXISTS ( SELECT *
                      FROM   sys.databases
@@ -169,6 +188,9 @@ IF @LogMessage IS NOT NULL
     EXECUTE sp_executesql @StringToExecute, 
         N'@LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
         @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+
+    RAISERROR('LogMessage saved to table. We have made a note of your activity. Keep up the good work.',10,1) WITH NOWAIT;
+
     RETURN;
     END
 
