@@ -284,7 +284,7 @@ AS
 				URL ,
 				Details
 			)
-			SELECT 201 AS CheckID ,
+			SELECT 204 AS CheckID ,
 					0 AS Priority ,
 					'Informational' AS FindingsGroup ,
 					'@CheckUserDatabaseObjects Disabled' AS Finding ,
@@ -4586,7 +4586,7 @@ IF @ProductVersionMajor >= 10
 			/*Overall count of DBCC events excluding silly stuff*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+								WHERE   DatabaseName IS NULL AND CheckID = 203 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4599,7 +4599,7 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-			SELECT 199 AS CheckID ,
+			SELECT 203 AS CheckID ,
 			        50 AS Priority ,
 			        'DBCC Events' AS FindingsGroup ,
 			        'Overall Events' AS Finding ,
@@ -4651,7 +4651,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone running drop clean buffers*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+								WHERE   DatabaseName IS NULL AND CheckID = 207 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4664,10 +4664,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 200 AS CheckID ,
-					        50 AS Priority ,
-					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC DROPCLEANBUFFERS' AS Finding ,
+					SELECT 207 AS CheckID ,
+					        10 AS Priority ,
+					        'Performance' AS FindingsGroup ,
+					        'DBCC DROPCLEANBUFFERS Ran Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
@@ -4682,7 +4682,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone running free proc cache*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+								WHERE   DatabaseName IS NULL AND CheckID = 208 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4695,10 +4695,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 201 AS CheckID ,
-					        50 AS Priority ,
+					SELECT 208 AS CheckID ,
+					        10 AS Priority ,
 					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC FREEPROCCACHE' AS Finding ,
+					        'DBCC FREEPROCCACHE Ran Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
@@ -4713,7 +4713,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone clearing wait stats*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+								WHERE   DatabaseName IS NULL AND CheckID = 205 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4726,10 +4726,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 202 AS CheckID ,
+					SELECT 205 AS CheckID ,
 					        50 AS Priority ,
-					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)' AS Finding ,
+					        'Performance' AS FindingsGroup ,
+					        'Wait Stats Cleared Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. Why are you clearing wait stats? What are you hiding?'
@@ -4744,7 +4744,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone writing to pages. Yeah, right?*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+								WHERE   DatabaseName IS NULL AND CheckID = 209 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4757,10 +4757,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-						SELECT 203 AS CheckID ,
+						SELECT 209 AS CheckID ,
 						        50 AS Priority ,
-						        'DBCC Events' AS FindingsGroup ,
-						        'DBCC WRITEPAGE' AS Finding ,
+						        'Reliability' AS FindingsGroup ,
+						        'DBCC WRITEPAGE Used Recently' AS Finding ,
 						        '' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 								'. So, uh, are they trying to fix corruption, or cause corruption?'
@@ -4774,7 +4774,7 @@ IF @ProductVersionMajor >= 10
 
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+								WHERE   DatabaseName IS NULL AND CheckID = 210 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4788,13 +4788,13 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 
-						SELECT 204 AS CheckID ,
-						        50 AS Priority ,
-						        'DBCC Events' AS FindingsGroup ,
-						        'DBCC SHRINK%' AS Finding ,
+						SELECT 210 AS CheckID ,
+						        10 AS Priority ,
+						        'Performance' AS FindingsGroup ,
+						        'DBCC SHRINK% Ran Recently' AS Finding ,
 						        '' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
-								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								'. So, uh, are they trying cause bad performance on purpose?'
 								AS Details
 						FROM    #dbcc_events_from_trace d
 						WHERE d.dbcc_event_trunc_upper LIKE N'DBCC SHRINK%'
@@ -4810,7 +4810,7 @@ IF @ProductVersionMajor >= 10
 
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 205 )
+								WHERE   DatabaseName IS NULL AND CheckID = 206 )
 						AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4824,10 +4824,10 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 
-						SELECT	205 AS CheckID ,
-								        50 AS Priority ,
-								        'Autoshrink events' AS FindingsGroup ,
-								        'File shrinking' AS Finding ,
+						SELECT	206 AS CheckID ,
+								        10 AS Priority ,
+								        'Performance' AS FindingsGroup ,
+								        'Auto-Shrink Ran Recently' AS Finding ,
 								        '' AS URL , 
 										N'The database ' + QUOTENAME(t.DatabaseName) + N' has had ' 
 											+ CONVERT(NVARCHAR(10), COUNT(*)) 
