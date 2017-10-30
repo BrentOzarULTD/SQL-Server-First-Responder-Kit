@@ -1,0 +1,297 @@
+IF OBJECT_ID('dbo.sp_BlitzLock') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_BlitzLock AS RETURN 0;');
+GO
+
+ALTER PROCEDURE dbo.sp_BlitzLock
+(
+    @Top INT = 2147483647, @StartDate DATETIME = '19000101', @EndDate DATETIME = '99991231', @Debug BIT = 0, @EventSessionPath NVARCHAR(256) = NULL, @Help BIT = 0
+)
+AS
+    BEGIN
+
+	IF @Help = 1 PRINT '
+	/*
+	sp_BlitzLock from http://FirstResponderKit.org
+	
+	This script checks for and analyzes deadlocks from the system health session or a custom extended event path
+
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
+
+	Unknown limitations of this version:
+	 - None.  (If we knew them, they would be known. Duh.)
+
+     Changes - for the full list of improvements and fixes in this version, see:
+     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+
+
+	Parameter explanations:
+		HOLD YOUR HORSES
+
+    MIT License
+	
+	Copyright for portions of sp_Blitz are held by Microsoft as part of project 
+	tigertoolbox and are provided under the MIT license:
+	https://github.com/Microsoft/tigertoolbox
+	   
+	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2017.
+
+	Copyright (c) 2017 Brent Ozar Unlimited
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+
+	*/';
+
+
+        DECLARE @ProductVersion NVARCHAR(128);
+        DECLARE @ProductVersionMajor FLOAT;
+        DECLARE @ProductVersionMinor INT;
+
+        SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
+
+        SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
+               @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2);
+
+
+        IF @ProductVersionMajor < 11.0
+            BEGIN
+                RAISERROR(
+                    'sp_BlitzLock will throw a bunch of angry errors on versions of SQL Server earlier than 2012.',
+                    0,
+                    1) WITH NOWAIT;
+                RETURN;
+            END;
+
+		IF @Top IS NULL
+			SET @Top = 2147483647
+
+		IF @StartDate IS NULL
+			SET @StartDate = '19000101'
+
+		IF @EndDate IS NULL
+			SET @EndDate = '99991231'
+		
+
+        IF OBJECT_ID('tempdb..#deadlock_data') IS NOT NULL
+            DROP TABLE #deadlock_data;
+
+        IF OBJECT_ID('tempdb..#deadlock_process') IS NOT NULL
+            DROP TABLE #deadlock_process;
+
+        IF OBJECT_ID('tempdb..#deadlock_stack') IS NOT NULL
+            DROP TABLE #deadlock_stack;
+
+        IF OBJECT_ID('tempdb..#deadlock_resource') IS NOT NULL
+            DROP TABLE #deadlock_resource;
+
+        IF OBJECT_ID('tempdb..#deadlock_owner_waiter') IS NOT NULL
+            DROP TABLE #deadlock_owner_waiter;
+
+        IF OBJECT_ID('tempdb..#deadlock_findings') IS NOT NULL
+            DROP TABLE #deadlock_findings;
+
+		CREATE TABLE #deadlock_findings
+		(
+		    id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
+		    check_id INT NOT NULL,
+			database_name NVARCHAR(256),
+			object_name NVARCHAR(1000),
+			finding NVARCHAR(4000),
+			query_text XML
+		);
+
+
+		/*Grab the initial set of XML to parse*/
+        WITH xml
+        AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
+             FROM   sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) )
+        SELECT TOP ( @Top ) xml.deadlock_xml
+        INTO   #deadlock_data
+        FROM   xml
+        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(255)') = 'xml_deadlock_report'
+               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
+               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate;
+
+		
+
+		/*Parse process and input buffer XML*/
+        SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
+					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
+                    ca.dp.value('@currentdb', 'BIGINT') AS database_id,
+                    ca.dp.value('@logused', 'BIGINT') AS log_used,
+                    ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
+                    ca.dp.value('@waittime', 'BIGINT') AS wait_time,
+                    ca.dp.value('@transactionname', 'NVARCHAR(256)') AS transaction_name,
+                    ca.dp.value('@lasttranstarted', 'DATETIME2(7)') AS last_tran_started,
+                    ca.dp.value('@lastbatchstarted', 'DATETIME2(7)') AS last_batch_started,
+                    ca.dp.value('@lastbatchcompleted', 'DATETIME2(7)') AS last_batch_completed,
+                    ca.dp.value('@lockMode', 'NVARCHAR(256)') AS lock_mode,
+                    ca.dp.value('@trancount', 'BIGINT') AS transaction_count,
+                    ca.dp.value('@clientapp', 'NVARCHAR(256)') AS client_app,
+                    ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
+                    ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
+                    ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
+                    ca2.ib.query('.') AS input_buffer,
+                    ca.dp.query('.') AS process_xml
+        INTO        #deadlock_process
+        FROM        #deadlock_data AS dd
+        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
+        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+
+
+		/*Parse execution stack XML*/
+        SELECT      dp.id,
+                    ca.dp.value('@procname', 'NVARCHAR(256)') AS proc_name,
+                    ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
+        INTO        #deadlock_stack
+        FROM        #deadlock_process AS dp
+        CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp);
+
+
+		/*Grab the full resource list*/
+        SELECT      ca.dp.query('.') AS resource_xml
+        INTO        #deadlock_resource
+        FROM        #deadlock_data AS dd
+        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp);
+
+
+		/*This parses object locks*/
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+        INTO        #deadlock_owner_waiter
+        FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+
+
+		/*This parses page locks*/
+        INSERT #deadlock_owner_waiter
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+        FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+
+
+		/*This parses key locks*/
+        INSERT #deadlock_owner_waiter
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+        FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+
+
+		/*This parses rid locks*/
+        INSERT #deadlock_owner_waiter
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+        FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+
+
+		/*Begin checks based on parsed values*/
+
+		/*Check 1 is deadlocks by database*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding, query_text )	
+		SELECT 1 AS check_id, 
+			   DB_NAME(dow.database_id) AS database_name, 
+			   NULL AS object_name,
+			   'This database had ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
+				+ ' deadlocks.',
+			   NULL AS query_text
+        FROM   #deadlock_owner_waiter AS dow
+		GROUP BY DB_NAME(dow.database_id)
+
+		/*Check 2 is deadlocks by object*/
+
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding, query_text )	
+		SELECT 2 AS check_id, 
+			   DB_NAME(dow.database_id) AS database_name, 
+			   dow.object_name AS object_name,
+			   'This object had ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
+				+ ' deadlocks.',
+			   NULL AS query_text
+        FROM   #deadlock_owner_waiter AS dow
+		GROUP BY DB_NAME(dow.database_id), dow.object_name
+
+
+
+		SELECT df.id, df.check_id, df.database_name, df.object_name, df.finding, df.query_text
+		FROM #deadlock_findings AS df
+		ORDER BY df.check_id
+
+        IF @Debug = 1
+            BEGIN
+
+                SELECT '#deadlock_data' AS table_name, *
+                FROM   #deadlock_data AS dd;
+
+                SELECT '#deadlock_owner_waiter' AS table_name, *
+                FROM   #deadlock_owner_waiter AS dow;
+
+                SELECT '#deadlock_process' AS table_name, *
+                FROM   #deadlock_process AS dp;
+
+                SELECT '#deadlock_resource' AS table_name, *
+                FROM   #deadlock_resource AS dr;
+
+                SELECT '#deadlock_stack' AS table_name, *
+                FROM   #deadlock_stack AS ds;
+            END; -- End debug
+
+    END; --Final End
+GO
+
+EXEC dbo.sp_BlitzLock @Debug = 1;
+
+
+
+
+
+
+
