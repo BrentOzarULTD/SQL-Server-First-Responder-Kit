@@ -80,13 +80,13 @@ AS
             END;
 
 		IF @Top IS NULL
-			SET @Top = 2147483647
+			SET @Top = 2147483647;
 
 		IF @StartDate IS NULL
-			SET @StartDate = '19000101'
+			SET @StartDate = '19000101';
 
 		IF @EndDate IS NULL
-			SET @EndDate = '99991231'
+			SET @EndDate = '99991231';
 		
 
         IF OBJECT_ID('tempdb..#deadlock_data') IS NOT NULL
@@ -113,6 +113,7 @@ AS
 		    check_id INT NOT NULL,
 			database_name NVARCHAR(256),
 			object_name NVARCHAR(1000),
+			finding_group NVARCHAR(100),
 			finding NVARCHAR(4000),
 			query_text XML
 		);
@@ -235,35 +236,151 @@ AS
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding, query_text )	
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )	
 		SELECT 1 AS check_id, 
 			   DB_NAME(dow.database_id) AS database_name, 
 			   NULL AS object_name,
+			   'Total database locks' AS finding_group,
 			   'This database had ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
 				+ ' deadlocks.',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
-		GROUP BY DB_NAME(dow.database_id)
+		GROUP BY DB_NAME(dow.database_id);
 
 		/*Check 2 is deadlocks by object*/
 
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding, query_text )	
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )	
 		SELECT 2 AS check_id, 
 			   DB_NAME(dow.database_id) AS database_name, 
 			   dow.object_name AS object_name,
+			   'Total object locks' AS finding_group,
 			   'This object had ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
 				+ ' deadlocks.',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
-		GROUP BY DB_NAME(dow.database_id), dow.object_name
+		GROUP BY DB_NAME(dow.database_id), dow.object_name;
+		
 
+		/*Check 3 looks for Serializable locking*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 3 AS check_id,
+			   DB_NAME(dp.database_id) AS database_name,
+			   NULL AS object_name,
+			   'Serializable locking' AS finding_group,
+			   'This database has had ' + 
+			   CONVERT(NVARCHAR(20), COUNT_BIG(*)) +
+			   ' instances of serializable deadlocks.'
+			   AS finding,
+			   NULL AS query_text
+		FROM #deadlock_process AS dp
+		WHERE dp.isolation_level LIKE 'serializable%'
+		GROUP BY DB_NAME(dp.database_id);
 
+		/*Check 4 looks for Repeatable Read locking*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 4 AS check_id,
+			   DB_NAME(dp.database_id) AS database_name,
+			   NULL AS object_name,
+			   'Repeatable Read locking' AS finding_group,
+			   'This database has had ' + 
+			   CONVERT(NVARCHAR(20), COUNT_BIG(*)) +
+			   ' instances of repeatable read deadlocks.'
+			   AS finding,
+			   NULL AS query_text
+		FROM #deadlock_process AS dp
+		WHERE dp.isolation_level LIKE 'repeatable read%'
+		GROUP BY DB_NAME(dp.database_id);
 
-		SELECT df.id, df.check_id, df.database_name, df.object_name, df.finding, df.query_text
+		/*Check 5 breaks down app, host, and login information*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 5 AS check_id,
+			   DB_NAME(dp.database_id) AS database_name,
+			   NULL AS object_name,
+			   'Login, App, and Host locking' AS finding_group,
+			   'This database has had ' + 
+			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
+			   ' instances of deadlocks involving the login ' +
+			   dp.login_name + 
+			   ' from the application ' + 
+			   dp.client_app + 
+			   ' on host ' + 
+			   dp.host_name
+			   AS finding,
+			   NULL AS query_text
+		FROM #deadlock_process AS dp
+		GROUP BY DB_NAME(dp.database_id), dp.login_name, dp.client_app, dp.host_name;
+
+		/*Check 6 breaks down the types of locks (object, page, key, etc.)*/
+		WITH lock_types AS (
+				SELECT DB_NAME(dp.database_id) AS database_name,
+					   dow.object_name, 
+					   SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) -1) AS lock,
+					   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) AS lock_count
+				FROM #deadlock_process AS dp 
+				JOIN #deadlock_owner_waiter AS dow
+				ON dp.id = dow.owner_id
+				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
+							)	
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 6 AS check_id,
+			   lock_types.database_name,
+			   lock_types.object_name,
+			   'Types of locks by object' AS finding_group,
+			   'This object has had ' +
+			   lock_types.lock_count + 
+			   ' ' + 
+			   lock_types.lock
+			   + ' locks',
+			   NULL AS query_text
+		FROM lock_types;
+
+		/*Check 7 gives you more info queries for sp_BlitzCache */
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT DISTINCT 7 AS check_id,
+			   DB_NAME(dow.database_id) AS database_name,
+			   ds.proc_name AS object_name,
+			   'More Info - Query' AS finding_group,
+			   'EXEC sp_BlitzCache ' +
+					CASE WHEN ds.proc_name = 'adhoc'
+						 THEN ' @OnlySqlhandles = ' + 
+							  QUOTENAME(ds.sql_handle, '''')
+						 ELSE '@StoredProcName = ' + 
+						       QUOTENAME(ds.proc_name, '''')
+					END +
+					';' AS finding,
+				NULL AS query_text
+		FROM #deadlock_stack AS ds
+		JOIN #deadlock_owner_waiter AS dow
+		ON dow.owner_id = ds.id;
+
+		/*Check 8 gives you more info queries for sp_BlitzCache */
+		WITH bi AS (
+				SELECT  DISTINCT
+						dow.object_name,
+						PARSENAME(dow.object_name, 3) AS database_name,
+						PARSENAME(dow.object_name, 2) AS schema_name,
+						PARSENAME(dow.object_name, 1) AS table_name
+				FROM #deadlock_owner_waiter AS dow
+					)
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 8 AS check_id,	
+				bi.database_name,
+				bi.schema_name + '.' + bi.table_name,
+				'More Info - Table' AS finding_group,
+				'EXEC sp_BlitzIndex ' + 
+				'@DatabaseName = ' + QUOTENAME(bi.database_name, '''') + 
+				', @SchemaName = ' + QUOTENAME(bi.schema_name, '''') + 
+				', @TableName = ' + QUOTENAME(bi.table_name, '''') +
+				';'	 AS finding,
+				NULL AS query_text
+		FROM bi;
+
+		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding, df.query_text
 		FROM #deadlock_findings AS df
-		ORDER BY df.check_id
+		ORDER BY df.check_id;
+
 
         IF @Debug = 1
             BEGIN
@@ -271,24 +388,22 @@ AS
                 SELECT '#deadlock_data' AS table_name, *
                 FROM   #deadlock_data AS dd;
 
+                SELECT '#deadlock_resource' AS table_name, *
+                FROM   #deadlock_resource AS dr;
+
                 SELECT '#deadlock_owner_waiter' AS table_name, *
                 FROM   #deadlock_owner_waiter AS dow;
 
                 SELECT '#deadlock_process' AS table_name, *
                 FROM   #deadlock_process AS dp;
 
-                SELECT '#deadlock_resource' AS table_name, *
-                FROM   #deadlock_resource AS dr;
-
                 SELECT '#deadlock_stack' AS table_name, *
                 FROM   #deadlock_stack AS ds;
+				
             END; -- End debug
 
     END; --Final End
 GO
-
-EXEC dbo.sp_BlitzLock @Debug = 1;
-
 
 
 
