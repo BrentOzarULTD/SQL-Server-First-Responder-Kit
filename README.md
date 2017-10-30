@@ -213,9 +213,41 @@ If no problems are found, it'll tell you that too. That's one of our favorite fe
 Common sp_BlitzFirst parameters include:
 
 * @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
-* @CheckProcedureCache = 0 by default. When set to 1, this outputs the most resource-intensive queries during the time span. The data is calculated using sys.dm_exec_query_stats, which is a lightweight way of doing things (as opposed to starting up a trace or XE session). We don't turn this on by default because it tends to produce a lot of end user questions.
 * @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
 * @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample.
+
+### Logging sp_BlitzFirst to Tables
+
+You can log sp_BlitzFirst performance data to tables and then analyze the results with the Power BI dashboard. To do it, schedule an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
+
+* @OutputDatabaseName = typically 'DBAtools'
+* @OutputSchemaName = 'dbo'
+* @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
+* @OutputTableName_FileStats = 'BlitzFirst_FileStats'
+* @OutputTableName_PerfmonStats = 'BlitzFirst_PerfmonStats'
+* @OutputTableName_WaitStats = 'BlitzFirst_WaitStats'
+* @OutputTableName_BlitzCache = 'BlitzCache' 
+
+All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
+
+Then fire up the [First Responder Kit Power BI dashboard.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
+
+### Logging Performance Tuning Activities
+
+On the Power BI Dashboard, you can show lines for your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
+
+* @OutputDatabaseName = typically 'DBAtools'
+* @OutputSchemaName = 'dbo'
+* @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
+* @LogMessage = 'Whatever you wanna show in the Power BI dashboard'
+
+Optionally, you can also pass in:
+
+* @LogMessagePriority = 1
+* @LogMessageFindingsGroup = 'Logged Message'
+* @LogMessageFinding = 'Logged from sp_BlitzFirst' - you could use other values here to track other data sources like DDL triggers, Agent jobs, ETL jobs
+* @LogMessageURL = 'https://OurHelpDeskSystem/ticket/?12345' - or maybe a Github issue, or Pagerduty alert
+* @LogMessageCheckDate = '2017/10/31 11:00' - in case you need to log a message for a prior date/time, like if you forgot to log the message earlier
 
 [*Back to top*](#header1)
 
