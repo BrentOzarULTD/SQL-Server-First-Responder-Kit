@@ -1545,7 +1545,8 @@ BEGIN
 	        AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
         WHERE cMax.name = 'max server memory (MB)'
             AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
-            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647; /* Not set to default of unlimited */
+            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647 /* Not set to default of unlimited */
+            AND CAST(cTarget.cntr_value AS BIGINT) < .8 * (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory); /* Target memory less than 80% of physical memory (in case they set max too high) */
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
