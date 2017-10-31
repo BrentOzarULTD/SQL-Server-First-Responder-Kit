@@ -324,17 +324,19 @@ AS
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
-		SELECT 6 AS check_id,
-			   lock_types.database_name,
-			   lock_types.object_name,
+		SELECT DISTINCT 6 AS check_id,
+			   lt.database_name,
+			   lt.object_name,
 			   'Types of locks by object' AS finding_group,
 			   'This object has had ' +
-			   lock_types.lock_count + 
-			   ' ' + 
-			   lock_types.lock
+			   STUFF((SELECT DISTINCT N', ' + lt2.lock_count + ' ' + lt2.lock
+									FROM lock_types AS lt2
+									WHERE lt2.database_name = lt.database_name
+									AND lt2.object_name = lt.object_name
+									FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 			   + ' locks',
 			   NULL AS query_text
-		FROM lock_types;
+		FROM lock_types AS lt;
 
 		/*Check 7 gives you more info queries for sp_BlitzCache */
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
@@ -376,6 +378,11 @@ AS
 				';'	 AS finding,
 				NULL AS query_text
 		FROM bi;
+
+		/*Thank you goodnight*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL )
+
 
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding, df.query_text
 		FROM #deadlock_findings AS df
