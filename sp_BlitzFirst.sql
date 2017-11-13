@@ -18,6 +18,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
+    @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
@@ -2502,7 +2503,23 @@ BEGIN
                         @CheckDateOverride = @StartSampleTime,
                         @MinutesBack = @BlitzCacheMinutesBack,
                         @Debug = @Debug;
+
+                /* Delete history older than @OutputTableRetentionDays */
+                SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+                    + @OutputDatabaseName
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+                    + @OutputSchemaName + ''') DELETE '
+                    + @OutputDatabaseName + '.'
+                    + @OutputSchemaName + '.'
+                    + @OutputTableNameBlitzCache
+                    + ' WHERE ServerName = '''
+                    + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+                    + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+                EXEC(@StringToExecute);
+
+
             END
+
         ELSE /* No sp_BlitzCache found, or it's outdated */
             BEGIN
                 INSERT  INTO #BlitzFirstResults
@@ -2583,6 +2600,21 @@ BEGIN
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 121)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableName
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
+
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
     BEGIN
@@ -2707,6 +2739,20 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNameFileStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
     END
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
     BEGIN
@@ -2816,6 +2862,21 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNamePerfmonStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
+
 
     END
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 2) = '##')
@@ -2948,6 +3009,20 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNameWaitStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
     END
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
     BEGIN
