@@ -256,8 +256,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.9';
-SET @VersionDate = '20171101';
+SET @Version = '5.9.5';
+SET @VersionDate = '20171115';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -3809,7 +3809,7 @@ BEGIN
 	    PRINT SUBSTRING(@sql, 36000, 40000);
 	END;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @minimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @MinimumExecutionCount;
 END;
 
 

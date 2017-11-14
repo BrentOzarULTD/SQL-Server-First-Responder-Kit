@@ -16,6 +16,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
 	  @RunRecovery BIT = 0, 
+	  @ForceSimpleRecovery BIT = 0, 
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
@@ -26,8 +27,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 	DECLARE @Version NVARCHAR(30);
-	SET @Version = '5.9';
-	SET @VersionDate = '20171101';
+	SET @Version = '5.9.5';
+	SET @VersionDate = '20171115';
 
 
 IF @Help = 1
@@ -326,6 +327,11 @@ IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
 	END;
 
 /*Move Data File*/
+IF NULLIF(@MoveDataDrive, '') IS NULL
+	BEGIN
+		RAISERROR('Getting default data drive for @MoveDataDrive', 0, 1) WITH NOWAIT;
+		SET @MoveDataDrive = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
+	END;
 IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
@@ -333,6 +339,11 @@ IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 	END;
 
 /*Move Log File*/
+IF NULLIF(@MoveLogDrive, '') IS NULL
+	BEGIN
+		RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
+		SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
+	END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
@@ -420,7 +431,9 @@ SELECT @LastFullBackup = MAX(BackupFile)
 FROM @FileList
 WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE N'%' + @Database + N'%';
+    BackupFile LIKE N'%' + @Database + N'%'
+	AND
+	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
 
 	IF @Debug = 1
 	BEGIN
@@ -638,7 +651,9 @@ SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
 WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE N'%' + @Database + '%';
+    BackupFile LIKE N'%' + @Database + '%'
+	AND
+	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
 	
 	--set the @BackupDateTime so that it can be used for comparisons
 	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
@@ -901,7 +916,21 @@ IF @RunRecovery = 1
 		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
 	END;
-	    
+
+-- ensure simple recovery model
+IF @ForceSimpleRecovery = 1
+	BEGIN
+		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
+
+			IF @Debug = 1
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for SET RECOVERY SIMPLE: @RestoreDatabaseName';
+				PRINT @sql;
+			END; 
+
+		IF @Debug IN (0, 1)
+			EXECUTE sp_executesql @sql;
+	END;
 
  --Run checkdb against this database
 IF @RunCheckDB = 1

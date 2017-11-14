@@ -32,8 +32,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.9';
-	SET @VersionDate = '20171101';
+	SET @Version = '5.9.5';
+	SET @VersionDate = '20171115';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -284,7 +284,7 @@ AS
 				URL ,
 				Details
 			)
-			SELECT 201 AS CheckID ,
+			SELECT 204 AS CheckID ,
 					0 AS Priority ,
 					'Informational' AS FindingsGroup ,
 					'@CheckUserDatabaseObjects Disabled' AS Finding ,
@@ -3315,8 +3315,8 @@ AS
 										WHERE   DatabaseName IS NULL AND CheckID = 128 )
 							BEGIN
 
-							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 2000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 3000) OR
+							IF (@ProductVersionMajor = 12 AND @ProductVersionMinor < 5000) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 6020) OR
 							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
@@ -4586,7 +4586,7 @@ IF @ProductVersionMajor >= 10
 			/*Overall count of DBCC events excluding silly stuff*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 199 )
+								WHERE   DatabaseName IS NULL AND CheckID = 203 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4599,7 +4599,7 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-			SELECT 199 AS CheckID ,
+			SELECT 203 AS CheckID ,
 			        50 AS Priority ,
 			        'DBCC Events' AS FindingsGroup ,
 			        'Overall Events' AS Finding ,
@@ -4651,7 +4651,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone running drop clean buffers*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 200 )
+								WHERE   DatabaseName IS NULL AND CheckID = 207 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4664,10 +4664,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 200 AS CheckID ,
-					        50 AS Priority ,
-					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC DROPCLEANBUFFERS' AS Finding ,
+					SELECT 207 AS CheckID ,
+					        10 AS Priority ,
+					        'Performance' AS FindingsGroup ,
+					        'DBCC DROPCLEANBUFFERS Ran Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
@@ -4682,7 +4682,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone running free proc cache*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 201 )
+								WHERE   DatabaseName IS NULL AND CheckID = 208 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4695,10 +4695,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 201 AS CheckID ,
-					        50 AS Priority ,
+					SELECT 208 AS CheckID ,
+					        10 AS Priority ,
 					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC FREEPROCCACHE' AS Finding ,
+					        'DBCC FREEPROCCACHE Ran Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
@@ -4713,7 +4713,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone clearing wait stats*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 202 )
+								WHERE   DatabaseName IS NULL AND CheckID = 205 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4726,10 +4726,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-					SELECT 202 AS CheckID ,
+					SELECT 205 AS CheckID ,
 					        50 AS Priority ,
-					        'DBCC Events' AS FindingsGroup ,
-					        'DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR)' AS Finding ,
+					        'Performance' AS FindingsGroup ,
+					        'Wait Stats Cleared Recently' AS Finding ,
 					        '' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 							'. Why are you clearing wait stats? What are you hiding?'
@@ -4744,7 +4744,7 @@ IF @ProductVersionMajor >= 10
 			/*Check for someone writing to pages. Yeah, right?*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 203 )
+								WHERE   DatabaseName IS NULL AND CheckID = 209 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4757,10 +4757,10 @@ IF @ProductVersionMajor >= 10
 									  [Finding] ,
 									  [URL] ,
 									  [Details] )
-						SELECT 203 AS CheckID ,
+						SELECT 209 AS CheckID ,
 						        50 AS Priority ,
-						        'DBCC Events' AS FindingsGroup ,
-						        'DBCC WRITEPAGE' AS Finding ,
+						        'Reliability' AS FindingsGroup ,
+						        'DBCC WRITEPAGE Used Recently' AS Finding ,
 						        '' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
 								'. So, uh, are they trying to fix corruption, or cause corruption?'
@@ -4774,7 +4774,7 @@ IF @ProductVersionMajor >= 10
 
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 204 )
+								WHERE   DatabaseName IS NULL AND CheckID = 210 )
 							AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4788,13 +4788,13 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 
-						SELECT 204 AS CheckID ,
-						        50 AS Priority ,
-						        'DBCC Events' AS FindingsGroup ,
-						        'DBCC SHRINK%' AS Finding ,
+						SELECT 210 AS CheckID ,
+						        10 AS Priority ,
+						        'Performance' AS FindingsGroup ,
+						        'DBCC SHRINK% Ran Recently' AS Finding ,
 						        '' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) + 
-								'. So, uh, are they trying to fix corruption, or cause corruption?'
+								'. So, uh, are they trying cause bad performance on purpose?'
 								AS Details
 						FROM    #dbcc_events_from_trace d
 						WHERE d.dbcc_event_trunc_upper LIKE N'DBCC SHRINK%'
@@ -4810,7 +4810,7 @@ IF @ProductVersionMajor >= 10
 
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 205 )
+								WHERE   DatabaseName IS NULL AND CheckID = 206 )
 						AND @TraceFileIssue = 0
 					BEGIN
 						  
@@ -4824,10 +4824,10 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 
-						SELECT	205 AS CheckID ,
-								        50 AS Priority ,
-								        'Autoshrink events' AS FindingsGroup ,
-								        'File shrinking' AS Finding ,
+						SELECT	206 AS CheckID ,
+								        10 AS Priority ,
+								        'Performance' AS FindingsGroup ,
+								        'Auto-Shrink Ran Recently' AS Finding ,
 								        '' AS URL , 
 										N'The database ' + QUOTENAME(t.DatabaseName) + N' has had ' 
 											+ CONVERT(NVARCHAR(10), COUNT(*)) 
@@ -6254,6 +6254,9 @@ IF @ProductVersionMajor >= 10
 																FROM
 																  #SkipChecks 
 																WHERE CheckID IS NULL OR CheckID = 68)
+											AND DB2.DbName NOT IN ( SELECT  name
+                                                                    FROM    sys.databases
+                                                                    WHERE   is_read_only = 1)
 											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 																  -14,
 																  CURRENT_TIMESTAMP);
@@ -7740,8 +7743,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '1.9';
-	SET @VersionDate = '20171101';
+	SET @Version = '1.9.5';
+	SET @VersionDate = '20171115';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -9493,8 +9496,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.9';
-SET @VersionDate = '20171101';
+SET @Version = '5.9.5';
+SET @VersionDate = '20171115';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -13046,7 +13049,7 @@ BEGIN
 	    PRINT SUBSTRING(@sql, 36000, 40000);
 	END;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @minimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @MinimumExecutionCount;
 END;
 
 
@@ -14563,12 +14566,13 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
+    @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
-	@ShowSleepingSPIDs TINYINT = 0 ,
+    @ShowSleepingSPIDs TINYINT = 0 ,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -14583,8 +14587,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.9';
-SET @VersionDate = '20171101';
+SET @Version = '5.9.5';
+SET @VersionDate = '20171115';
 
 
 IF @Help = 1 PRINT '
@@ -14690,6 +14694,25 @@ SELECT
 
 IF @LogMessage IS NOT NULL
     BEGIN
+
+    RAISERROR('Saving LogMessage to table',10,1) WITH NOWAIT;
+
+    /* Try to set the output table parameters if they don't exist */
+    IF @OutputSchemaName IS NULL AND @OutputTableName IS NULL AND @OutputDatabaseName IS NULL
+        BEGIN
+            SET @OutputSchemaName = N'[dbo]';
+            SET @OutputTableName = N'[BlitzFirst]';
+
+            /* Look for the table in the current database */
+            SELECT TOP 1 @OutputDatabaseName = QUOTENAME(TABLE_CATALOG)
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'BlitzFirst';
+
+            IF @OutputDatabaseName IS NULL AND EXISTS (SELECT * FROM sys.databases WHERE name = 'DBAtools')
+                SET @OutputDatabaseName = '[DBAtools]';
+
+        END
+
     IF @OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL OR @OutputTableName IS NULL
             OR NOT EXISTS ( SELECT *
                      FROM   sys.databases
@@ -14714,6 +14737,9 @@ IF @LogMessage IS NOT NULL
     EXECUTE sp_executesql @StringToExecute, 
         N'@LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
         @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+
+    RAISERROR('LogMessage saved to table. We have made a note of your activity. Keep up the good work.',10,1) WITH NOWAIT;
+
     RETURN;
     END
 
@@ -16090,7 +16116,8 @@ BEGIN
 	        AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
         WHERE cMax.name = 'max server memory (MB)'
             AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
-            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647; /* Not set to default of unlimited */
+            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647 /* Not set to default of unlimited */
+            AND CAST(cTarget.cntr_value AS BIGINT) < .8 * (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory); /* Target memory less than 80% of physical memory (in case they set max too high) */
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
@@ -17024,7 +17051,23 @@ BEGIN
                         @CheckDateOverride = @StartSampleTime,
                         @MinutesBack = @BlitzCacheMinutesBack,
                         @Debug = @Debug;
+
+                /* Delete history older than @OutputTableRetentionDays */
+                SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+                    + @OutputDatabaseName
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+                    + @OutputSchemaName + ''') DELETE '
+                    + @OutputDatabaseName + '.'
+                    + @OutputSchemaName + '.'
+                    + @OutputTableNameBlitzCache
+                    + ' WHERE ServerName = '''
+                    + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+                    + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+                EXEC(@StringToExecute);
+
+
             END
+
         ELSE /* No sp_BlitzCache found, or it's outdated */
             BEGIN
                 INSERT  INTO #BlitzFirstResults
@@ -17105,6 +17148,21 @@ BEGIN
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 121)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableName
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
+
     END
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
     BEGIN
@@ -17213,7 +17271,7 @@ BEGIN
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fPrior ON f.ServerName = fPrior.ServerName AND f.DatabaseID = fPrior.DatabaseID AND f.FileID = fPrior.FileID AND f.CheckDate > fPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fMiddle ON f.ServerName = fMiddle.ServerName AND f.DatabaseID = fMiddle.DatabaseID AND f.FileID = fMiddle.FileID AND f.CheckDate > fMiddle.CheckDate AND fMiddle.CheckDate > fPrior.CheckDate' + @LineFeed
                 + 'WHERE fMiddle.ID IS NULL AND f.num_of_reads >= fPrior.num_of_reads AND f.num_of_writes >= fPrior.num_of_writes
-                    AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) <= 60;'')'
+                    AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END
 
@@ -17229,6 +17287,20 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNameFileStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
     END
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
     BEGIN
@@ -17318,10 +17390,11 @@ BEGIN
                 + ', p.cntr_value' + @LineFeed
                 + ', p.cntr_type' + @LineFeed
                 + ', (p.cntr_value - pPrior.cntr_value) AS cntr_delta' + @LineFeed
+                + ', (p.cntr_value - pPrior.cntr_value) * 1.0 / DATEDIFF(ss, pPrior.CheckDate, p.CheckDate) AS cntr_delta_per_second' + @LineFeed
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' p' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' pPrior ON p.ServerName = pPrior.ServerName AND p.object_name = pPrior.object_name AND p.counter_name = pPrior.counter_name AND p.instance_name = pPrior.instance_name AND p.CheckDate > pPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' pMiddle ON p.ServerName = pMiddle.ServerName AND p.object_name = pMiddle.object_name AND p.counter_name = pMiddle.counter_name AND p.instance_name = pMiddle.instance_name AND p.CheckDate > pMiddle.CheckDate AND pMiddle.CheckDate > pPrior.CheckDate' + @LineFeed
-                + 'WHERE pMiddle.ID IS NULL AND DATEDIFF(MI, pPrior.CheckDate, p.CheckDate) <= 60;'')'
+                + 'WHERE pMiddle.ID IS NULL AND DATEDIFF(MI, pPrior.CheckDate, p.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END;
 
@@ -17337,6 +17410,21 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNamePerfmonStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
+
 
     END
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 2) = '##')
@@ -17452,7 +17540,7 @@ BEGIN
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND w.CheckDate > wPrior.CheckDate' + @LineFeed
                 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wMiddle ON w.ServerName = wMiddle.ServerName AND w.wait_type = wMiddle.wait_type AND w.CheckDate > wMiddle.CheckDate AND wMiddle.CheckDate > wPrior.CheckDate' + @LineFeed
 				+ 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
-                + 'WHERE wMiddle.ID IS NULL AND w.wait_time_ms >= wPrior.wait_time_ms AND DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) <= 60;'')'
+                + 'WHERE wMiddle.ID IS NULL AND w.wait_time_ms >= wPrior.wait_time_ms AND DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END
 
@@ -17469,6 +17557,20 @@ BEGIN
             + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
             + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
         EXEC(@StringToExecute);
+
+        /* Delete history older than @OutputTableRetentionDays */
+        SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+            + @OutputDatabaseName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+            + @OutputSchemaName + ''') DELETE '
+            + @OutputDatabaseName + '.'
+            + @OutputSchemaName + '.'
+            + @OutputTableNameWaitStats
+            + ' WHERE ServerName = '''
+            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
+        EXEC(@StringToExecute);
+
     END
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
     BEGIN
@@ -17943,8 +18045,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.9';
-SET @VersionDate = '20171101';
+SET @Version = '5.9.5';
+SET @VersionDate = '20171115';
 IF @Help = 1 PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
@@ -22307,8 +22409,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '1.9';
-	SET @VersionDate = '20171101';
+	SET @Version = '1.9.5';
+	SET @VersionDate = '20171115';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -26727,8 +26829,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '5.9';
-	SET @VersionDate = '20171101';
+	SET @Version = '5.9.5';
+	SET @VersionDate = '20171115';
 
 
 	IF @Help = 1
