@@ -32,6 +32,10 @@ SET NOCOUNT ON;
 
 BEGIN;
 
+DECLARE @Version VARCHAR(30);
+SET @Version = '1.9.5';
+SET @VersionDate = '20171115';
+
 
 IF @Help = 1
 
@@ -130,13 +134,6 @@ BEGIN
 
 RETURN;
 END; /* IF @Help = 1 */
-
-
-SET NOCOUNT ON;
-
-DECLARE @Version VARCHAR(30);
-SET @Version = '1.9';
-SET @VersionDate = '20171101';
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
