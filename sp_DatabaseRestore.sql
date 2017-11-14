@@ -431,7 +431,9 @@ SELECT @LastFullBackup = MAX(BackupFile)
 FROM @FileList
 WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE N'%' + @Database + N'%';
+    BackupFile LIKE N'%' + @Database + N'%'
+	AND
+	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
 
 	IF @Debug = 1
 	BEGIN
@@ -649,7 +651,9 @@ SELECT @LastDiffBackup = MAX(BackupFile)
 FROM @FileList
 WHERE BackupFile LIKE N'%.bak'
     AND
-    BackupFile LIKE N'%' + @Database + '%';
+    BackupFile LIKE N'%' + @Database + '%'
+	AND
+	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
 	
 	--set the @BackupDateTime so that it can be used for comparisons
 	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
