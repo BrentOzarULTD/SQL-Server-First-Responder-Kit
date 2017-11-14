@@ -186,7 +186,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 			            qmg.dop AS degree_of_parallelism ,
 			            qmg.request_time ,
-			            COALESCE(CAST(qmg.grant_time AS VARCHAR), ''N/A'') AS grant_time ,
+			            COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''N/A'') AS grant_time ,
 			            qmg.requested_memory_kb ,
 			            qmg.granted_memory_kb AS grant_memory_kb,
 			            CASE WHEN qmg.grant_time IS NULL THEN ''N/A''
@@ -200,8 +200,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qmg.is_small ,
 			            qmg.timeout_sec ,
 			            qmg.resource_semaphore_id ,
-			            COALESCE(CAST(qmg.wait_order AS VARCHAR), ''N/A'') AS wait_order ,
-			            COALESCE(CAST(qmg.wait_time_ms AS VARCHAR),
+			            COALESCE(CAST(qmg.wait_order AS VARCHAR(20)), ''N/A'') AS wait_order ,
+			            COALESCE(CAST(qmg.wait_time_ms AS VARCHAR(20)),
 			                     ''N/A'') AS wait_time_ms ,
 			            CASE qmg.is_next_candidate
 			              WHEN 0 THEN ''No''
@@ -209,7 +209,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			              ELSE ''N/A''
 			            END AS next_candidate_for_memory_grant ,
 			            qrs.target_memory_kb ,
-			            COALESCE(CAST(qrs.max_target_memory_kb AS VARCHAR),
+			            COALESCE(CAST(qrs.max_target_memory_kb AS VARCHAR(20)),
 			                     ''Small Query Resource Semaphore'') AS max_target_memory_kb ,
 			            qrs.total_memory_kb ,
 			            qrs.available_memory_kb ,
@@ -218,7 +218,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qrs.grantee_count ,
 			            qrs.waiter_count ,
 			            qrs.timeout_error_count ,
-			            COALESCE(CAST(qrs.forced_grant_count AS VARCHAR),
+			            COALESCE(CAST(qrs.forced_grant_count AS VARCHAR(20)),
 			                     ''Small Query Resource Semaphore'') AS forced_grant_count,
 					    s.nt_domain ,
 			            s.host_name ,
@@ -398,7 +398,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 			            qmg.dop AS degree_of_parallelism ,
 			            qmg.request_time ,
-			            COALESCE(CAST(qmg.grant_time AS VARCHAR), ''Memory Not Granted'') AS grant_time ,
+			            COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''Memory Not Granted'') AS grant_time ,
 			            qmg.requested_memory_kb ,
 			            qmg.granted_memory_kb AS grant_memory_kb,
 			            CASE WHEN qmg.grant_time IS NULL THEN ''N/A''
@@ -412,8 +412,8 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qmg.is_small ,
 			            qmg.timeout_sec ,
 			            qmg.resource_semaphore_id ,
-			            COALESCE(CAST(qmg.wait_order AS VARCHAR), ''N/A'') AS wait_order ,
-			            COALESCE(CAST(qmg.wait_time_ms AS VARCHAR),
+			            COALESCE(CAST(qmg.wait_order AS VARCHAR(20)), ''N/A'') AS wait_order ,
+			            COALESCE(CAST(qmg.wait_time_ms AS VARCHAR(20)),
 			                     ''N/A'') AS wait_time_ms ,
 			            CASE qmg.is_next_candidate
 			              WHEN 0 THEN ''No''
@@ -421,7 +421,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			              ELSE ''N/A''
 			            END AS next_candidate_for_memory_grant ,
 			            qrs.target_memory_kb ,
-			            COALESCE(CAST(qrs.max_target_memory_kb AS VARCHAR),
+			            COALESCE(CAST(qrs.max_target_memory_kb AS VARCHAR(20)),
 			                     ''Small Query Resource Semaphore'') AS max_target_memory_kb ,
 			            qrs.total_memory_kb ,
 			            qrs.available_memory_kb ,
@@ -430,7 +430,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            qrs.grantee_count ,
 			            qrs.waiter_count ,
 			            qrs.timeout_error_count ,
-			            COALESCE(CAST(qrs.forced_grant_count AS VARCHAR),
+			            COALESCE(CAST(qrs.forced_grant_count AS VARCHAR(20)),
 			                     ''Small Query Resource Semaphore'') AS forced_grant_count,
 					    s.nt_domain ,
 			            s.host_name ,
