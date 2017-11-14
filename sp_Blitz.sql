@@ -6254,6 +6254,9 @@ IF @ProductVersionMajor >= 10
 																FROM
 																  #SkipChecks 
 																WHERE CheckID IS NULL OR CheckID = 68)
+											AND DB2.DbName NOT IN ( SELECT  name
+                                                                    FROM    sys.databases
+                                                                    WHERE   is_read_only = 1)
 											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 																  -14,
 																  CURRENT_TIMESTAMP);
