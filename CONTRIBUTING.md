@@ -38,7 +38,17 @@ After your Github issue has gotten good responses from a couple of volunteers wh
 
 Note that if you're not ready to get started coding in the next week, or if you think you can't finish the feature in the next 30 days, you probably don't want to bother opening an issue. You're only going to feel guilty over not making progress, because we'll keep checking in with you to see how it's going. We don't want to have stale "someday I'll build that" issues in the list - we want to keep the open issues list easy to scan for folks who are trying to troubleshoot bugs and feature requests.
 
-### Git Flow for pull requests
+### Contributing Changes to Power BI
+
+Power BI files are binary files that don't work well with Git source control. Rather than sending someone your changed Power BI files, here's what you need to do:
+
+1. Make the changes on your side, test them, and make sure they work.
+2. In the Github issue you created above (in the How to Build Features section), add step-by-step instructions for someone else to make the same change to the master Power BI files.
+3. The First Responder Kit maintainers will review your changes and try to reproduce your results with the same steps. If they produce the right results, congratulations! They'll be saved permanently.
+
+Why not just email your file to the maintainers? Well, lots of folks may be working on slightly different changes at the same time, and we need to be able to fold everyone's changes together at different points in time.
+
+### Contributing T-SQL Code: Git Flow for Pull Requests
 <a name="git-flow"></a>
 
 1. [Fork] the project, clone your fork, and configure the remotes:
