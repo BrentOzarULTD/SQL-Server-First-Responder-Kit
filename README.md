@@ -17,6 +17,7 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+  - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
@@ -257,6 +258,28 @@ Optionally, you can also pass in:
 This is like sp_who, except it goes into way, way, way more details.
 
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
+[*Back to top*](#header1)
+
+## sp_BlitzQueryStore
+
+Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
+
+* @Help: Right now this just prints the license if set to 1. I'm going to add better documentation here as the script matures.
+* @DatabaseName: This one is required. Query Store is per database, so you have to point it at one to examine.
+* @Top: How many plans from each "worst" you want to get. We look at your maxes for CPU, reads, duration, writes, memory, rows, executions, and additionally tempdb and log bytes for 2017. So it's the number of plans from each of those to gather.
+* @StartDate: Fairly obvious, when you want to start looking at queries from. If NULL, we'll only go back seven days.
+* @EndDate: When you want to stop looking at queries from. If you leave it NULL, we'll look ahead seven days.
+* @MinimumExecutionCount: The minimum number of times a query has to have been executed (not just compiled) to be analyzed.
+* @DurationFilter: The minimum number of seconds a query has to have been executed for to be analyzed.
+* @StoredProcName: If you want to look at a single stored procedure.
+* @Failed: If you want to look at failed queries, for some reason. I dunno, MS made such a big deal out of being able to look at these, I figured I'd add it.
+* @PlanIdFilter: If you want to filter by a particular plan id. Remember that a query may have many different plans.
+* @QueryIdFilter: If you want to filter by a particular query id. If you want to look at one specific plan for a query.
+* @ExportToExcel: Leaves XML out of the input and tidies up query text so you can easily paste it into Excel.
+* @HideSummary: Pulls the rolled up warnings and information out of the results.
+* @SkipXML: Skips XML analysis.
+* @Debug: Prints dynamic SQL and selects data from all temp tables if set to 1.
 
 [*Back to top*](#header1)
 
