@@ -1405,9 +1405,6 @@ BEGIN
 
 RAISERROR(N'Gathering new 2017 new column info...', 0, 1) WITH NOWAIT;
 
---total_avg_log_bytes_mb, total_avg_tempdb_space
---SUM(avg_tempdb_space_used) / 
-
 /*Get highest log byte count plans*/
 
 RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
@@ -4280,7 +4277,7 @@ BEGIN
             VALUES (
                     2147483647,
                     255,
-                    'Thanks for using sp_BlitzCache!' ,
+                    'Thanks for using sp_BlitzQueryStore!' ,
                     'From Your Community Volunteers',
                     'http://FirstResponderKit.org',
                     'We hope you found this tool useful. Current version: ' + @Version + ' released on ' + CONVERT(NVARCHAR(30), @VersionDate) + '.') ;
