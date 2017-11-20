@@ -2937,6 +2937,7 @@ RAISERROR(N'Getting information about implicit conversions and stored proc param
 WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 , 
 parameterization_type AS (
+			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 			SELECT
 			qp.n.value('@StatementParameterizationType', 'INT') AS StatementParameterizationType,
 			qp.n.value('@StatementOptmLevel', 'VARCHAR(100)') AS StatementOptmLevel,
@@ -2962,8 +2963,7 @@ AS (
      JOIN   ##bou_BlitzCacheProcs AS b
      ON b.QueryHash = qp.QueryHash
      CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-     WHERE  b.implicit_conversions = 1
-	 AND b.SPID = @@SPID ),
+     WHERE  b.SPID = @@SPID ),
   convert_implicit
 AS ( 
 			--WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3067,7 +3067,7 @@ SELECT DISTINCT
 	   ci.StatementParameterizationType,
 	   ci.StatementOptmLevel
 FROM   variables_types AS vt
-RIGHT JOIN   convert_implicit AS ci
+FULL JOIN   convert_implicit AS ci
 ON (ci.variable_name = vt.variable_name
    AND ci.QueryHash = vt.QueryHash)
 OPTION(RECOMPILE);
@@ -3080,7 +3080,15 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
        s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
                                  LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
                              ELSE s.converted_to
-                        END
+                        END,
+	   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' THEN
+										SUBSTRING(s.compile_time_value, 
+													CHARINDEX('(', s.compile_time_value) + 1,
+													CHARINDEX(')', s.compile_time_value) - 1
+													- CHARINDEX('(', s.compile_time_value)
+													)
+									ELSE s.compile_time_value 
+							  END
 FROM   #stored_proc_info AS s;
 
 
@@ -3179,7 +3187,7 @@ FROM ##bou_BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
-AND b.implicit_conversions = 1 
+AND (b.implicit_conversions = 1 OR b.QueryType <> 'Statement')
 OPTION(RECOMPILE);
 
 END; --End implicit conversion information gathering
