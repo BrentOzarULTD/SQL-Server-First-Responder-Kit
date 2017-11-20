@@ -4423,6 +4423,14 @@ SELECT '#stored_proc_info' AS table_name, *
 FROM #stored_proc_info AS spi
 OPTION(RECOMPILE);
 
+SELECT '#conversion_info' AS table_name, *
+FROM #conversion_info AS ci
+OPTION ( RECOMPILE );
+
+SELECT '#variable_info' AS table_name, *
+FROM #variable_info AS vi
+OPTION ( RECOMPILE );
+
 END; 
 
 END TRY
