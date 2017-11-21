@@ -494,38 +494,60 @@ DiskPollster:
 						INSERT INTO @FileList (BackupFile)
 						EXEC master.sys.xp_cmdshell @cmd; 
 						
-							IF (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 
-								WHERE fl.BackupFile = 'The system cannot find the path specified.'
-								OR fl.BackupFile = 'File Not Found'
-								) = 1
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'The system cannot find the path specified.'
+							OR fl.BackupFile = 'File Not Found'
+							) = 1
 
-								BEGIN
+							BEGIN
 						
-									RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-						
-									RETURN;
-						
-								END
+								RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
 
-							IF (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 
-								) = 1
-							AND (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 							
-								WHERE fl.BackupFile IS NULL
-								) = 1
+							END;
 
-								BEGIN
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'Access is denied.'
+							) = 1
+
+							BEGIN
 						
-									RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+								RAISERROR('Access is denied to %s', 16, 1, @restore_path_base) WITH NOWAIT;
+
+							END;
+
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							) = 1
+						AND (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 							
+							WHERE fl.BackupFile IS NULL
+							) = 1
+
+							BEGIN
+	
+								RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+								RETURN;
+	
+							END
+
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'The user name or password is incorrect.'
+							) = 1
+
+							BEGIN
 						
-									RETURN;
-						
-								END
+								RAISERROR('Incorrect user name or password for %s', 16, 1, @restore_path_base) WITH NOWAIT;
+
+							END;
 
 						INSERT msdb.dbo.restore_worker (database_name) 
 						SELECT fl.BackupFile

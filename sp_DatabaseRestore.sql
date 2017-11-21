@@ -424,6 +424,18 @@ EXEC master.sys.xp_cmdshell @cmd;
 	
 		END
 
+	IF (
+		SELECT COUNT(*) 
+		FROM @FileList AS fl 
+		WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		) = 1
+	
+		BEGIN
+	
+			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+	
+		END;
+
 /*End folder sanity check*/
 
 -- Find latest full backup 
