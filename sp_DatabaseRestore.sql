@@ -24,6 +24,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
+SET XACT_ABORT ON;
 
 /*Versioning details*/
 	DECLARE @Version NVARCHAR(30);
@@ -341,7 +342,7 @@ IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 /*Move Log File*/
 IF NULLIF(@MoveLogDrive, '') IS NULL
 	BEGIN
-		RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
+		RAISERROR('Getting default log drive for @MoveLogDrive', 0, 1) WITH NOWAIT;
 		SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
 	END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
@@ -544,7 +545,7 @@ IF @ContinueLogs = 0
 		END;
 		
 		IF @Debug IN (0, 1)
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 2, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	
 	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
 	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
@@ -684,7 +685,7 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 
 		
 		IF @Debug IN (0, 1)
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 2, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
@@ -896,7 +897,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					END; 
 				
 					IF @Debug IN (0, 1)
-						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 2, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
