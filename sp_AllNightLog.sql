@@ -1163,7 +1163,6 @@ IF @Restore = 1
 												    rw.is_started = 0
 												AND rw.is_completed = 1
 												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
-                                                AND rw.error_number > 0 /* negative numbers indicate human attention required */
                                                 AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    
