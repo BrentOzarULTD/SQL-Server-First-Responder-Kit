@@ -126,6 +126,7 @@ DECLARE @cmd NVARCHAR(4000) = N''; --Holds dir cmd
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
 DECLARE @restore_full BIT = 0; --We use this one
 DECLARE @only_logs_after NVARCHAR(30) = N'';
+DECLARE @CommandLogCheck BIT = 0; -- Make sure dbo.CommandLog exists
 
 
 
@@ -233,6 +234,12 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
                     
     END; /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
+
+/*Check for dbo.CommandLog*/
+IF EXISTS (SELECT * FROM master.sys.objects AS objects INNER JOIN master.sys.schemas AS schemas ON objects.schema_id = schemas.schema_id WHERE objects.type = 'U' AND schemas.name = 'dbo' AND objects.name = 'CommandLog')
+BEGIN
+	SET @CommandLogCheck = 1;
+END;
 
 /*
 
@@ -1377,6 +1384,25 @@ IF @Restore = 1
 												rw.last_error_date = GETDATE()
 									FROM msdb.dbo.restore_worker rw 
 									WHERE rw.database_name = @database;
+
+								
+								/*Log Results to dbo.Commandlog*/
+								IF @CommandLogCheck = 1
+									BEGIN
+										
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										SELECT @database,
+										       CASE WHEN @restore_full = 1 THEN 'RESTORE DATABASE'
+										            WHEN @restore_full = 0 THEN 'RESTORE LOG'
+										            ELSE 'UNKNOWN'
+										       END,
+										       ERROR_PROCEDURE(),
+										       GETDATE(),
+										       GETDATE(),
+										       ERROR_NUMBER(),
+										       ERROR_MESSAGE();
+
+									END;
 
 
 								/*

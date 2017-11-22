@@ -365,7 +365,7 @@ ELSE
 	END;
 
 
-IF EXISTS (SELECT * FROM sys.objects AS objects INNER JOIN sys.schemas AS schemas ON objects.schema_id = schemas.schema_id WHERE objects.type = 'U' AND schemas.name = 'dbo' AND objects.name = 'CommandLog')
+IF EXISTS (SELECT * FROM master.sys.objects AS objects INNER JOIN master.sys.schemas AS schemas ON objects.schema_id = schemas.schema_id WHERE objects.type = 'U' AND schemas.name = 'dbo' AND objects.name = 'CommandLog')
 BEGIN
 	SET @CommandLogCheck = 1;
 END;
