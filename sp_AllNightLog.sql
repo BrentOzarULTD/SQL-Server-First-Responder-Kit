@@ -236,10 +236,16 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
 
 
 /*Check for dbo.CommandLog*/
-IF EXISTS (SELECT * FROM master.sys.objects AS objects INNER JOIN master.sys.schemas AS schemas ON objects.schema_id = schemas.schema_id WHERE objects.type = 'U' AND schemas.name = 'dbo' AND objects.name = 'CommandLog')
-BEGIN
-	SET @CommandLogCheck = 1;
-END;
+IF EXISTS (   SELECT     *
+              FROM       master.sys.objects AS objects
+              INNER JOIN master.sys.schemas AS schemas
+              ON objects.schema_id = schemas.schema_id
+              WHERE      objects.type = 'U'
+                         AND schemas.name = 'dbo'
+                         AND objects.name = 'CommandLog' )
+    BEGIN
+        SET @CommandLogCheck = 1;
+    END;
 
 /*
 
@@ -404,7 +410,13 @@ Pollster:
 						
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
-	
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdbCentral', 'backup_worker', 'Insert Databases', GETDATE(), GETDATE(), 50000, @msg);
+							END;		
+												
+						
 						WHILE @@TRANCOUNT > 0
 							ROLLBACK;
 
@@ -433,6 +445,13 @@ Pollster:
 			BEGIN
 	
 				RAISERROR('msdbCentral.dbo.backup_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
+				
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdbCentral', 'PollForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_worker does not exist, please create it.');
+							END;				
+				
 				RETURN;
 			
 			END; 
@@ -508,27 +527,43 @@ DiskPollster:
 							WHERE fl.BackupFile = 'The system cannot find the path specified.'
 							OR fl.BackupFile = 'File Not Found'
 							) = 1
-
+					
 							BEGIN
 						
-								RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+								RAISERROR('No rows were returned for that %s', 0, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
 								RETURN;
-
+					
 							END;
-
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
 							WHERE fl.BackupFile = 'Access is denied.'
 							) = 1
-
+					
 							BEGIN
 						
 								RAISERROR('Access is denied to %s', 16, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
 								RETURN;
-
+					
 							END;
-
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
@@ -538,27 +573,40 @@ DiskPollster:
 							FROM @FileList AS fl 							
 							WHERE fl.BackupFile IS NULL
 							) = 1
-
+					
 							BEGIN
-	
-								RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+						
+								RAISERROR('The path %s appears to be empty', 0, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
+									END;
+								
 								RETURN;
-	
-								RETURN;
-	
+						
 							END;
-
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
 							WHERE fl.BackupFile = 'The user name or password is incorrect.'
 							) = 1
-
+						
 							BEGIN
 						
 								RAISERROR('Incorrect user name or password for %s', 16, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
 								RETURN;
-
+						
 							END;
 
 						INSERT msdb.dbo.restore_worker (database_name) 
@@ -634,7 +682,14 @@ DiskPollster:
 						            )
                         BEGIN
 				            RAISERROR('sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				            RETURN;
+				            
+								IF @CommandLogCheck = 1
+								BEGIN
+									INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+									VALUES ('msdb', 'PollDiskForNewDatabases', NULL, GETDATE(), GETDATE(), 50000, 'sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.');
+								END;														
+							
+							RETURN;
                         END;        
 	
 					IF @Debug = 1 RAISERROR('Waiting for 1 minute', 0, 1) WITH NOWAIT;
@@ -651,6 +706,12 @@ DiskPollster:
 							   @error_state = ERROR_STATE();
 						
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'PollDiskForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+							END;
 
 	
 						WHILE @@TRANCOUNT > 0
@@ -689,7 +750,7 @@ LogShamer:
 	IF OBJECT_ID('msdbCentral.dbo.backup_worker') IS NOT NULL
 	
 		BEGIN
-		
+
 			/*
 			
 			Make sure configuration table exists...
@@ -759,15 +820,22 @@ LogShamer:
 								BEGIN
 									RAISERROR('If encryption is Y, then both the encryptionalgorithm and servercertificate must be set. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
-								END;	
-	
+								END;
+
 				END;
 	
 			ELSE
-	
+
 				BEGIN
 	
 					RAISERROR('msdbCentral.dbo.backup_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
+					
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'backup_configuration', 'Set Variables', GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_configuration does not exist, please run setup script');
+							END;										
+					
 					RETURN;
 				
 				END;
@@ -858,6 +926,13 @@ LogShamer:
 							   @error_state = ERROR_STATE();
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES (ISNULL(@database, 'No Database'), 'backup_worker', 'Fetch Database', GETDATE(), GETDATE(), ERROR_NUMBER(), @msg);
+							END;						
+						
+						
 						SET @database = NULL;
 	
 						WHILE @@TRANCOUNT > 0
@@ -882,9 +957,15 @@ LogShamer:
 						                    )
                                 BEGIN
 				                    RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				                    RETURN;
+				                    
+									IF @CommandLogCheck = 1
+										BEGIN
+											INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+											VALUES ('msdb', 'PollDiskForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+										END;									
+									
+									RETURN;
                                 END;        
-
 
 						END;
 	
@@ -936,16 +1017,6 @@ LogShamer:
 																	        @Compress = 'Y', --This is usually a good idea
 																	        @LogToTable = 'Y'; --We should do this for posterity
 	
-										
-										/*
-										
-										Catch any erroneous zones
-										
-										*/
-										
-										SELECT @error_number = ERROR_NUMBER(), 
-											   @error_severity = ERROR_SEVERITY(), 
-											   @error_state = ERROR_STATE();
 	
 								END; --End call to dbo.DatabaseBackup
 	
@@ -954,9 +1025,8 @@ LogShamer:
 					END TRY
 	
 					BEGIN CATCH
-	
-						IF  @error_number IS NOT NULL
-
+						
+						IF ERROR_NUMBER() IS NOT NULL
 						/*
 						
 						If the ERROR() function returns a number, update the table with it and the last error date.
@@ -967,7 +1037,18 @@ LogShamer:
 	
 							BEGIN
 	
-								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
+								/*
+								
+								Catch any erroneous zones
+								
+								*/
+								
+								SELECT @error_number = ERROR_NUMBER(), 
+									   @error_severity = ERROR_SEVERITY(), 
+									   @error_state = ERROR_STATE();
+
+
+								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), @error_number); 
 								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 								
 								SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
@@ -982,6 +1063,12 @@ LogShamer:
 												bw.last_error_date = GETDATE()
 									FROM msdbCentral.dbo.backup_worker bw 
 									WHERE bw.database_name = @database;
+
+								/*
+								
+								We don't need dbo.CommandLog check here because dbo.DatabaseRestore will log errors there already.
+
+								*/
 
 
 								/*
@@ -1014,7 +1101,6 @@ LogShamer:
 					If no error, update everything normally
 						
 					*/
-
 							
 						BEGIN
 	
@@ -1042,7 +1128,7 @@ LogShamer:
 
 
 						END; -- End update for successful backup	
-
+				
 										
 				END; -- End @Backup WHILE loop
 
@@ -1055,6 +1141,13 @@ LogShamer:
 		BEGIN
 	
 			RAISERROR('msdbCentral.dbo.backup_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
+			
+				IF @CommandLogCheck = 1
+					BEGIN
+						INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+						VALUES ('msdbCentral', 'backup_worker', 'DATABASE BACKUP', GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_worker does not exist, please run setup script');
+					END;			
+			
 			
 			RETURN;
 		
@@ -1126,7 +1219,13 @@ IF @Restore = 1
 				BEGIN
 	
 					RAISERROR('msdb.dbo.restore_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
-					
+
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_configuration', 'Fetch config values', GETDATE(), GETDATE(), 50000, 'msdb.dbo.restore_configuration does not exist, please run setup script');
+							END;					
+										
 					RETURN;
 				
 				END;
@@ -1225,6 +1324,13 @@ IF @Restore = 1
 							   @error_state = ERROR_STATE();
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_worker', 'Fetch bew database', GETDATE(), GETDATE(), @error_number, @msg);
+							END;							
+						
+						
 						SET @database = NULL;
 	
 						WHILE @@TRANCOUNT > 0
@@ -1495,6 +1601,13 @@ IF @Restore = 1
 		BEGIN
 	
 			RAISERROR('msdb.dbo.restore_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
+			
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_worker', 'Fetch database', GETDATE(), GETDATE(), 50000, 'msdb.dbo.restore_worker does not exist, please run setup script');
+							END;				
+			
 			
 			RETURN;
 		
