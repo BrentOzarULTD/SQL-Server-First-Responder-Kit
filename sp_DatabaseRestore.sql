@@ -365,10 +365,16 @@ ELSE
 	END;
 
 
-IF EXISTS (SELECT * FROM master.sys.objects AS objects INNER JOIN master.sys.schemas AS schemas ON objects.schema_id = schemas.schema_id WHERE objects.type = 'U' AND schemas.name = 'dbo' AND objects.name = 'CommandLog')
-BEGIN
-	SET @CommandLogCheck = 1;
-END;
+IF EXISTS (   SELECT     *
+              FROM       master.sys.objects AS objects
+              INNER JOIN master.sys.schemas AS schemas
+              ON objects.schema_id = schemas.schema_id
+              WHERE      objects.type = 'U'
+                         AND schemas.name = 'dbo'
+                         AND objects.name = 'CommandLog' )
+    BEGIN
+        SET @CommandLogCheck = 1;
+    END;
 
 
 
@@ -401,12 +407,14 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('No rows were returned for that %s', 0, 1, @BackupPathFull) WITH NOWAIT;
-			    IF @CommandLogCheck = 1
+			    
+				IF @CommandLogCheck = 1
 				BEGIN
-				SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
+			
 			RETURN;
 
 		END;
@@ -420,12 +428,14 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-			    IF @CommandLogCheck = 1
+			    
+				IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
+			
 			RETURN;
 
 		END;
@@ -443,11 +453,13 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('The path %s appears to be empty', 0, 1, @BackupPathFull) WITH NOWAIT;
-			    IF @CommandLogCheck = 1
+			    
+				IF @CommandLogCheck = 1
 				BEGIN
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
 				END;
+			
 			RETURN;
 	
 		END;
@@ -461,12 +473,14 @@ EXEC master.sys.xp_cmdshell @cmd;
 		BEGIN
 	
 			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-			    IF @CommandLogCheck = 1
+			    
+				IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
+			
 			RETURN;
 	
 		END;
@@ -659,9 +673,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('No rows were returned for that %s', 0, 1, @BackupPathDiff) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 
@@ -678,9 +692,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 
@@ -700,9 +714,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 	
 			RAISERROR('The path %s appears to be empty', 0, 1, @BackupPathDiff) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
-				BEGIN
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
+					BEGIN
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
 				END;
 			RETURN;
 	
@@ -719,9 +733,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 	
@@ -823,9 +837,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('No rows were returned for that %s', 0, 1, @BackupPathLog) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 
@@ -842,9 +856,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 
@@ -864,9 +878,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 	
 			RAISERROR('The path %s appears to be empty', 0, 1, @BackupPathLog) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
-				BEGIN
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
+					BEGIN
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
 				END;
 			RETURN;
 	
@@ -883,9 +897,9 @@ EXEC master.sys.xp_cmdshell @cmd;
 			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathLog) WITH NOWAIT;
 			    IF @CommandLogCheck = 1
 				BEGIN
-			    SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
-				INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
-				VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+					SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
+					INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+					VALUES (@Database, 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
 				END;
 			RETURN;
 	
@@ -973,10 +987,12 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					   FROM #Headers 
 					   WHERE BackupType = 2;
 		
-				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
+				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) 
+				OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
 					SET @i = 2;
 				
-				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
+				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) 
+				OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
 					SET @i = 2;
 				
 				DELETE FROM #Headers WHERE BackupType = 2;
@@ -1024,7 +1040,7 @@ DEALLOCATE BackupFiles;
 END;
 
 -- put database in a useable state 
-IF @RunRecovery = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NOT NULL
+IF @RunRecovery = 1 AND DATABASEPROPERTYEX(@Database, 'Status') IS NOT NULL
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
 
@@ -1039,7 +1055,7 @@ IF @RunRecovery = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NO
 	END;
 
 -- ensure simple recovery model
-IF @ForceSimpleRecovery = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NOT NULL
+IF @ForceSimpleRecovery = 1 AND DATABASEPROPERTYEX(@Database, 'Status') IS NOT NULL
 	BEGIN
 		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
 
@@ -1054,7 +1070,7 @@ IF @ForceSimpleRecovery = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status
 	END;
 
  --Run checkdb against this database
-IF @RunCheckDB = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NOT NULL
+IF @RunCheckDB = 1 AND DATABASEPROPERTYEX(@Database, 'Status') IS NOT NULL
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
 			
@@ -1069,7 +1085,7 @@ IF @RunCheckDB = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NOT
 	END;
 
  --If test restore then blow the database away (be careful)
-IF @TestRestore = 1 AND DATABASEPROPERTYEX(@RestoreDatabaseName, 'Status') IS NOT NULL
+IF @TestRestore = 1 AND DATABASEPROPERTYEX(@Database, 'Status') IS NOT NULL
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
 			
