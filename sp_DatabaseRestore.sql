@@ -385,7 +385,7 @@ IF @BackupPathFull IS NOT NULL
 
 BEGIN
 
--- get list of files 
+-- Get list of files 
 SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 
 			IF @Debug = 1
@@ -600,7 +600,7 @@ ELSE
 	
 	END;
 
---Clear out table variables for differential
+-- Clear out table variables for differential
 DELETE FROM @FileList;
 
 END
@@ -610,7 +610,7 @@ IF @BackupPathDiff IS NOT NULL
 
 BEGIN 
 
--- get list of files 
+-- Get list of files 
 SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 
 	IF @Debug = 1
@@ -728,7 +728,7 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		WHERE BackupType = 5;                                                  
 	END;
 
---Clear out table variables for translogs
+-- Clear out table variables for translogs
 DELETE FROM @FileList;
    
  END      
@@ -817,7 +817,7 @@ END
 
 
 
---check for log backups
+-- Check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
 		DECLARE BackupFiles CURSOR FOR
@@ -944,7 +944,7 @@ DEALLOCATE BackupFiles;
 
 END
 
--- put database in a useable state 
+-- Put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
@@ -959,7 +959,7 @@ IF @RunRecovery = 1
 			EXECUTE sp_executesql @sql;
 	END;
 
---- ensure simple recovery model
+-- Ensure simple recovery model
 IF @ForceSimpleRecovery = 1
 	BEGIN
 		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
@@ -974,7 +974,7 @@ IF @ForceSimpleRecovery = 1
 			EXECUTE sp_executesql @sql;
 	END;	    
 
- --Run checkdb against this database
+ -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
@@ -989,7 +989,7 @@ IF @RunCheckDB = 1
 			EXECUTE sys.sp_executesql @sql;
 	END;
 
- --If test restore then blow the database away (be careful)
+ -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
@@ -1004,4 +1004,6 @@ IF @TestRestore = 1
 			EXECUTE sp_executesql @sql;
 
 	END;
+
+GO
 
