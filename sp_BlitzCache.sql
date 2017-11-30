@@ -1288,9 +1288,9 @@ CREATE TABLE #missing_index_pretty
     database_name NVARCHAR(128),
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
-	equality NVARCHAR(128),
-	inequality NVARCHAR(128),
-	[include] NVARCHAR(128),
+	equality NVARCHAR(4000),
+	inequality NVARCHAR(4000),
+	[include] NVARCHAR(4000),
 	details AS N'/* '
 	           + CHAR(10) 
 			   + N'The Query Processor estimates that implementing the following index could improve the query cost by ' 
