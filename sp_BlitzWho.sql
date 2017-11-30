@@ -354,6 +354,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						END
 						+' 
 			            s.status ,
+                     CONVERT(VARCHAR(128), r.context_info)  AS [context_info],
 			            ISNULL(SUBSTRING(dest.text,
 			                             ( query_stats.statement_start_offset / 2 ) + 1,
 			                             ( ( CASE query_stats.statement_end_offset
