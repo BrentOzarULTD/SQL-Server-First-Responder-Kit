@@ -4727,7 +4727,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   ##bou_BlitzCacheProcs p
-                    WHERE  p.is_spool_expensive = 1
+                    WHERE  p.is_spool_more_rows = 1
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,

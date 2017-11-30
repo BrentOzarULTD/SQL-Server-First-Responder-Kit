@@ -4080,7 +4080,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
-                    WHERE  p.is_spool_expensive = 1
+                    WHERE  p.is_spool_more_rows = 1
   					)
              INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (
