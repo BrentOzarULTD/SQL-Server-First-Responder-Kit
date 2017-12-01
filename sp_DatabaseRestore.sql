@@ -1,5 +1,5 @@
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
+	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
 
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
@@ -15,8 +15,10 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @RunCheckDB BIT = 0, 
 	  @RestoreDiff BIT = 0,
 	  @ContinueLogs BIT = 0, 
+	  @StandbyMode BIT = 0,
+	  @StandbyUndoPath NVARCHAR(MAX) = NULL,
 	  @RunRecovery BIT = 0, 
-	  @ForceSimpleRecovery BIT = 0, 
+	  @ForceSimpleRecovery BIT = 0,
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
@@ -136,6 +138,16 @@ IF @Help = 1
 			@TestRestore = 1,
 			@RunCheckDB = 1,
 			@Debug = 0;
+
+		EXEC dbo.sp_DatabaseRestore 
+			@Database = ''LogShipMe'', 
+			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+			@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'',
+			@StandbyMode = 1,
+			@StandbyUndoPath = ''D:\Data\'',
+			@ContinueLogs = 1, 
+			@RunRecovery = 0,
+			@Debug = 0;
 		
 		--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will also only print the commands.
 		EXEC dbo.sp_DatabaseRestore 
@@ -192,7 +204,8 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
         @FullLastLSN NUMERIC(25, 0), --LSN for full
         @DiffLastLSN NUMERIC(25, 0), --LSN for diff
 		@HeadersSQL AS NVARCHAR(4000) = N'', --Dynamic insert into #Headers table (deals with varying results from RESTORE FILELISTONLY across different versions)
-		@MoveOption AS NVARCHAR(MAX)= N'', --If you need to move restored files to a different directory
+		@MoveOption AS NVARCHAR(MAX) = N'', --If you need to move restored files to a different directory
+		@LogRecoveryOption AS NVARCHAR(MAX) = N'', --Holds the option to cause logs to be restored in standby mode or with no recovery
 		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
 		@i TINYINT = 1,  --Maintains loop to continue logs
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
@@ -350,6 +363,12 @@ IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
 		SET @MoveLogDrive += N'\';
 	END;
 
+/*Standby Undo File*/
+IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
+		SET @StandbyUndoPath += N'\';
+	END;
 
 
 IF @RestoreDatabaseName IS NULL
@@ -366,7 +385,7 @@ IF @BackupPathFull IS NOT NULL
 
 BEGIN
 
--- get list of files 
+-- Get list of files 
 SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
 
 			IF @Debug = 1
@@ -470,7 +489,7 @@ SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
 
 SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
-		
+	
 		IF @Debug = 1
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for INSERT to #FileListParameters: @BackupPathFull + @LastFullBackup';
@@ -521,7 +540,7 @@ IF @MoveFiles = 1
 					  ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
 					  END AS logicalcmds
 			FROM #FileListParameters)
-		
+	
 		SELECT @MoveOption = @MoveOption + Files.logicalcmds
 		FROM Files;
 		
@@ -536,13 +555,13 @@ IF @ContinueLogs = 0
 		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
-		
+
 		IF @Debug = 1
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
 			PRINT @sql;
 		END;
-		
+			
 		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	
@@ -581,7 +600,7 @@ ELSE
 	
 	END;
 
---Clear out table variables for differential
+-- Clear out table variables for differential
 DELETE FROM @FileList;
 
 END
@@ -591,7 +610,7 @@ IF @BackupPathDiff IS NOT NULL
 
 BEGIN 
 
--- get list of files 
+-- Get list of files 
 SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
 
 	IF @Debug = 1
@@ -682,7 +701,6 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 			PRINT @sql;
 		END;  
 
-		
 		IF @Debug IN (0, 1)
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 		
@@ -710,7 +728,7 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		WHERE BackupType = 5;                                                  
 	END;
 
---Clear out table variables for translogs
+-- Clear out table variables for translogs
 DELETE FROM @FileList;
    
  END      
@@ -799,7 +817,7 @@ END
 
 
 
---check for log backups
+-- Check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
 		DECLARE BackupFiles CURSOR FOR
@@ -841,6 +859,18 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 		OPEN BackupFiles;
 	END;
 
+IF (@StandbyMode = 1)
+	BEGIN
+		IF (@StandbyUndoPath IS NULL)
+			RAISERROR('The file path of the undo file for standby mode was not specified. Logs will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+		ELSE
+			SET @LogRecoveryOption = N'STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''';
+	END;
+
+IF (@LogRecoveryOption = N'')
+	BEGIN
+		SET @LogRecoveryOption = N'NORECOVERY';
+	END;
 
 -- Loop through all the files for the database  
 FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -887,7 +917,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 
 				RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
 				
-				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH NORECOVERY' + NCHAR(13);
+				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + NCHAR(13);
 				
 					IF @Debug = 1
 					BEGIN
@@ -914,7 +944,7 @@ DEALLOCATE BackupFiles;
 
 END
 
--- put database in a useable state 
+-- Put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
@@ -929,7 +959,7 @@ IF @RunRecovery = 1
 			EXECUTE sp_executesql @sql;
 	END;
 
--- ensure simple recovery model
+-- Ensure simple recovery model
 IF @ForceSimpleRecovery = 1
 	BEGIN
 		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
@@ -942,9 +972,9 @@ IF @ForceSimpleRecovery = 1
 
 		IF @Debug IN (0, 1)
 			EXECUTE sp_executesql @sql;
-	END;
+	END;	    
 
- --Run checkdb against this database
+ -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
@@ -959,7 +989,7 @@ IF @RunCheckDB = 1
 			EXECUTE sys.sp_executesql @sql;
 	END;
 
- --If test restore then blow the database away (be careful)
+ -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
@@ -975,4 +1005,5 @@ IF @TestRestore = 1
 
 	END;
 
-GO 
+GO
+

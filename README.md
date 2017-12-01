@@ -40,7 +40,7 @@ The First Responder Kit runs on:
 * SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
-* Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
+* Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
 
 
 ## How to Get Support
