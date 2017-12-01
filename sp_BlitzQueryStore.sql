@@ -1713,7 +1713,8 @@ RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.query_id,
-       object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) AS proc_or_function_name,
+       QUOTENAME(object_schema_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) + ''.'' +
+	   QUOTENAME(object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) AS proc_or_function_name,
 	   qsq.batch_sql_handle, qsq.query_hash, qsq.query_parameterization_type_desc, qsq.count_compiles, 
 	   (qsq.avg_compile_duration / 1000.), 
 	   (qsq.last_compile_duration / 1000.), 
