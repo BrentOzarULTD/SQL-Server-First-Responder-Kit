@@ -126,6 +126,17 @@ AS
                AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
                AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate;
 
+			   IF @@ROWCOUNT < 1
+				BEGIN
+					SELECT  N'WOO-HOO! We couldn''t find any deadlocks!' AS [Noice], 
+							N'sp_BlitzLock'AS [Proc Name], 
+							N'SQL Server First Responder Kit' AS [FRK], 
+							N'http://FirstResponderKit.org/' AS [URL], 
+							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info]
+				RETURN;
+				END;
+
+
 		
 
 		/*Parse process and input buffer XML*/
@@ -420,8 +431,11 @@ AS
 			   + N' Owner Lock Type: ' 
 			   + QUOTENAME(dow.owner_mode)
 			   + NCHAR(10)
-			   + N' Owner Object: '
-			   + QUOTENAME(dow.object_name)
+			   + N' Owner Object(s): '
+			   + STUFF((SELECT DISTINCT N', ' + QUOTENAME(ISNULL(dow2.object_name, N'')) AS object_name
+		                 FROM   #deadlock_owner_waiter AS dow2
+		                 WHERE  dow.owner_id = dow2.owner_id
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'')
 			   + NCHAR(10)
 			   + N' Owner Isolation level: '
 			   + QUOTENAME(owner.isolation_level)
@@ -454,8 +468,11 @@ AS
 			   + N' Victim Lock Type: '
 			   + QUOTENAME(dow.waiter_mode)
 			   + NCHAR(10)
-			   + N' Victim Object: '
-			   + QUOTENAME(dow.object_name)
+			   + N' Victim Object(s): '
+			   + STUFF((SELECT DISTINCT N', ' + QUOTENAME(ISNULL(dow2.object_name, N'')) AS object_name
+		                 FROM   #deadlock_owner_waiter AS dow2
+		                 WHERE  dow.waiter_id = dow2.waiter_id
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')
 			   + NCHAR(10)
 			   + N' Victim Isolation level: '
 			   + QUOTENAME(waiter.isolation_level)
