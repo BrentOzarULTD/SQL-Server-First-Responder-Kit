@@ -132,7 +132,7 @@ AS
 							N'sp_BlitzLock'AS [Proc Name], 
 							N'SQL Server First Responder Kit' AS [FRK], 
 							N'http://FirstResponderKit.org/' AS [URL], 
-							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info]
+							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
 				RETURN;
 				END;
 
@@ -399,17 +399,17 @@ AS
 				NULL AS object_name,
 				'Total deadlock wait time' AS finding_group,
 				'This database has had ' 
-				+ CONVERT(VARCHAR(10), (SUM([total_wait_time_ms]) / 1000) / 86400) 
-				+ ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([total_wait_time_ms]) / 1000), 0), 108)
+				+ CONVERT(VARCHAR(10), (SUM(wt.total_wait_time_ms) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM(wt.total_wait_time_ms) / 1000), 0), 108)
 				+ ' [d/h/m/s] of deadlock wait time.',
 				NULL AS query_text
 		FROM wait_time AS wt
-		GROUP BY wt.database_name
+		GROUP BY wt.database_name;
 
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
-		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL )
+		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL );
 
 
 		SELECT CONVERT(XML, 
@@ -499,7 +499,7 @@ AS
 				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS owner
 			ON owner.id = dow.owner_id
 				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS waiter
-			ON waiter.id = dow.owner_id
+			ON waiter.id = dow.owner_id;
 
 
 
