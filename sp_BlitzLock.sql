@@ -379,9 +379,115 @@ AS
 				NULL AS query_text
 		FROM bi;
 
+		/*Check 9 gets total deadlock wait time per database*/
+		WITH wait_time AS (
+						SELECT DB_NAME(dp.database_id) AS database_name,
+							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
+						FROM #deadlock_process AS dp
+						GROUP BY DB_NAME(dp.database_id)
+						  )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		SELECT 9 AS check_id,
+				wt.database_name,
+				NULL AS object_name,
+				'Total deadlock wait time' AS finding_group,
+				'This database has had ' 
+				+ CONVERT(VARCHAR(10), (SUM([total_wait_time_ms]) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([total_wait_time_ms]) / 1000), 0), 108)
+				+ ' [d/h/m/s] of deadlock wait time.',
+				NULL AS query_text
+		FROM wait_time AS wt
+		GROUP BY wt.database_name
+
+
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
 		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL )
+
+
+		SELECT CONVERT(XML, 
+		       N'<Clickme> '  
+			   + NCHAR(10)
+			   + N'Event Date: '
+			   + CONVERT(NVARCHAR(30), CONVERT(DATETIME, owner.event_date))
+			   + NCHAR(10)
+			   + N'Owner Information '
+			   + NCHAR(10)
+			   + N'=================='
+			   + NCHAR(10)
+			   + N' Owner Process: ' 
+			   + QUOTENAME(SUBSTRING(dow.owner_id, 8, 128))
+			   + NCHAR(10)
+			   + N' Owner Login: '
+			   + QUOTENAME(owner.login_name)
+			   + NCHAR(10)
+			   + N' Owner Lock Type: ' 
+			   + QUOTENAME(dow.owner_mode)
+			   + NCHAR(10)
+			   + N' Owner Object: '
+			   + QUOTENAME(dow.object_name)
+			   + NCHAR(10)
+			   + N' Owner Isolation level: '
+			   + QUOTENAME(owner.isolation_level)
+			   + NCHAR(10)
+			   + N' Owner Transaction: '
+			   + QUOTENAME(owner.transaction_name)
+			   + NCHAR(10)
+			   + N' Owner Transaction Count: '
+			   + QUOTENAME(owner.transaction_count)
+			   + NCHAR(10)
+			   + N' Owner Application: '
+			   + QUOTENAME(owner.client_app)
+			   + NCHAR(10)
+			   + N' Owner Host  Name: '
+			   + QUOTENAME(owner.host_name)
+
+			   + NCHAR(10)
+			   + NCHAR(10)			   			   		   
+			   
+			   + N'Victim Information '
+			   + NCHAR(10)
+			   + N'=================='
+			   + NCHAR(10)
+			   + N' Victim Process: '
+			   + QUOTENAME(SUBSTRING(dow.waiter_id, 8, 128))
+			   + NCHAR(10)
+			   + N' Victim Login '
+			   + QUOTENAME(waiter.login_name)
+			   + NCHAR(10)
+			   + N' Victim Lock Type: '
+			   + QUOTENAME(dow.waiter_mode)
+			   + NCHAR(10)
+			   + N' Victim Object: '
+			   + QUOTENAME(dow.object_name)
+			   + NCHAR(10)
+			   + N' Victim Isolation level: '
+			   + QUOTENAME(waiter.isolation_level)
+			   + NCHAR(10)
+			   + N' Victim Transaction: '
+			   + QUOTENAME(waiter.transaction_name)
+			   + NCHAR(10)
+			   + N' Victim Transaction Count: '
+			   + QUOTENAME(waiter.transaction_count)	
+			   + NCHAR(10)
+			   + N' Victim Application: '
+			   + QUOTENAME(waiter.client_app)
+			   + NCHAR(10)
+			   + N' Owner Host  Name: '
+			   + QUOTENAME(owner.host_name)			   		   		   
+			   
+			   + NCHAR(10)
+			   + N'</Clickme> ' 
+			   )
+			   AS [deadlock_story],
+			   owner.input_buffer AS 'owner_query',
+			   waiter.input_buffer AS 'victim_query'
+		FROM #deadlock_owner_waiter AS dow
+				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS owner
+			ON owner.id = dow.owner_id
+				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS waiter
+			ON waiter.id = dow.owner_id
+
 
 
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding, df.query_text
