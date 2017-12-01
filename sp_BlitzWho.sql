@@ -230,7 +230,8 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            r.start_time ,
 						r.percent_complete , 
 						wg.name AS workload_group_name , 
-						rp.name AS resource_pool_name
+						rp.name AS resource_pool_name ,
+						CONVERT(VARCHAR(128), r.context_info)  AS context_info
 			    FROM    sys.dm_exec_sessions AS s
 			    LEFT JOIN    sys.dm_exec_requests AS r
 			    ON      r.session_id = s.session_id
@@ -442,7 +443,8 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			            r.start_time ,
 						r.percent_complete , 
 						wg.name AS workload_group_name, 
-						rp.name AS resource_pool_name
+						rp.name AS resource_pool_name ,
+						CONVERT(VARCHAR(128), r.context_info)  AS context_info
 						FROM sys.dm_exec_sessions AS s
 						LEFT JOIN    sys.dm_exec_requests AS r
 									    ON      r.session_id = s.session_id
