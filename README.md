@@ -17,11 +17,13 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+  - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
+ - [Power BI Dashboard for DBAs](#power-bi-dashboard-for-dbas)
  - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
@@ -38,7 +40,7 @@ The First Responder Kit runs on:
 * SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
-* Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
+* Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
 
 
 ## How to Get Support
@@ -213,9 +215,41 @@ If no problems are found, it'll tell you that too. That's one of our favorite fe
 Common sp_BlitzFirst parameters include:
 
 * @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
-* @CheckProcedureCache = 0 by default. When set to 1, this outputs the most resource-intensive queries during the time span. The data is calculated using sys.dm_exec_query_stats, which is a lightweight way of doing things (as opposed to starting up a trace or XE session). We don't turn this on by default because it tends to produce a lot of end user questions.
 * @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
 * @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample.
+
+### Logging sp_BlitzFirst to Tables
+
+You can log sp_BlitzFirst performance data to tables and then analyze the results with the Power BI dashboard. To do it, schedule an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
+
+* @OutputDatabaseName = typically 'DBAtools'
+* @OutputSchemaName = 'dbo'
+* @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
+* @OutputTableName_FileStats = 'BlitzFirst_FileStats'
+* @OutputTableName_PerfmonStats = 'BlitzFirst_PerfmonStats'
+* @OutputTableName_WaitStats = 'BlitzFirst_WaitStats'
+* @OutputTableName_BlitzCache = 'BlitzCache' 
+
+All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
+
+Then fire up the [First Responder Kit Power BI dashboard.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
+
+### Logging Performance Tuning Activities
+
+On the Power BI Dashboard, you can show lines for your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
+
+* @OutputDatabaseName = typically 'DBAtools'
+* @OutputSchemaName = 'dbo'
+* @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
+* @LogMessage = 'Whatever you wanna show in the Power BI dashboard'
+
+Optionally, you can also pass in:
+
+* @LogMessagePriority = 1
+* @LogMessageFindingsGroup = 'Logged Message'
+* @LogMessageFinding = 'Logged from sp_BlitzFirst' - you could use other values here to track other data sources like DDL triggers, Agent jobs, ETL jobs
+* @LogMessageURL = 'https://OurHelpDeskSystem/ticket/?12345' - or maybe a Github issue, or Pagerduty alert
+* @LogMessageCheckDate = '2017/10/31 11:00' - in case you need to log a message for a prior date/time, like if you forgot to log the message earlier
 
 [*Back to top*](#header1)
 
@@ -225,6 +259,28 @@ Common sp_BlitzFirst parameters include:
 This is like sp_who, except it goes into way, way, way more details.
 
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
+[*Back to top*](#header1)
+
+## sp_BlitzQueryStore
+
+Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
+
+* @Help: Right now this just prints the license if set to 1. I'm going to add better documentation here as the script matures.
+* @DatabaseName: This one is required. Query Store is per database, so you have to point it at one to examine.
+* @Top: How many plans from each "worst" you want to get. We look at your maxes for CPU, reads, duration, writes, memory, rows, executions, and additionally tempdb and log bytes for 2017. So it's the number of plans from each of those to gather.
+* @StartDate: Fairly obvious, when you want to start looking at queries from. If NULL, we'll only go back seven days.
+* @EndDate: When you want to stop looking at queries from. If you leave it NULL, we'll look ahead seven days.
+* @MinimumExecutionCount: The minimum number of times a query has to have been executed (not just compiled) to be analyzed.
+* @DurationFilter: The minimum number of seconds a query has to have been executed for to be analyzed.
+* @StoredProcName: If you want to look at a single stored procedure.
+* @Failed: If you want to look at failed queries, for some reason. I dunno, MS made such a big deal out of being able to look at these, I figured I'd add it.
+* @PlanIdFilter: If you want to filter by a particular plan id. Remember that a query may have many different plans.
+* @QueryIdFilter: If you want to filter by a particular query id. If you want to look at one specific plan for a query.
+* @ExportToExcel: Leaves XML out of the input and tidies up query text so you can easily paste it into Excel.
+* @HideSummary: Pulls the rolled up warnings and information out of the results.
+* @SkipXML: Skips XML analysis.
+* @Debug: Prints dynamic SQL and selects data from all temp tables if set to 1.
 
 [*Back to top*](#header1)
 
@@ -318,6 +374,15 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 * @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
 
 [*Back to top*](#header1)
+
+## Power BI Dashboard for DBAs
+
+[Documentation for this part of the project is currently at BrentOzar.com.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
+
+To contribute changes, read the [contributing guide](CONTRIBUTING.md) - there's a special section for the Power BI Dashboard since it has to be changed differently than scripts.
+
+[*Back to top*](#header1)
+
 
 
 ## License
