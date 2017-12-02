@@ -36,7 +36,6 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
-| 10 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 20 | Reliability | Dangerous Build of SQL Server (Corruption) | http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds | 129 |
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | https://www.BrentOzar.com/go/repair | 102 |
@@ -225,10 +224,11 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 200 | Performance | Buffer Pool Extensions Enabled | https://www.BrentOzar.com/go/bpe | 174 |
 | 200 | Performance | Default Parallelism Settings | https://www.BrentOzar.com/go/cxpacket | 188 |
 | 200 | Performance | In-Memory OLTP (Hekaton) In Use | https://www.BrentOzar.com/go/hekaton | 146 |
+| 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
+| 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
-| 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |

@@ -4899,7 +4899,7 @@ IF @ProductVersionMajor >= 10
 			                            Details)
 		                              SELECT TOP 1 163,
 		                              ''?'',
-		                              10,
+		                              200,
 		                              ''Performance'',
 		                              ''Query Store Disabled'',
 		                              ''https://BrentOzar.com/go/querystore'',
