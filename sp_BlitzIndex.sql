@@ -20,8 +20,8 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
-	@SkipPartitions BIT	= 0,
-	@SkipStatistics BIT	= 1,
+    @SkipPartitions BIT	= 0,
+    @SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -29,8 +29,8 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
-	@Help TINYINT = 0,
-	@VersionDate DATETIME = NULL OUTPUT
+    @Help TINYINT = 0,
+    @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
@@ -685,6 +685,7 @@ BEGIN TRY
 				   N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
                    'http://FirstResponderKit.org', '', '', '', ''
                     );        
+            
 		
 		SELECT bir.blitz_result_id,
                bir.check_id,
@@ -1022,7 +1023,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
-                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
+                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',16,1) WITH NOWAIT;
                         SET @SkipPartitions = 1;
                         INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                                         index_usage_summary, index_size_summary )
