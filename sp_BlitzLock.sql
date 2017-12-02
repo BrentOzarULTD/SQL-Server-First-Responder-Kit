@@ -208,7 +208,7 @@ SET @VersionDate = '20171201';
                     ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
                     ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
                     ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
-                    ca2.ib.query('.') AS input_buffer,
+                    CONVERT(NVARCHAR(MAX), ca2.ib.query('.')) AS input_buffer,
                     ca.dp.query('.') AS process_xml
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
@@ -534,6 +534,11 @@ SET @VersionDate = '20171201';
 		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL );
 
 
+		
+		WITH deadlock_owner_waiter AS (
+					SELECT DISTINCT database_id, object_name, lock_mode, waiter_id, waiter_mode, owner_id, owner_mode
+					FROM   #deadlock_owner_waiter
+						)
 		SELECT CONVERT(XML, 
 		       N'<Clickme> '  
 			   + NCHAR(10)
@@ -615,13 +620,24 @@ SET @VersionDate = '20171201';
 			   + N'</Clickme> ' 
 			   )
 			   AS [deadlock_story],
-			   owner.input_buffer AS 'owner_query',
-			   waiter.input_buffer AS 'victim_query'
-		FROM #deadlock_owner_waiter AS dow
-				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS owner
+			   CONVERT(XML, STUFF((SELECT DISTINCT NCHAR(10) + ISNULL(dp2.input_buffer, N'') AS object_name
+		                 FROM   #deadlock_process AS dp2
+		                 WHERE  dow.owner_id = dp2.id
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')) AS 'owner_query',
+			  
+			   CONVERT(XML, STUFF((SELECT DISTINCT NCHAR(10) + ISNULL(dp2.input_buffer, N'') AS object_name
+		                 FROM   #deadlock_process AS dp2
+		                 WHERE  dow.waiter_id = dp2.id
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')) AS 'victim_query'
+		FROM deadlock_owner_waiter AS dow
+				JOIN (SELECT TOP 1 * 
+					  FROM #deadlock_process AS dp) AS owner
 			ON owner.id = dow.owner_id
-				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS waiter
+			--AND dow.waiter_id = owner.id
+				JOIN (SELECT TOP 1 *
+					  FROM #deadlock_process AS dp) AS waiter
 			ON waiter.id = dow.owner_id
+			--AND dow.owner_id = waiter.id
 			OPTION ( RECOMPILE );
 
 
