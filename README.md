@@ -288,19 +288,18 @@ Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp
 ## sp_BlitzLock: Deadlock Analysis
 
 Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
-	Variables you can use:
-		* @Top: Use if you want to limit the number of deadlocks to return.
-			  This is ordered by event date ascending
-		* @DatabaseName: If you want to filter to a specific database
-		* @StartDate: The date you want to start searching on.
-		* @EndDate: The date you want to stop searching on.
-		* @ObjectName: If you want to filter to a specific able. 
-					   The object name has to be fully qualified 'Database.Schema.Table'
-		* @StoredProcName: If you want to search for a single stored proc	
-		* @AppName: If you want to filter to a specific application	
-		* @HostName: If you want to filter to a specific host		
-		* @LoginName: If you want to filter to a specific login
-		* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+
+Variables you can use:
+* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
+* @DatabaseName: If you want to filter to a specific database
+* @StartDate: The date you want to start searching on.
+* @EndDate: The date you want to stop searching on.
+* @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
+* @StoredProcName: If you want to search for a single stored proc.
+* @AppName: If you want to filter to a specific application.
+* @HostName: If you want to filter to a specific host.
+* @LoginName: If you want to filter to a specific login.
+* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
 
 
 [*Back to top*](#header1)
