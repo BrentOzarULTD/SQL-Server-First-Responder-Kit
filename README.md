@@ -262,7 +262,7 @@ It's designed for query tuners, so it includes things like memory grants, degree
 
 [*Back to top*](#header1)
 
-## sp_BlitzQueryStore
+## sp_BlitzQueryStore: Query Store Sale
 
 Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
 
