@@ -7,8 +7,8 @@ ALTER PROCEDURE dbo.sp_BlitzLock
     @Top INT = 2147483647, 
 	@StartDate DATETIME = '19000101', 
 	@EndDate DATETIME = '99991231', 
+	@EventSessionPath VARCHAR(256) = 'xml_deadlock_report', 
 	@Debug BIT = 0, 
-	@EventSessionPath NVARCHAR(256) = NULL, 
 	@Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 )
@@ -157,11 +157,11 @@ SET @VersionDate = '20171201';
 		/*Grab the initial set of XML to parse*/
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
-             FROM   sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) )
+             FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
         SELECT TOP ( @Top ) xml.deadlock_xml
         INTO   #deadlock_data
         FROM   xml
-        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(255)') = 'xml_deadlock_report'
+        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
                AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
                AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
 			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
