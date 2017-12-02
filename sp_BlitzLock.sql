@@ -5,23 +5,28 @@ GO
 ALTER PROCEDURE dbo.sp_BlitzLock
 (
     @Top INT = 2147483647, 
+	@DatabaseName NVARCHAR(256) = NULL,
 	@StartDate DATETIME = '19000101', 
 	@EndDate DATETIME = '99991231', 
+	@ObjectName NVARCHAR(1000) = NULL,
+	@StoredProcName NVARCHAR(256) = NULL,
+	@AppName NVARCHAR(256) = NULL,
+	@HostName NVARCHAR(256) = NULL,
+	@LoginName NVARCHAR(256) = NULL,
 	@EventSessionPath VARCHAR(256) = 'xml_deadlock_report', 
 	@Debug BIT = 0, 
 	@Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 )
 AS
+BEGIN
+
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
 SET @Version = '1.0';
 SET @VersionDate = '20171201';
 
-
-
-    BEGIN
 
 	IF @Help = 1 PRINT '
 	/*
@@ -167,9 +172,15 @@ SET @VersionDate = '20171201';
 			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
 			   OPTION ( RECOMPILE );
 
-			   IF @@ROWCOUNT < 1
+			   /*Eject early if we don't find anything*/
+			   IF @@ROWCOUNT = 0
 				BEGIN
-					SELECT  N'WOO-HOO! We couldn''t find any deadlocks!' AS [Noice], 
+					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for '
+							+ CONVERT(NVARCHAR(30), @StartDate)
+							+ ' through '
+							+ CONVERT(NVARCHAR(30), @EndDate)
+							+ '!'
+							AS [Noice], 
 							N'sp_BlitzLock'AS [Proc Name], 
 							N'SQL Server First Responder Kit' AS [FRK], 
 							N'http://FirstResponderKit.org/' AS [URL], 
@@ -203,7 +214,29 @@ SET @VersionDate = '20171201';
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
+		WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL)
+		AND   (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL)
+		AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL)
+		AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL)
 		OPTION ( RECOMPILE );
+
+			   
+			   /*Eject early if we don't find anything*/
+			   IF @@ROWCOUNT = 0
+				BEGIN
+					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for '
+								+ CASE WHEN @DatabaseName IS NOT NULL THEN 'Database:' + QUOTENAME(@DatabaseName) + ' ' ELSE '' END
+								+ CASE WHEN @AppName IS NOT NULL THEN 'Application:' + QUOTENAME(@AppName) + ' ' ELSE '' END
+								+ CASE WHEN @HostName IS NOT NULL THEN 'Host:' + QUOTENAME(@HostName) + ' ' ELSE '' END
+								+ CASE WHEN @LoginName IS NOT NULL THEN 'Login:' + QUOTENAME(@LoginName) + ' ' ELSE '' END
+							+ '!' AS [Noice], 
+							N'sp_BlitzLock'AS [Proc Name], 
+							N'SQL Server First Responder Kit' AS [FRK], 
+							N'http://FirstResponderKit.org/' AS [URL], 
+							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
+				RETURN;
+				END;
+
 
 
 		/*Parse execution stack XML*/
@@ -213,7 +246,20 @@ SET @VersionDate = '20171201';
         INTO        #deadlock_stack
         FROM        #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
+		WHERE (ca.dp.value('@procname', 'NVARCHAR(256)') = @StoredProcName OR @StoredProcName IS NULL)
 		OPTION ( RECOMPILE );
+
+			   /*Eject early if we don't find anything*/
+			   IF @@ROWCOUNT = 0
+				BEGIN
+					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for ' + QUOTENAME(@StoredProcName) + '!'
+							AS [Noice], 
+							N'sp_BlitzLock'AS [Proc Name], 
+							N'SQL Server First Responder Kit' AS [FRK], 
+							N'http://FirstResponderKit.org/' AS [URL], 
+							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
+				RETURN;
+				END;
 
 
 		/*Grab the full resource list*/
@@ -226,7 +272,7 @@ SET @VersionDate = '20171201';
 
 		/*This parses object locks*/
         SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
-                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@objectname', 'NVARCHAR(1000)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
@@ -237,7 +283,20 @@ SET @VersionDate = '20171201';
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		WHERE (ca.dr.value('@objectname', 'NVARCHAR(1000)') = @ObjectName OR @ObjectName IS NULL)
 		OPTION ( RECOMPILE );
+
+			   /*Eject early if we don't find anything*/
+			   IF @@ROWCOUNT = 0
+				BEGIN
+					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for ' + @ObjectName + '!'
+							AS [Noice], 
+							N'sp_BlitzLock'AS [Proc Name], 
+							N'SQL Server First Responder Kit' AS [FRK], 
+							N'http://FirstResponderKit.org/' AS [URL], 
+							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
+				RETURN;
+				END;
 
 
 		/*This parses page locks*/
