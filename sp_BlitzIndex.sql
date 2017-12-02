@@ -455,6 +455,8 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               last_value BIGINT NULL,
               is_not_for_replication BIT NULL
             );
+        CREATE CLUSTERED INDEX CLIX_database_id_object_id_index_id ON #IndexColumns
+            (database_id, object_id, index_id);
 
         CREATE TABLE #MissingIndexes
             ([database_id] INT NOT NULL,
