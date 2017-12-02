@@ -2151,7 +2151,7 @@ BEGIN;
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
                             sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+							 CAST(COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
                                          AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
@@ -2176,7 +2176,7 @@ BEGIN;
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
                             sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+							 CAST(COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
                                          AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
