@@ -17,7 +17,8 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
-  - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+ - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+ - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
@@ -281,6 +282,26 @@ Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp
 * @HideSummary: Pulls the rolled up warnings and information out of the results.
 * @SkipXML: Skips XML analysis.
 * @Debug: Prints dynamic SQL and selects data from all temp tables if set to 1.
+
+[*Back to top*](#header1)
+
+## sp_BlitzLock: Deadlock Analysis
+
+Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
+	Variables you can use:
+		* @Top: Use if you want to limit the number of deadlocks to return.
+			  This is ordered by event date ascending
+		* @DatabaseName: If you want to filter to a specific database
+		* @StartDate: The date you want to start searching on.
+		* @EndDate: The date you want to stop searching on.
+		* @ObjectName: If you want to filter to a specific able. 
+					   The object name has to be fully qualified 'Database.Schema.Table'
+		* @StoredProcName: If you want to search for a single stored proc	
+		* @AppName: If you want to filter to a specific application	
+		* @HostName: If you want to filter to a specific host		
+		* @LoginName: If you want to filter to a specific login
+		* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+
 
 [*Back to top*](#header1)
 
