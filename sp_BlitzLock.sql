@@ -4,9 +4,23 @@ GO
 
 ALTER PROCEDURE dbo.sp_BlitzLock
 (
-    @Top INT = 2147483647, @StartDate DATETIME = '19000101', @EndDate DATETIME = '99991231', @Debug BIT = 0, @EventSessionPath NVARCHAR(256) = NULL, @Help BIT = 0
+    @Top INT = 2147483647, 
+	@StartDate DATETIME = '19000101', 
+	@EndDate DATETIME = '99991231', 
+	@Debug BIT = 0, 
+	@EventSessionPath NVARCHAR(256) = NULL, 
+	@Help BIT = 0,
+	@VersionDate DATETIME = NULL OUTPUT
 )
 AS
+SET NOCOUNT ON;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+DECLARE @Version VARCHAR(30);
+SET @Version = '1.0';
+SET @VersionDate = '20171201';
+
+
+
     BEGIN
 
 	IF @Help = 1 PRINT '
@@ -15,6 +29,31 @@ AS
 	
 	This script checks for and analyzes deadlocks from the system health session or a custom extended event path
 
+	Variables you can use:
+		@Top: Use if you want to limit the number of deadlocks to return.
+			  This is ordered by event date ascending
+
+		@DatabaseName: If you want to filter to a specific database
+
+		@StartDate: The date you want to start searching on.
+
+		@EndDate: The date you want to stop searching on.
+
+		@ObjectName: If you want to filter to a specific able. 
+					 The object name has to be fully qualified ''Database.Schema.Table''
+
+		@StoredProcName: If you want to search for a single stored proc
+		
+		@AppName: If you want to filter to a specific application
+		
+		@HostName: If you want to filter to a specific host
+		
+		@LoginName: If you want to filter to a specific login
+
+		@EventSessionPath: If you want to point this at an XE session rather than the system health session.
+	
+	
+	
 	To learn more, visit http://FirstResponderKit.org where you can download new
 	versions for free, watch training videos on how it works, get more info on
 	the findings, contribute your own code, and more.
@@ -124,7 +163,9 @@ AS
         FROM   xml
         WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(255)') = 'xml_deadlock_report'
                AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
-               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate;
+               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
+			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
+			   OPTION ( RECOMPILE );
 
 			   IF @@ROWCOUNT < 1
 				BEGIN
@@ -161,7 +202,8 @@ AS
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
+		OPTION ( RECOMPILE );
 
 
 		/*Parse execution stack XML*/
@@ -170,14 +212,16 @@ AS
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
         INTO        #deadlock_stack
         FROM        #deadlock_process AS dp
-        CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp);
+        CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
+		OPTION ( RECOMPILE );
 
 
 		/*Grab the full resource list*/
         SELECT      ca.dp.query('.') AS resource_xml
         INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp);
+        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+		OPTION ( RECOMPILE );
 
 
 		/*This parses object locks*/
@@ -192,7 +236,8 @@ AS
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
 
 
 		/*This parses page locks*/
@@ -207,7 +252,8 @@ AS
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
 
 
 		/*This parses key locks*/
@@ -222,7 +268,8 @@ AS
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
 
 
 		/*This parses rid locks*/
@@ -237,7 +284,8 @@ AS
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l);
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
 
 
 		/*Begin checks based on parsed values*/
@@ -253,7 +301,8 @@ AS
 				+ ' deadlocks.',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
-		GROUP BY DB_NAME(dow.database_id);
+		GROUP BY DB_NAME(dow.database_id)
+		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
 
@@ -267,7 +316,8 @@ AS
 				+ ' deadlocks.',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
-		GROUP BY DB_NAME(dow.database_id), dow.object_name;
+		GROUP BY DB_NAME(dow.database_id), dow.object_name
+		OPTION ( RECOMPILE );
 		
 
 		/*Check 3 looks for Serializable locking*/
@@ -283,7 +333,9 @@ AS
 			   NULL AS query_text
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'serializable%'
-		GROUP BY DB_NAME(dp.database_id);
+		GROUP BY DB_NAME(dp.database_id)
+		OPTION ( RECOMPILE );
+
 
 		/*Check 4 looks for Repeatable Read locking*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
@@ -298,7 +350,9 @@ AS
 			   NULL AS query_text
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'repeatable read%'
-		GROUP BY DB_NAME(dp.database_id);
+		GROUP BY DB_NAME(dp.database_id)
+		OPTION ( RECOMPILE );
+
 
 		/*Check 5 breaks down app, host, and login information*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
@@ -317,7 +371,9 @@ AS
 			   AS finding,
 			   NULL AS query_text
 		FROM #deadlock_process AS dp
-		GROUP BY DB_NAME(dp.database_id), dp.login_name, dp.client_app, dp.host_name;
+		GROUP BY DB_NAME(dp.database_id), dp.login_name, dp.client_app, dp.host_name
+		OPTION ( RECOMPILE );
+
 
 		/*Check 6 breaks down the types of locks (object, page, key, etc.)*/
 		WITH lock_types AS (
@@ -343,7 +399,9 @@ AS
 									FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 			   + ' locks',
 			   NULL AS query_text
-		FROM lock_types AS lt;
+		FROM lock_types AS lt
+		OPTION ( RECOMPILE );
+
 
 		/*Check 7 gives you more info queries for sp_BlitzCache */
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
@@ -362,7 +420,9 @@ AS
 				NULL AS query_text
 		FROM #deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
-		ON dow.owner_id = ds.id;
+		ON dow.owner_id = ds.id
+		OPTION ( RECOMPILE );
+
 
 		/*Check 8 gives you more info queries for sp_BlitzCache */
 		WITH bi AS (
@@ -384,7 +444,9 @@ AS
 				', @TableName = ' + QUOTENAME(bi.table_name, '''') +
 				';'	 AS finding,
 				NULL AS query_text
-		FROM bi;
+		FROM bi
+		OPTION ( RECOMPILE );
+
 
 		/*Check 9 gets total deadlock wait time per database*/
 		WITH wait_time AS (
@@ -404,7 +466,8 @@ AS
 				+ ' [d/h/m/s] of deadlock wait time.',
 				NULL AS query_text
 		FROM wait_time AS wt
-		GROUP BY wt.database_name;
+		GROUP BY wt.database_name
+		OPTION ( RECOMPILE );
 
 
 		/*Thank you goodnight*/
@@ -499,40 +562,43 @@ AS
 				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS owner
 			ON owner.id = dow.owner_id
 				JOIN (SELECT TOP 1 * FROM #deadlock_process AS dp) AS waiter
-			ON waiter.id = dow.owner_id;
+			ON waiter.id = dow.owner_id
+			OPTION ( RECOMPILE );
 
 
 
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding, df.query_text
 		FROM #deadlock_findings AS df
-		ORDER BY df.check_id;
+		ORDER BY df.check_id
+		OPTION ( RECOMPILE );
 
 
         IF @Debug = 1
             BEGIN
 
                 SELECT '#deadlock_data' AS table_name, *
-                FROM   #deadlock_data AS dd;
+                FROM   #deadlock_data AS dd
+				OPTION ( RECOMPILE );
 
                 SELECT '#deadlock_resource' AS table_name, *
-                FROM   #deadlock_resource AS dr;
+                FROM   #deadlock_resource AS dr
+				OPTION ( RECOMPILE );
 
                 SELECT '#deadlock_owner_waiter' AS table_name, *
-                FROM   #deadlock_owner_waiter AS dow;
+                FROM   #deadlock_owner_waiter AS dow
+				OPTION ( RECOMPILE );
 
                 SELECT '#deadlock_process' AS table_name, *
-                FROM   #deadlock_process AS dp;
+                FROM   #deadlock_process AS dp
+				OPTION ( RECOMPILE );
 
                 SELECT '#deadlock_stack' AS table_name, *
-                FROM   #deadlock_stack AS ds;
+                FROM   #deadlock_stack AS ds
+				OPTION ( RECOMPILE );
 				
             END; -- End debug
 
     END; --Final End
+
 GO
-
-
-
-
-
 
