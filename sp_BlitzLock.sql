@@ -241,7 +241,6 @@ SET @VersionDate = '20171201';
 
 		/*Parse execution stack XML*/
         SELECT      dp.id,
-					dp.event_date,
                     ca.dp.value('@procname', 'NVARCHAR(1000)') AS proc_name,
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
         INTO        #deadlock_stack
@@ -264,9 +263,7 @@ SET @VersionDate = '20171201';
 
 
 		/*Grab the full resource list*/
-        SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
-					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
-					ca.dp.query('.') AS resource_xml
+        SELECT      ca.dp.query('.') AS resource_xml
         INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
@@ -274,8 +271,7 @@ SET @VersionDate = '20171201';
 
 
 		/*This parses object locks*/
-        SELECT      dr.event_date,
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(1000)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
@@ -305,8 +301,7 @@ SET @VersionDate = '20171201';
 
 		/*This parses page locks*/
         INSERT #deadlock_owner_waiter
-        SELECT      dr.event_date,
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
@@ -322,8 +317,7 @@ SET @VersionDate = '20171201';
 
 		/*This parses key locks*/
         INSERT #deadlock_owner_waiter
-        SELECT      dr.event_date,     
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
@@ -339,8 +333,7 @@ SET @VersionDate = '20171201';
 
 		/*This parses rid locks*/
         INSERT #deadlock_owner_waiter
-        SELECT      dr.event_date,
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+        SELECT      ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
