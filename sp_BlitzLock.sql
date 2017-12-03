@@ -663,7 +663,42 @@ SET @VersionDate = '20171201';
 				 N'To get help or add your own contributions, join us at http://FirstResponderKit.org.');
 
 		
-		WITH deadlocks
+
+
+
+		WITH chop AS (
+				SELECT SUBSTRING(dp.wait_resource,
+								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
+								LEN(dp.wait_resource)
+								) AS chopped, 
+						dp.id,
+						dp.database_id,
+						dp.event_date
+				FROM #deadlock_process AS dp
+				GROUP BY dp.id, dp.database_id, dp.wait_resource, dp.event_date
+					),
+			suey AS (
+				SELECT SUBSTRING(c.chopped,
+								CHARINDEX(':', c.chopped) + 1,
+								CHARINDEX(':', c.chopped, CHARINDEX(':', c.chopped) + 1)
+								- 1 - CHARINDEX(':', c.chopped)
+								) AS obj_id,
+						c.id,
+						c.database_id,
+						c.event_date
+				FROM chop AS c
+					),
+			chopsuey AS (
+				SELECT *, 
+				DB_NAME(s.database_id) AS database_name,
+				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) AS sch_name,
+				OBJECT_NAME(s.obj_id, s.database_id) AS tbl_name,
+				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) 
+				+ N'.'
+				+ OBJECT_NAME(s.obj_id, s.database_id) AS object_name
+				FROM suey AS s
+						),
+		     deadlocks
 		AS ( SELECT dp.event_date,
 		            dp.id,
 		            dp.database_id,
@@ -672,12 +707,13 @@ SET @VersionDate = '20171201';
 		            CONVERT(
 		                XML,
 		                STUFF((   SELECT DISTINCT NCHAR(10) 
-										+ N' <objects>' 
-										+ ISNULL(dow.object_name, N'') 
-										+ N'</objects> ' AS object_name
-		                        FROM   #deadlock_owner_waiter AS dow
-		                        WHERE  dp.id = dow.owner_id
-		                               OR dp.id = dow.waiter_id
+										+ N' <object>' 
+										+ ISNULL(c.object_name, N'') 
+										+ N'</object> ' AS object_name
+		                        FROM   chopsuey AS c
+		                        WHERE  (dp.id = c.id
+								OR		dp.victim_id = c.id)
+								AND	   dp.event_date = c.event_date
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 		                    1, 1, N'')) AS object_names,
 		            dp.wait_time,
