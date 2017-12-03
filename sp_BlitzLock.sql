@@ -241,7 +241,7 @@ SET @VersionDate = '20171201';
 
 		/*Parse execution stack XML*/
         SELECT      dp.id,
-                    ca.dp.value('@procname', 'NVARCHAR(256)') AS proc_name,
+                    ca.dp.value('@procname', 'NVARCHAR(1000)') AS proc_name,
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
         INTO        #deadlock_stack
         FROM        #deadlock_process AS dp
@@ -349,7 +349,7 @@ SET @VersionDate = '20171201';
 		/*Get rid of nonsense*/
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
-		WHERE owner_id = waiter_id
+		WHERE dow.owner_id = dow.waiter_id;
 
 		/*Add some nonsense*/
 		ALTER TABLE #deadlock_process
@@ -363,14 +363,14 @@ SET @VersionDate = '20171201';
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.id = dow.owner_id
-		WHERE dp.is_victim = 0
+		WHERE dp.is_victim = 0;
 
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.victim_id = dow.waiter_id
-		WHERE dp.is_victim = 1
+		WHERE dp.is_victim = 1;
 
 
 		/*Begin checks based on parsed values*/
@@ -482,7 +482,17 @@ SET @VersionDate = '20171201';
 		OPTION ( RECOMPILE );
 
 
-		/*Check 7 gives you more info queries for sp_BlitzCache */
+		/*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
+		WITH deadlock_stack AS (
+			SELECT  DISTINCT
+					ds.id,
+					ds.sql_handle,
+					ds.proc_name,
+					PARSENAME(ds.proc_name, 3) AS database_name,
+					PARSENAME(ds.proc_name, 2) AS schema_name,
+					PARSENAME(ds.proc_name, 1) AS proc_only_name
+			FROM #deadlock_stack AS ds	
+					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   DB_NAME(dow.database_id) AS database_name,
@@ -493,16 +503,69 @@ SET @VersionDate = '20171201';
 						 THEN ' @OnlySqlHandles = ' + 
 							  QUOTENAME(ds.sql_handle, '''')
 						 ELSE '@StoredProcName = ' + 
-						       QUOTENAME(ds.proc_name, '''')
+						       QUOTENAME(ds.proc_only_name, '''')
 					END +
 					';' AS finding
-		FROM #deadlock_stack AS ds
+		FROM deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
 		OPTION ( RECOMPILE );
 
+		IF @ProductVersionMajor >= 13
+		BEGIN
+		
+		WITH deadlock_stack AS (
+			SELECT  DISTINCT
+					ds.id,
+					ds.sql_handle,
+					ds.proc_name,
+					PARSENAME(ds.proc_name, 3) AS database_name,
+					PARSENAME(ds.proc_name, 2) AS schema_name,
+					PARSENAME(ds.proc_name, 1) AS proc_only_name
+			FROM #deadlock_stack AS ds	
+					)
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		SELECT DISTINCT 7 AS check_id,
+			   DB_NAME(dow.database_id) AS database_name,
+			   ds.proc_name AS object_name,
+			   'More Info - Query' AS finding_group,
+			   'EXEC sp_BlitzQueryStore ' 
+			   + '@DatabaseName = ' 
+			   + QUOTENAME(ds.database_name, '''')
+			   + ', '
+			   + '@StoredProcName = ' 
+			   + QUOTENAME(ds.proc_only_name, '''')
+			   + ';' AS finding
+		FROM deadlock_stack AS ds
+		JOIN #deadlock_owner_waiter AS dow
+		ON dow.owner_id = ds.id
+		WHERE ds.proc_name <> 'adhoc'
+		OPTION ( RECOMPILE );
+		END;
+		
 
-		/*Check 8 gives you more info queries for sp_BlitzCache */
+		/*Check 8 gives you stored proc deadlock counts*/
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding )
+		SELECT 8 AS check_id,
+			   DB_NAME(dp.database_id) AS database_name,
+			   ds.proc_name, 
+			   'Stored Procedure Deadlocks',
+			   'The stored procedure ' 
+			   + PARSENAME(ds.proc_name, 2)
+			   + '.'
+			   + PARSENAME(ds.proc_name, 1)
+			   + ' has been involved in '
+			   + CONVERT(NVARCHAR(10), COUNT_BIG(DISTINCT ds.id))
+			   + ' deadlocks.'
+		FROM #deadlock_stack AS ds
+		JOIN #deadlock_process AS dp
+		ON dp.id = ds.id
+		WHERE ds.proc_name <> 'adhoc'
+		GROUP BY DB_NAME(dp.database_id), ds.proc_name
+		OPTION(RECOMPILE);
+
+
+		/*Check 9 gives you more info queries for sp_BlitzIndex */
 		WITH bi AS (
 				SELECT  DISTINCT
 						dow.object_name,
@@ -512,7 +575,7 @@ SET @VersionDate = '20171201';
 				FROM #deadlock_owner_waiter AS dow
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-		SELECT 8 AS check_id,	
+		SELECT 9 AS check_id,	
 				bi.database_name,
 				bi.schema_name + '.' + bi.table_name,
 				'More Info - Table' AS finding_group,
@@ -524,7 +587,7 @@ SET @VersionDate = '20171201';
 		FROM bi
 		OPTION ( RECOMPILE );
 
-		/*Check 9 gets total deadlock wait time per object*/
+		/*Check 10 gets total deadlock wait time per object*/
 		WITH chop AS (
 				SELECT SUBSTRING(dp.wait_resource,
 								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
@@ -558,7 +621,7 @@ SET @VersionDate = '20171201';
 				FROM suey AS s
 						)
 				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-				SELECT 9 AS check_id,
+				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
 						'Total object deadlock wait time' AS finding_group,
@@ -570,7 +633,7 @@ SET @VersionDate = '20171201';
 				WHERE cs.object_name IS NOT NULL
 				OPTION ( RECOMPILE );
 
-		/*Check 10 gets total deadlock wait time per database*/
+		/*Check 11 gets total deadlock wait time per database*/
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
@@ -578,7 +641,7 @@ SET @VersionDate = '20171201';
 						GROUP BY DB_NAME(dp.database_id)
 						  )
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-		SELECT 10 AS check_id,
+		SELECT 11 AS check_id,
 				wt.database_name,
 				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
