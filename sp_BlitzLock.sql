@@ -193,6 +193,7 @@ SET @VersionDate = '20171201';
 
 		/*Parse process and input buffer XML*/
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
+					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
                     ca.dp.value('@logused', 'BIGINT') AS log_used,
@@ -346,21 +347,47 @@ SET @VersionDate = '20171201';
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
+		/*Get rid of nonsense*/
+		DELETE dow
+		FROM #deadlock_owner_waiter AS dow
+		WHERE owner_id = waiter_id
+
+		/*Add some nonsense*/
+		ALTER TABLE #deadlock_process
+		ADD waiter_mode	NVARCHAR(256),
+			owner_mode NVARCHAR(256),
+			is_victim AS CONVERT(BIT, CASE WHEN id = victim_id THEN 1 ELSE 0 END);
+
+		/*Update some nonsense*/
+		UPDATE dp
+		SET dp.owner_mode = dow.owner_mode
+		FROM #deadlock_process AS dp
+		JOIN #deadlock_owner_waiter AS dow
+		ON dp.id = dow.owner_id
+		WHERE dp.is_victim = 0
+
+		UPDATE dp
+		SET dp.waiter_mode = dow.waiter_mode
+		FROM #deadlock_process AS dp
+		JOIN #deadlock_owner_waiter AS dow
+		ON dp.victim_id = dow.waiter_id
+		WHERE dp.is_victim = 1
+
 
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )	
 		SELECT 1 AS check_id, 
-			   DB_NAME(dow.database_id) AS database_name, 
+			   DB_NAME(dp.database_id) AS database_name, 
 			   NULL AS object_name,
 			   'Total database locks' AS finding_group,
 			   'This database had ' 
-				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id) + COUNT_BIG(DISTINCT dow.waiter_id))
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.event_date)) 
 				+ ' deadlocks.',
 			   NULL AS query_text
-        FROM   #deadlock_owner_waiter AS dow
-		GROUP BY DB_NAME(dow.database_id)
+        FROM   #deadlock_process AS dp
+		GROUP BY DB_NAME(dp.database_id)
 		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
@@ -369,10 +396,10 @@ SET @VersionDate = '20171201';
 		SELECT 2 AS check_id, 
 			   DB_NAME(dow.database_id) AS database_name, 
 			   dow.object_name AS object_name,
-			   'Total object locks' AS finding_group,
-			   'This object had ' 
-				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
-				+ ' deadlocks.',
+			   'Total object deadlocks' AS finding_group,
+			   'This object was involved in ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.object_name))
+				+ ' deadlock(s).',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
 		GROUP BY DB_NAME(dow.database_id), dow.object_name
@@ -420,13 +447,13 @@ SET @VersionDate = '20171201';
 			   NULL AS object_name,
 			   'Login, App, and Host locking' AS finding_group,
 			   'This database has had ' + 
-			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id) * 2) +
+			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
 			   ' instances of deadlocks involving the login ' +
-			   dp.login_name + 
+			   ISNULL(dp.login_name, 'UNKNOWN') + 
 			   ' from the application ' + 
-			   dp.client_app + 
+			   ISNULL(dp.client_app, 'UNKNOWN') + 
 			   ' on host ' + 
-			   dp.host_name
+			   ISNULL(dp.host_name, 'UNKNOWN')
 			   AS finding,
 			   NULL AS query_text
 		FROM #deadlock_process AS dp
@@ -470,7 +497,7 @@ SET @VersionDate = '20171201';
 			   'More Info - Query' AS finding_group,
 			   'EXEC sp_BlitzCache ' +
 					CASE WHEN ds.proc_name = 'adhoc'
-						 THEN ' @OnlySqlhandles = ' + 
+						 THEN ' @OnlySqlHandles = ' + 
 							  QUOTENAME(ds.sql_handle, '''')
 						 ELSE '@StoredProcName = ' + 
 						       QUOTENAME(ds.proc_name, '''')
@@ -532,9 +559,9 @@ SET @VersionDate = '20171201';
 				DB_NAME(s.database_id) AS database_name,
 				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) AS sch_name,
 				OBJECT_NAME(s.obj_id, s.database_id) AS tbl_name,
-				QUOTENAME(OBJECT_SCHEMA_NAME(s.obj_id, s.database_id)) 
+				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) 
 				+ N'.'
-				+ QUOTENAME(OBJECT_NAME(s.obj_id, s.database_id)) AS object_name,
+				+ OBJECT_NAME(s.obj_id, s.database_id) AS object_name,
 				CONVERT(VARCHAR(10), (s.wait_time / 1000) / 86400) AS wait_days,
 				CONVERT(VARCHAR(20), DATEADD(SECOND, (s.wait_time / 1000), 0), 108) AS wait_time_hms
 				FROM suey AS s
@@ -547,12 +574,11 @@ SET @VersionDate = '20171201';
 						'This object has had ' 
 						+ CONVERT(VARCHAR(10), cs.wait_days) 
 						+ ':' + CONVERT(VARCHAR(20), cs.wait_time_hms, 108)
-						+ ' [d/h/m/s] of deadlock wait time.',
+						+ ' [d/h/m/s] of deadlock wait time.' AS finding,
 						NULL AS query_text
 				FROM chopsuey AS cs
+				WHERE cs.object_name IS NOT NULL
 				OPTION ( RECOMPILE );
-
-
 
 		/*Check 10 gets total deadlock wait time per database*/
 		WITH wait_time AS (
@@ -578,7 +604,12 @@ SET @VersionDate = '20171201';
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
-		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL );
+		VALUES ( -1, 
+				 N'sp_BlitzLock ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)), 
+				 N'SQL Server First Responder Kit', 
+				 N'http://FirstResponderKit.org/', 
+				 N'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
+				 , NULL );
 
 		
 		WITH deadlocks
@@ -610,13 +641,19 @@ SET @VersionDate = '20171201';
 		            dp.login_name,
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn
+		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+					dp.is_victim,
+					ISNULL(dp.owner_mode, 'N/A') AS owner_mode,
+					ISNULL(dp.waiter_mode, 'N/A') AS waiter_mode
 		     FROM   #deadlock_process AS dp )
 		SELECT d.event_date,
 		       DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
 		       d.object_names,
 		       d.isolation_level,
+			   d.is_victim,
+			   d.owner_mode,
+			   d.waiter_mode,
 		       d.transaction_count,
 		       d.login_name,
 		       d.host_name,
@@ -629,7 +666,7 @@ SET @VersionDate = '20171201';
 		       d.transaction_name
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		ORDER BY d.event_date;
+		ORDER BY d.event_date, d.last_batch_started, d.last_tran_started;
 
 
 
