@@ -716,6 +716,7 @@ SET @VersionDate = '20171201';
 		     deadlocks
 		AS ( SELECT dp.event_date,
 		            dp.id,
+					dp.victim_id,
 		            dp.database_id,
 		            dp.log_used,
 		            dp.wait_resource,
@@ -744,12 +745,18 @@ SET @VersionDate = '20171201';
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
 					dp.is_victim,
 					ISNULL(dp.owner_mode, '-') AS owner_mode,
 					ISNULL(dp.waiter_mode, '-') AS waiter_mode
 		     FROM   #deadlock_process AS dp )
 		SELECT d.event_date,
-		       DB_NAME(d.database_id) AS database_name,
+		       'Deadlock #' 
+			   + CONVERT(NVARCHAR(10), d.en)
+			   + ', Query #' + CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
+			   AS deadlock_group, 
+			   DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
 		       d.object_names,
 		       d.isolation_level,
