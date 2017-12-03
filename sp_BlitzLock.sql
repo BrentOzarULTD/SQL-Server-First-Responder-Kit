@@ -370,6 +370,7 @@ SET @VersionDate = '20171201';
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.id = dow.owner_id
+		AND dp.event_date = dow.event_date
 		WHERE dp.is_victim = 0;
 
 		UPDATE dp
@@ -377,6 +378,7 @@ SET @VersionDate = '20171201';
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.victim_id = dow.waiter_id
+		AND dp.event_date = dow.event_date
 		WHERE dp.is_victim = 1;
 
 
@@ -471,6 +473,7 @@ SET @VersionDate = '20171201';
 				FROM #deadlock_process AS dp 
 				JOIN #deadlock_owner_waiter AS dow
 				ON dp.id = dow.owner_id
+				AND dp.event_date = dow.event_date
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
@@ -495,6 +498,7 @@ SET @VersionDate = '20171201';
 					ds.id,
 					ds.sql_handle,
 					ds.proc_name,
+					ds.event_date,
 					PARSENAME(ds.proc_name, 3) AS database_name,
 					PARSENAME(ds.proc_name, 2) AS schema_name,
 					PARSENAME(ds.proc_name, 1) AS proc_only_name
@@ -516,6 +520,7 @@ SET @VersionDate = '20171201';
 		FROM deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
+		AND dow.event_date = ds.event_date
 		OPTION ( RECOMPILE );
 
 		IF @ProductVersionMajor >= 13
@@ -526,6 +531,7 @@ SET @VersionDate = '20171201';
 					ds.id,
 					ds.sql_handle,
 					ds.proc_name,
+					ds.event_date,
 					PARSENAME(ds.proc_name, 3) AS database_name,
 					PARSENAME(ds.proc_name, 2) AS schema_name,
 					PARSENAME(ds.proc_name, 1) AS proc_only_name
@@ -546,6 +552,7 @@ SET @VersionDate = '20171201';
 		FROM deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
+		AND dow.event_date = ds.event_date
 		WHERE ds.proc_name <> 'adhoc'
 		OPTION ( RECOMPILE );
 		END;
@@ -567,6 +574,7 @@ SET @VersionDate = '20171201';
 		FROM #deadlock_stack AS ds
 		JOIN #deadlock_process AS dp
 		ON dp.id = ds.id
+		AND ds.event_date = dp.event_date
 		WHERE ds.proc_name <> 'adhoc'
 		GROUP BY DB_NAME(dp.database_id), ds.proc_name
 		OPTION(RECOMPILE);
@@ -720,7 +728,7 @@ SET @VersionDate = '20171201';
 		                        FROM   chopsuey AS c
 		                        WHERE  (dp.id = c.id
 								OR		dp.victim_id = c.id)
-								AND	   dp.event_date = c.event_date
+								AND	    dp.event_date = c.event_date
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 		                    1, 1, N'')) AS object_names,
 		            dp.wait_time,
