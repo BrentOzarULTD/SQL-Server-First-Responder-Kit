@@ -356,7 +356,7 @@ SET @VersionDate = '20171201';
 			   NULL AS object_name,
 			   'Total database locks' AS finding_group,
 			   'This database had ' 
-				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id))
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.owner_id) + COUNT_BIG(DISTINCT dow.waiter_id))
 				+ ' deadlocks.',
 			   NULL AS query_text
         FROM   #deadlock_owner_waiter AS dow
@@ -420,7 +420,7 @@ SET @VersionDate = '20171201';
 			   NULL AS object_name,
 			   'Login, App, and Host locking' AS finding_group,
 			   'This database has had ' + 
-			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
+			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id) * 2) +
 			   ' instances of deadlocks involving the login ' +
 			   dp.login_name + 
 			   ' from the application ' + 
@@ -506,8 +506,55 @@ SET @VersionDate = '20171201';
 		FROM bi
 		OPTION ( RECOMPILE );
 
+		/*Check 9 gets total deadlock wait time per object*/
+		WITH chop AS (
+				SELECT SUBSTRING(dp.wait_resource,
+								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
+								LEN(dp.wait_resource)
+								) AS chopped, 
+						dp.database_id,
+						SUM(dp.wait_time) AS wait_time
+				FROM #deadlock_process AS dp
+				GROUP BY dp.wait_resource, dp.database_id
+					),
+			suey AS (
+				SELECT SUBSTRING(c.chopped,
+								CHARINDEX(':', c.chopped) + 1,
+								CHARINDEX(':', c.chopped, CHARINDEX(':', c.chopped) + 1)
+								- 1 - CHARINDEX(':', c.chopped)
+								) AS obj_id,
+						c.database_id,
+						c.wait_time
+				FROM chop AS c
+					),
+			chopsuey AS (
+				SELECT *, 
+				DB_NAME(s.database_id) AS database_name,
+				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) AS sch_name,
+				OBJECT_NAME(s.obj_id, s.database_id) AS tbl_name,
+				QUOTENAME(OBJECT_SCHEMA_NAME(s.obj_id, s.database_id)) 
+				+ N'.'
+				+ QUOTENAME(OBJECT_NAME(s.obj_id, s.database_id)) AS object_name,
+				CONVERT(VARCHAR(10), (s.wait_time / 1000) / 86400) AS wait_days,
+				CONVERT(VARCHAR(20), DATEADD(SECOND, (s.wait_time / 1000), 0), 108) AS wait_time_hms
+				FROM suey AS s
+						)
+				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+				SELECT 9 AS check_id,
+						cs.database_name,
+						cs.object_name,
+						'Total object deadlock wait time' AS finding_group,
+						'This object has had ' 
+						+ CONVERT(VARCHAR(10), cs.wait_days) 
+						+ ':' + CONVERT(VARCHAR(20), cs.wait_time_hms, 108)
+						+ ' [d/h/m/s] of deadlock wait time.',
+						NULL AS query_text
+				FROM chopsuey AS cs
+				OPTION ( RECOMPILE );
 
-		/*Check 9 gets total deadlock wait time per database*/
+
+
+		/*Check 10 gets total deadlock wait time per database*/
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
@@ -515,13 +562,13 @@ SET @VersionDate = '20171201';
 						GROUP BY DB_NAME(dp.database_id)
 						  )
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
-		SELECT 9 AS check_id,
+		SELECT 10 AS check_id,
 				wt.database_name,
 				NULL AS object_name,
-				'Total deadlock wait time' AS finding_group,
+				'Total database deadlock wait time' AS finding_group,
 				'This database has had ' 
-				+ CONVERT(VARCHAR(10), (SUM(wt.total_wait_time_ms) / 1000) / 86400) 
-				+ ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM(wt.total_wait_time_ms) / 1000), 0), 108)
+				+ CONVERT(VARCHAR(10), (SUM(DISTINCT wt.total_wait_time_ms) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT wt.total_wait_time_ms) / 1000), 0), 108)
 				+ ' [d/h/m/s] of deadlock wait time.',
 				NULL AS query_text
 		FROM wait_time AS wt
@@ -550,7 +597,7 @@ SET @VersionDate = '20171201';
 		                        WHERE  dp.id = dow.owner_id
 		                               OR dp.id = dow.waiter_id
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-		                    1, 1, N'')) AS object_name,
+		                    1, 1, N'')) AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
@@ -565,11 +612,10 @@ SET @VersionDate = '20171201';
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn
 		     FROM   #deadlock_process AS dp )
-		SELECT N'Deadlock #' + CONVERT(NVARCHAR(10), d.dn) AS trail_of_dead,
-		       d.event_date,
+		SELECT d.event_date,
 		       DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
-		       d.object_name,
+		       d.object_names,
 		       d.isolation_level,
 		       d.transaction_count,
 		       d.login_name,
@@ -582,7 +628,8 @@ SET @VersionDate = '20171201';
 		       d.last_batch_completed,
 		       d.transaction_name
 		FROM   deadlocks AS d
-		WHERE  d.dn = 1;
+		WHERE  d.dn = 1
+		ORDER BY d.event_date;
 
 
 
