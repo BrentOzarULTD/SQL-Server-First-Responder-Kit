@@ -241,7 +241,7 @@ SET @VersionDate = '20171201';
 
 		/*Parse execution stack XML*/
         SELECT      dp.id,
-                    ca.dp.value('@procname', 'NVARCHAR(256)') AS proc_name,
+                    ca.dp.value('@procname', 'NVARCHAR(1000)') AS proc_name,
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
         INTO        #deadlock_stack
         FROM        #deadlock_process AS dp
