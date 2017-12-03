@@ -768,7 +768,7 @@ SET @VersionDate = '20171201';
 		       d.transaction_name
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		ORDER BY d.event_date, d.last_batch_started, d.last_tran_started;
+		ORDER BY d.event_date, is_victim DESC
 
 
 
