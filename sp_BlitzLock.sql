@@ -13,7 +13,7 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@AppName NVARCHAR(256) = NULL,
 	@HostName NVARCHAR(256) = NULL,
 	@LoginName NVARCHAR(256) = NULL,
-	@EventSessionPath VARCHAR(256) = 'xml_deadlock_report', 
+	@EventSessionPath VARCHAR(256) = 'system_health*.xel', 
 	@Debug BIT = 0, 
 	@Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
@@ -563,9 +563,9 @@ SET @VersionDate = '20171201';
 		            dp.login_name,
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS n
+		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn
 		     FROM   #deadlock_process AS dp )
-		SELECT N'Deadlock #' + CONVERT(NVARCHAR(10), d.n) AS deadlock_number,
+		SELECT N'Deadlock #' + CONVERT(NVARCHAR(10), d.dn) AS trail_of_dead,
 		       d.event_date,
 		       DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
@@ -576,13 +576,13 @@ SET @VersionDate = '20171201';
 		       d.host_name,
 		       d.client_app,
 		       d.wait_time,
-		       d.transaction_name,
+			   d.log_used,
 		       d.last_tran_started,
 		       d.last_batch_started,
 		       d.last_batch_completed,
-			   d.log_used
+		       d.transaction_name
 		FROM   deadlocks AS d
-		WHERE  d.n = 1;
+		WHERE  d.dn = 1;
 
 
 
