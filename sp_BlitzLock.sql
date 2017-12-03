@@ -354,11 +354,24 @@ SET @VersionDate = '20171201';
 
 		/*Add some nonsense*/
 		ALTER TABLE #deadlock_process
-		ADD owner_objects NVARCHAR(4000),
-		    waiter_objects NVARCHAR(4000),
-			waiter_mode	NVARCHAR(256),
+		ADD waiter_mode	NVARCHAR(256),
 			owner_mode NVARCHAR(256),
 			is_victim AS CONVERT(BIT, CASE WHEN id = victim_id THEN 1 ELSE 0 END);
+
+		/*Update some nonsense*/
+		UPDATE dp
+		SET dp.owner_mode = dow.owner_mode
+		FROM #deadlock_process AS dp
+		JOIN #deadlock_owner_waiter AS dow
+		ON dp.id = dow.owner_id
+		WHERE dp.is_victim = 0
+
+		UPDATE dp
+		SET dp.waiter_mode = dow.waiter_mode
+		FROM #deadlock_process AS dp
+		JOIN #deadlock_owner_waiter AS dow
+		ON dp.victim_id = dow.waiter_id
+		WHERE dp.is_victim = 1
 
 
 		/*Begin checks based on parsed values*/
@@ -436,11 +449,11 @@ SET @VersionDate = '20171201';
 			   'This database has had ' + 
 			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
 			   ' instances of deadlocks involving the login ' +
-			   dp.login_name + 
+			   ISNULL(dp.login_name, 'UNKNOWN') + 
 			   ' from the application ' + 
-			   dp.client_app + 
+			   ISNULL(dp.client_app, 'UNKNOWN') + 
 			   ' on host ' + 
-			   dp.host_name
+			   ISNULL(dp.host_name, 'UNKNOWN')
 			   AS finding,
 			   NULL AS query_text
 		FROM #deadlock_process AS dp
@@ -561,9 +574,10 @@ SET @VersionDate = '20171201';
 						'This object has had ' 
 						+ CONVERT(VARCHAR(10), cs.wait_days) 
 						+ ':' + CONVERT(VARCHAR(20), cs.wait_time_hms, 108)
-						+ ' [d/h/m/s] of deadlock wait time.',
+						+ ' [d/h/m/s] of deadlock wait time.' AS finding,
 						NULL AS query_text
 				FROM chopsuey AS cs
+				WHERE cs.object_name IS NOT NULL
 				OPTION ( RECOMPILE );
 
 		/*Check 10 gets total deadlock wait time per database*/
@@ -627,13 +641,19 @@ SET @VersionDate = '20171201';
 		            dp.login_name,
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn
+		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+					dp.is_victim,
+					ISNULL(dp.owner_mode, 'N/A') AS owner_mode,
+					ISNULL(dp.waiter_mode, 'N/A') AS waiter_mode
 		     FROM   #deadlock_process AS dp )
 		SELECT d.event_date,
 		       DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
 		       d.object_names,
 		       d.isolation_level,
+			   d.is_victim,
+			   d.owner_mode,
+			   d.waiter_mode,
 		       d.transaction_count,
 		       d.login_name,
 		       d.host_name,
