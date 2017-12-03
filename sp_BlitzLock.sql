@@ -545,10 +545,23 @@ SET @VersionDate = '20171201';
 		
 
 		/*Check 8 gives you stored proc deadlock counts*/
-
-		SELECT ds.id, ds.proc_name, ds.sql_handle
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding )
+		SELECT 8 AS check_id,
+			   DB_NAME(dp.database_id) AS database_name,
+			   ds.proc_name, 
+			   'Stored Procedure Deadlocks',
+			   'The stored procedure ' 
+			   + PARSENAME(ds.proc_name, 2)
+			   + '.'
+			   + PARSENAME(ds.proc_name, 1)
+			   + ' has been involved in '
+			   + CONVERT(NVARCHAR(10), COUNT_BIG(DISTINCT ds.id))
+			   + ' deadlocks.'
 		FROM #deadlock_stack AS ds
+		JOIN #deadlock_process AS dp
+		ON dp.id = ds.id
 		WHERE ds.proc_name <> 'adhoc'
+		GROUP BY DB_NAME(dp.database_id), ds.proc_name
 		OPTION(RECOMPILE);
 
 
