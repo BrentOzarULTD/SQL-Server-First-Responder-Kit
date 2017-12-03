@@ -349,7 +349,7 @@ SET @VersionDate = '20171201';
 		/*Get rid of nonsense*/
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
-		WHERE owner_id = waiter_id
+		WHERE dow.owner_id = dow.waiter_id;
 
 		/*Add some nonsense*/
 		ALTER TABLE #deadlock_process
@@ -363,14 +363,14 @@ SET @VersionDate = '20171201';
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.id = dow.owner_id
-		WHERE dp.is_victim = 0
+		WHERE dp.is_victim = 0;
 
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
 		FROM #deadlock_process AS dp
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.victim_id = dow.waiter_id
-		WHERE dp.is_victim = 1
+		WHERE dp.is_victim = 1;
 
 
 		/*Begin checks based on parsed values*/
@@ -542,10 +542,17 @@ SET @VersionDate = '20171201';
 		WHERE ds.proc_name <> 'adhoc'
 		OPTION ( RECOMPILE );
 		END;
+		
+
+		/*Check 8 gives you stored proc deadlock counts*/
+
+		SELECT ds.id, ds.proc_name, ds.sql_handle
+		FROM #deadlock_stack AS ds
+		WHERE ds.proc_name <> 'adhoc'
+		OPTION(RECOMPILE);
 
 
-
-		/*Check 8 gives you more info queries for sp_BlitzIndex */
+		/*Check 9 gives you more info queries for sp_BlitzIndex */
 		WITH bi AS (
 				SELECT  DISTINCT
 						dow.object_name,
@@ -555,7 +562,7 @@ SET @VersionDate = '20171201';
 				FROM #deadlock_owner_waiter AS dow
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-		SELECT 8 AS check_id,	
+		SELECT 9 AS check_id,	
 				bi.database_name,
 				bi.schema_name + '.' + bi.table_name,
 				'More Info - Table' AS finding_group,
@@ -567,7 +574,7 @@ SET @VersionDate = '20171201';
 		FROM bi
 		OPTION ( RECOMPILE );
 
-		/*Check 9 gets total deadlock wait time per object*/
+		/*Check 10 gets total deadlock wait time per object*/
 		WITH chop AS (
 				SELECT SUBSTRING(dp.wait_resource,
 								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
@@ -601,7 +608,7 @@ SET @VersionDate = '20171201';
 				FROM suey AS s
 						)
 				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-				SELECT 9 AS check_id,
+				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
 						'Total object deadlock wait time' AS finding_group,
@@ -613,7 +620,7 @@ SET @VersionDate = '20171201';
 				WHERE cs.object_name IS NOT NULL
 				OPTION ( RECOMPILE );
 
-		/*Check 10 gets total deadlock wait time per database*/
+		/*Check 11 gets total deadlock wait time per database*/
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
@@ -621,7 +628,7 @@ SET @VersionDate = '20171201';
 						GROUP BY DB_NAME(dp.database_id)
 						  )
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
-		SELECT 10 AS check_id,
+		SELECT 11 AS check_id,
 				wt.database_name,
 				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
