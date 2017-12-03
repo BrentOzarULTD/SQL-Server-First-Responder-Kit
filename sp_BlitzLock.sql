@@ -154,8 +154,7 @@ SET @VersionDate = '20171201';
 			database_name NVARCHAR(256),
 			object_name NVARCHAR(1000),
 			finding_group NVARCHAR(100),
-			finding NVARCHAR(4000),
-			query_text XML
+			finding NVARCHAR(4000)
 		);
 
 
@@ -377,46 +376,43 @@ SET @VersionDate = '20171201';
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )	
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 1 AS check_id, 
 			   DB_NAME(dp.database_id) AS database_name, 
-			   NULL AS object_name,
+			   '-' AS object_name,
 			   'Total database locks' AS finding_group,
 			   'This database had ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.event_date)) 
-				+ ' deadlocks.',
-			   NULL AS query_text
+				+ ' deadlocks.'
         FROM   #deadlock_process AS dp
 		GROUP BY DB_NAME(dp.database_id)
 		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
 
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )	
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   DB_NAME(dow.database_id) AS database_name, 
 			   dow.object_name AS object_name,
 			   'Total object deadlocks' AS finding_group,
 			   'This object was involved in ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.object_name))
-				+ ' deadlock(s).',
-			   NULL AS query_text
+				+ ' deadlock(s).'
         FROM   #deadlock_owner_waiter AS dow
 		GROUP BY DB_NAME(dow.database_id), dow.object_name
 		OPTION ( RECOMPILE );
 		
 
 		/*Check 3 looks for Serializable locking*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 3 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
-			   NULL AS object_name,
+			   '-' AS object_name,
 			   'Serializable locking' AS finding_group,
 			   'This database has had ' + 
 			   CONVERT(NVARCHAR(20), COUNT_BIG(*)) +
 			   ' instances of serializable deadlocks.'
-			   AS finding,
-			   NULL AS query_text
+			   AS finding
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'serializable%'
 		GROUP BY DB_NAME(dp.database_id)
@@ -424,16 +420,15 @@ SET @VersionDate = '20171201';
 
 
 		/*Check 4 looks for Repeatable Read locking*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 4 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
-			   NULL AS object_name,
+			   '-' AS object_name,
 			   'Repeatable Read locking' AS finding_group,
 			   'This database has had ' + 
 			   CONVERT(NVARCHAR(20), COUNT_BIG(*)) +
 			   ' instances of repeatable read deadlocks.'
-			   AS finding,
-			   NULL AS query_text
+			   AS finding
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'repeatable read%'
 		GROUP BY DB_NAME(dp.database_id)
@@ -441,10 +436,10 @@ SET @VersionDate = '20171201';
 
 
 		/*Check 5 breaks down app, host, and login information*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 5 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
-			   NULL AS object_name,
+			   '-' AS object_name,
 			   'Login, App, and Host locking' AS finding_group,
 			   'This database has had ' + 
 			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
@@ -454,8 +449,7 @@ SET @VersionDate = '20171201';
 			   ISNULL(dp.client_app, 'UNKNOWN') + 
 			   ' on host ' + 
 			   ISNULL(dp.host_name, 'UNKNOWN')
-			   AS finding,
-			   NULL AS query_text
+			   AS finding
 		FROM #deadlock_process AS dp
 		GROUP BY DB_NAME(dp.database_id), dp.login_name, dp.client_app, dp.host_name
 		OPTION ( RECOMPILE );
@@ -472,7 +466,7 @@ SET @VersionDate = '20171201';
 				ON dp.id = dow.owner_id
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 6 AS check_id,
 			   lt.database_name,
 			   lt.object_name,
@@ -483,14 +477,13 @@ SET @VersionDate = '20171201';
 									WHERE lt2.database_name = lt.database_name
 									AND lt2.object_name = lt.object_name
 									FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			   + ' locks',
-			   NULL AS query_text
+			   + ' locks'
 		FROM lock_types AS lt
 		OPTION ( RECOMPILE );
 
 
 		/*Check 7 gives you more info queries for sp_BlitzCache */
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   DB_NAME(dow.database_id) AS database_name,
 			   ds.proc_name AS object_name,
@@ -502,8 +495,7 @@ SET @VersionDate = '20171201';
 						 ELSE '@StoredProcName = ' + 
 						       QUOTENAME(ds.proc_name, '''')
 					END +
-					';' AS finding,
-				NULL AS query_text
+					';' AS finding
 		FROM #deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
@@ -519,7 +511,7 @@ SET @VersionDate = '20171201';
 						PARSENAME(dow.object_name, 1) AS table_name
 				FROM #deadlock_owner_waiter AS dow
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 8 AS check_id,	
 				bi.database_name,
 				bi.schema_name + '.' + bi.table_name,
@@ -528,8 +520,7 @@ SET @VersionDate = '20171201';
 				'@DatabaseName = ' + QUOTENAME(bi.database_name, '''') + 
 				', @SchemaName = ' + QUOTENAME(bi.schema_name, '''') + 
 				', @TableName = ' + QUOTENAME(bi.table_name, '''') +
-				';'	 AS finding,
-				NULL AS query_text
+				';'	 AS finding
 		FROM bi
 		OPTION ( RECOMPILE );
 
@@ -566,7 +557,7 @@ SET @VersionDate = '20171201';
 				CONVERT(VARCHAR(20), DATEADD(SECOND, (s.wait_time / 1000), 0), 108) AS wait_time_hms
 				FROM suey AS s
 						)
-				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 9 AS check_id,
 						cs.database_name,
 						cs.object_name,
@@ -574,8 +565,7 @@ SET @VersionDate = '20171201';
 						'This object has had ' 
 						+ CONVERT(VARCHAR(10), cs.wait_days) 
 						+ ':' + CONVERT(VARCHAR(20), cs.wait_time_hms, 108)
-						+ ' [d/h/m/s] of deadlock wait time.' AS finding,
-						NULL AS query_text
+						+ ' [d/h/m/s] of deadlock wait time.' AS finding
 				FROM chopsuey AS cs
 				WHERE cs.object_name IS NOT NULL
 				OPTION ( RECOMPILE );
@@ -587,29 +577,27 @@ SET @VersionDate = '20171201';
 						FROM #deadlock_process AS dp
 						GROUP BY DB_NAME(dp.database_id)
 						  )
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 10 AS check_id,
 				wt.database_name,
-				NULL AS object_name,
+				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
 				'This database has had ' 
 				+ CONVERT(VARCHAR(10), (SUM(DISTINCT wt.total_wait_time_ms) / 1000) / 86400) 
 				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT wt.total_wait_time_ms) / 1000), 0), 108)
-				+ ' [d/h/m/s] of deadlock wait time.',
-				NULL AS query_text
+				+ ' [d/h/m/s] of deadlock wait time.'
 		FROM wait_time AS wt
 		GROUP BY wt.database_name
 		OPTION ( RECOMPILE );
 
 
 		/*Thank you goodnight*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		VALUES ( -1, 
 				 N'sp_BlitzLock ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)), 
 				 N'SQL Server First Responder Kit', 
 				 N'http://FirstResponderKit.org/', 
-				 N'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
-				 , NULL );
+				 N'To get help or add your own contributions, join us at http://FirstResponderKit.org.');
 
 		
 		WITH deadlocks
@@ -643,8 +631,8 @@ SET @VersionDate = '20171201';
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					dp.is_victim,
-					ISNULL(dp.owner_mode, 'N/A') AS owner_mode,
-					ISNULL(dp.waiter_mode, 'N/A') AS waiter_mode
+					ISNULL(dp.owner_mode, '-') AS owner_mode,
+					ISNULL(dp.waiter_mode, '-') AS waiter_mode
 		     FROM   #deadlock_process AS dp )
 		SELECT d.event_date,
 		       DB_NAME(d.database_id) AS database_name,
@@ -670,7 +658,7 @@ SET @VersionDate = '20171201';
 
 
 
-		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding, df.query_text
+		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
