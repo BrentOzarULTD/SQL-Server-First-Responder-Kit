@@ -482,7 +482,17 @@ SET @VersionDate = '20171201';
 		OPTION ( RECOMPILE );
 
 
-		/*Check 7 gives you more info queries for sp_BlitzCache */
+		/*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
+		WITH deadlock_stack AS (
+			SELECT  DISTINCT
+					ds.id,
+					ds.sql_handle,
+					ds.proc_name,
+					PARSENAME(ds.proc_name, 3) AS database_name,
+					PARSENAME(ds.proc_name, 2) AS schema_name,
+					PARSENAME(ds.proc_name, 1) AS proc_only_name
+			FROM #deadlock_stack AS ds	
+					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   DB_NAME(dow.database_id) AS database_name,
@@ -493,16 +503,49 @@ SET @VersionDate = '20171201';
 						 THEN ' @OnlySqlHandles = ' + 
 							  QUOTENAME(ds.sql_handle, '''')
 						 ELSE '@StoredProcName = ' + 
-						       QUOTENAME(ds.proc_name, '''')
+						       QUOTENAME(ds.proc_only_name, '''')
 					END +
 					';' AS finding
-		FROM #deadlock_stack AS ds
+		FROM deadlock_stack AS ds
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
 		OPTION ( RECOMPILE );
 
+		IF @ProductVersionMajor >= 13
+		BEGIN
+		
+		WITH deadlock_stack AS (
+			SELECT  DISTINCT
+					ds.id,
+					ds.sql_handle,
+					ds.proc_name,
+					PARSENAME(ds.proc_name, 3) AS database_name,
+					PARSENAME(ds.proc_name, 2) AS schema_name,
+					PARSENAME(ds.proc_name, 1) AS proc_only_name
+			FROM #deadlock_stack AS ds	
+					)
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		SELECT DISTINCT 7 AS check_id,
+			   DB_NAME(dow.database_id) AS database_name,
+			   ds.proc_name AS object_name,
+			   'More Info - Query' AS finding_group,
+			   'EXEC sp_BlitzQueryStore ' 
+			   + '@DatabaseName = ' 
+			   + QUOTENAME(ds.database_name, '''')
+			   + ', '
+			   + '@StoredProcName = ' 
+			   + QUOTENAME(ds.proc_only_name, '''')
+			   + ';' AS finding
+		FROM deadlock_stack AS ds
+		JOIN #deadlock_owner_waiter AS dow
+		ON dow.owner_id = ds.id
+		WHERE ds.proc_name <> 'adhoc'
+		OPTION ( RECOMPILE );
+		END;
 
-		/*Check 8 gives you more info queries for sp_BlitzCache */
+
+
+		/*Check 8 gives you more info queries for sp_BlitzIndex */
 		WITH bi AS (
 				SELECT  DISTINCT
 						dow.object_name,
