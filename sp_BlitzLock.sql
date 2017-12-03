@@ -208,7 +208,7 @@ SET @VersionDate = '20171201';
                     ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
                     ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
                     ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
-                    CONVERT(NVARCHAR(MAX), ca2.ib.query('.')) AS input_buffer,
+                    ca2.ib.query('.') AS input_buffer,
                     ca.dp.query('.') AS process_xml
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
@@ -533,112 +533,56 @@ SET @VersionDate = '20171201';
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding, query_text )
 		VALUES ( 0, N'sp_BlitzLock', N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/', N'To get help or add your own contributions, join us at http://FirstResponderKit.org.', NULL );
 
-
 		
-		WITH deadlock_owner_waiter AS (
-					SELECT DISTINCT database_id, object_name, lock_mode, waiter_id, waiter_mode, owner_id, owner_mode
-					FROM   #deadlock_owner_waiter
-						)
-		SELECT CONVERT(XML, 
-		       N'<Clickme> '  
-			   + NCHAR(10)
-			   + N'Event Date: '
-			   + CONVERT(NVARCHAR(30), CONVERT(DATETIME, owner.event_date))
-			   + NCHAR(10)
-			   + N'Owner Information '
-			   + NCHAR(10)
-			   + N'=================='
-			   + NCHAR(10)
-			   + N' Owner Process: ' 
-			   + QUOTENAME(SUBSTRING(dow.owner_id, 8, 128))
-			   + NCHAR(10)
-			   + N' Owner Login: '
-			   + QUOTENAME(owner.login_name)
-			   + NCHAR(10)
-			   + N' Owner Lock Type: ' 
-			   + QUOTENAME(dow.owner_mode)
-			   + NCHAR(10)
-			   + N' Owner Object(s): '
-			   + STUFF((SELECT DISTINCT N', ' + QUOTENAME(ISNULL(dow2.object_name, N'')) AS object_name
-		                 FROM   #deadlock_owner_waiter AS dow2
-		                 WHERE  dow.owner_id = dow2.owner_id
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'')
-			   + NCHAR(10)
-			   + N' Owner Isolation level: '
-			   + QUOTENAME(owner.isolation_level)
-			   + NCHAR(10)
-			   + N' Owner Transaction: '
-			   + QUOTENAME(owner.transaction_name)
-			   + NCHAR(10)
-			   + N' Owner Transaction Count: '
-			   + QUOTENAME(owner.transaction_count)
-			   + NCHAR(10)
-			   + N' Owner Application: '
-			   + QUOTENAME(owner.client_app)
-			   + NCHAR(10)
-			   + N' Owner Host  Name: '
-			   + QUOTENAME(owner.host_name)
-
-			   + NCHAR(10)
-			   + NCHAR(10)			   			   		   
-			   
-			   + N'Victim Information '
-			   + NCHAR(10)
-			   + N'=================='
-			   + NCHAR(10)
-			   + N' Victim Process: '
-			   + QUOTENAME(SUBSTRING(dow.waiter_id, 8, 128))
-			   + NCHAR(10)
-			   + N' Victim Login '
-			   + QUOTENAME(waiter.login_name)
-			   + NCHAR(10)
-			   + N' Victim Lock Type: '
-			   + QUOTENAME(dow.waiter_mode)
-			   + NCHAR(10)
-			   + N' Victim Object(s): '
-			   + STUFF((SELECT DISTINCT N', ' + QUOTENAME(ISNULL(dow2.object_name, N'')) AS object_name
-		                 FROM   #deadlock_owner_waiter AS dow2
-		                 WHERE  dow.waiter_id = dow2.waiter_id
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')
-			   + NCHAR(10)
-			   + N' Victim Isolation level: '
-			   + QUOTENAME(waiter.isolation_level)
-			   + NCHAR(10)
-			   + N' Victim Transaction: '
-			   + QUOTENAME(waiter.transaction_name)
-			   + NCHAR(10)
-			   + N' Victim Transaction Count: '
-			   + QUOTENAME(waiter.transaction_count)	
-			   + NCHAR(10)
-			   + N' Victim Application: '
-			   + QUOTENAME(waiter.client_app)
-			   + NCHAR(10)
-			   + N' Owner Host  Name: '
-			   + QUOTENAME(owner.host_name)			   		   		   
-			   
-			   + NCHAR(10)
-			   + N'</Clickme> ' 
-			   )
-			   AS [deadlock_story],
-			   CONVERT(XML, STUFF((SELECT DISTINCT NCHAR(10) + ISNULL(dp2.input_buffer, N'') AS object_name
-		                 FROM   #deadlock_process AS dp2
-		                 WHERE  dow.owner_id = dp2.id
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')) AS 'owner_query',
-			  
-			   CONVERT(XML, STUFF((SELECT DISTINCT NCHAR(10) + ISNULL(dp2.input_buffer, N'') AS object_name
-		                 FROM   #deadlock_process AS dp2
-		                 WHERE  dow.waiter_id = dp2.id
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 1, N'')) AS 'victim_query'
-		FROM deadlock_owner_waiter AS dow
-				JOIN (SELECT TOP 1 * 
-					  FROM #deadlock_process AS dp) AS owner
-			ON owner.id = dow.owner_id
-			--AND dow.waiter_id = owner.id
-				JOIN (SELECT TOP 1 *
-					  FROM #deadlock_process AS dp) AS waiter
-			ON waiter.id = dow.owner_id
-			--AND dow.owner_id = waiter.id
-			OPTION ( RECOMPILE );
+		WITH deadlocks
+		AS ( SELECT dp.event_date,
+		            dp.id,
+		            dp.database_id,
+		            dp.log_used,
+		            dp.wait_resource,
+		            CONVERT(
+		                XML,
+		                STUFF((   SELECT DISTINCT NCHAR(10) 
+										+ N' <objects>' 
+										+ ISNULL(dow.object_name, N'') 
+										+ N'</objects> ' AS object_name
+		                        FROM   #deadlock_owner_waiter AS dow
+		                        WHERE  dp.id = dow.owner_id
+		                               OR dp.id = dow.waiter_id
+		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+		                    1, 1, N'')) AS object_name,
+		            dp.wait_time,
+		            dp.transaction_name,
+		            dp.last_tran_started,
+		            dp.last_batch_started,
+		            dp.last_batch_completed,
+		            dp.lock_mode,
+		            dp.transaction_count,
+		            dp.client_app,
+		            dp.host_name,
+		            dp.login_name,
+		            dp.isolation_level,
+		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
+		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS n
+		     FROM   #deadlock_process AS dp )
+		SELECT N'Deadlock #' + CONVERT(NVARCHAR(10), d.n) AS deadlock_number,
+		       d.event_date,
+		       DB_NAME(d.database_id) AS database_name,
+		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
+		       d.object_name,
+		       d.isolation_level,
+		       d.transaction_count,
+		       d.login_name,
+		       d.host_name,
+		       d.client_app,
+		       d.wait_time,
+		       d.transaction_name,
+		       d.last_tran_started,
+		       d.last_batch_started,
+		       d.last_batch_completed,
+			   d.log_used
+		FROM   deadlocks AS d
+		WHERE  d.n = 1;
 
 
 
