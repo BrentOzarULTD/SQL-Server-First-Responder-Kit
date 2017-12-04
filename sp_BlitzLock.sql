@@ -566,37 +566,17 @@ SET @VersionDate = '20171201';
 		OPTION ( RECOMPILE );
 
 		/*Check 10 gets total deadlock wait time per object*/
-		WITH chop AS (
-				SELECT SUBSTRING(dp.wait_resource,
-								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
-								LEN(dp.wait_resource)
-								) AS chopped, 
-						dp.database_id,
-						SUM(dp.wait_time) AS wait_time
-				FROM #deadlock_process AS dp
-				GROUP BY dp.wait_resource, dp.database_id
-					),
-			suey AS (
-				SELECT SUBSTRING(c.chopped,
-								CHARINDEX(':', c.chopped) + 1,
-								CHARINDEX(':', c.chopped, CHARINDEX(':', c.chopped) + 1)
-								- 1 - CHARINDEX(':', c.chopped)
-								) AS obj_id,
-						c.database_id,
-						c.wait_time
-				FROM chop AS c
-					),
-			chopsuey AS (
-				SELECT *, 
-				DB_NAME(s.database_id) AS database_name,
-				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) AS sch_name,
-				OBJECT_NAME(s.obj_id, s.database_id) AS tbl_name,
-				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) 
-				+ N'.'
-				+ OBJECT_NAME(s.obj_id, s.database_id) AS object_name,
-				CONVERT(VARCHAR(10), (s.wait_time / 1000) / 86400) AS wait_days,
-				CONVERT(VARCHAR(20), DATEADD(SECOND, (s.wait_time / 1000), 0), 108) AS wait_time_hms
-				FROM suey AS s
+		WITH chopsuey AS (
+				SELECT DISTINCT
+				PARSENAME(dow.object_name, 3) AS database_name,
+				dow.object_name,
+				CONVERT(VARCHAR(10), (SUM(DISTINCT dp.wait_time) / 1000) / 86400) AS wait_days,
+				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT dp.wait_time) / 1000), 0), 108) AS wait_time_hms
+				FROM #deadlock_owner_waiter AS dow
+				JOIN #deadlock_process AS dp
+				ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
+					AND dp.event_date = dow.event_date
+				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
 				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 10 AS check_id,
@@ -643,40 +623,8 @@ SET @VersionDate = '20171201';
 		
 
 
-
-		WITH chop AS (
-				SELECT SUBSTRING(dp.wait_resource,
-								CHARINDEX(':', dp.wait_resource, CHARINDEX(':', dp.wait_resource)) + 2,
-								LEN(dp.wait_resource)
-								) AS chopped, 
-						dp.id,
-						dp.database_id,
-						dp.event_date
-				FROM #deadlock_process AS dp
-				GROUP BY dp.id, dp.database_id, dp.wait_resource, dp.event_date
-					),
-			suey AS (
-				SELECT SUBSTRING(c.chopped,
-								CHARINDEX(':', c.chopped) + 1,
-								CHARINDEX(':', c.chopped, CHARINDEX(':', c.chopped) + 1)
-								- 1 - CHARINDEX(':', c.chopped)
-								) AS obj_id,
-						c.id,
-						c.database_id,
-						c.event_date
-				FROM chop AS c
-					),
-			chopsuey AS (
-				SELECT *, 
-				DB_NAME(s.database_id) AS database_name,
-				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) AS sch_name,
-				OBJECT_NAME(s.obj_id, s.database_id) AS tbl_name,
-				OBJECT_SCHEMA_NAME(s.obj_id, s.database_id) 
-				+ N'.'
-				+ OBJECT_NAME(s.obj_id, s.database_id) AS object_name
-				FROM suey AS s
-						),
-		     deadlocks
+		/*Results*/
+		WITH deadlocks
 		AS ( SELECT dp.event_date,
 		            dp.id,
 					dp.victim_id,
@@ -689,9 +637,9 @@ SET @VersionDate = '20171201';
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
 										+ N'</object> ' AS object_name
-		                        FROM   chopsuey AS c
-		                        WHERE  (dp.id = c.id
-								OR		dp.victim_id = c.id)
+		                        FROM   #deadlock_owner_waiter AS c
+		                        WHERE  (dp.id = c.owner_id
+								OR		dp.victim_id = c.waiter_id)
 								AND	    dp.event_date = c.event_date
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 		                    1, 1, N'')) AS object_names,
