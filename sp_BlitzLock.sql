@@ -9,7 +9,7 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@StartDate DATETIME = '19000101', 
 	@EndDate DATETIME = '99991231', 
 	@ObjectName NVARCHAR(1000) = NULL,
-	@StoredProcName NVARCHAR(256) = NULL,
+	@StoredProcName NVARCHAR(1000) = NULL,
 	@AppName NVARCHAR(256) = NULL,
 	@HostName NVARCHAR(256) = NULL,
 	@LoginName NVARCHAR(256) = NULL,
@@ -23,6 +23,7 @@ BEGIN
 
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
 DECLARE @Version VARCHAR(30);
 SET @Version = '1.0';
 SET @VersionDate = '20171201';
@@ -48,6 +49,7 @@ SET @VersionDate = '20171201';
 					 The object name has to be fully qualified ''Database.Schema.Table''
 
 		@StoredProcName: If you want to search for a single stored proc
+					 The proc name has to be fully qualified ''Database.Schema.Sproc''
 		
 		@AppName: If you want to filter to a specific application
 		
@@ -69,9 +71,6 @@ SET @VersionDate = '20171201';
      Changes - for the full list of improvements and fixes in this version, see:
      https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
-
-	Parameter explanations:
-		HOLD YOUR HORSES
 
     MIT License
 	   
@@ -171,23 +170,6 @@ SET @VersionDate = '20171201';
 			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
 			   OPTION ( RECOMPILE );
 
-			   /*Eject early if we don't find anything*/
-			   IF @@ROWCOUNT = 0
-				BEGIN
-					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for '
-							+ CONVERT(NVARCHAR(30), @StartDate)
-							+ ' through '
-							+ CONVERT(NVARCHAR(30), @EndDate)
-							+ '!'
-							AS [Noice], 
-							N'sp_BlitzLock'AS [Proc Name], 
-							N'SQL Server First Responder Kit' AS [FRK], 
-							N'http://FirstResponderKit.org/' AS [URL], 
-							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
-				RETURN;
-				END;
-
-
 		
 
 		/*Parse process and input buffer XML*/
@@ -219,23 +201,6 @@ SET @VersionDate = '20171201';
 		AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL)
 		AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL)
 		OPTION ( RECOMPILE );
-
-			   
-			   /*Eject early if we don't find anything*/
-			   IF @@ROWCOUNT = 0
-				BEGIN
-					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for '
-								+ CASE WHEN @DatabaseName IS NOT NULL THEN 'Database:' + QUOTENAME(@DatabaseName) + ' ' ELSE '' END
-								+ CASE WHEN @AppName IS NOT NULL THEN 'Application:' + QUOTENAME(@AppName) + ' ' ELSE '' END
-								+ CASE WHEN @HostName IS NOT NULL THEN 'Host:' + QUOTENAME(@HostName) + ' ' ELSE '' END
-								+ CASE WHEN @LoginName IS NOT NULL THEN 'Login:' + QUOTENAME(@LoginName) + ' ' ELSE '' END
-							+ '!' AS [Noice], 
-							N'sp_BlitzLock'AS [Proc Name], 
-							N'SQL Server First Responder Kit' AS [FRK], 
-							N'http://FirstResponderKit.org/' AS [URL], 
-							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
-				RETURN;
-				END;
 
 
 
@@ -290,17 +255,6 @@ SET @VersionDate = '20171201';
 		WHERE (ca.dr.value('@objectname', 'NVARCHAR(1000)') = @ObjectName OR @ObjectName IS NULL)
 		OPTION ( RECOMPILE );
 
-			   /*Eject early if we don't find anything*/
-			   IF @@ROWCOUNT = 0
-				BEGIN
-					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for ' + @ObjectName + '!'
-							AS [Noice], 
-							N'sp_BlitzLock'AS [Proc Name], 
-							N'SQL Server First Responder Kit' AS [FRK], 
-							N'http://FirstResponderKit.org/' AS [URL], 
-							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
-				RETURN;
-				END;
 
 
 		/*This parses page locks*/
@@ -496,13 +450,23 @@ SET @VersionDate = '20171201';
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
 					ds.id,
-					ds.sql_handle,
 					ds.proc_name,
 					ds.event_date,
 					PARSENAME(ds.proc_name, 3) AS database_name,
 					PARSENAME(ds.proc_name, 2) AS schema_name,
-					PARSENAME(ds.proc_name, 1) AS proc_only_name
-			FROM #deadlock_stack AS ds	
+					PARSENAME(ds.proc_name, 1) AS proc_only_name,
+					'''' + STUFF((SELECT DISTINCT N',' + ds2.sql_handle
+									FROM #deadlock_stack AS ds2
+									WHERE ds2.id = ds.id
+									AND ds2.event_date = ds.event_date
+					FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'') + '''' AS sql_handle_csv
+			FROM #deadlock_stack AS ds
+			GROUP BY PARSENAME(ds.proc_name, 3),
+                     PARSENAME(ds.proc_name, 2),
+                     PARSENAME(ds.proc_name, 1),
+                     ds.id,
+                     ds.proc_name,
+                     ds.event_date
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
@@ -511,8 +475,7 @@ SET @VersionDate = '20171201';
 			   'More Info - Query' AS finding_group,
 			   'EXEC sp_BlitzCache ' +
 					CASE WHEN ds.proc_name = 'adhoc'
-						 THEN ' @OnlySqlHandles = ' + 
-							  QUOTENAME(ds.sql_handle, '''')
+						 THEN ' @OnlySqlHandles = ' + sql_handle_csv
 						 ELSE '@StoredProcName = ' + 
 						       QUOTENAME(ds.proc_only_name, '''')
 					END +
@@ -752,15 +715,16 @@ SET @VersionDate = '20171201';
 					ISNULL(dp.waiter_mode, '-') AS waiter_mode
 		     FROM   #deadlock_process AS dp )
 		SELECT d.event_date,
+			   DB_NAME(d.database_id) AS database_name,
 		       'Deadlock #' 
 			   + CONVERT(NVARCHAR(10), d.en)
-			   + ', Query #' + CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
+			   + ', Query #' 
+			   + CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
+			   + CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
 			   AS deadlock_group, 
-			   DB_NAME(d.database_id) AS database_name,
 		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
 		       d.object_names,
 		       d.isolation_level,
-			   d.is_victim,
 			   d.owner_mode,
 			   d.waiter_mode,
 		       d.transaction_count,
@@ -775,7 +739,7 @@ SET @VersionDate = '20171201';
 		       d.transaction_name
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		ORDER BY d.event_date, is_victim DESC
+		ORDER BY d.event_date, is_victim DESC;
 
 
 
