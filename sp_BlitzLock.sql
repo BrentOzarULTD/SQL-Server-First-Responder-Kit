@@ -451,7 +451,7 @@ SET @VersionDate = '20171201';
 			   '-' AS object_name,
 			   'Login, App, and Host locking' AS finding_group,
 			   'This database has had ' + 
-			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.id)) +
+			   CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.event_date)) +
 			   ' instances of deadlocks involving the login ' +
 			   ISNULL(dp.login_name, 'UNKNOWN') + 
 			   ' from the application ' + 
