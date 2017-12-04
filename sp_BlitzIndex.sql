@@ -1752,7 +1752,7 @@ SELECT
         THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
             + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
     ELSE
-        CASE index_id WHEN 0 THEN N'--I''m a Heap!' 
+        CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
         ELSE 
             CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
             ELSE 
