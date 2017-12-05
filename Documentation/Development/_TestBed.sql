@@ -33,7 +33,7 @@ EXEC sp_BlitzIndex @GetAllDatabases = 1, @Mode = 3
 
 
 /*BlitzCache*/
-EXEC sp_BlitzCache @SortOrder = 'all'
+EXEC sp_BlitzCache @SortOrder = 'all', @Debug = 1
 
 EXEC sp_BlitzCache @SortOrder = 'all avg'
 
@@ -45,4 +45,7 @@ EXEC sp_BlitzCache @OutputDatabaseName = 'ChangeMe', @OutputSchemaName = 'dbo', 
 EXEC sp_BlitzBackups @HoursBack = 1000000
 
 /*sp_AllNightLog_Setup*/
-EXEC master.dbo.sp_AllNightLog_Setup @RPOSeconds = 30, @RTOSeconds = 30, @BackupPath = 'D:\Backup', @RestorePath = 'D:\Backup', @RunSetup = 1
+EXEC sp_AllNightLog_Setup @RPOSeconds = 30, @RTOSeconds = 30, @BackupPath = 'D:\Backup', @RestorePath = 'D:\Backup', @RunSetup = 1
+
+/*sp_BlitzLock*/
+EXEC sp_BlitzLock @Debug = 1

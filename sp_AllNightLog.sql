@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.9.5';
-SET @VersionDate = '20171115';
+SET @Version = '2.0';
+SET @VersionDate = '20171201';
 
 IF @Help = 1
 
@@ -494,38 +494,60 @@ DiskPollster:
 						INSERT INTO @FileList (BackupFile)
 						EXEC master.sys.xp_cmdshell @cmd; 
 						
-							IF (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 
-								WHERE fl.BackupFile = 'The system cannot find the path specified.'
-								OR fl.BackupFile = 'File Not Found'
-								) = 1
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'The system cannot find the path specified.'
+							OR fl.BackupFile = 'File Not Found'
+							) = 1
 
-								BEGIN
+							BEGIN
 						
-									RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-						
-									RETURN;
-						
-								END
+								RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
 
-							IF (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 
-								) = 1
-							AND (
-								SELECT COUNT(*) 
-								FROM @FileList AS fl 							
-								WHERE fl.BackupFile IS NULL
-								) = 1
+							END;
 
-								BEGIN
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'Access is denied.'
+							) = 1
+
+							BEGIN
 						
-									RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+								RAISERROR('Access is denied to %s', 16, 1, @restore_path_base) WITH NOWAIT;
+
+							END;
+
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							) = 1
+						AND (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 							
+							WHERE fl.BackupFile IS NULL
+							) = 1
+
+							BEGIN
+	
+								RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
+	
+								RETURN;
+	
+							END
+
+						IF (
+							SELECT COUNT(*) 
+							FROM @FileList AS fl 
+							WHERE fl.BackupFile = 'The user name or password is incorrect.'
+							) = 1
+
+							BEGIN
 						
-									RETURN;
-						
-								END
+								RAISERROR('Incorrect user name or password for %s', 16, 1, @restore_path_base) WITH NOWAIT;
+
+							END;
 
 						INSERT msdb.dbo.restore_worker (database_name) 
 						SELECT fl.BackupFile
@@ -1142,7 +1164,6 @@ IF @Restore = 1
 												    rw.is_started = 0
 												AND rw.is_completed = 1
 												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
-                                                AND rw.error_number > 0 /* negative numbers indicate human attention required */
                                                 AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
 										OR    

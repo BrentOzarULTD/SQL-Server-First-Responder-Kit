@@ -17,11 +17,14 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+ - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+ - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
+ - [Power BI Dashboard for DBAs](#power-bi-dashboard-for-dbas)
  - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
@@ -38,7 +41,7 @@ The First Responder Kit runs on:
 * SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
-* Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
+* Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
 
 
 ## How to Get Support
@@ -260,6 +263,47 @@ It's designed for query tuners, so it includes things like memory grants, degree
 
 [*Back to top*](#header1)
 
+## sp_BlitzQueryStore: Query Store Sale
+
+Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
+
+* @Help: Right now this just prints the license if set to 1. I'm going to add better documentation here as the script matures.
+* @DatabaseName: This one is required. Query Store is per database, so you have to point it at one to examine.
+* @Top: How many plans from each "worst" you want to get. We look at your maxes for CPU, reads, duration, writes, memory, rows, executions, and additionally tempdb and log bytes for 2017. So it's the number of plans from each of those to gather.
+* @StartDate: Fairly obvious, when you want to start looking at queries from. If NULL, we'll only go back seven days.
+* @EndDate: When you want to stop looking at queries from. If you leave it NULL, we'll look ahead seven days.
+* @MinimumExecutionCount: The minimum number of times a query has to have been executed (not just compiled) to be analyzed.
+* @DurationFilter: The minimum number of seconds a query has to have been executed for to be analyzed.
+* @StoredProcName: If you want to look at a single stored procedure.
+* @Failed: If you want to look at failed queries, for some reason. I dunno, MS made such a big deal out of being able to look at these, I figured I'd add it.
+* @PlanIdFilter: If you want to filter by a particular plan id. Remember that a query may have many different plans.
+* @QueryIdFilter: If you want to filter by a particular query id. If you want to look at one specific plan for a query.
+* @ExportToExcel: Leaves XML out of the input and tidies up query text so you can easily paste it into Excel.
+* @HideSummary: Pulls the rolled up warnings and information out of the results.
+* @SkipXML: Skips XML analysis.
+* @Debug: Prints dynamic SQL and selects data from all temp tables if set to 1.
+
+[*Back to top*](#header1)
+
+## sp_BlitzLock: Deadlock Analysis
+
+Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
+
+Variables you can use:
+* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
+* @DatabaseName: If you want to filter to a specific database
+* @StartDate: The date you want to start searching on.
+* @EndDate: The date you want to stop searching on.
+* @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
+* @StoredProcName: If you want to search for a single stored proc.
+* @AppName: If you want to filter to a specific application.
+* @HostName: If you want to filter to a specific host.
+* @LoginName: If you want to filter to a specific login.
+* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+
+
+[*Back to top*](#header1)
+
 ## sp_BlitzBackups: How Much Data Could You Lose
 
 Checks your backups and reports estimated RPO and RTO based on historical data in msdb, or a centralized location for [msdb].dbo.backupset.
@@ -350,6 +394,15 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 * @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
 
 [*Back to top*](#header1)
+
+## Power BI Dashboard for DBAs
+
+[Documentation for this part of the project is currently at BrentOzar.com.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
+
+To contribute changes, read the [contributing guide](CONTRIBUTING.md) - there's a special section for the Power BI Dashboard since it has to be changed differently than scripts.
+
+[*Back to top*](#header1)
+
 
 
 ## License

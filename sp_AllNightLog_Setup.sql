@@ -24,6 +24,8 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
                 @EnableBackupJobs INT = NULL,
                 @EnableRestoreJobs INT = NULL,
 				@Debug BIT = 0,
+				@FirstFullBackup BIT = 0,
+				@FirstDiffBackup BIT = 0,
 				@Help BIT = 0,
 				@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -33,8 +35,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.9.5';
-SET @VersionDate = '20171115';
+SET @Version = '2.0';
+SET @VersionDate = '20171201';
 
 
 IF @Help = 1
@@ -481,9 +483,9 @@ BEGIN
 																				error_number INT DEFAULT NULL, 
 																				last_error_date DATETIME DEFAULT NULL,
 																				ignore_database BIT DEFAULT 0,
-																				full_backup_required BIT DEFAULT 0,
-																				diff_backup_required BIT DEFAULT 0
-																				);
+																				full_backup_required BIT DEFAULT ' + CASE WHEN @FirstFullBackup = 0 THEN N'0,' ELSE N'1,' END + CHAR(10) +
+																			  N'diff_backup_required BIT DEFAULT ' + CASE WHEN @FirstDiffBackup = 0 THEN N'0' ELSE N'1' END + CHAR(10) +
+																			  N');
 											
 										END;
 									
@@ -518,7 +520,14 @@ BEGIN
 							
 							IF @Debug = 1
 								BEGIN 
-									RAISERROR(@tbl_sql, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 0, 2044)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 2044, 4088)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 4088, 6132)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 6132, 8176)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								END; 
 
 							
@@ -605,7 +614,7 @@ BEGIN
 							
 								RAISERROR('Creating table msdb.dbo.restore_worker', 0, 1) WITH NOWAIT;
 								
-									CREATE TABLE msdb.dbo.restore_worker (
+								CREATE TABLE msdb.dbo.restore_worker (
 																		 id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
 																		 database_name NVARCHAR(256), 
 																		 last_log_restore_start_time DATETIME DEFAULT '19000101', 
@@ -615,12 +624,9 @@ BEGIN
 																		 error_number INT DEFAULT NULL, 
 																		 last_error_date DATETIME DEFAULT NULL,
 																		 ignore_database BIT DEFAULT 0,
-																		 full_restore_required BIT DEFAULT 0,
-																		 diff_restore_required BIT DEFAULT 0
-																		 );
-								
-							END;
-						
+																		 full_backup_required BIT DEFAULT 0,
+																	     diff_backup_required BIT DEFAULT 0
+																	     );
 
 								
 								RAISERROR('Inserting databases for restores', 0, 1) WITH NOWAIT;
@@ -634,6 +640,10 @@ BEGIN
 									WHERE bw.database_name = d.name
 												)
 								AND d.database_id > 4;
+							
+							
+							END;
+
 
 		
 		/*
