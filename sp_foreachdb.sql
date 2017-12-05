@@ -158,6 +158,7 @@ AS
                                           WHERE drs.database_id = d.database_id
                                           AND ar.secondary_role_allow_connections = 0
                                           AND ags.primary_replica <> @@SERVERNAME)'
+                    ELSE ''
               END
             + CASE WHEN @is_read_only IS NOT NULL
                    THEN ' AND d.is_read_only = ' + RTRIM(@is_read_only)
