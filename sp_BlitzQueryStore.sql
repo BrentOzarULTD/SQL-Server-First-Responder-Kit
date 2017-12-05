@@ -778,9 +778,7 @@ CREATE TABLE #stored_proc_info
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
-    converted_to NVARCHAR(128),
-	parameterization_type INT,
-	optimization_level VARCHAR(100),
+    converted_to NVARCHAR(128)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -2969,8 +2967,9 @@ IF EXISTS (   SELECT 1
 		            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
 		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
 		FROM        #query_plan AS qp
-           JOIN   #working_warnings AS b
-           ON b.query_hash = qp.query_hash
+           JOIN     #working_warnings AS b
+           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
 		OPTION ( RECOMPILE );
 
@@ -2983,8 +2982,9 @@ IF EXISTS (   SELECT 1
 		            b.proc_or_function_name AS proc_name,
 		            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression
 		FROM        #query_plan AS qp
-        JOIN   #working_warnings AS b
-        ON b.query_hash = qp.query_hash
+		   JOIN     #working_warnings AS b
+           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
 		WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
 		            AND b.implicit_conversions = 1
@@ -3034,15 +3034,32 @@ IF EXISTS (   SELECT 1
 		FROM   #conversion_info AS ci
 		OPTION ( RECOMPILE );
 
-		RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
-		UPDATE sp
-		SET sp.variable_datatype = vi.variable_datatype,
-			sp.compile_time_value = vi.compile_time_value
-		FROM   #stored_proc_info AS sp
-		JOIN #variable_info AS vi
-		ON sp.query_hash = vi.query_hash
-		AND sp.variable_name = vi.variable_name
-		OPTION ( RECOMPILE );
+		IF EXISTS (	SELECT * 
+					FROM   #stored_proc_info AS sp
+					JOIN #variable_info AS vi
+					ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+					OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+					AND sp.variable_name = vi.variable_name )
+			BEGIN
+				RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
+				UPDATE sp
+				SET sp.variable_datatype = vi.variable_datatype,
+					sp.compile_time_value = vi.compile_time_value
+				FROM   #stored_proc_info AS sp
+				JOIN #variable_info AS vi
+				ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+				OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+				AND sp.variable_name = vi.variable_name
+				OPTION ( RECOMPILE );
+			END
+			ELSE
+			BEGIN
+				RAISERROR(N'Inserting variables', 0, 1) WITH NOWAIT;
+				INSERT #stored_proc_info ( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
+				SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+				FROM #variable_info AS vi
+				OPTION ( RECOMPILE );
+			END
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
@@ -3060,7 +3077,10 @@ IF EXISTS (   SELECT 1
 															CHARINDEX(')', s.compile_time_value) - 1
 															- CHARINDEX('(', s.compile_time_value)
 															)
-											ELSE s.compile_time_value 
+											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
+											AND s.variable_datatype NOT LIKE '%binary%' THEN
+											QUOTENAME(compile_time_value, '''')
+									  ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
 		OPTION(RECOMPILE);

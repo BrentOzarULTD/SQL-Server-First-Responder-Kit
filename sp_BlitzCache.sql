@@ -1147,9 +1147,7 @@ CREATE TABLE #stored_proc_info
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
-    converted_to NVARCHAR(128),
-	parameterization_type INT,
-	optimization_level VARCHAR(100)
+    converted_to NVARCHAR(128)
 );
 
 CREATE TABLE #plan_creation
