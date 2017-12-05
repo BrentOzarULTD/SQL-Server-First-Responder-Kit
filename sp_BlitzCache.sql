@@ -257,8 +257,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '5.9.5';
-SET @VersionDate = '20171115';
+SET @Version = '6.0';
+SET @VersionDate = '20171201';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -5290,6 +5290,7 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            QueryType NVARCHAR(256),
            Warnings VARCHAR(MAX),
 		   QueryPlan XML,
+		   missing_indexes XML,
 		   implicit_conversion_info XML,
 		   cached_execution_parameters XML,
            ExecutionCount BIGINT,

@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.9.5';
-SET @VersionDate = '20171115';
+SET @Version = '2.0';
+SET @VersionDate = '20171201';
 
 IF @Help = 1
 

@@ -215,17 +215,6 @@ SET @VersionDate = '20171201';
 		WHERE (ca.dp.value('@procname', 'NVARCHAR(256)') = @StoredProcName OR @StoredProcName IS NULL)
 		OPTION ( RECOMPILE );
 
-			   /*Eject early if we don't find anything*/
-			   IF @@ROWCOUNT = 0
-				BEGIN
-					SELECT  N'WOO-HOO! We couldn''t find any deadlocks for ' + QUOTENAME(@StoredProcName) + '!'
-							AS [Noice], 
-							N'sp_BlitzLock'AS [Proc Name], 
-							N'SQL Server First Responder Kit' AS [FRK], 
-							N'http://FirstResponderKit.org/' AS [URL], 
-							N'To get help or add your own contributions, join us at http://FirstResponderKit.org.' AS [Info];
-				RETURN;
-				END;
 
 
 		/*Grab the full resource list*/
