@@ -26,7 +26,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_foreachdb @Version and @VersionDate
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
-    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzFirst @Version and @VersionDate 
     * sp_BlitzCache @Version and @VersionDate 
     * sp_Blitz @Version and @VersionDate
     * sp_DatabaseRestore @Version and @VersionDate
