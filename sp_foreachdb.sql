@@ -7,13 +7,14 @@ GO
 
 ALTER PROCEDURE dbo.sp_foreachdb
     -- Original fields from sp_MSforeachdb...
-    @command1 NVARCHAR(MAX) ,
+    @command1 NVARCHAR(MAX) = NULL,
     @replacechar NCHAR(1) = N'?' ,
     @command2 NVARCHAR(MAX) = NULL ,
     @command3 NVARCHAR(MAX) = NULL ,
     @precommand NVARCHAR(MAX) = NULL ,
     @postcommand NVARCHAR(MAX) = NULL ,
     -- Additional fields for our sp_foreachdb!
+    @command NVARCHAR(MAX) = NULL,  --For backwards compatibility
     @print_dbname BIT = 0 ,
     @print_command_only BIT = 0 ,
     @suppress_quotename BIT = 0 ,
@@ -37,6 +38,14 @@ AS
 		SET @Version = '2.0';
 		SET @VersionDate = '20171201';
 
+        IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
+            OR (@command1 IS NULL AND @command IS NULL) )
+        BEGIN
+            RAISERROR('You must supply either @command1 or @command, but not both.',16,1);
+            RETURN -1;
+        END;
+
+        SET @command1 = COALESCE(@command1,@command);
 
         DECLARE @sql NVARCHAR(MAX) ,
             @dblist NVARCHAR(MAX) ,
@@ -104,55 +113,67 @@ AS
 
         CREATE TABLE #x ( db NVARCHAR(300) );
 
-        SET @sql = N'SELECT name FROM sys.databases WHERE 1=1'
-            + CASE WHEN @system_only = 1 THEN ' AND database_id IN (1,2,3,4)'
+        SET @sql = N'SELECT name FROM sys.databases d WHERE 1=1'
+            + CASE WHEN @system_only = 1 THEN ' AND d.database_id IN (1,2,3,4)'
                    ELSE ''
               END
             + CASE WHEN @user_only = 1
-                   THEN ' AND database_id NOT IN (1,2,3,4)'
+                   THEN ' AND d.database_id NOT IN (1,2,3,4)'
                    ELSE ''
               END
 -- To exclude databases from changes	
             + CASE WHEN @exlist IS NOT NULL
-                   THEN ' AND name NOT IN (' + @exlist + ')'
+                   THEN ' AND d.name NOT IN (' + @exlist + ')'
                    ELSE ''
               END + CASE WHEN @name_pattern <> N'%'
-                         THEN ' AND name LIKE N''' + REPLACE(@name_pattern,
+                         THEN ' AND d.name LIKE N''' + REPLACE(@name_pattern,
                                                               '''', '''''')
                               + ''''
                          ELSE ''
                     END + CASE WHEN @dblist IS NOT NULL
-                               THEN ' AND name IN (' + @dblist + ')'
+                               THEN ' AND d.name IN (' + @dblist + ')'
                                ELSE ''
                           END
             + CASE WHEN @recovery_model_desc IS NOT NULL
-                   THEN ' AND recovery_model_desc = N'''
+                   THEN ' AND d.recovery_model_desc = N'''
                         + @recovery_model_desc + ''''
                    ELSE ''
               END
             + CASE WHEN @compatibility_level IS NOT NULL
-                   THEN ' AND compatibility_level = '
+                   THEN ' AND d.compatibility_level = '
                         + RTRIM(@compatibility_level)
                    ELSE ''
               END
             + CASE WHEN @state_desc IS NOT NULL
-                   THEN ' AND state_desc = N''' + @state_desc + ''''
+                   THEN ' AND d.state_desc = N''' + @state_desc + ''''
                    ELSE ''
               END
+            + CASE WHEN @state_desc = 'ONLINE' AND SERVERPROPERTY('IsHadrEnabled') = 1
+                   THEN ' AND NOT EXISTS (SELECT 1 
+                                          FROM sys.dm_hadr_database_replica_states drs 
+                                          JOIN sys.availability_replicas ar
+                                                ON ar.replica_id = drs.replica_id
+                                          JOIN sys.dm_hadr_availability_group_states ags 
+                                                ON ags.group_id = ar.group_id
+                                          WHERE drs.database_id = d.database_id
+                                          AND ar.secondary_role_allow_connections = 0
+                                          AND ags.primary_replica <> @@SERVERNAME)'
+                    ELSE ''
+              END
             + CASE WHEN @is_read_only IS NOT NULL
-                   THEN ' AND is_read_only = ' + RTRIM(@is_read_only)
+                   THEN ' AND d.is_read_only = ' + RTRIM(@is_read_only)
                    ELSE ''
               END
             + CASE WHEN @is_auto_close_on IS NOT NULL
-                   THEN ' AND is_auto_close_on = ' + RTRIM(@is_auto_close_on)
+                   THEN ' AND d.is_auto_close_on = ' + RTRIM(@is_auto_close_on)
                    ELSE ''
               END
             + CASE WHEN @is_auto_shrink_on IS NOT NULL
-                   THEN ' AND is_auto_shrink_on = ' + RTRIM(@is_auto_shrink_on)
+                   THEN ' AND d.is_auto_shrink_on = ' + RTRIM(@is_auto_shrink_on)
                    ELSE ''
               END
             + CASE WHEN @is_broker_enabled IS NOT NULL
-                   THEN ' AND is_broker_enabled = ' + RTRIM(@is_broker_enabled)
+                   THEN ' AND d.is_broker_enabled = ' + RTRIM(@is_broker_enabled)
                    ELSE ''
               END;
 
