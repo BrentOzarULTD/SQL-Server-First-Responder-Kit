@@ -17,7 +17,8 @@ Navigation
    - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
  - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
  - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
-  - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+ - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+ - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
@@ -40,7 +41,7 @@ The First Responder Kit runs on:
 * SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
-* Azure SQL DB - sp_BlitzFirst, sp_BlitzIndex, and sp_BlitzWho work as-is. To run sp_BlitzCache, do a search/replace in the code to replace ## with # (because global temp tables aren't supported in Azure SQL DB) - then it works fine. sp_Blitz doesn't work at all.
+* Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
 
 
 ## How to Get Support
@@ -262,7 +263,7 @@ It's designed for query tuners, so it includes things like memory grants, degree
 
 [*Back to top*](#header1)
 
-## sp_BlitzQueryStore
+## sp_BlitzQueryStore: Query Store Sale
 
 Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
 
@@ -281,6 +282,25 @@ Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp
 * @HideSummary: Pulls the rolled up warnings and information out of the results.
 * @SkipXML: Skips XML analysis.
 * @Debug: Prints dynamic SQL and selects data from all temp tables if set to 1.
+
+[*Back to top*](#header1)
+
+## sp_BlitzLock: Deadlock Analysis
+
+Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
+
+Variables you can use:
+* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
+* @DatabaseName: If you want to filter to a specific database
+* @StartDate: The date you want to start searching on.
+* @EndDate: The date you want to stop searching on.
+* @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
+* @StoredProcName: If you want to search for a single stored proc.
+* @AppName: If you want to filter to a specific application.
+* @HostName: If you want to filter to a specific host.
+* @LoginName: If you want to filter to a specific login.
+* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+
 
 [*Back to top*](#header1)
 

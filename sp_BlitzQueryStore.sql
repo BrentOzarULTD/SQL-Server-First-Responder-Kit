@@ -614,6 +614,7 @@ CREATE TABLE #working_warnings
 	is_paul_white_electric BIT,
 	implicit_conversion_info XML,
 	cached_execution_parameters XML,
+	missing_indexes XML,
     warnings NVARCHAR(4000)
 	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
@@ -777,9 +778,7 @@ CREATE TABLE #stored_proc_info
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
-    converted_to NVARCHAR(128),
-	parameterization_type INT,
-	optimization_level VARCHAR(100),
+    converted_to NVARCHAR(128)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -817,7 +816,119 @@ CREATE TABLE #conversion_info
 	INDEX cif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
+/* These tables support the Missing Index details clickable*/
 
+
+DROP TABLE IF EXISTS #missing_index_xml
+
+CREATE TABLE #missing_index_xml
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    index_xml XML
+);
+
+DROP TABLE IF EXISTS #missing_index_schema
+
+CREATE TABLE #missing_index_schema
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+    index_xml XML
+);
+
+
+DROP TABLE IF EXISTS #missing_index_usage
+
+CREATE TABLE #missing_index_usage
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+	usage NVARCHAR(128),
+    index_xml XML
+);
+
+DROP TABLE IF EXISTS #missing_index_detail
+
+CREATE TABLE #missing_index_detail
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+    usage NVARCHAR(128),
+    column_name NVARCHAR(128)
+);
+
+
+DROP TABLE IF EXISTS #missing_index_pretty
+
+CREATE TABLE #missing_index_pretty
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+	equality NVARCHAR(4000),
+	inequality NVARCHAR(4000),
+	[include] NVARCHAR(4000),
+	details AS N'/* '
+	           + CHAR(10) 
+			   + N'The Query Processor estimates that implementing the following index could improve the query cost by ' 
+			   + CONVERT(NVARCHAR(30), impact)
+			   + '%.'
+			   + CHAR(10)
+			   + N'*/'
+			   + CHAR(10) + CHAR(13) 
+			   + N'/* '
+			   + CHAR(10)
+			   + N'USE '
+			   + database_name
+			   + CHAR(10)
+			   + N'GO'
+			   + CHAR(10) + CHAR(13)
+			   + N'CREATE NONCLUSTERED INDEX ix_'
+			   + ISNULL(REPLACE(REPLACE(REPLACE(equality,'[', ''), ']', ''),   ', ', '_'), '')
+			   + ISNULL(REPLACE(REPLACE(REPLACE(inequality,'[', ''), ']', ''), ', ', '_'), '')
+			   + CASE WHEN [include] IS NOT NULL THEN + N'Includes' ELSE N'' END
+			   + CHAR(10)
+			   + N' ON '
+			   + schema_name
+			   + N'.'
+			   + table_name
+			   + N' (' + 
+			   + CASE WHEN equality IS NOT NULL 
+					  THEN equality
+						+ CASE WHEN inequality IS NOT NULL
+							   THEN N', ' + inequality
+							   ELSE N''
+						  END
+					 ELSE inequality
+				 END			   
+			   + N')' 
+			   + CHAR(10)
+			   + CASE WHEN include IS NOT NULL
+					  THEN N'INCLUDE (' + include + N')'
+					  ELSE N''
+				 END
+			   + CHAR(10)
+			   + N'GO'
+			   + CHAR(10)
+			   + N'*/'
+);
 
 /*Sets up WHERE clause that gets used quite a bit*/
 
@@ -1600,7 +1711,8 @@ RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name, wp.plan_id, wp.query_id,
-       object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) AS proc_or_function_name,
+       QUOTENAME(object_schema_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) + ''.'' +
+	   QUOTENAME(object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) AS proc_or_function_name,
 	   qsq.batch_sql_handle, qsq.query_hash, qsq.query_parameterization_type_desc, qsq.count_compiles, 
 	   (qsq.avg_compile_duration / 1000.), 
 	   (qsq.last_compile_duration / 1000.), 
@@ -2585,7 +2697,7 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 IndexOps AS 
 (
 	SELECT 
-	r.sql_handle,
+	r.query_hash,
 	c.n.value('@PhysicalOp', 'VARCHAR(100)') AS op_name,
 	c.n.exist('@PhysicalOp[.="Index Insert"]') AS ii,
 	c.n.exist('@PhysicalOp[.="Index Update"]') AS iu,
@@ -2603,7 +2715,7 @@ IndexOps AS
 	OUTER APPLY r.relop.nodes('/p:RelOp/p:SimpleUpdate/p:Object') o3(n)
 ), iops AS 
 (
-		SELECT	ios.sql_handle,
+		SELECT	ios.query_hash,
 		SUM(CONVERT(TINYINT, ios.ii)) AS index_insert_count,
 		SUM(CONVERT(TINYINT, ios.iu)) AS index_update_count,
 		SUM(CONVERT(TINYINT, ios.id)) AS index_delete_count,
@@ -2617,7 +2729,7 @@ IndexOps AS
 		WHERE ios.op_name IN ('Index Insert', 'Index Delete', 'Index Update', 
 							  'Clustered Index Insert', 'Clustered Index Delete', 'Clustered Index Update', 
 							  'Table Insert', 'Table Delete', 'Table Update')
-		GROUP BY ios.sql_handle) 
+		GROUP BY ios.query_hash) 
 UPDATE b
 SET b.index_insert_count = iops.index_insert_count,
 	b.index_update_count = iops.index_update_count,
@@ -2629,7 +2741,7 @@ SET b.index_insert_count = iops.index_insert_count,
 	b.table_update_count = iops.table_update_count,
 	b.table_delete_count = iops.table_delete_count
 FROM #working_warnings AS b
-JOIN iops ON  iops.sql_handle = b.sql_handle
+JOIN iops ON  iops.query_hash = b.query_hash
 OPTION (RECOMPILE);
 
 
@@ -2855,8 +2967,9 @@ IF EXISTS (   SELECT 1
 		            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
 		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
 		FROM        #query_plan AS qp
-           JOIN   #working_warnings AS b
-           ON b.query_hash = qp.query_hash
+           JOIN     #working_warnings AS b
+           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
 		OPTION ( RECOMPILE );
 
@@ -2869,8 +2982,9 @@ IF EXISTS (   SELECT 1
 		            b.proc_or_function_name AS proc_name,
 		            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression
 		FROM        #query_plan AS qp
-        JOIN   #working_warnings AS b
-        ON b.query_hash = qp.query_hash
+		   JOIN     #working_warnings AS b
+           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
 		WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
 		            AND b.implicit_conversions = 1
@@ -2920,15 +3034,32 @@ IF EXISTS (   SELECT 1
 		FROM   #conversion_info AS ci
 		OPTION ( RECOMPILE );
 
-		RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
-		UPDATE sp
-		SET sp.variable_datatype = vi.variable_datatype,
-			sp.compile_time_value = vi.compile_time_value
-		FROM   #stored_proc_info AS sp
-		JOIN #variable_info AS vi
-		ON sp.query_hash = vi.query_hash
-		AND sp.variable_name = vi.variable_name
-		OPTION ( RECOMPILE );
+		IF EXISTS (	SELECT * 
+					FROM   #stored_proc_info AS sp
+					JOIN #variable_info AS vi
+					ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+					OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+					AND sp.variable_name = vi.variable_name )
+			BEGIN
+				RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
+				UPDATE sp
+				SET sp.variable_datatype = vi.variable_datatype,
+					sp.compile_time_value = vi.compile_time_value
+				FROM   #stored_proc_info AS sp
+				JOIN #variable_info AS vi
+				ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+				OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+				AND sp.variable_name = vi.variable_name
+				OPTION ( RECOMPILE );
+			END
+			ELSE
+			BEGIN
+				RAISERROR(N'Inserting variables', 0, 1) WITH NOWAIT;
+				INSERT #stored_proc_info ( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
+				SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+				FROM #variable_info AS vi
+				OPTION ( RECOMPILE );
+			END
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
@@ -2946,7 +3077,10 @@ IF EXISTS (   SELECT 1
 															CHARINDEX(')', s.compile_time_value) - 1
 															- CHARINDEX('(', s.compile_time_value)
 															)
-											ELSE s.compile_time_value 
+											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
+											AND s.variable_datatype NOT LIKE '%binary%' THEN
+											QUOTENAME(compile_time_value, '''')
+									  ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
 		OPTION(RECOMPILE);
@@ -3077,7 +3211,141 @@ SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL
 FROM   #working_warnings AS b
 OPTION ( RECOMPILE );
 
+/*Begin Missing Index*/
 
+IF EXISTS 
+	(SELECT 1 FROM #working_warnings AS ww WHERE ww.missing_index_count > 0 )
+	
+	BEGIN
+	
+		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+		INSERT 	#missing_index_xml
+		SELECT qp.query_hash,
+		       qp.sql_handle,
+		       c.mg.value('@Impact', 'FLOAT') AS Impact,
+			   c.mg.query('.') AS cmg
+		FROM   #query_plan AS qp
+		CROSS APPLY qp.query_plan.nodes('//p:MissingIndexes/p:MissingIndexGroup') AS c(mg)
+		WHERE  qp.query_hash IS NOT NULL
+		AND c.mg.value('@Impact', 'FLOAT') > 70.0
+		OPTION(RECOMPILE);
+
+		RAISERROR(N'Inserting to #missing_index_schema', 0, 1) WITH NOWAIT;		
+		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+		INSERT #missing_index_schema
+		SELECT mix.query_hash, mix.sql_handle, mix.impact,
+		       c.mi.value('@Database', 'NVARCHAR(128)') ,
+		       c.mi.value('@Schema', 'NVARCHAR(128)') ,
+		       c.mi.value('@Table', 'NVARCHAR(128)') ,
+			   c.mi.query('.')
+		FROM #missing_index_xml AS mix
+		CROSS APPLY mix.index_xml.nodes('//p:MissingIndex') AS c(mi)
+		OPTION(RECOMPILE);
+		
+		RAISERROR(N'Inserting to #missing_index_usage', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+		INSERT #missing_index_usage
+		SELECT ms.query_hash, ms.sql_handle, ms.impact, ms.database_name, ms.schema_name, ms.table_name,
+				c.cg.value('@Usage', 'NVARCHAR(128)'),
+				c.cg.query('.')
+		FROM #missing_index_schema ms
+		CROSS APPLY ms.index_xml.nodes('//p:ColumnGroup') AS c(cg)
+		OPTION(RECOMPILE);
+		
+		RAISERROR(N'Inserting to #missing_index_detail', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+		INSERT #missing_index_detail
+		SELECT miu.query_hash,
+		       miu.sql_handle,
+		       miu.impact,
+		       miu.database_name,
+		       miu.schema_name,
+		       miu.table_name,
+		       miu.usage,
+		       c.c.value('@Name', 'NVARCHAR(128)')
+		FROM #missing_index_usage AS miu
+		CROSS APPLY miu.index_xml.nodes('//p:Column') AS c(c)
+		OPTION(RECOMPILE);
+		
+		RAISERROR(N'Inserting to #missing_index_pretty', 0, 1) WITH NOWAIT;
+		INSERT #missing_index_pretty
+		SELECT m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
+		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
+		                 FROM   #missing_index_detail AS m2
+		                 WHERE  m2.usage = 'EQUALITY'
+						 AND m.query_hash = m2.query_hash
+						 AND m.sql_handle = m2.sql_handle
+						 AND m.impact = m2.impact
+						 AND m.database_name = m2.database_name
+						 AND m.schema_name = m2.schema_name
+						 AND m.table_name = m2.table_name
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS equality
+		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
+		                 FROM   #missing_index_detail AS m2
+		                 WHERE  m2.usage = 'INEQUALITY'
+						 AND m.query_hash = m2.query_hash
+						 AND m.sql_handle = m2.sql_handle
+						 AND m.impact = m2.impact
+						 AND m.database_name = m2.database_name
+						 AND m.schema_name = m2.schema_name
+						 AND m.table_name = m2.table_name
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS inequality
+		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
+		                 FROM   #missing_index_detail AS m2
+		                 WHERE  m2.usage = 'INCLUDE'
+						 AND m.query_hash = m2.query_hash
+						 AND m.sql_handle = m2.sql_handle
+						 AND m.impact = m2.impact
+						 AND m.database_name = m2.database_name
+						 AND m.schema_name = m2.schema_name
+						 AND m.table_name = m2.table_name
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS [include]
+		FROM #missing_index_detail AS m
+		GROUP BY m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
+		OPTION(RECOMPILE);
+		
+		RAISERROR(N'Updating missing index information', 0, 1) WITH NOWAIT;
+		WITH missing AS (
+		SELECT mip.query_hash,
+		       mip.sql_handle, 
+			   CONVERT(XML,
+			   N'<?MissingIndexes -- '
+			   + CHAR(10) + CHAR(13)
+			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
+		                   FROM   #missing_index_pretty AS mip2
+						   WHERE mip.query_hash = mip2.query_hash
+						   AND mip.sql_handle = mip2.sql_handle
+						   GROUP BY mip2.details
+		                   ORDER BY MAX(mip2.impact) DESC
+						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') 
+			   + CHAR(10) + CHAR(13)
+			   + N' -- ?>' 
+			   ) AS full_details
+		FROM #missing_index_pretty AS mip
+		GROUP BY mip.query_hash, mip.sql_handle, mip.impact
+						)
+		UPDATE ww
+			SET ww.missing_indexes = m.full_details
+		FROM #working_warnings AS ww
+		JOIN missing AS m
+		ON m.sql_handle = ww.sql_handle
+		OPTION(RECOMPILE);
+
+	
+	END
+
+	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
+	UPDATE ww
+	SET ww.missing_indexes = 
+		CASE WHEN ww.missing_indexes IS NULL 
+			 THEN '<?NoNeedToClickMe -- N/A --?>' 
+			 ELSE ww.missing_indexes 
+		END
+	FROM #working_warnings AS ww
+	OPTION(RECOMPILE);
+
+/*End Missing Index*/
 
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
 
@@ -3292,7 +3560,7 @@ RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
+	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.missing_indexes, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
 	   wm.total_query_max_used_memory, wm.avg_query_max_used_memory, wm.total_tempdb_space_used, wm.avg_tempdb_space_used,
@@ -3321,7 +3589,7 @@ RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
-	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.implicit_conversion_info, ww.cached_execution_parameters, 
+	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.missing_indexes, ww.implicit_conversion_info, ww.cached_execution_parameters, 
 	   wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
@@ -4080,7 +4348,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
-                    WHERE  p.is_spool_expensive = 1
+                    WHERE  p.is_spool_more_rows = 1
   					)
              INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (
@@ -4426,6 +4694,26 @@ OPTION ( RECOMPILE );
 
 SELECT '#variable_info' AS table_name, *
 FROM #variable_info AS vi
+OPTION ( RECOMPILE );
+
+SELECT '#missing_index_xml' AS table_name, *
+FROM   #missing_index_xml
+OPTION ( RECOMPILE );
+
+SELECT '#missing_index_schema' AS table_name, *
+FROM   #missing_index_schema
+OPTION ( RECOMPILE );
+
+SELECT '#missing_index_usage' AS table_name, *
+FROM   #missing_index_usage
+OPTION ( RECOMPILE );
+
+SELECT '#missing_index_detail' AS table_name, *
+FROM   #missing_index_detail
+OPTION ( RECOMPILE );
+
+SELECT '#missing_index_pretty' AS table_name, *
+FROM   #missing_index_pretty
 OPTION ( RECOMPILE );
 
 END; 

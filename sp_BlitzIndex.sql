@@ -20,8 +20,8 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
         /*Note:@Filter doesn't do anything unless @Mode=0*/
-	@SkipPartitions BIT	= 0,
-	@SkipStatistics BIT	= 1,
+    @SkipPartitions BIT	= 0,
+    @SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -29,8 +29,8 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
-	@Help TINYINT = 0,
-	@VersionDate DATETIME = NULL OUTPUT
+    @Help TINYINT = 0,
+    @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
@@ -455,6 +455,8 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               last_value BIGINT NULL,
               is_not_for_replication BIT NULL
             );
+        CREATE CLUSTERED INDEX CLIX_database_id_object_id_index_id ON #IndexColumns
+            (database_id, object_id, index_id);
 
         CREATE TABLE #MissingIndexes
             ([database_id] INT NOT NULL,
@@ -685,6 +687,7 @@ BEGIN TRY
 				   N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
                    'http://FirstResponderKit.org', '', '', '', ''
                     );        
+            
 		
 		SELECT bir.blitz_result_id,
                bir.check_id,
@@ -1022,7 +1025,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
-                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
+                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',16,1) WITH NOWAIT;
                         SET @SkipPartitions = 1;
                         INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                                         index_usage_summary, index_size_summary )
@@ -1749,7 +1752,7 @@ SELECT
         THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
             + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
     ELSE
-        CASE index_id WHEN 0 THEN N'--I''m a Heap!' 
+        CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
         ELSE 
             CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
             ELSE 
@@ -2148,7 +2151,7 @@ BEGIN;
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
                             sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+							 CAST(COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
                                          AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
@@ -2173,7 +2176,7 @@ BEGIN;
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
                         i.db_schema_object_indexid + N': ' +
                             sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
+							 CAST(COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
                                          AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
