@@ -1147,9 +1147,7 @@ CREATE TABLE #stored_proc_info
     compile_time_value NVARCHAR(128),
     proc_name NVARCHAR(300),
     column_name NVARCHAR(128),
-    converted_to NVARCHAR(128),
-	parameterization_type INT,
-	optimization_level VARCHAR(100)
+    converted_to NVARCHAR(128)
 );
 
 CREATE TABLE #plan_creation
@@ -3086,7 +3084,7 @@ OPTION (RECOMPILE);
 IF EXISTS ( SELECT 1 
 			FROM ##bou_BlitzCacheProcs AS bbcp 
 			WHERE bbcp.implicit_conversions = 1 
-			OR bbcp.QueryType LIKE 'Procedure or Function:%')
+			OR bbcp.QueryType LIKE '%Procedure or Function: %')
 BEGIN
 
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
@@ -3105,7 +3103,8 @@ SELECT      DISTINCT @@SPID,
             q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
-ON b.QueryHash = qp.QueryHash
+ON (b.QueryType = 'adhoc' AND b.QueryHash = qp.QueryHash)
+OR 	(b.QueryType <> 'adhoc' AND b.SqlHandle = qp.SqlHandle)
 CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
 WHERE  b.SPID = @@SPID
 OPTION ( RECOMPILE );
@@ -3122,7 +3121,8 @@ SELECT      DISTINCT @@SPID,
             qq.c.value('@Expression', 'NVARCHAR(128)') AS expression
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
-ON b.QueryHash = qp.QueryHash
+ON (b.QueryType = 'adhoc' AND b.QueryHash = qp.QueryHash)
+OR 	(b.QueryType <> 'adhoc' AND b.SqlHandle = qp.SqlHandle)
 CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
 WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
             AND qp.QueryHash IS NOT NULL
@@ -3175,15 +3175,32 @@ SELECT @@SPID AS SPID,
 FROM   #conversion_info AS ci
 OPTION ( RECOMPILE );
 
-RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
-UPDATE sp
-SET sp.variable_datatype = vi.variable_datatype,
-	sp.compile_time_value = vi.compile_time_value
-FROM   #stored_proc_info AS sp
-JOIN #variable_info AS vi
-ON sp.QueryHash = vi.QueryHash
-AND sp.variable_name = vi.variable_name
-OPTION ( RECOMPILE );
+IF EXISTS (	SELECT * 
+			FROM   #stored_proc_info AS sp
+			JOIN #variable_info AS vi
+			ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
+			OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
+			AND sp.variable_name = vi.variable_name )
+	BEGIN
+		RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
+		UPDATE sp
+		SET sp.variable_datatype = vi.variable_datatype,
+			sp.compile_time_value = vi.compile_time_value
+		FROM   #stored_proc_info AS sp
+		JOIN #variable_info AS vi
+		ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
+		OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
+		AND sp.variable_name = vi.variable_name
+		OPTION ( RECOMPILE );
+	END
+	ELSE
+	BEGIN
+		RAISERROR(N'Inserting variables', 0, 1) WITH NOWAIT;
+		INSERT #stored_proc_info ( SPID, SqlHandle, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name )
+		SELECT vi.SPID, vi.SqlHandle, vi.QueryHash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+		FROM #variable_info AS vi
+		OPTION ( RECOMPILE );
+	END
 
 RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 UPDATE s
@@ -3201,6 +3218,9 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
 													CHARINDEX(')', s.compile_time_value) - 1
 													- CHARINDEX('(', s.compile_time_value)
 													)
+									WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
+										AND s.variable_datatype NOT LIKE '%binary%' THEN
+										QUOTENAME(compile_time_value, '''')
 									ELSE s.compile_time_value 
 							  END
 FROM   #stored_proc_info AS s
