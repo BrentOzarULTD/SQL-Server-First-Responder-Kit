@@ -1136,20 +1136,6 @@ CREATE TABLE #configuration (
     value DECIMAL(38,0)
 );
 
-CREATE TABLE #stored_proc_info
-(
-    SPID INT,
-	SqlHandle VARBINARY(64),
-    QueryHash BINARY(8),
-    variable_name NVARCHAR(128),
-    variable_datatype NVARCHAR(128),
-	converted_column_name NVARCHAR(128),
-    compile_time_value NVARCHAR(128),
-    proc_name NVARCHAR(300),
-    column_name NVARCHAR(128),
-    converted_to NVARCHAR(128)
-);
-
 CREATE TABLE #plan_creation
 (
     percent_24 DECIMAL(5, 2),
@@ -1200,14 +1186,28 @@ CREATE TABLE #trace_flags
     session_trace_flags VARCHAR(1000)
 );
 
+CREATE TABLE #stored_proc_info
+(
+    SPID INT,
+	SqlHandle VARBINARY(64),
+    QueryHash BINARY(8),
+    variable_name NVARCHAR(256),
+    variable_datatype NVARCHAR(256),
+	converted_column_name NVARCHAR(256),
+    compile_time_value NVARCHAR(4000),
+    proc_name NVARCHAR(1000),
+    column_name NVARCHAR(256),
+    converted_to NVARCHAR(256)
+);
+
 CREATE TABLE #variable_info
 (
     SPID INT,
     QueryHash BINARY(8),
     SqlHandle VARBINARY(64),
-    proc_name NVARCHAR(128),
-    variable_name NVARCHAR(200),
-    variable_datatype NVARCHAR(128),
+    proc_name NVARCHAR(1000),
+    variable_name NVARCHAR(256),
+    variable_datatype NVARCHAR(256),
     compile_time_value NVARCHAR(4000)
 );
 
@@ -1216,7 +1216,7 @@ CREATE TABLE #conversion_info
     SPID INT,
     QueryHash BINARY(8),
     SqlHandle VARBINARY(64),
-    proc_name NVARCHAR(128),
+    proc_name NVARCHAR(256),
     expression NVARCHAR(4000),
     at_charindex AS CHARINDEX('@', expression),
     bracket_charindex AS CHARINDEX(']', expression, CHARINDEX('@', expression)) - CHARINDEX('@', expression),
@@ -3098,9 +3098,9 @@ SELECT      DISTINCT @@SPID,
             CASE WHEN b.QueryType = 'Statement' THEN b.QueryType
                  ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType))
             END AS proc_name,
-            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
-            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
-            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+            q.n.value('@Column', 'NVARCHAR(256)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(256)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(4000)') AS compile_time_value
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
 ON (b.QueryType = 'adhoc' AND b.QueryHash = qp.QueryHash)
@@ -3118,7 +3118,7 @@ SELECT      DISTINCT @@SPID,
             CASE WHEN b.QueryType = 'Statement' THEN b.QueryType
                  ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType))
             END AS proc_name,
-            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression
+            qq.c.value('@Expression', 'NVARCHAR(4000)') AS expression
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
 ON (b.QueryType = 'adhoc' AND b.QueryHash = qp.QueryHash)
@@ -3175,32 +3175,35 @@ SELECT @@SPID AS SPID,
 FROM   #conversion_info AS ci
 OPTION ( RECOMPILE );
 
-IF EXISTS (	SELECT * 
-			FROM   #stored_proc_info AS sp
-			JOIN #variable_info AS vi
-			ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
-			OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
-			AND sp.variable_name = vi.variable_name )
-	BEGIN
-		RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
-		UPDATE sp
-		SET sp.variable_datatype = vi.variable_datatype,
-			sp.compile_time_value = vi.compile_time_value
-		FROM   #stored_proc_info AS sp
-		JOIN #variable_info AS vi
-		ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
-		OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
-		AND sp.variable_name = vi.variable_name
-		OPTION ( RECOMPILE );
-	END
-	ELSE
-	BEGIN
-		RAISERROR(N'Inserting variables', 0, 1) WITH NOWAIT;
-		INSERT #stored_proc_info ( SPID, SqlHandle, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name )
-		SELECT vi.SPID, vi.SqlHandle, vi.QueryHash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
-		FROM #variable_info AS vi
-		OPTION ( RECOMPILE );
-	END
+
+
+RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
+UPDATE sp
+SET sp.variable_datatype = vi.variable_datatype,
+	sp.compile_time_value = vi.compile_time_value
+FROM   #stored_proc_info AS sp
+JOIN #variable_info AS vi
+ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
+OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
+AND sp.variable_name = vi.variable_name
+OPTION ( RECOMPILE );
+
+
+RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
+INSERT #stored_proc_info 
+		( SPID, SqlHandle, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name )
+SELECT vi.SPID, vi.SqlHandle, vi.QueryHash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+FROM #variable_info AS vi
+WHERE NOT EXISTS
+(
+	SELECT * 
+	FROM   #stored_proc_info AS sp
+	WHERE (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
+	OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
+	AND sp.variable_name = vi.variable_name 
+)
+OPTION ( RECOMPILE );
+
 
 RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 UPDATE s
