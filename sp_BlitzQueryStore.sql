@@ -772,13 +772,13 @@ CREATE TABLE #stored_proc_info
 (
 	sql_handle VARBINARY(64),
     query_hash BINARY(8),
-    variable_name NVARCHAR(128),
-    variable_datatype NVARCHAR(128),
-	converted_column_name NVARCHAR(128),
-    compile_time_value NVARCHAR(128),
-    proc_name NVARCHAR(300),
-    column_name NVARCHAR(128),
-    converted_to NVARCHAR(128)
+    variable_name NVARCHAR(256),
+    variable_datatype NVARCHAR(256),
+	converted_column_name NVARCHAR(256),
+    compile_time_value NVARCHAR(4000),
+    proc_name NVARCHAR(1000),
+    column_name NVARCHAR(256),
+    converted_to NVARCHAR(256)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -788,9 +788,9 @@ CREATE TABLE #variable_info
 (
     query_hash BINARY(8),
     sql_handle VARBINARY(64),
-    proc_name NVARCHAR(128),
-    variable_name NVARCHAR(200),
-    variable_datatype NVARCHAR(128),
+    proc_name NVARCHAR(1000),
+    variable_name NVARCHAR(256),
+    variable_datatype NVARCHAR(256),
     compile_time_value NVARCHAR(4000),
 	INDEX vif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
@@ -2963,9 +2963,9 @@ IF EXISTS (   SELECT 1
 		            qp.query_hash,
 		            qp.sql_handle,
 		            b.proc_or_function_name AS proc_name,
-		            q.n.value('@Column', 'NVARCHAR(128)') AS variable_name,
-		            q.n.value('@ParameterDataType', 'NVARCHAR(128)') AS variable_datatype,
-		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(1000)') AS compile_time_value
+		            q.n.value('@Column', 'NVARCHAR(256)') AS variable_name,
+		            q.n.value('@ParameterDataType', 'NVARCHAR(256)') AS variable_datatype,
+		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(4000)') AS compile_time_value
 		FROM        #query_plan AS qp
            JOIN     #working_warnings AS b
            ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
@@ -2980,7 +2980,7 @@ IF EXISTS (   SELECT 1
 		            qp.query_hash,
 		            qp.sql_handle,
 		            b.proc_or_function_name AS proc_name,
-		            qq.c.value('@Expression', 'NVARCHAR(128)') AS expression
+		            qq.c.value('@Expression', 'NVARCHAR(4000)') AS expression
 		FROM        #query_plan AS qp
 		   JOIN     #working_warnings AS b
            ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
