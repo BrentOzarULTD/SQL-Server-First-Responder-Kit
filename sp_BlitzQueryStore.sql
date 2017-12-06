@@ -3034,32 +3034,32 @@ IF EXISTS (   SELECT 1
 		FROM   #conversion_info AS ci
 		OPTION ( RECOMPILE );
 
-		IF EXISTS (	SELECT * 
-					FROM   #stored_proc_info AS sp
-					JOIN #variable_info AS vi
-					ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
-					OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
-					AND sp.variable_name = vi.variable_name )
-			BEGIN
-				RAISERROR(N'Updating variables', 0, 1) WITH NOWAIT;
-				UPDATE sp
-				SET sp.variable_datatype = vi.variable_datatype,
-					sp.compile_time_value = vi.compile_time_value
-				FROM   #stored_proc_info AS sp
-				JOIN #variable_info AS vi
-				ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
-				OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
-				AND sp.variable_name = vi.variable_name
-				OPTION ( RECOMPILE );
-			END
-			ELSE
-			BEGIN
-				RAISERROR(N'Inserting variables', 0, 1) WITH NOWAIT;
-				INSERT #stored_proc_info ( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
-				SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
-				FROM #variable_info AS vi
-				OPTION ( RECOMPILE );
-			END
+		RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
+		UPDATE sp
+		SET sp.variable_datatype = vi.variable_datatype,
+			sp.compile_time_value = vi.compile_time_value
+		FROM   #stored_proc_info AS sp
+		JOIN #variable_info AS vi
+		ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+		OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+		AND sp.variable_name = vi.variable_name
+		OPTION ( RECOMPILE );
+		
+		
+		RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
+		INSERT #stored_proc_info 
+				( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
+		SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+		FROM #variable_info AS vi
+		WHERE NOT EXISTS
+		(
+			SELECT * 
+			FROM   #stored_proc_info AS sp
+			WHERE (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+			OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+			AND sp.variable_name = vi.variable_name 
+		)
+		OPTION ( RECOMPILE );
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
