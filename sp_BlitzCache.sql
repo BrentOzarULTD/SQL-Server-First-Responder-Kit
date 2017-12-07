@@ -1744,7 +1744,10 @@ SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@Top)
        @@SPID ,
-       ''Procedure or Function: '' + COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''') AS QueryType,
+       ''Procedure or Function: '' 
+	   + QUOTENAME(COALESCE(OBJECT_SCHEMA_NAME(qs.object_id, qs.database_id),''''))
+	   + ''.''
+	   + QUOTENAME(COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''')) AS QueryType,
        COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
        (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
        (total_worker_time / 1000.0) AS TotalCPU ,
@@ -3095,9 +3098,7 @@ INSERT #variable_info ( SPID, QueryHash, SqlHandle, proc_name, variable_name, va
 SELECT      DISTINCT @@SPID,
             qp.QueryHash,
             qp.SqlHandle,
-            CASE WHEN b.QueryType = 'Statement' THEN b.QueryType
-                 ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType))
-            END AS proc_name,
+            b.QueryType AS proc_name,
             q.n.value('@Column', 'NVARCHAR(256)') AS variable_name,
             q.n.value('@ParameterDataType', 'NVARCHAR(256)') AS variable_datatype,
             q.n.value('@ParameterCompiledValue', 'NVARCHAR(4000)') AS compile_time_value
@@ -3115,9 +3116,7 @@ INSERT #conversion_info ( SPID, QueryHash, SqlHandle, proc_name, expression )
 SELECT      DISTINCT @@SPID,
             qp.QueryHash,
             qp.SqlHandle,
-            CASE WHEN b.QueryType = 'Statement' THEN b.QueryType
-                 ELSE SUBSTRING(b.QueryType, CHARINDEX('[', b.QueryType), LEN(b.QueryType) - CHARINDEX('[', b.QueryType))
-            END AS proc_name,
+            b.QueryType AS proc_name,
             qq.c.value('@Expression', 'NVARCHAR(4000)') AS expression
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
@@ -3135,7 +3134,7 @@ INSERT #stored_proc_info ( SPID, SqlHandle, QueryHash, proc_name, variable_name,
 SELECT @@SPID AS SPID,
        ci.SqlHandle,
        ci.QueryHash,
-       ci.proc_name,
+       REPLACE(REPLACE(REPLACE(ci.proc_name, ')', ''), 'Statement (parent ', ''), 'Procedure or Function: ', '') AS proc_name,
        CASE WHEN ci.at_charindex > 0
                  AND ci.bracket_charindex > 0 
 			THEN SUBSTRING(ci.expression, ci.at_charindex, ci.bracket_charindex)
