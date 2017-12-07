@@ -5027,7 +5027,7 @@ BEGIN
                      100,
                      'Potentially bad cardinality estimates',
                      'Estimated rows are different from average rows by a factor of 10000',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/bad-estimates/',
                      'This may indicate a performance problem if mismatches occur regularly') ;	
 					 					 						 				 
         IF EXISTS (SELECT 1/0
@@ -5053,7 +5053,7 @@ BEGIN
 				200,
 				'Database Level Statistics',
 				'The database ' + sa.[Database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.LastUpdate))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.ModificationCount)) + ' modifications on average.' AS [Finding],
-				'' AS URL,
+				'https://www.brentozar.com/blitzcache/stale-statistics/' AS URL,
 				'Consider updating statistics more frequently,' AS [Details]
 				FROM #stats_agg AS sa
 				GROUP BY sa.[Database]
