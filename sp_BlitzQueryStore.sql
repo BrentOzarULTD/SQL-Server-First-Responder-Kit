@@ -3057,7 +3057,6 @@ IF EXISTS (   SELECT 1
 			FROM   #stored_proc_info AS sp
 			WHERE (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
 			OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
-			AND sp.variable_name = vi.variable_name 
 		)
 		OPTION ( RECOMPILE );
 		
@@ -3078,9 +3077,11 @@ IF EXISTS (   SELECT 1
 															- CHARINDEX('(', s.compile_time_value)
 															)
 											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
-											AND s.variable_datatype NOT LIKE '%binary%' THEN
-											QUOTENAME(compile_time_value, '''')
-									  ELSE s.compile_time_value 
+												AND s.variable_datatype NOT LIKE '%binary%' 
+												AND s.compile_time_value NOT LIKE 'N''%'''
+												AND s.compile_time_value NOT LIKE '''%''' THEN
+												QUOTENAME(compile_time_value, '''')
+									ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
 		OPTION(RECOMPILE);
