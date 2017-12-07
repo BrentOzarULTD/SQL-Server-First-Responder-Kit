@@ -3191,7 +3191,7 @@ OPTION ( RECOMPILE );
 RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
 INSERT #stored_proc_info 
 		( SPID, SqlHandle, QueryHash, variable_name, variable_datatype, compile_time_value, proc_name )
-SELECT vi.SPID, vi.SqlHandle, vi.QueryHash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+SELECT vi.SPID, vi.SqlHandle, vi.QueryHash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, REPLACE(REPLACE(REPLACE(vi.proc_name, ')', ''), 'Statement (parent ', ''), 'Procedure or Function: ', '') AS proc_name
 FROM #variable_info AS vi
 WHERE NOT EXISTS
 (
