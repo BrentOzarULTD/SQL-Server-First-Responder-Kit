@@ -3603,7 +3603,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END,
 	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
-	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 10000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 10000) THEN 1 END
+	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
@@ -4884,7 +4884,7 @@ BEGIN
                      100,
                      'Many Indexes Modified',
                      'Write Queries Are Hitting >= 5 Indexes',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/many-indexes-modified/',
                      'This can cause lots of hidden I/O -- Run sp_BlitzIndex for more information.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4897,7 +4897,7 @@ BEGIN
                      100,
                      'Plan Confusion',
                      'Row Level Security is in use',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/row-level-security/',
                      'You may see a lot of confusing junk in your query plan.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4910,7 +4910,7 @@ BEGIN
                      200,
                      'Spatial Abuse',
                      'You hit a Spatial Index',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/spatial-indexes/',
                      'Purely informational.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4923,7 +4923,7 @@ BEGIN
                      150,
                      'Index DML',
                      'Indexes were created or dropped',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/index-dml/',
                      'This can cause recompiles and stuff.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4936,7 +4936,7 @@ BEGIN
                      150,
                      'Table DML',
                      'Tables were created or dropped',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/table-dml/',
                      'This can cause recompiles and stuff.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4949,7 +4949,7 @@ BEGIN
                      150,
                      'Long Running Low CPU',
                      'You have a query that runs for much longer than it uses CPU',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/long-running-low-cpu/',
                      'This can be a sign of blocking, linked servers, or poor client application code (ASYNC_NETWORK_IO).') ;
 
         IF EXISTS (SELECT 1/0
@@ -4962,7 +4962,7 @@ BEGIN
                      150,
                      'Low Cost Query With High CPU',
                      'You have a low cost query that uses a lot of CPU',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/low-cost-high-cpu/',
                      'This can be a sign of functions or Dynamic SQL that calls black-box code.') ;
 
         IF EXISTS (SELECT 1/0
@@ -4975,7 +4975,7 @@ BEGIN
                      150,
                      'Biblical Statistics',
                      'Statistics used in queries are >7 days old with >100k modifications',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/stale-statistics/',
                      'Ever heard of updating statistics?') ;
 
         IF EXISTS (SELECT 1/0
@@ -4988,7 +4988,7 @@ BEGIN
                      150,
                      'Adaptive joins',
                      'This is pretty cool -- you''re living in the future.',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/adaptive-joins/',
                      'Joe Sack rules.') ;	
 
         IF EXISTS (SELECT 1/0
@@ -5001,7 +5001,7 @@ BEGIN
                      150,
                      'Expensive Index Spool',
                      'You have an index spool, this is usually a sign that there''s an index missing somewhere.',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/eager-index-spools/',
                      'Check operator predicates and output for index definition guidance') ;	
 
         IF EXISTS (SELECT 1/0
@@ -5014,7 +5014,7 @@ BEGIN
                      150,
                      'Index Spools Many Rows',
                      'You have an index spool that spools more rows than the query returns',
-                     'No URL yet',
+                     'https://www.brentozar.com/blitzcache/eager-index-spools/',
                      'Check operator predicates and output for index definition guidance') ;
 					 
         IF EXISTS (SELECT 1/0
