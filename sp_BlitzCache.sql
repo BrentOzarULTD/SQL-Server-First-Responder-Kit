@@ -3199,7 +3199,6 @@ WHERE NOT EXISTS
 	FROM   #stored_proc_info AS sp
 	WHERE (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
 	OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
-	AND sp.variable_name = vi.variable_name 
 )
 OPTION ( RECOMPILE );
 
@@ -3221,7 +3220,9 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
 													- CHARINDEX('(', s.compile_time_value)
 													)
 									WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
-										AND s.variable_datatype NOT LIKE '%binary%' THEN
+										AND s.variable_datatype NOT LIKE '%binary%' 
+										AND s.compile_time_value NOT LIKE 'N''%'''
+										AND s.compile_time_value NOT LIKE '''%''' THEN
 										QUOTENAME(compile_time_value, '''')
 									ELSE s.compile_time_value 
 							  END
