@@ -506,7 +506,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                     + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
                     ') ' + CASE WHEN included_columns IS NOT NULL THEN N' INCLUDE (' + included_columns + N')' ELSE N'' END
                     + N' WITH (' 
-                        + N'FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?' 
+                        + N'FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?' 
                     + N')'
                     + N';'
                     ,
@@ -1792,7 +1792,7 @@ SELECT
                 + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
                     N' WITH (' 
                         + N'FILLFACTOR=' + CASE fill_factor WHEN 0 THEN N'100' ELSE CAST(fill_factor AS NVARCHAR(5)) END + ', '
-                        + N'ONLINE=?, SORT_IN_TEMPDB=?'
+                        + N'ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?'
                     + N')'
                 ELSE N'' END
                 + N';'
