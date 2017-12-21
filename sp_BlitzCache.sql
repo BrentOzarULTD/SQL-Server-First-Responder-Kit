@@ -3206,7 +3206,7 @@ OPTION ( RECOMPILE );
 RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 UPDATE s
 SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
-                                      LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+                                      LEFT(s.variable_datatype, CHARINDEX(N'(', s.variable_datatype) - 1)
 								  ELSE s.variable_datatype
                              END,
        s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
