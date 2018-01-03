@@ -280,3 +280,4 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | Virtual Server | https://www.BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
 | 254 | Rundate | (Current Date) |  | 156 |
+| 255 | Thanks! | From Your Community Volunteers |  | -1 |
