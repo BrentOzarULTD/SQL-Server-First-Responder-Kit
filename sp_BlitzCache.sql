@@ -111,6 +111,10 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		MaxUsedGrantKB BIGINT,
 		PercentMemoryGrantUsed MONEY,
 		AvgMaxMemoryGrant MONEY,
+		MinSpills BIGINT,
+		MaxSpills BIGINT,
+		TotalSpills BIGINT,
+		AvgSpills MONEY,
         QueryText NVARCHAR(MAX),
         QueryPlan XML,
         /* these next four columns are the total for the type of query.
@@ -326,7 +330,7 @@ BEGIN
     UNION ALL
     SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
     UNION ALL
     SELECT N'@UseTriggersAnyway',
@@ -825,6 +829,10 @@ BEGIN
 		MaxUsedGrantKB BIGINT,
 		PercentMemoryGrantUsed MONEY,
 		AvgMaxMemoryGrant MONEY,
+		MinSpills BIGINT,
+		MaxSpills BIGINT,
+		TotalSpills BIGINT,
+		AvgSpills MONEY,
         QueryText NVARCHAR(MAX),
         QueryPlan XML,
         /* these next four columns are the total for the type of query.
@@ -976,7 +984,7 @@ RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
-					   'all', 'all avg')
+					   'spills', 'avg spills', 'all', 'all avg')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1601,6 +1609,13 @@ BEGIN
    RETURN;
 END;
 
+IF (@SortOrder IN ('memory grant', 'avg memory grant')) 
+AND (@v < 14)
+BEGIN
+   RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
+   RETURN;
+END;
+
 IF ((LEFT(@QueryFilter, 3) = 'fun') AND (@v < 13))
 BEGIN
    RAISERROR('Your version of SQL does not support filtering by functions. Please use another filter.', 16, 1);
@@ -1614,7 +1629,7 @@ INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, To
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
                     LastExecutionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
-                    LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant,
+                    LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, 
 					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
                     min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
@@ -1704,13 +1719,15 @@ SELECT @body += N'        ORDER BY ' +
                                  WHEN N'executions' THEN N'execution_count'
                                  WHEN N'compiles' THEN N'cached_time'
 								 WHEN N'memory grant' THEN N'max_grant_kb'
+								 WHEN N'spills' THEN N'max_spills'
                                  /* And now the averages */
                                  WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
                                  WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
                                  WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                  WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
 								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
-                                 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
+                                 WHEN N'avg spills' THEN N'CASE WHEN max_spills = 0 THEN 0 ELSE max_spills / total_spills END'
+								 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE())
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
@@ -1799,8 +1816,29 @@ SELECT TOP (@Top)
        NULL AS MinUsedGrantKB, 
 	   NULL AS MaxUsedGrantKB,
 	   NULL AS PercentMemoryGrantUsed, 
-	   NULL AS AvgMaxMemoryGrant,
-       st.text AS QueryText ,
+	   NULL AS AvgMaxMemoryGrant,'
+
+		IF @v >=14
+    BEGIN
+        RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
+		SET @plans_triggers_select_list += N'
+           min_spills AS MinSpills,
+           max_spills AS MaxSpills,
+           total_spills AS TotalSpills,
+		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ';
+    END;
+    ELSE
+    BEGIN
+        RAISERROR(N'Substituting NULLs for spill columns in older versions of SQL', 0, 1) WITH NOWAIT;
+		SET @plans_triggers_select_list += N'
+           NULL AS MinSpills,
+           NULL AS MaxSpills,
+           NULL AS TotalSpills, 
+		   NULL AS AvgSpills, ' ;
+    END;		       
+	     
+		SET @plans_triggers_select_list +=  
+	 N'st.text AS QueryText ,
        query_plan AS QueryPlan,
        t.t_TotalWorker,
        t.t_TotalElapsed,
@@ -1913,6 +1951,24 @@ BEGIN
 		   NULL AS AvgMaxMemoryGrant, ' ;
     END;
 
+		IF @v >=14
+    BEGIN
+        RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
+		SET @sql += N'
+           min_spills AS MinSpills,
+           max_spills AS MaxSpills,
+           total_spills AS TotalSpills,
+		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ';
+    END;
+    ELSE
+    BEGIN
+        RAISERROR(N'Substituting NULLs for spill columns in older versions of SQL', 0, 1) WITH NOWAIT;
+		SET @sql += N'
+           NULL AS MinSpills,
+           NULL AS MaxSpills,
+           NULL AS TotalSpills, 
+		   NULL AS AvgSpills, ' ;
+    END;		       
     
     SET @sql += N'
            SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
@@ -1974,10 +2030,21 @@ IF (@v >= 13
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
    AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('spills', 'avg spills'))
    OR (LEFT(@QueryFilter, 3) = 'fun')
 BEGIN
     SET @sql += @insert_list;
-    SET @sql += REPLACE(@plans_triggers_select_list, '#query_type#', 'Function') ;
+    SET @sql += REPLACE(REPLACE(@plans_triggers_select_list, '#query_type#', 'Function')
+			, N'
+           min_spills AS MinSpills,
+           max_spills AS MaxSpills,
+           total_spills AS TotalSpills,
+		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ', 
+		   N'
+           NULL AS MinSpills,
+           NULL AS MaxSpills,
+           NULL AS TotalSpills, 
+		   NULL AS AvgSpills, ') ;
 
     SET @sql += REPLACE(@body, '#view#', 'dm_exec_function_stats') ; 
     SET @sql += @body_where ;
@@ -2032,12 +2099,14 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'executions' THEN N'execution_count'
                                 WHEN N'compiles' THEN N'cached_time'
 								WHEN N'memory grant' THEN N'max_grant_kb'
+								WHEN N'spills' THEN N'max_spills'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
                                 WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
                                 WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                 WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
 								WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
+                                WHEN N'avg spills' THEN N'CASE WHEN max_spills = 0 THEN 0 ELSE max_spills / total_spills END'
                                 WHEN N'avg executions' THEN N'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
@@ -2073,11 +2142,14 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
                                 WHEN N'executions' THEN N'ExecutionCount'
                                 WHEN N'compiles' THEN N'PlanCreationTime'
 								WHEN N'memory grant' THEN N'MaxGrantKB'
+								WHEN N'spills' THEN N'MaxSpills'
+                                /* And now the averages */
                                 WHEN N'avg cpu' THEN N'TotalCPU / ExecutionCount'
                                 WHEN N'avg reads' THEN N'TotalReads / ExecutionCount'
                                 WHEN N'avg writes' THEN N'TotalWrites / ExecutionCount'
                                 WHEN N'avg duration' THEN N'TotalDuration / ExecutionCount'
 								WHEN N'avg memory grant' THEN N'AvgMaxMemoryGrant'
+                                WHEN N'avg spills' THEN N'AvgSpills'
                                 WHEN N'avg executions' THEN N'CASE WHEN ExecutionCount = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * ExecutionCount / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
@@ -3971,18 +4043,20 @@ BEGIN
 	SET @insert_sql += N' AND SPID = @@SPID ';
           
     SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                    WHEN 'reads' THEN N' TotalReads '
-                                                    WHEN 'writes' THEN N' TotalWrites '
-                                                    WHEN 'duration' THEN N' TotalDuration '
-                                                    WHEN 'executions' THEN N' ExecutionCount '
-                                                    WHEN 'compiles' THEN N' PlanCreationTime '
-													WHEN 'memory grant' THEN N' MaxGrantKB'
-                                                    WHEN 'avg cpu' THEN N' AverageCPU'
-                                                    WHEN 'avg reads' THEN N' AverageReads'
-                                                    WHEN 'avg writes' THEN N' AverageWrites'
-                                                    WHEN 'avg duration' THEN N' AverageDuration'
-                                                    WHEN 'avg executions' THEN N' ExecutionsPerMinute'
-													WHEN 'avg memory grant' THEN N' AvgMaxMemoryGrant'
+                                                    WHEN N'reads' THEN N' TotalReads '
+                                                    WHEN N'writes' THEN N' TotalWrites '
+                                                    WHEN N'duration' THEN N' TotalDuration '
+                                                    WHEN N'executions' THEN N' ExecutionCount '
+                                                    WHEN N'compiles' THEN N' PlanCreationTime '
+													WHEN N'memory grant' THEN N' MaxGrantKB'
+													WHEN N'spills' THEN N' MaxSpills'
+                                                    WHEN N'avg cpu' THEN N' AverageCPU'
+                                                    WHEN N'avg reads' THEN N' AverageReads'
+                                                    WHEN N'avg writes' THEN N' AverageWrites'
+                                                    WHEN N'avg duration' THEN N' AverageDuration'
+                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+													WHEN 'avg spills' THEN N' AvgSpills'
                                                     END + N' DESC ';
 
     SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
@@ -4078,19 +4152,21 @@ BEGIN
 		SET @sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
 	  END;
 
-	SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN ' TotalCPU '
-                              WHEN 'reads' THEN ' TotalReads '
-                              WHEN 'writes' THEN ' TotalWrites '
-                              WHEN 'duration' THEN ' TotalDuration '
-                              WHEN 'executions' THEN ' ExecutionCount '
-                              WHEN 'compiles' THEN ' PlanCreationTime '
-							  WHEN 'memory grant' THEN 'MaxGrantKB'
-                              WHEN 'avg cpu' THEN 'AverageCPU'
-                              WHEN 'avg reads' THEN 'AverageReads'
-                              WHEN 'avg writes' THEN 'AverageWrites'
-                              WHEN 'avg duration' THEN 'AverageDuration'
-                              WHEN 'avg executions' THEN 'ExecutionsPerMinute'
-							  WHEN 'avg memory grant' THEN 'AvgMaxMemoryGrant'
+	SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN N'cpu' THEN N' TotalCPU '
+                              WHEN N'reads' THEN N' TotalReads '
+                              WHEN N'writes' THEN N' TotalWrites '
+                              WHEN N'duration' THEN N' TotalDuration '
+                              WHEN N'executions' THEN N' ExecutionCount '
+                              WHEN N'compiles' THEN N' PlanCreationTime '
+							  WHEN N'memory grant' THEN N' MaxGrantKB'
+							  WHEN N'spills' THEN N' MaxSpills'
+                              WHEN N'avg cpu' THEN N' AverageCPU'
+                              WHEN N'avg reads' THEN N' AverageReads'
+                              WHEN N'avg writes' THEN N' AverageWrites'
+                              WHEN N'avg duration' THEN N' AverageDuration'
+                              WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+							  WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+							  WHEN N'avg spills' THEN N' AvgSpills'
                               END + N' DESC ';
 
     SET @sql += N' OPTION (RECOMPILE) ; ';
@@ -4150,6 +4226,10 @@ BEGIN
 	MinUsedGrantKB AS [Minimum Used Grant KB], 
 	MaxUsedGrantKB AS [Maximum Used Grant KB],
 	AvgMaxMemoryGrant AS [Average Max Memory Grant],
+	MinSpills AS [Min Spills],
+	MaxSpills AS [Max Spills],
+	TotalSpills AS [Total Spills],
+	AvgSpills AS [Avg Spills],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
 	PlanHandle AS [Plan Handle], 
@@ -4261,6 +4341,10 @@ BEGIN
 		MinUsedGrantKB AS [Minimum Used Grant KB], 
 		MaxUsedGrantKB AS [Maximum Used Grant KB],
 		AvgMaxMemoryGrant AS [Average Max Memory Grant],
+		MinSpills AS [Min Spills],
+		MaxSpills AS [Max Spills],
+		TotalSpills AS [Total Spills],
+		AvgSpills AS [Avg Spills],
         NumberOfPlans AS [# Plans],
         NumberOfDistinctPlans AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
@@ -4299,19 +4383,21 @@ IF @MinutesBack IS NOT NULL
 		SET @sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ' + @nl;
     END;
 
-SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                WHEN 'reads' THEN N' TotalReads '
-                                                WHEN 'writes' THEN N' TotalWrites '
-                                                WHEN 'duration' THEN N' TotalDuration '
-                                                WHEN 'executions' THEN N' ExecutionCount '
-                                                WHEN 'compiles' THEN N' PlanCreationTime '
-												WHEN 'memory grant' THEN N' MaxGrantKB'
-                                                WHEN 'avg cpu' THEN N' AverageCPU'
-                                                WHEN 'avg reads' THEN N' AverageReads'
-                                                WHEN 'avg writes' THEN N' AverageWrites'
-                                                WHEN 'avg duration' THEN N' AverageDuration'
-                                                WHEN 'avg executions' THEN N' ExecutionsPerMinute'
-												WHEN 'avg memory grant' THEN N' AvgMaxMemoryGrant'
+SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
+                                                WHEN N'reads' THEN N' TotalReads '
+                                                WHEN N'writes' THEN N' TotalWrites '
+                                                WHEN N'duration' THEN N' TotalDuration '
+                                                WHEN N'executions' THEN N' ExecutionCount '
+                                                WHEN N'compiles' THEN N' PlanCreationTime '
+												WHEN N'memory grant' THEN N' MaxGrantKB'
+												WHEN N'spills' THEN N' MaxSpills'
+                                                WHEN N'avg cpu' THEN N' AverageCPU'
+                                                WHEN N'avg reads' THEN N' AverageReads'
+                                                WHEN N'avg writes' THEN N' AverageWrites'
+                                                WHEN N'avg duration' THEN N' AverageDuration'
+                                                WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+												WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+												WHEN N'avg spills' THEN N' AvgSpills'
                                END + N' DESC ';
 SET @sql += N' OPTION (RECOMPILE) ; ';
 
@@ -5323,6 +5409,10 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            MinUsedGrantKB BIGINT,
            MaxUsedGrantKB BIGINT,
            AvgMaxMemoryGrant MONEY,
+			MinSpills BIGINT,
+			MaxSpills BIGINT,
+			TotalSpills BIGINT,
+			AvgSpills MONEY,
            PlanCreationTime DATETIME,
            LastExecutionTime DATETIME,
            PlanHandle VARBINARY(64),
@@ -5351,6 +5441,9 @@ SELECT  @MemGrant = CASE WHEN (
                               ) THEN 0
                          ELSE 1
                     END;
+
+DECLARE @Spills BIT;
+SELECT @Spills = CASE WHEN (@v >= 14) THEN 1 ELSE 0 END
 		 
 
 IF LOWER(@SortOrder) = 'all'
@@ -5362,7 +5455,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions ) 					 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5370,10 +5463,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5381,10 +5474,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5392,10 +5485,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5403,10 +5496,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5433,7 +5526,7 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N'  SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										   MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										   MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
 										   FROM #bou_allsort 
 										   ORDER BY Id 
 										   OPTION(RECOMPILE);  ';
@@ -5443,10 +5536,10 @@ SET @AllSortSql += N'
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
-										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 					  
@@ -5468,7 +5561,67 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions  
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions  
+										  FROM #bou_allsort 
+										  ORDER BY Id 
+										  OPTION(RECOMPILE);  ';
+				    END;
+
+					IF @Spills = 0
+					BEGIN
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL,
+													missing_indexes = NULL
+												   OPTION (RECOMPILE);
+
+												   UPDATE ##bou_BlitzCacheProcs
+												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
+												   OPTION(RECOMPILE);';
+						END; 
+					SET @AllSortSql += N'  SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										   MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										   FROM #bou_allsort 
+										   ORDER BY Id 
+										   OPTION(RECOMPILE);  ';
+					END; 
+					
+					IF @Spills = 1
+					BEGIN 
+					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
+					
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
+										  
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 					  
+										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL, 
+													missing_indexes = NULL
+												   OPTION (RECOMPILE);
+
+												   UPDATE ##bou_BlitzCacheProcs
+												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
+												   OPTION(RECOMPILE);';
+						END; 
+					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions  
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  ';
@@ -5486,7 +5639,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5494,10 +5647,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5505,10 +5658,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )	 
 					
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5516,10 +5669,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )	 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5527,10 +5680,10 @@ SET @AllSortSql += N'
 
 					 SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 
-					 INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 
@@ -5557,7 +5710,7 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N'  SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										   MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										   MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
 										   FROM #bou_allsort 
 										   ORDER BY Id 
 										   OPTION(RECOMPILE);  ';
@@ -5567,12 +5720,12 @@ SET @AllSortSql += N'
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
-										  INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-																TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-																ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-																MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
+						INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -5592,7 +5745,67 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										  FROM #bou_allsort 
+										  ORDER BY Id 
+										  OPTION(RECOMPILE);  ';
+				    END;
+
+					IF @Spills = 0
+					BEGIN
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL, 
+													missing_indexes = NULL
+												   OPTION (RECOMPILE);
+
+												   UPDATE ##bou_BlitzCacheProcs
+												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
+												   OPTION(RECOMPILE);';
+						END;  
+					SET @AllSortSql += N'  SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										   TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										   ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										   MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
+										   FROM #bou_allsort 
+										   ORDER BY Id 
+										   OPTION(RECOMPILE);  ';
+					END; 
+					
+					IF @Spills = 1
+					BEGIN 
+					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
+					
+						INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
+										  
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 					  
+										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
+						IF @ExportToExcel = 1
+						BEGIN
+							SET @AllSortSql += N'  UPDATE #bou_allsort 
+												   SET 
+													QueryPlan = NULL,
+													implicit_conversion_info = NULL, 
+													cached_execution_parameters = NULL, 
+													missing_indexes = NULL
+												   OPTION (RECOMPILE);
+
+												   UPDATE ##bou_BlitzCacheProcs
+												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
+												   OPTION(RECOMPILE);';
+						END; 
+					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions 
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  ';
