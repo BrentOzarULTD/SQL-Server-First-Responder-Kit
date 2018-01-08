@@ -1609,7 +1609,7 @@ BEGIN
    RETURN;
 END;
 
-IF (@SortOrder IN ('memory grant', 'avg memory grant')) 
+IF (@SortOrder IN ('spills', 'avg spills')) 
 AND (@v < 14)
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
