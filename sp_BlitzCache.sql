@@ -2618,6 +2618,7 @@ SET	   is_table_variable = CASE WHEN x.first_char = '@' THEN 1 END
 FROM ##bou_BlitzCacheProcs AS p
 JOIN x ON x.SqlHandle = p.SqlHandle
 AND SPID = @@SPID
+AND x.first_char = '@'
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for functions', 0, 1) WITH NOWAIT;
@@ -2643,11 +2644,12 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET key_lookup_cost = x.key_lookup_cost
 FROM (
-SELECT 
+SELECT TOP 1
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS key_lookup_cost
 FROM   #relop qs
 WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
+ORDER BY 2 DESC
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
@@ -2659,11 +2661,12 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET remote_query_cost = x.remote_query_cost
 FROM (
-SELECT 
+SELECT TOP 1
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
 FROM   #relop qs
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
+ORDER BY 2 DESC
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
@@ -2674,12 +2677,13 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##bou_BlitzCacheProcs
 SET sort_cost = (x.sort_io + x.sort_cpu) 
 FROM (
-SELECT 
+SELECT TOP 1
        qs.SqlHandle,
 	   relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
 	   relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
 FROM   #relop qs
 WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+ORDER BY (relop.value('sum(/p:RelOp/@EstimateIO)', 'float') + relop.value('sum(/p:RelOp/@EstimateCPU)', 'float')) DESC
 ) AS x
 WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 AND SPID = @@SPID
@@ -2698,6 +2702,7 @@ WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 
+/* BGO #1349 2017/12/19 I think the below won't always reliably fire if there are multiple scans in a plan, and some are forced and some aren't */
 RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
@@ -2881,11 +2886,12 @@ BEGIN
 	UPDATE ##bou_BlitzCacheProcs
 	SET columnstore_row_mode = x.is_row_mode
 	FROM (
-	SELECT 
+	SELECT TOP 1
 	       qs.SqlHandle,
 		   relop.exist('/p:RelOp[(@EstimatedExecutionMode[.="Row"])]') AS is_row_mode
 	FROM   #relop qs
 	WHERE [relop].exist('/p:RelOp/p:IndexScan[(@Storage[.="ColumnStore"])]') = 1
+    ORDER BY 2 DESC
 	) AS x
 	WHERE ##bou_BlitzCacheProcs.SqlHandle = x.SqlHandle
 	AND SPID = @@SPID
