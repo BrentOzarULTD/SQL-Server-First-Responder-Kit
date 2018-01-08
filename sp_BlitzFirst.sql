@@ -428,6 +428,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CMEMPARTITIONED','Memory',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CMEMTHREAD','Memory',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CXPACKET','Parallelism',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('CXCONSUMER','Parallelism',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_DBM_EVENT','Mirroring',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_DBM_MUTEX','Mirroring',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_EVENTS_QUEUE','Mirroring',1);
