@@ -7145,8 +7145,49 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								EXECUTE(@StringToExecute);
 							END;
+								
 
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 211 )
+								BEGIN																		
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
 
+								DECLARE @outval VARCHAR(36);							
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+								                           @key = 'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
+								                           @value_name = 'ActivePowerScheme',
+								                           @value = @outval OUTPUT;
+
+									INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)							
+							SELECT  211 AS CheckId,
+									250 AS Priority,
+									'Server Info' AS FindingsGroup,
+									'Power Plan' AS Finding,
+									'https://www.brentozar.com/blitz/power-mode/' AS URL,
+									'Your server is in '
+									+ CASE @outval
+							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
+							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
+							             WHEN '381b4222-f694-41f0-9685-ff5bb260df2e'
+							             THEN 'balanced power mode -- Uh... you want your CPUs to run at full speed, right?'
+							             WHEN '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+							             THEN 'high performance power mode'
+										 ELSE 'Unknown!'
+							        END AS Details
+								
+								END;
+
+							
+							
 							IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )
