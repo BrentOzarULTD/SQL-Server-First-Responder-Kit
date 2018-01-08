@@ -701,7 +701,8 @@ SET @VersionDate = '20171201';
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 			 WHERE dp.victim_id IS NULL
 			 AND dp.login_name IS NOT NULL)
-		SELECT d.event_date,
+		SELECT d.deadlock_type,
+			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
 		       'Deadlock #' 
 			   + CONVERT(NVARCHAR(10), d.en)
