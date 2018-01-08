@@ -3983,6 +3983,10 @@ BEGIN
 		  MaxUsedGrantKB BIGINT,
 		  PercentMemoryGrantUsed MONEY,
 		  AvgMaxMemoryGrant MONEY,
+		  MinSpills BIGINT,
+		  MaxSpills BIGINT,
+		  TotalSpills BIGINT,
+		  AvgSpills MONEY,
 		  QueryPlanCost FLOAT,
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
@@ -4019,14 +4023,14 @@ BEGIN
           + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost ) '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
           + N'SELECT TOP (@Top) '
           + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
           + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, QueryPlanCost '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
           + N' FROM ##bou_BlitzCacheProcs '
 		  + N' WHERE 1=1 ';
    
@@ -4127,6 +4131,10 @@ BEGIN
 		    MaxUsedGrantKB,
 		    PercentMemoryGrantUsed,
 			AvgMaxMemoryGrant,
+			MinSpills, 
+			MaxSpills, 
+			TotalSpills, 
+			AvgSpills,
             NumberOfPlans,
             NumberOfDistinctPlans,
             PlanCreationTime AS [Created At],
@@ -5409,10 +5417,10 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            MinUsedGrantKB BIGINT,
            MaxUsedGrantKB BIGINT,
            AvgMaxMemoryGrant MONEY,
-			MinSpills BIGINT,
-			MaxSpills BIGINT,
-			TotalSpills BIGINT,
-			AvgSpills MONEY,
+		   MinSpills BIGINT,
+		   MaxSpills BIGINT,
+		   TotalSpills BIGINT,
+		   AvgSpills MONEY,
            PlanCreationTime DATETIME,
            LastExecutionTime DATETIME,
            PlanHandle VARBINARY(64),
