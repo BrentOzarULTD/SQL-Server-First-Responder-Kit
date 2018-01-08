@@ -366,7 +366,7 @@ CREATE TABLE #working_plans
 (
     plan_id BIGINT,
     query_id BIGINT,
-	pattern NVARCHAR(256),
+	pattern NVARCHAR(258),
 	INDEX wp_ix_ids CLUSTERED (plan_id, query_id)
 );
 
@@ -378,14 +378,14 @@ DROP TABLE IF EXISTS #working_metrics;
 
 CREATE TABLE #working_metrics 
 (
-    database_name NVARCHAR(256),
+    database_name NVARCHAR(258),
 	plan_id BIGINT,
     query_id BIGINT,
 	/*these columns are from query_store_query*/
-	proc_or_function_name NVARCHAR(256),
+	proc_or_function_name NVARCHAR(258),
 	batch_sql_handle VARBINARY(64),
 	query_hash BINARY(8),
-	query_parameterization_type_desc NVARCHAR(256),
+	query_parameterization_type_desc NVARCHAR(258),
 	parameter_sniffing_symptoms NVARCHAR(4000),
 	count_compiles BIGINT,
 	avg_compile_duration DECIMAL(38,2),
@@ -484,7 +484,7 @@ DROP TABLE IF EXISTS #working_plan_text;
 
 CREATE TABLE #working_plan_text 
 (
-	database_name NVARCHAR(256),
+	database_name NVARCHAR(258),
     plan_id BIGINT,
     query_id BIGINT,
 	/*These are from query_store_plan*/
@@ -499,7 +499,7 @@ CREATE TABLE #working_plan_text
 	is_forced_plan BIT,
 	is_natively_compiled BIT,
 	force_failure_count BIGINT,
-	last_force_failure_reason_desc NVARCHAR(256),
+	last_force_failure_reason_desc NVARCHAR(258),
 	count_compiles BIGINT,
 	initial_compile_start_time DATETIME2,
 	last_compile_start_time DATETIME2,
@@ -534,7 +534,7 @@ CREATE TABLE #working_warnings
     query_id BIGINT,
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
-	proc_or_function_name NVARCHAR(256),
+	proc_or_function_name NVARCHAR(258),
 	plan_multiple_plans BIT,
     is_forced_plan BIT,
     is_forced_parameterized BIT,
@@ -612,6 +612,7 @@ CREATE TABLE #working_warnings
 	is_big_log BIT,
 	is_big_tempdb BIT,
 	is_paul_white_electric BIT,
+	is_row_goal BIT,
 	implicit_conversion_info XML,
 	cached_execution_parameters XML,
 	missing_indexes XML,
@@ -626,7 +627,7 @@ CREATE TABLE #working_wait_stats
 (
     plan_id BIGINT,
 	wait_category TINYINT,
-	wait_category_desc NVARCHAR(256),
+	wait_category_desc NVARCHAR(258),
 	total_query_wait_time_ms BIGINT,
 	avg_query_wait_time_ms	 DECIMAL(38, 2),
 	last_query_wait_time_ms	BIGINT,
@@ -733,10 +734,10 @@ CREATE TABLE #stats_agg
     last_update DATETIME2,
     modification_count DECIMAL(38, 2),
     sampling_percent DECIMAL(38, 2),
-    [statistics] NVARCHAR(256),
-    [table] NVARCHAR(256),
-    [schema] NVARCHAR(256),
-    [database] NVARCHAR(256),
+    [statistics] NVARCHAR(258),
+    [table] NVARCHAR(258),
+    [schema] NVARCHAR(258),
+    [database] NVARCHAR(258),
 	INDEX sa_ix_ids CLUSTERED (sql_handle)
 );
 
@@ -772,13 +773,13 @@ CREATE TABLE #stored_proc_info
 (
 	sql_handle VARBINARY(64),
     query_hash BINARY(8),
-    variable_name NVARCHAR(256),
-    variable_datatype NVARCHAR(256),
-	converted_column_name NVARCHAR(256),
-    compile_time_value NVARCHAR(4000),
+    variable_name NVARCHAR(258),
+    variable_datatype NVARCHAR(258),
+	converted_column_name NVARCHAR(258),
+    compile_time_value NVARCHAR(258),
     proc_name NVARCHAR(1000),
-    column_name NVARCHAR(256),
-    converted_to NVARCHAR(256)
+    column_name NVARCHAR(258),
+    converted_to NVARCHAR(258)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -789,9 +790,9 @@ CREATE TABLE #variable_info
     query_hash BINARY(8),
     sql_handle VARBINARY(64),
     proc_name NVARCHAR(1000),
-    variable_name NVARCHAR(256),
-    variable_datatype NVARCHAR(256),
-    compile_time_value NVARCHAR(4000),
+    variable_name NVARCHAR(258),
+    variable_datatype NVARCHAR(258),
+    compile_time_value NVARCHAR(258),
 	INDEX vif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
@@ -2842,10 +2843,10 @@ SELECT qp.sql_handle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
 	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
 	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
-	   x.c.value('@Statistics', 'NVARCHAR(256)') AS [Statistics], 
-	   x.c.value('@Table', 'NVARCHAR(256)') AS [Table], 
-	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
-	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
+	   x.c.value('@Statistics', 'NVARCHAR(258)') AS [Statistics], 
+	   x.c.value('@Table', 'NVARCHAR(258)') AS [Table], 
+	   x.c.value('@Schema', 'NVARCHAR(258)') AS [Schema], 
+	   x.c.value('@Database', 'NVARCHAR(258)') AS [Database]
 FROM #query_plan AS qp
 CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c)
 OPTION (RECOMPILE);
@@ -2881,6 +2882,20 @@ FROM #working_warnings AS b
 JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+row_goals AS(
+SELECT qs.query_hash
+FROM   #relop qs
+WHERE relop.value('sum(/p:RelOp/@EstimateRowsWithoutRowGoal)', 'float') > 0
+)
+UPDATE b
+SET b.is_row_goal = 1
+FROM #working_warnings b
+JOIN row_goals
+ON b.query_hash = row_goals.query_hash
+OPTION (RECOMPILE) ;
+
 
 END; 
 
@@ -2963,9 +2978,9 @@ IF EXISTS (   SELECT 1
 		            qp.query_hash,
 		            qp.sql_handle,
 		            b.proc_or_function_name AS proc_name,
-		            q.n.value('@Column', 'NVARCHAR(256)') AS variable_name,
-		            q.n.value('@ParameterDataType', 'NVARCHAR(256)') AS variable_datatype,
-		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(4000)') AS compile_time_value
+		            q.n.value('@Column', 'NVARCHAR(258)') AS variable_name,
+		            q.n.value('@ParameterDataType', 'NVARCHAR(258)') AS variable_datatype,
+		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(258)') AS compile_time_value
 		FROM        #query_plan AS qp
            JOIN     #working_warnings AS b
            ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
@@ -3137,6 +3152,7 @@ IF EXISTS (   SELECT 1
 									   WHEN spi2.column_name LIKE '%Expr%'
 									   THEN N''
 									   WHEN spi2.compile_time_value NOT IN ('**declared in proc**', '**idk_man**')
+									   AND spi2.compile_time_value <> spi2.column_name
 									   THEN ' with the value ' + RTRIM(spi2.compile_time_value)
 									ELSE N''
 								 END 
@@ -3438,7 +3454,8 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END +
 				  CASE WHEN b.is_big_log = 1 THEN + ', High log use' ELSE '' END +
 				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END +
-				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
+				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -4397,7 +4414,19 @@ BEGIN
                      'High tempdb use',
                      'This query uses more than half of a data file on average',
                      'No URL yet',
-                     'You should take a look at tempdb waits to see if you''re having problems') ;	
+                     'You should take a look at tempdb waits to see if you''re having problems') ;
+					 
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_row_goal = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (59,
+                     200,
+                     'Row Goals',
+                     'This query had row goals introduced',
+                     'https://www.brentozar.com/archive/2018/01/sql-server-2017-cu3-adds-optimizer-row-goal-information-query-plans/',
+                     'This can be good or bad, and should be investigated for high read queries') ;						 	
 					
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
@@ -4410,7 +4439,9 @@ BEGIN
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
                      'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
-                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;						 					
+                     'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;
+					 
+					 						 					
 				
 				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 				

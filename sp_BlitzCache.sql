@@ -48,7 +48,7 @@ CREATE TABLE ##bou_BlitzCacheResults (
 
 CREATE TABLE ##bou_BlitzCacheProcs (
         SPID INT ,
-        QueryType NVARCHAR(256),
+        QueryType NVARCHAR(258),
         DatabaseName sysname,
         AverageCPU DECIMAL(38,4),
         AverageCPUPerMinute DECIMAL(38,4),
@@ -214,6 +214,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
+		is_row_goal BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -229,13 +230,13 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @UseTriggersAnyway BIT = NULL,
     @ExportToExcel BIT = 0,
     @ExpertMode TINYINT = 0,
-    @OutputServerName NVARCHAR(256) = NULL ,
-    @OutputDatabaseName NVARCHAR(256) = NULL ,
-    @OutputSchemaName NVARCHAR(256) = NULL ,
-    @OutputTableName NVARCHAR(256) = NULL ,
+    @OutputServerName NVARCHAR(258) = NULL ,
+    @OutputDatabaseName NVARCHAR(258) = NULL ,
+    @OutputSchemaName NVARCHAR(258) = NULL ,
+    @OutputTableName NVARCHAR(258) = NULL ,
     @ConfigurationDatabaseName NVARCHAR(128) = NULL ,
-    @ConfigurationSchemaName NVARCHAR(256) = NULL ,
-    @ConfigurationTableName NVARCHAR(256) = NULL ,
+    @ConfigurationSchemaName NVARCHAR(258) = NULL ,
+    @ConfigurationTableName NVARCHAR(258) = NULL ,
     @DurationFilter DECIMAL(38,4) = NULL ,
     @HideSummary BIT = 0 ,
     @IgnoreSystemDBs BIT = 1 ,
@@ -354,12 +355,12 @@ BEGIN
 
     UNION ALL
     SELECT N'@OutputSchemaName',
-           N'NVARCHAR(256)',
+           N'NVARCHAR(258)',
            N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
     UNION ALL
     SELECT N'@OutputTableName',
-           N'NVARCHAR(256)',
+           N'NVARCHAR(258)',
            N'The output table. If this does not exist, it will be created for you.'
 
     UNION ALL
@@ -520,7 +521,7 @@ BEGIN
 
     UNION ALL
     SELECT N'Query Type',
-           N'NVARCHAR(256)',
+           N'NVARCHAR(258)',
            N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
 
     UNION ALL
@@ -769,7 +770,7 @@ IF OBJECT_ID('tempdb.dbo.##bou_BlitzCacheProcs') IS NULL
 BEGIN
     CREATE TABLE ##bou_BlitzCacheProcs (
         SPID INT ,
-        QueryType NVARCHAR(256),
+        QueryType NVARCHAR(258),
         DatabaseName sysname,
         AverageCPU DECIMAL(38,4),
         AverageCPUPerMinute DECIMAL(38,4),
@@ -932,6 +933,7 @@ BEGIN
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
+		is_row_goal BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -1180,10 +1182,10 @@ CREATE TABLE #stats_agg
 	LastUpdate DATETIME2(7),
     ModificationCount INT,
     SamplingPercent FLOAT,
-    [Statistics] NVARCHAR(256),
-    [Table] NVARCHAR(256),
-    [Schema] NVARCHAR(256),
-    [Database] NVARCHAR(256),
+    [Statistics] NVARCHAR(258),
+    [Table] NVARCHAR(258),
+    [Schema] NVARCHAR(258),
+    [Database] NVARCHAR(258),
 );
 
 CREATE TABLE #trace_flags
@@ -1199,13 +1201,13 @@ CREATE TABLE #stored_proc_info
     SPID INT,
 	SqlHandle VARBINARY(64),
     QueryHash BINARY(8),
-    variable_name NVARCHAR(256),
-    variable_datatype NVARCHAR(256),
-	converted_column_name NVARCHAR(256),
-    compile_time_value NVARCHAR(4000),
+    variable_name NVARCHAR(258),
+    variable_datatype NVARCHAR(258),
+	converted_column_name NVARCHAR(258),
+    compile_time_value NVARCHAR(258),
     proc_name NVARCHAR(1000),
-    column_name NVARCHAR(256),
-    converted_to NVARCHAR(256)
+    column_name NVARCHAR(258),
+    converted_to NVARCHAR(258)
 );
 
 CREATE TABLE #variable_info
@@ -1214,9 +1216,9 @@ CREATE TABLE #variable_info
     QueryHash BINARY(8),
     SqlHandle VARBINARY(64),
     proc_name NVARCHAR(1000),
-    variable_name NVARCHAR(256),
-    variable_datatype NVARCHAR(256),
-    compile_time_value NVARCHAR(4000)
+    variable_name NVARCHAR(258),
+    variable_datatype NVARCHAR(258),
+    compile_time_value NVARCHAR(258)
 );
 
 CREATE TABLE #conversion_info
@@ -1224,7 +1226,7 @@ CREATE TABLE #conversion_info
     SPID INT,
     QueryHash BINARY(8),
     SqlHandle VARBINARY(64),
-    proc_name NVARCHAR(256),
+    proc_name NVARCHAR(258),
     expression NVARCHAR(4000),
     at_charindex AS CHARINDEX('@', expression),
     bracket_charindex AS CHARINDEX(']', expression, CHARINDEX('@', expression)) - CHARINDEX('@', expression),
@@ -3011,10 +3013,10 @@ SELECT qp.SqlHandle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
 	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
 	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
-	   x.c.value('@Statistics', 'NVARCHAR(256)') AS [Statistics], 
-	   x.c.value('@Table', 'NVARCHAR(256)') AS [Table], 
-	   x.c.value('@Schema', 'NVARCHAR(256)') AS [Schema], 
-	   x.c.value('@Database', 'NVARCHAR(256)') AS [Database]
+	   x.c.value('@Statistics', 'NVARCHAR(258)') AS [Statistics], 
+	   x.c.value('@Table', 'NVARCHAR(258)') AS [Table], 
+	   x.c.value('@Schema', 'NVARCHAR(258)') AS [Schema], 
+	   x.c.value('@Database', 'NVARCHAR(258)') AS [Database]
 FROM #query_plan AS qp
 CROSS APPLY qp.query_plan.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') x (c);
 
@@ -3049,6 +3051,21 @@ JOIN aj
 ON b.SqlHandle = aj.SqlHandle
 AND b.SPID = @@SPID
 OPTION (RECOMPILE) ;
+
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
+row_goals AS(
+SELECT qs.QueryHash
+FROM   #relop qs
+WHERE relop.value('sum(/p:RelOp/@EstimateRowsWithoutRowGoal)', 'float') > 0
+)
+UPDATE b
+SET b.is_row_goal = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN row_goals
+ON b.QueryHash = row_goals.QueryHash
+AND b.SPID = @@SPID
+OPTION (RECOMPILE) ;
+
 
 END;
 
@@ -3177,9 +3194,9 @@ SELECT      DISTINCT @@SPID,
             qp.QueryHash,
             qp.SqlHandle,
             b.QueryType AS proc_name,
-            q.n.value('@Column', 'NVARCHAR(256)') AS variable_name,
-            q.n.value('@ParameterDataType', 'NVARCHAR(256)') AS variable_datatype,
-            q.n.value('@ParameterCompiledValue', 'NVARCHAR(4000)') AS compile_time_value
+            q.n.value('@Column', 'NVARCHAR(258)') AS variable_name,
+            q.n.value('@ParameterDataType', 'NVARCHAR(258)') AS variable_datatype,
+            q.n.value('@ParameterCompiledValue', 'NVARCHAR(258)') AS compile_time_value
 FROM        #query_plan AS qp
 JOIN        ##bou_BlitzCacheProcs AS b
 ON (b.QueryType = 'adhoc' AND b.QueryHash = qp.QueryHash)
@@ -3359,6 +3376,7 @@ SELECT spi.SPID,
 							   WHEN spi2.column_name LIKE '%Expr%'
 							   THEN N''
 							   WHEN spi2.compile_time_value NOT IN ('**declared in proc**', '**idk_man**')
+							   AND spi2.compile_time_value <> spi2.column_name
 							   THEN ' with the value ' + RTRIM(spi2.compile_time_value)
 							ELSE N''
 						 END 
@@ -3780,7 +3798,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
-				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END	   
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END	   
                   , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE) ;
@@ -3848,7 +3867,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
-				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END
+				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -3916,10 +3936,10 @@ BEGIN
         + @OutputSchemaName + '.'
         + @OutputTableName
         + N'(ID bigint NOT NULL IDENTITY(1,1),
-          ServerName nvarchar(256),
+          ServerName NVARCHAR(258),
 		  CheckDate DATETIMEOFFSET,
-          Version nvarchar(256),
-          QueryType nvarchar(256),
+          Version NVARCHAR(258),
+          QueryType NVARCHAR(258),
           Warnings varchar(max),
           DatabaseName sysname,
           SerialDesiredMemory float,
@@ -4314,7 +4334,8 @@ BEGIN
 				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
 				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
-				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END
+				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END + 
+				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5160,6 +5181,19 @@ BEGIN
 				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
 				AND AVG(sa.ModificationCount) >= 100000;
 
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_row_goal = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     58,
+                     200,
+                     'Row Goals',
+                     'This query had row goals introduced',
+                     'https://www.brentozar.com/archive/2018/01/sql-server-2017-cu3-adds-optimizer-row-goal-information-query-plans/',
+                     'This can be good or bad, and should be investigated for high read queries') ;	
+
 
 			END; 
 
@@ -5390,7 +5424,7 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            DatabaseName VARCHAR(128),
            Cost FLOAT,
            QueryText NVARCHAR(MAX),
-           QueryType NVARCHAR(256),
+           QueryType NVARCHAR(258),
            Warnings VARCHAR(MAX),
 		   QueryPlan XML,
 		   missing_indexes XML,
