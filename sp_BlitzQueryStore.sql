@@ -54,8 +54,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.0';
-	SET @VersionDate = '20171201';
+	SET @Version = '2.1';
+	SET @VersionDate = '20180101';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -883,9 +883,9 @@ CREATE TABLE #missing_index_pretty
     database_name NVARCHAR(128),
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
-	equality NVARCHAR(4000),
-	inequality NVARCHAR(4000),
-	[include] NVARCHAR(4000),
+	equality NVARCHAR(MAX),
+	inequality NVARCHAR(MAX),
+	[include] NVARCHAR(MAX),
 	details AS N'/* '
 	           + CHAR(10) 
 			   + N'The Query Processor estimates that implementing the following index could improve the query cost by ' 
@@ -2291,19 +2291,6 @@ OPTION (RECOMPILE);
 /*NO SERIOUSLY THIS IS A HORRIBLE IDEA*/
 
 
-/*This looks for trivial plans*/
-
-RAISERROR(N'Checking for trivial plans', 0, 1) WITH NOWAIT;
-
-UPDATE w
-SET w.is_trivial = 1
-FROM #working_warnings AS w
-JOIN #working_plan_text AS wpt
-ON w.plan_id = wpt.plan_id
-AND w.query_id = wpt.query_id
-AND wpt.is_trivial_plan = 1
-OPTION (RECOMPILE);
-
 /*Plans that compile 2x more than they execute*/
 
 RAISERROR(N'Checking for plans that compile 2x more than they execute', 0, 1) WITH NOWAIT;
@@ -2440,6 +2427,23 @@ table_dml AS (
 	JOIN table_dml t
 	ON t.query_hash = b.query_hash
 	WHERE t.table_dml = 1
+OPTION (RECOMPILE);
+
+RAISERROR(N'Gathering trivial plans', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+UPDATE b
+SET b.is_trivial = 1
+FROM #working_warnings AS b
+JOIN (
+SELECT  s.sql_handle
+FROM    #statements AS s
+JOIN    (   SELECT  r.sql_handle
+            FROM    #relop AS r
+            WHERE   r.relop.exist('//p:RelOp[contains(@LogicalOp, "Scan")]') = 1 ) AS r
+    ON r.sql_handle = s.sql_handle
+WHERE   s.statement.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1
+) AS s
+ON b.sql_handle = s.sql_handle
 OPTION (RECOMPILE);
 
 RAISERROR(N'Gathering row estimates', 0, 1) WITH NOWAIT;
@@ -2621,7 +2625,7 @@ JOIN (
 	GROUP BY x.sql_handle
 	) AS y
 ON  b.sql_handle = y.sql_handle
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 
@@ -2835,7 +2839,7 @@ FROM #working_warnings ww
 JOIN spools sp
 ON ww.plan_id = sp.plan_id
 AND ww.query_id = sp.query_id
-OPTION ( RECOMPILE );
+OPTION (RECOMPILE);
 
 
 IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
@@ -2903,7 +2907,7 @@ SET b.is_row_goal = 1
 FROM #working_warnings b
 JOIN row_goals
 ON b.query_hash = row_goals.query_hash
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 END; 
@@ -2995,7 +2999,7 @@ IF EXISTS (   SELECT 1
            ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
 		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-		OPTION ( RECOMPILE );
+		OPTION (RECOMPILE);
 
 		RAISERROR(N'Getting conversion info', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3012,7 +3016,7 @@ IF EXISTS (   SELECT 1
 		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
 		WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
 		            AND b.implicit_conversions = 1
-		OPTION ( RECOMPILE );
+		OPTION (RECOMPILE);
 
 		RAISERROR(N'Parsing conversion info', 0, 1) WITH NOWAIT;
 		INSERT #stored_proc_info ( sql_handle, query_hash, proc_name, variable_name, variable_datatype, converted_column_name, column_name, converted_to, compile_time_value )
@@ -3056,7 +3060,7 @@ IF EXISTS (   SELECT 1
 		            ELSE '**idk_man**'
 		       END AS compile_time_value
 		FROM   #conversion_info AS ci
-		OPTION ( RECOMPILE );
+		OPTION (RECOMPILE);
 
 		RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
 		UPDATE sp
@@ -3067,7 +3071,7 @@ IF EXISTS (   SELECT 1
 		ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
 		OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
 		AND sp.variable_name = vi.variable_name
-		OPTION ( RECOMPILE );
+		OPTION (RECOMPILE);
 		
 		
 		RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
@@ -3082,7 +3086,7 @@ IF EXISTS (   SELECT 1
 			WHERE (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
 			OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
 		)
-		OPTION ( RECOMPILE );
+		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
@@ -3108,14 +3112,14 @@ IF EXISTS (   SELECT 1
 									ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 
 		RAISERROR(N'Updating conversion XML', 0, 1) WITH NOWAIT;
 		WITH precheck AS (
 		SELECT spi.sql_handle,
 			   spi.proc_name,
 					CONVERT(XML, 
-					N'<?ClickMe -- '
+					N'<ClickMe><![CDATA['
 					+ @cr + @lf
 					+ CASE WHEN spi.proc_name <> 'Statement' 
 						   THEN N'The stored procedure ' + spi.proc_name 
@@ -3170,7 +3174,7 @@ IF EXISTS (   SELECT 1
 						WHERE spi.sql_handle = spi2.sql_handle
 						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 					+ CHAR(10)
-					+ N' -- ?>'
+					+ N']]></ClickMe>'
 					) AS implicit_conversion_info
 		FROM #stored_proc_info AS spi
 		GROUP BY spi.sql_handle, spi.proc_name
@@ -3180,14 +3184,14 @@ IF EXISTS (   SELECT 1
         FROM   #working_warnings AS b
         JOIN   precheck AS pk
         ON pk.sql_handle = b.sql_handle
-        OPTION ( RECOMPILE );
+        OPTION (RECOMPILE);
 
 		RAISERROR(N'Updating cached parameter XML', 0, 1) WITH NOWAIT;
 		WITH precheck AS (
 		SELECT spi.sql_handle,
 			   spi.proc_name,
 		CONVERT(XML, 
-					N'<?ClickMe -- '
+					N'<ClickMe><![CDATA['
 					+ @cr + @lf
 					+ N'EXEC ' 
 					+ spi.proc_name 
@@ -3209,7 +3213,7 @@ IF EXISTS (   SELECT 1
 						AND spi2.proc_name <> N'Statement'
 						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 					+ @cr + @lf
-					+ N' -- ?>'
+					+ N']]></ClickMe>'
 					) AS cached_execution_parameters
 		FROM #stored_proc_info AS spi
 		GROUP BY spi.sql_handle, spi.proc_name
@@ -3219,7 +3223,7 @@ IF EXISTS (   SELECT 1
         FROM   #working_warnings AS b
         JOIN   precheck AS pk
         ON pk.sql_handle = b.sql_handle
-        OPTION ( RECOMPILE );
+        OPTION (RECOMPILE);
 
 
     END; --End implicit conversion information gathering
@@ -3235,7 +3239,7 @@ SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL
                                             ELSE b.cached_execution_parameters
                                        END
 FROM   #working_warnings AS b
-OPTION ( RECOMPILE );
+OPTION (RECOMPILE);
 
 /*Begin Missing Index*/
 
@@ -3255,7 +3259,7 @@ IF EXISTS
 		CROSS APPLY qp.query_plan.nodes('//p:MissingIndexes/p:MissingIndexGroup') AS c(mg)
 		WHERE  qp.query_hash IS NOT NULL
 		AND c.mg.value('@Impact', 'FLOAT') > 70.0
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 
 		RAISERROR(N'Inserting to #missing_index_schema', 0, 1) WITH NOWAIT;		
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3267,7 +3271,7 @@ IF EXISTS
 			   c.mi.query('.')
 		FROM #missing_index_xml AS mix
 		CROSS APPLY mix.index_xml.nodes('//p:MissingIndex') AS c(mi)
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_usage', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3277,7 +3281,7 @@ IF EXISTS
 				c.cg.query('.')
 		FROM #missing_index_schema ms
 		CROSS APPLY ms.index_xml.nodes('//p:ColumnGroup') AS c(cg)
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_detail', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3292,7 +3296,7 @@ IF EXISTS
 		       c.c.value('@Name', 'NVARCHAR(128)')
 		FROM #missing_index_usage AS miu
 		CROSS APPLY miu.index_xml.nodes('//p:Column') AS c(c)
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_pretty', 0, 1) WITH NOWAIT;
 		INSERT #missing_index_pretty
@@ -3306,7 +3310,7 @@ IF EXISTS
 						 AND m.database_name = m2.database_name
 						 AND m.schema_name = m2.schema_name
 						 AND m.table_name = m2.table_name
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS equality
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS equality
 		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
 		                 FROM   #missing_index_detail AS m2
 		                 WHERE  m2.usage = 'INEQUALITY'
@@ -3316,7 +3320,7 @@ IF EXISTS
 						 AND m.database_name = m2.database_name
 						 AND m.schema_name = m2.schema_name
 						 AND m.table_name = m2.table_name
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS inequality
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS inequality
 		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
 		                 FROM   #missing_index_detail AS m2
 		                 WHERE  m2.usage = 'INCLUDE'
@@ -3326,17 +3330,17 @@ IF EXISTS
 						 AND m.database_name = m2.database_name
 						 AND m.schema_name = m2.schema_name
 						 AND m.table_name = m2.table_name
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') AS [include]
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include]
 		FROM #missing_index_detail AS m
 		GROUP BY m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Updating missing index information', 0, 1) WITH NOWAIT;
 		WITH missing AS (
 		SELECT mip.query_hash,
 		       mip.sql_handle, 
 			   CONVERT(XML,
-			   N'<?MissingIndexes -- '
+			   N'<MissingIndexes><![CDATA['
 			   + CHAR(10) + CHAR(13)
 			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
 		                   FROM   #missing_index_pretty AS mip2
@@ -3344,9 +3348,9 @@ IF EXISTS
 						   AND mip.sql_handle = mip2.sql_handle
 						   GROUP BY mip2.details
 		                   ORDER BY MAX(mip2.impact) DESC
-						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'), 1, 2, N'') 
+						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') 
 			   + CHAR(10) + CHAR(13)
-			   + N' -- ?>' 
+			   + N']]></MissingIndexes>'  
 			   ) AS full_details
 		FROM #missing_index_pretty AS mip
 		GROUP BY mip.query_hash, mip.sql_handle, mip.impact
@@ -3356,7 +3360,7 @@ IF EXISTS
 		FROM #working_warnings AS ww
 		JOIN missing AS m
 		ON m.sql_handle = ww.sql_handle
-		OPTION(RECOMPILE);
+		OPTION (RECOMPILE);
 
 	
 	END
@@ -3369,7 +3373,7 @@ IF EXISTS
 			 ELSE ww.missing_indexes 
 		END
 	FROM #working_warnings AS ww
-	OPTION(RECOMPILE);
+	OPTION (RECOMPILE);
 
 /*End Missing Index*/
 
