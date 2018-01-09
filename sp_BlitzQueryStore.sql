@@ -2543,13 +2543,14 @@ FROM   #relop r
 CROSS APPLY r.relop.nodes('//p:Object') AS c(n)
 )
 UPDATE b
-SET	   b.is_table_variable = CASE WHEN x.first_char = '@' THEN 1 END
+SET	   b.is_table_variable = 1
 FROM #working_warnings b
 JOIN x ON x.sql_handle = b.sql_handle
 JOIN #working_metrics AS wm
 ON b.plan_id = wm.plan_id
 AND b.query_id = wm.query_id
 AND wm.batch_sql_handle IS NOT NULL
+WHERE x.first_char = '@'
 OPTION (RECOMPILE);
 
 
@@ -2578,9 +2579,10 @@ FROM #working_warnings b
 JOIN (
 SELECT 
        r.sql_handle,
-	   r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS key_lookup_cost
+	   MAX(r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float')) AS key_lookup_cost
 FROM   #relop r
 WHERE r.relop.exist('/p:RelOp/p:IndexScan[(@Lookup[.="1"])]') = 1
+GROUP BY r.sql_handle
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -2593,9 +2595,10 @@ FROM #working_warnings b
 JOIN (
 SELECT 
        r.sql_handle,
-	   r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float') AS remote_query_cost
+	   MAX(r.relop.value('sum(/p:RelOp/@EstimatedTotalSubtreeCost)', 'float')) AS remote_query_cost
 FROM   #relop r
 WHERE r.relop.exist('/p:RelOp[(@PhysicalOp[contains(., "Remote")])]') = 1
+GROUP BY r.sql_handle
 ) AS x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
 
@@ -2603,17 +2606,23 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for expensive sorts', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET b.sort_cost = (x.sort_io + x.sort_cpu) 
+SET sort_cost = y.max_sort_cost 
 FROM #working_warnings b
 JOIN (
-SELECT 
-       r.sql_handle,
-	   r.relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
-	   r.relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
-FROM   #relop r
-WHERE r.relop.exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
-) AS x ON x.sql_handle = b.sql_handle
-OPTION (RECOMPILE);
+	SELECT x.sql_handle, MAX((x.sort_io + x.sort_cpu)) AS max_sort_cost
+	FROM (
+		SELECT 
+		       qs.sql_handle,
+			   relop.value('sum(/p:RelOp/@EstimateIO)', 'float') AS sort_io,
+			   relop.value('sum(/p:RelOp/@EstimateCPU)', 'float') AS sort_cpu
+		FROM   #relop qs
+		WHERE [relop].exist('/p:RelOp[(@PhysicalOp[.="Sort"])]') = 1
+		) AS x
+	GROUP BY x.sql_handle
+	) AS y
+ON  b.sql_handle = y.sql_handle
+OPTION (RECOMPILE) ;
+
 
 
 RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
@@ -3374,8 +3383,8 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 						     WHEN wm.max_duration > @long_running_query_warning_seconds THEN 1
                              WHEN wm.avg_cpu_time > @long_running_query_warning_seconds THEN 1
                              WHEN wm.max_cpu_time > @long_running_query_warning_seconds THEN 1 END,
-	   b.is_key_lookup_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
-	   b.is_sort_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
+	   b.is_key_lookup_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
+	   b.is_sort_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
 	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 THEN 1 END,
