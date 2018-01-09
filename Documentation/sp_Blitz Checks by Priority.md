@@ -6,6 +6,9 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
+CURRENT HIGH CHECKID: 211
+If you want to add a new one, start at 212
+
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
@@ -279,4 +282,6 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | SQL Server Service |  | 85 |
 | 250 | Server Info | Virtual Server | https://www.BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
+| 250 | Server Info | Power Plan |  | 211 |
 | 254 | Rundate | (Current Date) |  | 156 |
+| 255 | Thanks! | From Your Community Volunteers |  | -1 |

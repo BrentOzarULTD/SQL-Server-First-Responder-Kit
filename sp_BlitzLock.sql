@@ -25,8 +25,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.0';
-SET @VersionDate = '20171201';
+SET @Version = '1.1';
+SET @VersionDate = '20180101';
 
 
 	IF @Help = 1 PRINT '
@@ -292,6 +292,20 @@ SET @VersionDate = '20171201';
                     o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
+
+		/*Parse parallel deadlocks*/
+        SELECT      dr.event_date,
+					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
+                    ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
+                    ca.dr.value('@nodeId', 'BIGINT') AS node_id,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id
+        INTO #deadlock_resource_parallel
+		FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/exchangeEvent') AS ca(dr)
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
@@ -614,7 +628,8 @@ SET @VersionDate = '20171201';
 
 		/*Results*/
 		WITH deadlocks
-		AS ( SELECT dp.event_date,
+		AS ( SELECT N'Regular Deadlock' AS deadlock_type,
+					dp.event_date,
 		            dp.id,
 					dp.victim_id,
 		            dp.database_id,
@@ -650,8 +665,44 @@ SET @VersionDate = '20171201';
 					dp.is_victim,
 					ISNULL(dp.owner_mode, '-') AS owner_mode,
 					ISNULL(dp.waiter_mode, '-') AS waiter_mode
-		     FROM   #deadlock_process AS dp )
-		SELECT d.event_date,
+		     FROM   #deadlock_process AS dp 
+			 WHERE dp.victim_id IS NOT NULL
+			 
+			 UNION ALL 
+			 
+			 SELECT N'Parallel Deadlock' AS deadlock_type,
+					dp.event_date,
+		            dp.id,
+					dp.victim_id,
+		            dp.database_id,
+		            dp.log_used,
+		            dp.wait_resource,
+		            CONVERT(XML, N'parallel_deadlock') AS object_names,
+		            dp.wait_time,
+		            dp.transaction_name,
+		            dp.last_tran_started,
+		            dp.last_batch_started,
+		            dp.last_batch_completed,
+		            dp.lock_mode,
+		            dp.transaction_count,
+		            dp.client_app,
+		            dp.host_name,
+		            dp.login_name,
+		            dp.isolation_level,
+		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
+		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+					NULL AS is_victim,
+					cao.wait_type AS owner_mode,
+					caw.wait_type AS waiter_mode
+		     FROM   #deadlock_process AS dp 
+			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
+			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
+			 WHERE dp.victim_id IS NULL
+			 AND dp.login_name IS NOT NULL)
+		SELECT d.deadlock_type,
+			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
 		       'Deadlock #' 
 			   + CONVERT(NVARCHAR(10), d.en)
@@ -659,7 +710,7 @@ SET @VersionDate = '20171201';
 			   + CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
 			   + CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
 			   AS deadlock_group, 
-		       CONVERT(XML, N'<inputbuf>' + d.inputbuf + N'</inputbuf>') AS query,
+		       CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>') AS query,
 		       d.object_names,
 		       d.isolation_level,
 			   d.owner_mode,
@@ -695,6 +746,10 @@ SET @VersionDate = '20171201';
 
                 SELECT '#deadlock_resource' AS table_name, *
                 FROM   #deadlock_resource AS dr
+				OPTION ( RECOMPILE );
+
+                SELECT '#deadlock_resource_parallel' AS table_name, *
+                FROM   #deadlock_resource_parallel AS drp
 				OPTION ( RECOMPILE );
 
                 SELECT '#deadlock_owner_waiter' AS table_name, *

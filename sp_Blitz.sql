@@ -32,8 +32,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.0';
-	SET @VersionDate = '20171201';
+	SET @Version = '6.1';
+	SET @VersionDate = '20180101';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -5024,7 +5024,7 @@ IF @ProductVersionMajor >= 10
 		                                ''File Configuration'' AS FindingsGroup,
 		                                ''File growth set to percent'',
 		                                ''https://BrentOzar.com/go/percentgrowth'' AS URL,
-		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CAST((CONVERT(BIGINT, f.size * 8) / 1000000) AS NVARCHAR(10)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
+		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(10), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
 		                                FROM    [?].sys.database_files f
 		                                WHERE   is_percent_growth = 1 and size > 128000  OPTION (RECOMPILE);';
 					            END;
@@ -6706,8 +6706,8 @@ IF @ProductVersionMajor >= 10
 										WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										WHEN [owi].[windows_release] = '6.2' THEN 'You''re running a rather modern version of Windows: Server 2012 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										WHEN [owi].[windows_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: Server 2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] > '6.3' THEN 'Hot dog! You''re living in the future! You''re running version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										ELSE 'I have no idea which version of Windows you''re on. Sorry.'
+										WHEN [owi].[windows_release] = '10.0' THEN 'You''re running a pretty modern version of Windows: Server 2016 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										ELSE 'Hot dog! You''re living in the future! You''re running version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										END
 									   ) AS [Details]
 									 FROM [sys].[dm_os_windows_info] [owi];
@@ -7145,8 +7145,49 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								EXECUTE(@StringToExecute);
 							END;
+								
 
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 211 )
+								BEGIN																		
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
 
+								DECLARE @outval VARCHAR(36);							
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+								                           @key = 'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
+								                           @value_name = 'ActivePowerScheme',
+								                           @value = @outval OUTPUT;
+
+									INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)							
+							SELECT  211 AS CheckId,
+									250 AS Priority,
+									'Server Info' AS FindingsGroup,
+									'Power Plan' AS Finding,
+									'https://www.brentozar.com/blitz/power-mode/' AS URL,
+									'Your server is in '
+									+ CASE @outval
+							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
+							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
+							             WHEN '381b4222-f694-41f0-9685-ff5bb260df2e'
+							             THEN 'balanced power mode -- Uh... you want your CPUs to run at full speed, right?'
+							             WHEN '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+							             THEN 'high performance power mode'
+										 ELSE 'Unknown!'
+							        END AS Details
+								
+								END;
+
+							
+							
 							IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )

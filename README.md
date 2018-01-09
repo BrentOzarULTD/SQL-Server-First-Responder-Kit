@@ -38,7 +38,8 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 The First Responder Kit runs on:
 
-* SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 - yes, fully supported
+* SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017 on Windows - yes, fully supported
+* SQL Server 2017 on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux
 * SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
 * Amazon RDS SQL Server - fully supported
 * Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
@@ -47,11 +48,11 @@ The First Responder Kit runs on:
 ## How to Get Support
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](CONTRIBUTING.md#the-contributor-covenant-code-of-conduct).
 
-Want to talk to the developers? [Get an invite to SQLCommunity.slack.com](https://sqlps.io/slack/), and we're in the [#FirstResponderKit channel](https://sqlcommunity.slack.com/messages/firstresponderkit/).
+When you have questions about how the tools work, talk with the community in the [#FirstResponderKit Slack channel](https://sqlcommunity.slack.com/messages/firstresponderkit/). If you need a free invite, hit [SQLslack.com](https://SQLslack.com/). Be patient - it's staffed with volunteers who have day jobs, heh.
 
-Got a question? Ask it on [DBA.StackExchange.com](http://dba.stackexchange.com). Tag your question with the script name, like sp_Blitz, sp_BlitzCache, sp_BlitzIndex, etc, and we’ll be alerted of it right away.
+When you find a bug or want something changed, [read the contributing.md file](CONTRIBUTING.md).
 
-Want to contribute by writing, testing, or documenting code, or suggesting a new check? [Read the contributing.md file](CONTRIBUTING.md).
+When you have a question about what the scripts found, first make sure you read the "More Details" URL for any warning you find. We put a lot of work into documentation, and we wouldn't want someone to yell at you to go read the fine manual. After that, when you've still got questions about how something works in SQL Server, post a question at [DBA.StackExchange.com](http://dba.stackexchange.com) and the community (that includes us!) will help. Include exact errors and any applicable screenshots, your SQL Server version number (including the build #), and the version of the tool you're working with.
 
 [*Back to top*](#header1)
 
