@@ -7216,7 +7216,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                               
 									INSERT INTO #BlitzResults
 										( 
-                                          CheckID ,
+										  CheckID ,
 										  Priority ,
 										  FindingsGroup ,
 										  Finding ,
@@ -7224,7 +7224,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										  Details
 										)							
 							        SELECT  
-                                        212 AS CheckId ,
+									    212 AS CheckId ,
 									    250 AS Priority ,
 									    'Server Info' AS FindingsGroup ,
 									    'Instance Stacking' AS Finding ,
