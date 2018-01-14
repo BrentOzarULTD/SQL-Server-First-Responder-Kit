@@ -520,6 +520,16 @@ AS
 			  LoginName NVARCHAR(256) ,
 			  DBUserName NVARCHAR(256)
 			 );
+        
+        
+		IF OBJECT_ID('tempdb..#Instances') IS NOT NULL
+			DROP TABLE #Instances;
+		CREATE TABLE #Instances
+            (
+              Instance_Number NVARCHAR(MAX) ,
+              Instance_Name NVARCHAR(MAX) ,
+              Data_Field NVARCHAR(MAX)
+            );
 
 		IF OBJECT_ID('tempdb..#IgnorableWaits') IS NOT NULL
 			DROP TABLE #IgnorableWaits;
@@ -7186,7 +7196,42 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								END;
 
-							
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 212 )
+								BEGIN																		
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 212) WITH NOWAIT;
+
+						        INSERT INTO #Instances (Instance_Number, Instance_Name, Data_Field)
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+								                           @key = 'SOFTWARE\Microsoft\Microsoft SQL Server',
+								                           @value_name = 'InstalledInstances'
+								
+                                IF (SELECT COUNT(*) FROM #Instances) > 1
+                                BEGIN
+
+                                    DECLARE @InstanceCount NVARCHAR(MAX)
+                                    SELECT @InstanceCount = COUNT(*) FROM #Instances
+                                                              
+									INSERT INTO #BlitzResults
+										( 
+										  CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)							
+							        SELECT  
+									    212 AS CheckId ,
+									    250 AS Priority ,
+									    'Server Info' AS FindingsGroup ,
+									    'Instance Stacking' AS Finding ,
+									    'https://www.brentozar.com/go/babygotstacked/' AS URL ,
+									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server running. More than one is usually a bad idea. Read the URL for more info'
+							    END;
+	                        END;
 							
 							IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
