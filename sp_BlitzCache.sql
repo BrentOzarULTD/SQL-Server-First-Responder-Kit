@@ -216,6 +216,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
 		is_row_goal BIT,
+		is_big_spills BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -936,6 +937,7 @@ BEGIN
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
 		is_row_goal BIT,
+		is_big_spills BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -3747,7 +3749,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END,
 	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
-	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END
+	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END,
+	   is_big_spills = CASE WHEN (AvgSpills / 128.) > 499. THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -3856,8 +3859,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
-				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END	   
-                  , 2, 200000) 
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
+                  CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END
+				  , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -3926,7 +3930,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
-				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
+                  CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4393,7 +4398,8 @@ BEGIN
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
 				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END + 
-				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END
+				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END + 
+                  CASE WHEN is_big_spills = 1 THEN '', 59'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5265,6 +5271,19 @@ BEGIN
                      'This query had row goals introduced',
                      'https://www.brentozar.com/archive/2018/01/sql-server-2017-cu3-adds-optimizer-row-goal-information-query-plans/',
                      'This can be good or bad, and should be investigated for high read queries') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_big_spills = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     59,
+                     100,
+                     'tempdb Spills',
+                     'This query spills >500mb to tempdb on average',
+                     'https://www.brentozar.com/blitzcache/tempdb-spills/',
+                     'One way or another, this query didn''t get enough memory') ;	
 
 
 			END; 
