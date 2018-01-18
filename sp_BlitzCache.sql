@@ -140,6 +140,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_cursor BIT,
 		is_optimistic_cursor BIT,
 		is_forward_only_cursor BIT,
+		is_cursor_dynamic BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -859,6 +860,7 @@ BEGIN
         is_cursor BIT,
 		is_optimistic_cursor BIT,
 		is_forward_only_cursor BIT,
+		is_cursor_dynamic BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -2784,17 +2786,44 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = y.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for Optimistic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
-	b.is_forward_only_cursor = CASE WHEN n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
+SET b.is_optimistic_cursor =  1
 FROM ##bou_BlitzCacheProcs b
 JOIN #statements AS qs
 ON b.SqlHandle = qs.SqlHandle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1
 OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking if cursor is Forward Only', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_forward_only_cursor = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.SqlHandle = qs.SqlHandle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
+OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_cursor_dynamic =  1
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.SqlHandle = qs.SqlHandle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@CursorActualType[.="Dynamic"]') = 1
+OPTION (RECOMPILE);
+
 
 
 RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
@@ -3755,6 +3784,14 @@ WHERE  pa.attribute LIKE '%cursor%'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+UPDATE p
+SET    is_cursor = 1
+FROM   ##bou_BlitzCacheProcs p
+WHERE QueryHash = 0x0000000000000000
+OR QueryPlanHash = 0x0000000000000000
+AND SPID = @@SPID
+OPTION (RECOMPILE);
+
 
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
@@ -3771,8 +3808,9 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END		
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3840,8 +3878,9 @@ SELECT  DISTINCT
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END								
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -4554,6 +4593,20 @@ BEGIN
                     'Non-forward Only Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are non-forward only cursors in the plan cache, which can harm performance.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_cursor_dynamic = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Dynamic Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'Dynamic Cursors inhibit parallelism!.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
