@@ -595,7 +595,26 @@ BEGIN
     SELECT N'MaxUsedGrantKB',
            N'BIGINT',
            N'The maximum used memory grant the query received in kb.'
+--
+    SELECT N'MinSpills',
+           N'BIGINT',
+           N'The minimum amount this query has spilled to tempdb in 8k pages.'
 
+    UNION ALL
+    SELECT N'MaxSpills',
+           N'BIGINT',
+           N'The maximum amount this query has spilled to tempdb in 8k pages.'
+
+    UNION ALL
+    SELECT N'TotalSpills',
+           N'BIGINT',
+           N'The total amount this query has spilled to tempdb in 8k pages.'
+
+    UNION ALL
+    SELECT N'AvgSpills',
+           N'BIGINT',
+           N'The average amount this query has spilled to tempdb in 8k pages.'
+--
     UNION ALL
     SELECT N'PercentMemoryGrantUsed',
            N'MONEY',
