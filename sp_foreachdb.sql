@@ -35,8 +35,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.1';
-		SET @VersionDate = '20180101';
+		SET @Version = '2.2';
+		SET @VersionDate = '20180201';
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
