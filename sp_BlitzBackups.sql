@@ -21,8 +21,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '2.1';
-	SET @VersionDate = '20180101';
+	SET @Version = '2.2';
+	SET @VersionDate = '20180201';
 
 	IF @Help = 1 PRINT '
 	/*

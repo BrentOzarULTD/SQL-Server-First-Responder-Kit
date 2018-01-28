@@ -54,8 +54,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.1';
-	SET @VersionDate = '20180101';
+	SET @Version = '2.2';
+	SET @VersionDate = '20180201';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -541,6 +541,7 @@ CREATE TABLE #working_warnings
     is_cursor BIT,
 	is_optimistic_cursor BIT,
 	is_forward_only_cursor BIT,
+	is_cursor_dynamic BIT,
     is_parallel BIT,
 	is_forced_serial BIT,
 	is_key_lookup_expensive BIT,
@@ -2252,7 +2253,6 @@ This looks for cursors
 */
 
 RAISERROR(N'Checking for cursors', 0, 1) WITH NOWAIT;
-
 UPDATE ww
 SET    ww.is_cursor = 1
 FROM   #working_warnings AS ww
@@ -2262,6 +2262,16 @@ ON ww.plan_id = wp.plan_id
    AND wp.plan_group_id > 0
 OPTION (RECOMPILE);
 
+
+UPDATE ww
+SET    ww.is_cursor = 1
+FROM   #working_warnings AS ww
+JOIN   #working_plan_text AS wp
+ON ww.plan_id = wp.plan_id
+   AND ww.query_id = wp.query_id
+WHERE ww.query_hash = 0x0000000000000000
+OR wp.query_plan_hash = 0x0000000000000000
+OPTION (RECOMPILE);
 
 /*
 This looks for parallel plans
@@ -2629,18 +2639,40 @@ OPTION (RECOMPILE);
 
 
 
-RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for Optimistic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET b.is_optimistic_cursor =  CASE WHEN n.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
-	b.is_forward_only_cursor = CASE WHEN n.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
+SET b.is_optimistic_cursor =  1
 FROM #working_warnings b
 JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
-AND b.is_cursor = 1
-CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n(fn)
+CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1
 OPTION (RECOMPILE);
 
+
+RAISERROR(N'Checking if cursor is Forward Only', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_forward_only_cursor = 1
+FROM #working_warnings b
+JOIN #statements AS s
+ON b.sql_handle = s.sql_handle
+CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
+OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_cursor_dynamic =  1
+FROM #working_warnings b
+JOIN #statements AS s
+ON b.sql_handle = s.sql_handle
+CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="Dynamic"]') = 1
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -3421,8 +3453,9 @@ SET    b.warnings = SUBSTRING(
                   CASE WHEN b.missing_index_count > 0 THEN ', Missing Indexes (' + CAST(b.missing_index_count AS NVARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN b.unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(b.unmatched_index_count AS NVARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN b.is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN b.is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN b.is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+							+ CASE WHEN b.is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
+							+ CASE WHEN b.is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
+							+ CASE WHEN b.is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END			
 				  ELSE '' END +
                   CASE WHEN b.is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN b.near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3813,6 +3846,19 @@ BEGIN
                     'Non-forward Only Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are non-forward only cursors in the plan cache, which can harm performance.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #working_warnings
+                   WHERE  is_cursor = 1
+				   AND is_cursor_dynamic = 1
+				   )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (4,
+                    200,
+                    'Cursors',
+                    'Dynamic Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'Dynamic Cursors inhibit parallelism!.');
 
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings

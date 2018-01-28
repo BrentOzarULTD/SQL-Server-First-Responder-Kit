@@ -18,6 +18,7 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 )
+WITH RECOMPILE
 AS
 BEGIN
 
@@ -25,8 +26,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.1';
-SET @VersionDate = '20180101';
+SET @Version = '1.2';
+SET @VersionDate = '20180201';
 
 
 	IF @Help = 1 PRINT '
@@ -313,7 +314,8 @@ SET @VersionDate = '20180101';
 		/*Get rid of nonsense*/
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
-		WHERE dow.owner_id = dow.waiter_id;
+		WHERE dow.owner_id = dow.waiter_id
+		OPTION ( RECOMPILE );
 
 		/*Add some nonsense*/
 		ALTER TABLE #deadlock_process
@@ -328,7 +330,8 @@ SET @VersionDate = '20180101';
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.id = dow.owner_id
 		AND dp.event_date = dow.event_date
-		WHERE dp.is_victim = 0;
+		WHERE dp.is_victim = 0
+		OPTION ( RECOMPILE );
 
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
@@ -336,7 +339,8 @@ SET @VersionDate = '20180101';
 		JOIN #deadlock_owner_waiter AS dow
 		ON dp.victim_id = dow.waiter_id
 		AND dp.event_date = dow.event_date
-		WHERE dp.is_victim = 1;
+		WHERE dp.is_victim = 1
+		OPTION ( RECOMPILE );
 
 
 		/*Begin checks based on parsed values*/
@@ -351,6 +355,13 @@ SET @VersionDate = '20180101';
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dp.event_date)) 
 				+ ' deadlocks.'
         FROM   #deadlock_process AS dp
+		WHERE 1 = 1
+		AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dp.client_app = @AppName OR @AppName IS NULL)
+		AND (dp.host_name = @HostName OR @HostName IS NULL)
+		AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 		GROUP BY DB_NAME(dp.database_id)
 		OPTION ( RECOMPILE );
 
@@ -365,6 +376,11 @@ SET @VersionDate = '20180101';
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.object_name))
 				+ ' deadlock(s).'
         FROM   #deadlock_owner_waiter AS dow
+		WHERE 1 = 1
+		AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		GROUP BY DB_NAME(dow.database_id), dow.object_name
 		OPTION ( RECOMPILE );
 		
@@ -381,6 +397,12 @@ SET @VersionDate = '20180101';
 			   AS finding
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'serializable%'
+		AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dp.client_app = @AppName OR @AppName IS NULL)
+		AND (dp.host_name = @HostName OR @HostName IS NULL)
+		AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 		GROUP BY DB_NAME(dp.database_id)
 		OPTION ( RECOMPILE );
 
@@ -397,6 +419,12 @@ SET @VersionDate = '20180101';
 			   AS finding
 		FROM #deadlock_process AS dp
 		WHERE dp.isolation_level LIKE 'repeatable read%'
+		AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dp.client_app = @AppName OR @AppName IS NULL)
+		AND (dp.host_name = @HostName OR @HostName IS NULL)
+		AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 		GROUP BY DB_NAME(dp.database_id)
 		OPTION ( RECOMPILE );
 
@@ -417,6 +445,13 @@ SET @VersionDate = '20180101';
 			   ISNULL(dp.host_name, 'UNKNOWN')
 			   AS finding
 		FROM #deadlock_process AS dp
+		WHERE 1 = 1
+		AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dp.client_app = @AppName OR @AppName IS NULL)
+		AND (dp.host_name = @HostName OR @HostName IS NULL)
+		AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 		GROUP BY DB_NAME(dp.database_id), dp.login_name, dp.client_app, dp.host_name
 		OPTION ( RECOMPILE );
 
@@ -431,6 +466,14 @@ SET @VersionDate = '20180101';
 				JOIN #deadlock_owner_waiter AS dow
 				ON dp.id = dow.owner_id
 				AND dp.event_date = dow.event_date
+				WHERE 1 = 1
+				AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+				AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+				AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+				AND (dp.client_app = @AppName OR @AppName IS NULL)
+				AND (dp.host_name = @HostName OR @HostName IS NULL)
+				AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
@@ -487,6 +530,11 @@ SET @VersionDate = '20180101';
 		JOIN #deadlock_owner_waiter AS dow
 		ON dow.owner_id = ds.id
 		AND dow.event_date = ds.event_date
+		WHERE 1 = 1
+		AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
 		OPTION ( RECOMPILE );
 
 		IF @ProductVersionMajor >= 13
@@ -520,6 +568,10 @@ SET @VersionDate = '20180101';
 		ON dow.owner_id = ds.id
 		AND dow.event_date = ds.event_date
 		WHERE ds.proc_name <> 'adhoc'
+		AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
 		OPTION ( RECOMPILE );
 		END;
 		
@@ -542,6 +594,13 @@ SET @VersionDate = '20180101';
 		ON dp.id = ds.id
 		AND ds.event_date = dp.event_date
 		WHERE ds.proc_name <> 'adhoc'
+		AND (ds.proc_name = @StoredProcName OR @StoredProcName IS NULL)
+		AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dp.client_app = @AppName OR @AppName IS NULL)
+		AND (dp.host_name = @HostName OR @HostName IS NULL)
+		AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 		GROUP BY DB_NAME(dp.database_id), ds.proc_name
 		OPTION(RECOMPILE);
 
@@ -554,6 +613,11 @@ SET @VersionDate = '20180101';
 						PARSENAME(dow.object_name, 2) AS schema_name,
 						PARSENAME(dow.object_name, 1) AS table_name
 				FROM #deadlock_owner_waiter AS dow
+				WHERE 1 = 1
+				AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+				AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+				AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
@@ -579,6 +643,14 @@ SET @VersionDate = '20180101';
 				JOIN #deadlock_process AS dp
 				ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
 					AND dp.event_date = dow.event_date
+				WHERE 1 = 1
+				AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+				AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+				AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+				AND (dp.client_app = @AppName OR @AppName IS NULL)
+				AND (dp.host_name = @HostName OR @HostName IS NULL)
+				AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
 				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
@@ -599,6 +671,13 @@ SET @VersionDate = '20180101';
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
 						FROM #deadlock_process AS dp
+						WHERE 1 = 1
+						AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+						AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+						AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+						AND (dp.client_app = @AppName OR @AppName IS NULL)
+						AND (dp.host_name = @HostName OR @HostName IS NULL)
+						AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 						GROUP BY DB_NAME(dp.database_id)
 						  )
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
@@ -727,7 +806,15 @@ SET @VersionDate = '20180101';
 		       d.transaction_name
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		ORDER BY d.event_date, is_victim DESC;
+		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (d.event_date < @EndDate OR @EndDate IS NULL)
+		AND (CONVERT(NVARCHAR(MAX), d.object_names) LIKE '%' + @ObjectName + '%' OR @ObjectName IS NULL)
+		AND (d.client_app = @AppName OR @AppName IS NULL)
+		AND (d.host_name = @HostName OR @HostName IS NULL)
+		AND (d.login_name = @LoginName OR @LoginName IS NULL)
+		ORDER BY d.event_date, is_victim DESC
+		OPTION ( RECOMPILE );
 
 
 

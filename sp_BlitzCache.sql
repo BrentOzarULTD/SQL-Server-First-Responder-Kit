@@ -140,6 +140,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         is_cursor BIT,
 		is_optimistic_cursor BIT,
 		is_forward_only_cursor BIT,
+		is_cursor_dynamic BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -215,6 +216,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
 		is_row_goal BIT,
+		is_big_spills BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -262,8 +264,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.1';
-SET @VersionDate = '20180101';
+SET @Version = '6.2';
+SET @VersionDate = '20180201';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -594,6 +596,25 @@ BEGIN
            N'BIGINT',
            N'The maximum used memory grant the query received in kb.'
 
+    SELECT N'MinSpills',
+           N'BIGINT',
+           N'The minimum amount this query has spilled to tempdb in 8k pages.'
+
+    UNION ALL
+    SELECT N'MaxSpills',
+           N'BIGINT',
+           N'The maximum amount this query has spilled to tempdb in 8k pages.'
+
+    UNION ALL
+    SELECT N'TotalSpills',
+           N'BIGINT',
+           N'The total amount this query has spilled to tempdb in 8k pages.'
+
+    UNION ALL
+    SELECT N'AvgSpills',
+           N'BIGINT',
+           N'The average amount this query has spilled to tempdb in 8k pages.'
+
     UNION ALL
     SELECT N'PercentMemoryGrantUsed',
            N'MONEY',
@@ -859,6 +880,7 @@ BEGIN
         is_cursor BIT,
 		is_optimistic_cursor BIT,
 		is_forward_only_cursor BIT,
+		is_cursor_dynamic BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
 		is_key_lookup_expensive BIT,
@@ -934,6 +956,7 @@ BEGIN
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
 		is_row_goal BIT,
+		is_big_spills BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -1728,7 +1751,7 @@ SELECT @body += N'        ORDER BY ' +
                                  WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                  WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
 								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
-                                 WHEN N'avg spills' THEN N'CASE WHEN max_spills = 0 THEN 0 ELSE max_spills / total_spills END'
+                                 WHEN N'avg spills' THEN N'CASE WHEN total_spills = 0 THEN 0 ELSE total_spills / execution_count END'
 								 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, GETDATE())
@@ -1827,7 +1850,7 @@ SELECT TOP (@Top)
            min_spills AS MinSpills,
            max_spills AS MaxSpills,
            total_spills AS TotalSpills,
-		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ';
+		   CAST(ISNULL(NULLIF(( total_spills * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgSpills, ';
     END;
     ELSE
     BEGIN
@@ -1960,7 +1983,7 @@ BEGIN
            min_spills AS MinSpills,
            max_spills AS MaxSpills,
            total_spills AS TotalSpills,
-		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ';
+		   CAST(ISNULL(NULLIF(( total_spills * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgSpills,';
     END;
     ELSE
     BEGIN
@@ -2041,7 +2064,7 @@ BEGIN
            min_spills AS MinSpills,
            max_spills AS MaxSpills,
            total_spills AS TotalSpills,
-		   CAST(ISNULL(NULLIF(( max_spills * 1. ), 0) / NULLIF(total_spills, 0), 0) AS MONEY) AS AvgSpills, ', 
+		   CAST(ISNULL(NULLIF(( total_spills * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgSpills, ', 
 		   N'
            NULL AS MinSpills,
            NULL AS MaxSpills,
@@ -2108,7 +2131,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'avg writes' THEN N'total_logical_writes / execution_count'
                                 WHEN N'avg duration' THEN N'total_elapsed_time / execution_count'
 								WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
-                                WHEN N'avg spills' THEN N'CASE WHEN max_spills = 0 THEN 0 ELSE max_spills / total_spills END'
+                                WHEN N'avg spills' THEN N'CASE WHEN total_spills = 0 THEN 0 ELSE total_spills / execution_count END'
                                 WHEN N'avg executions' THEN N'CASE WHEN execution_count = 0 THEN 0
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
@@ -2784,17 +2807,44 @@ WHERE ##bou_BlitzCacheProcs.SqlHandle = y.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-RAISERROR(N'Checking for icky cursors', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for Optimistic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE b
-SET b.is_optimistic_cursor =  CASE WHEN n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1 THEN 1 END,
-	b.is_forward_only_cursor = CASE WHEN n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1 THEN 1 ELSE 0 END
+SET b.is_optimistic_cursor =  1
 FROM ##bou_BlitzCacheProcs b
 JOIN #statements AS qs
 ON b.SqlHandle = qs.SqlHandle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1
 OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking if cursor is Forward Only', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_forward_only_cursor = 1
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.SqlHandle = qs.SqlHandle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
+OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_cursor_dynamic =  1
+FROM ##bou_BlitzCacheProcs b
+JOIN #statements AS qs
+ON b.SqlHandle = qs.SqlHandle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@CursorActualType[.="Dynamic"]') = 1
+OPTION (RECOMPILE);
+
 
 
 RAISERROR(N'Checking for bad scans and plan forcing', 0, 1) WITH NOWAIT;
@@ -3718,7 +3768,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost < @ctp AND AverageCPU > 500. AND QueryPlanCost * 10 < AverageCPU THEN 1 END,
 	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
-	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END
+	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END,
+	   is_big_spills = CASE WHEN (AvgSpills / 128.) > 499. THEN 1 END
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -3755,6 +3806,14 @@ WHERE  pa.attribute LIKE '%cursor%'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+UPDATE p
+SET    is_cursor = 1
+FROM   ##bou_BlitzCacheProcs p
+WHERE QueryHash = 0x0000000000000000
+OR QueryPlanHash = 0x0000000000000000
+AND SPID = @@SPID
+OPTION (RECOMPILE);
+
 
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
@@ -3771,8 +3830,9 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CAST(missing_index_count AS VARCHAR(3)) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CAST(unmatched_index_count AS VARCHAR(3)) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END		
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3818,8 +3878,9 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
-				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END	   
-                  , 2, 200000) 
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
+                  CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END
+				  , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -3840,8 +3901,9 @@ SELECT  DISTINCT
                   CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +
                   CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##bou_BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
-							+ CASE WHEN is_optimistic_cursor = 1 THEN ' with optimistic' ELSE '' END
-							+ CASE WHEN is_forward_only_cursor = 0 THEN ' not forward only' ELSE '' END							
+							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
+							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END								
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3887,7 +3949,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
-				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END
+				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
+                  CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4354,7 +4417,8 @@ BEGIN
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
 				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END + 
-				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END
+				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END + 
+                  CASE WHEN is_big_spills = 1 THEN '', 59'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -4554,6 +4618,20 @@ BEGIN
                     'Non-forward Only Cursors',
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'There are non-forward only cursors in the plan cache, which can harm performance.');
+
+        IF EXISTS (SELECT 1/0
+                   FROM   ##bou_BlitzCacheProcs
+                   WHERE  is_cursor = 1
+				   AND is_cursor_dynamic = 1
+				   AND SPID = @@SPID)
+            INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Dynamic Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'Dynamic Cursors inhibit parallelism!.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##bou_BlitzCacheProcs
@@ -5212,6 +5290,19 @@ BEGIN
                      'This query had row goals introduced',
                      'https://www.brentozar.com/archive/2018/01/sql-server-2017-cu3-adds-optimizer-row-goal-information-query-plans/',
                      'This can be good or bad, and should be investigated for high read queries') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_big_spills = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     59,
+                     100,
+                     'tempdb Spills',
+                     'This query spills >500mb to tempdb on average',
+                     'https://www.brentozar.com/blitzcache/tempdb-spills/',
+                     'One way or another, this query didn''t get enough memory') ;	
 
 
 			END; 
