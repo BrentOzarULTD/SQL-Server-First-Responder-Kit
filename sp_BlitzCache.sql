@@ -1952,7 +1952,7 @@ BEGIN
            NULL AS LastReturnedRows, ' ;
     END;
 
-    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1601)
+    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1601) OR (@v >= 14)
 
     BEGIN
         RAISERROR(N'Getting memory grant information for newer versions of SQL', 0, 1) WITH NOWAIT;
