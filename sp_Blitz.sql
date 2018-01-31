@@ -951,7 +951,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
-						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
+						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
 
 						BEGIN
 
@@ -976,7 +976,7 @@ AS
 										( 'Database backup history retained back to '
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
-								ORDER BY backup_set_id ASC;
+								ORDER BY backup_start_date ASC;
 						END;
 					END;
 
@@ -984,7 +984,7 @@ AS
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 186 )
 					BEGIN
-						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY 1)
+						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
 
 						BEGIN
 							
@@ -1009,7 +1009,7 @@ AS
 											( 'Database backup history only retained back to '
 											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 									FROM    msdb.dbo.backupset bs
-									ORDER BY backup_set_id ASC;
+									ORDER BY backup_start_date ASC;
 						END;
 					END;
 
