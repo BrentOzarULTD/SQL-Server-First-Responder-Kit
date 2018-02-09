@@ -615,6 +615,7 @@ CREATE TABLE #working_warnings
 	is_paul_white_electric BIT,
 	is_row_goal BIT,
 	is_mstvf BIT,
+	is_mm_join BIT,
 	implicit_conversion_info XML,
 	cached_execution_parameters XML,
 	missing_indexes XML,
@@ -2929,6 +2930,7 @@ JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for Row Goals', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 row_goals AS(
 SELECT qs.query_hash
@@ -3003,6 +3005,15 @@ ON b.sql_handle = r.sql_handle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for many to many merge joins', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_mm_join = 1
+FROM #relop AS r
+JOIN #working_warnings AS b
+ON b.sql_handle = r.sql_handle
+WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+OPTION (RECOMPILE);
 
 RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
@@ -3514,7 +3525,8 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END +
 				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN b.is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
-				  CASE WHEN b.is_mstvf = 1 THEN ', MSTVFs' ELSE '' END
+				  CASE WHEN b.is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
+				  CASE WHEN b.is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -4512,6 +4524,18 @@ BEGIN
                      'These have many of the same problems scalar UDFs have',
                      'http://brentozar.com/blitzcache/tvf-join/',
 					 'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_mstvf = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (61,
+                     100,
+                     'Many to Many Merge',
+                     'These use secret worktables that could be doing lots of reads',
+                     'link to blog post when published',
+					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
 					
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
