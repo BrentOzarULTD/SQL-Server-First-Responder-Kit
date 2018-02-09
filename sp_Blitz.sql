@@ -4825,14 +4825,14 @@ IF @ProductVersionMajor >= 10
 			                            URL,
 			                            Details)
 		                              SELECT TOP 1 163,
-		                              ''?'',
+		                              N''?'',
 		                              200,
 		                              ''Performance'',
 		                              ''Query Store Disabled'',
 		                              ''https://BrentOzar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
 		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0
-									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
 						
@@ -4888,14 +4888,14 @@ IF @ProductVersionMajor >= 10
 		                              URL,
 		                              Details)
 		                              SELECT 41,
-		                              ''?'',
+		                              N''?'',
 		                              170,
 		                              ''File Configuration'',
 		                              ''Multiple Log Files on One Drive'',
 		                              ''https://BrentOzar.com/go/manylogs'',
 		                              (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
-			                            AND ''?'' <> ''[tempdb]''
+			                            AND N''?'' <> ''[tempdb]''
 		                              GROUP BY LEFT(physical_name, 1)
 		                              HAVING COUNT(*) > 1 OPTION (RECOMPILE);';
 					        END;
@@ -4917,7 +4917,7 @@ IF @ProductVersionMajor >= 10
 			                            URL,
 			                            Details)
 			                            SELECT DISTINCT 42,
-			                            ''?'',
+			                            N''?'',
 			                            170,
 			                            ''File Configuration'',
 			                            ''Uneven File Growth Settings in One Filegroup'',
@@ -4945,7 +4945,7 @@ IF @ProductVersionMajor >= 10
 		                                Finding,
 		                                URL, Details)
 		                                SELECT  DISTINCT 82 AS CheckID,
-		                                ''?'' as DatabaseName,
+		                                N''?'' as DatabaseName,
 		                                170 AS Priority,
 		                                ''File Configuration'' AS FindingsGroup,
 		                                ''File growth set to percent'',
@@ -4972,7 +4972,7 @@ IF @ProductVersionMajor >= 10
 		                                Finding,
 		                                URL, Details)
 		                                SELECT  DISTINCT 158 AS CheckID,
-		                                ''?'' as DatabaseName,
+		                                N''?'' as DatabaseName,
 		                                170 AS Priority,
 		                                ''File Configuration'' AS FindingsGroup,
 		                                ''File growth set to 1MB'',
@@ -5085,7 +5085,7 @@ IF @ProductVersionMajor >= 10
 			URL,
 			Details)
 			SELECT 32,
-			''?'',
+			N''?'',
 			150,
 			''Performance'',
 			''Triggers on Tables'',
@@ -5113,7 +5113,7 @@ IF @ProductVersionMajor >= 10
 			URL,
 			Details)
 		  SELECT DISTINCT 38,
-		  ''?'',
+		  N''?'',
 		  110,
 		  ''Performance'',
 		  ''Active Tables Without Clustered Indexes'',
@@ -5121,7 +5121,7 @@ IF @ProductVersionMajor >= 10
 		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that are being actively queried.'')
 		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
 		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-		  INNER JOIN sys.databases sd ON sd.name = ''?''
+		  INNER JOIN sys.databases sd ON sd.name = N''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NOT NULL
 		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S'' OPTION (RECOMPILE)';
@@ -5145,7 +5145,7 @@ IF @ProductVersionMajor >= 10
 			URL,
 			Details)
 		  SELECT DISTINCT 164,
-		  ''?'',
+		  N''?'',
 		  20,
 		  ''Reliability'',
 		  ''Plan Guides Failing'',
@@ -5171,7 +5171,7 @@ IF @ProductVersionMajor >= 10
 			URL,
 			Details)
 		  SELECT DISTINCT 39,
-		  ''?'',
+		  N''?'',
 		  150,
 		  ''Performance'',
 		  ''Inactive Tables Without Clustered Indexes'',
@@ -5179,7 +5179,7 @@ IF @ProductVersionMajor >= 10
 		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'')
 		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
 		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-		  INNER JOIN sys.databases sd ON sd.name = ''?''
+		  INNER JOIN sys.databases sd ON sd.name = N''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
 		  WHERE i.type_desc = ''HEAP'' AND COALESCE(ius.user_seeks, ius.user_scans, ius.user_lookups, ius.user_updates) IS NULL
 		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S'' OPTION (RECOMPILE)';
@@ -5202,7 +5202,7 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT 46,
-		  ''?'',
+		  N''?'',
 		  150,
 		  ''Performance'',
 		  ''Leftover Fake Indexes From Wizards'',
@@ -5229,7 +5229,7 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT 47,
-		  ''?'',
+		  N''?'',
 		  100,
 		  ''Performance'',
 		  ''Indexes Disabled'',
@@ -5256,14 +5256,14 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT DISTINCT 48,
-		  ''?'',
+		  N''?'',
 		  150,
 		  ''Performance'',
 		  ''Foreign Keys Not Trusted'',
 		  ''https://BrentOzar.com/go/trust'',
 		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
 		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
-		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE);';
+		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE);';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -5283,7 +5283,7 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT 56,
-		  ''?'',
+		  N''?'',
 		  150,
 		  ''Performance'',
 		  ''Check Constraint Not Trusted'',
@@ -5314,7 +5314,7 @@ IF @ProductVersionMajor >= 10
 				  URL,
 				  Details)
 			SELECT TOP 1 95 AS CheckID,
-			''?'' as DatabaseName,
+			N''?'' as DatabaseName,
 			110 AS Priority,
 			''Performance'' AS FindingsGroup,
 			''Plan Guides Enabled'' AS Finding,
@@ -5341,7 +5341,7 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT 60 AS CheckID,
-		  ''?'' as DatabaseName,
+		  N''?'' as DatabaseName,
 		  100 AS Priority,
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
@@ -5465,7 +5465,7 @@ IF @ProductVersionMajor >= 10
 									URL,
 									Details)
 							  SELECT DISTINCT 113,
-							  ''?'',
+							  N''?'',
 							  50,
 							  ''Reliability'',
 							  ''Full Text Indexes Not Updating'',
@@ -5491,7 +5491,7 @@ IF @ProductVersionMajor >= 10
 				URL,
 				Details)
 		  SELECT 115,
-		  ''?'',
+		  N''?'',
 		  110,
 		  ''Performance'',
 		  ''Parallelism Rocket Surgery'',
@@ -5523,7 +5523,7 @@ IF @ProductVersionMajor >= 10
 													URL,
 													Details)
 												SELECT TOP 1 122,
-												''?'',
+												N''?'',
 												200,
 												''Performance'',
 												''User-Created Statistics In Place'',
@@ -5543,7 +5543,7 @@ IF @ProductVersionMajor >= 10
 													URL,
 													Details)
 												SELECT 122,
-												''?'',
+												N''?'',
 												200,
 												''Performance'',
 												''User-Created Statistics In Place'',
