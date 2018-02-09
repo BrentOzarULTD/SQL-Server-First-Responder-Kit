@@ -218,6 +218,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
 		is_row_goal BIT,
 		is_big_spills BIT,
 		is_mstvf BIT,
+		is_mm_join BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -959,6 +960,7 @@ BEGIN
 		is_row_goal BIT,
 		is_big_spills BIT,
 		is_mstvf BIT,
+		is_mm_join BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -3242,6 +3244,16 @@ ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for many to many merge joins', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_mm_join = 1
+FROM #relop AS r
+JOIN ##bou_BlitzCacheProcs AS b
+ON b.SqlHandle = r.SqlHandle
+WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+OPTION (RECOMPILE);
+
 RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 is_paul_white_electric AS (
@@ -3891,7 +3903,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 
-				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END
+				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
+				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END
 				  , 2, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
@@ -3963,7 +3976,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 
-				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END
+				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
+				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END
                   , 2, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4432,7 +4446,8 @@ BEGIN
 				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END + 
 				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END + 
                   CASE WHEN is_big_spills = 1 THEN '', 59'' ELSE '''' END +
-				  CASE WHEN is_mstvf = 1 THEN '', 60'' ELSE '''' END
+				  CASE WHEN is_mstvf = 1 THEN '', 60'' ELSE '''' END + 
+				  CASE WHEN is_mm_join = 1 THEN '', 61'' ELSE '''' END
 				  , 2, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5334,8 +5349,18 @@ BEGIN
                      'http://brentozar.com/blitzcache/tvf-join/',
 					 'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');	
 
-
-		
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  p.is_mm_join = 1
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     61,
+                     100,
+                     'Many to Many Merge',
+                     'These use secret worktables that could be doing lots of reads',
+                     'link to blog post when published',
+					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');	
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
