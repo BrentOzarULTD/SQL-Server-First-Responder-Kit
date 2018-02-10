@@ -3006,7 +3006,7 @@ WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager S
 )
 UPDATE b
 		SET b.index_spool_rows = sp.estimated_rows,
-			b.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE sp.estimated_rewinds WHEN 0 THEN 1 ELSE sp.estimated_rewinds END)
+			b.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rewinds < 1 THEN 1 ELSE sp.estimated_rewinds END)
 FROM ##bou_BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
