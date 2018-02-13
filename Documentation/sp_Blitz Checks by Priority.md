@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 212
-If you want to add a new one, start at 213
+CURRENT HIGH CHECKID: 213
+If you want to add a new one, start at 214
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -254,6 +254,7 @@ If you want to add a new one, start at 213
 | 210 | Non-Default Database Scoped Config | Query Optimizer Hotfixes | https://www.BrentOzar.com/go/dbscope | 197 |
 | 230 | Security | Control Server Permissions | https://www.BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | https://www.BrentOzar.com/go/owndb | 55 |
+| 230 | Security | Database Owner is Unknown |  | 213 |
 | 230 | Security | Elevated Permissions on a Database | https://www.BrentOzar.com/go/elevated | 86 |
 | 230 | Security | Endpoints Owned by Users | https://www.BrentOzar.com/go/owners | 187 |
 | 230 | Security | Jobs Owned By Users | https://www.BrentOzar.com/go/owners | 6 |
