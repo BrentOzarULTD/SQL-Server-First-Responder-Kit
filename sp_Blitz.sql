@@ -2730,6 +2730,37 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 213 )
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 213) WITH NOWAIT;
+
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  DatabaseName ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  213 AS CheckID ,
+										[name] AS DatabaseName ,
+										230 AS Priority ,
+										'Security' AS FindingsGroup ,
+										'Database Owner is Unknown' AS Finding ,
+										'' AS URL ,
+										( 'Database name: ' + [name] + '   '
+										  + 'Owner name: ' + ISNULL(SUSER_SNAME(owner_sid),'~~ UNKNOWN ~~') ) AS Details
+								FROM    sys.databases
+								WHERE   SUSER_SNAME(owner_sid) is NULL
+										AND name NOT IN ( SELECT DISTINCT DatabaseName
+														  FROM    #SkipChecks 
+														  WHERE CheckID IS NULL OR CheckID = 213);
+					END;
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 57 )
 					BEGIN
 
