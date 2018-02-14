@@ -23,7 +23,8 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
 	  @Help BIT = 0,
-	  @VersionDate DATETIME = NULL OUTPUT
+	  @VersionDate DATETIME = NULL OUTPUT,
+	  @Script BIT = 0
 AS
 SET NOCOUNT ON;
 
@@ -210,7 +211,11 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@i TINYINT = 1,  --Maintains loop to continue logs
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
-		@FileListParamSQL NVARCHAR(4000) = N''; --Holds INSERT list for #FileListParameters
+		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
+		@ExecuteRestoreCommands NVARCHAR(1) = N'Y';
+
+IF (@Script = 1)
+	SET @ExecuteRestoreCommands = N'N';
 
 DECLARE @FileList TABLE
 (
@@ -321,52 +326,60 @@ Correct paths in case people forget a final "\"
 
 IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
 		SET @BackupPathFull += N'\';
 	END;
 
 /*Diff*/
 IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
 		SET @BackupPathDiff += N'\';
 	END;
 
 /*Log*/
 IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
 		SET @BackupPathLog += N'\';
 	END;
 
 /*Move Data File*/
 IF NULLIF(@MoveDataDrive, '') IS NULL
 	BEGIN
-		RAISERROR('Getting default data drive for @MoveDataDrive', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Getting default data drive for @MoveDataDrive', 0, 1) WITH NOWAIT;
 		SET @MoveDataDrive = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
 	END;
 IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
 		SET @MoveDataDrive += N'\';
 	END;
 
 /*Move Log File*/
 IF NULLIF(@MoveLogDrive, '') IS NULL
 	BEGIN
-		RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
 		SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
 	END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
 		SET @MoveLogDrive += N'\';
 	END;
 
 /*Standby Undo File*/
 IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' --Has to end in a '\'
 	BEGIN
-		RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
 		SET @StandbyUndoPath += N'\';
 	END;
 
@@ -527,8 +540,8 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 IF @MoveFiles = 1
 	BEGIN
-		
-		RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
 	
 		WITH Files
 	    AS (
@@ -544,26 +557,27 @@ IF @MoveFiles = 1
 		SELECT @MoveOption = @MoveOption + Files.logicalcmds
 		FROM Files;
 		
-		IF @Debug = 1 PRINT @MoveOption
+		IF @Debug > 0
+			PRINT @MoveOption
 
 	END;
 
 
 IF @ContinueLogs = 0
 	BEGIN
-
-		RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
+		IF (@Debug > 0)
+			RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + N';' -- + NCHAR(13);
 
-		IF @Debug = 1
+		IF (@Debug > 0 OR @Script = 1)
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
 			PRINT @sql;
 		END;
-			
-		IF @Debug IN (0, 1)
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+		
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 	
 	  --get the backup completed data so we can apply tlogs from that point forwards                                                   
 	    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
@@ -693,16 +707,16 @@ WHERE BackupFile LIKE N'%.bak'
 
 IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY;' -- + NCHAR(13);
 		
-		IF @Debug = 1
+		IF (@Debug > 0 OR @Script = 1)
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
 		END;  
 
-		IF @Debug IN (0, 1)
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
@@ -908,25 +922,27 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 			IF @i = 1
 				BEGIN
 
-					IF @Debug = 1 RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
+					IF @Debug > 0
+						RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
 
 				END
 
 			IF @i = 2
 			BEGIN
 
-				RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
+				IF (@Debug > 0)
+					RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
 				
-				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + NCHAR(13);
+				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + N';' -- + NCHAR(13);
 				
-					IF @Debug = 1
+					IF (@Debug > 0 OR @Script = 1)
 					BEGIN
 						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @BackupPathLog, @BackupFile';
 						PRINT @sql;
 					END; 
 				
-					IF @Debug IN (0, 1)
-						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+					IF (@Debug IN (0, 1) AND @Script = 0)
+						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -947,61 +963,61 @@ END
 -- Put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY;' -- + NCHAR(13);
 
-			IF @Debug = 1
+			IF (@Debug > 0 OR @Script = 1)
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 
-		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'WITH RECOVERY', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 	END;
 
 -- Ensure simple recovery model
 IF @ForceSimpleRecovery = 1
 	BEGIN
-		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE' + NCHAR(13);
+		SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET RECOVERY SIMPLE;' -- + NCHAR(13);
 
-			IF @Debug = 1
+			IF (@Debug > 0 OR @Script = 1)
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for SET RECOVERY SIMPLE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 
-		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RECOVERY SIMPLE', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 	END;	    
 
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
-		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
+		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y'';' -- + NCHAR(13);
 			
-			IF @Debug = 1
+			IF (@Debug > 0 OR @Script = 1)
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for Run Integrity Check: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 		
-		IF @Debug IN (0, 1)
-			EXECUTE sys.sp_executesql @sql;
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'INTEGRITY CHECK', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 	END;
 
  -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
-		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
+		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + N';' -- + NCHAR(13);
 			
-			IF @Debug = 1
+			IF (@Debug > 0 OR @Script = 1)
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for DROP DATABASE: @RestoreDatabaseName';
 				PRINT @sql;
 			END; 
 		
-		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+		IF (@Debug IN (0, 1) AND @Script = 0)
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = @ExecuteRestoreCommands, @Execute = @ExecuteRestoreCommands;
 
 	END;
 
