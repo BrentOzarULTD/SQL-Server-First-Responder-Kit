@@ -26,7 +26,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_foreachdb @Version and @VersionDate
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
-    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzFirst @Version and @VersionDate 
     * sp_BlitzCache @Version and @VersionDate 
     * sp_Blitz @Version and @VersionDate
     * sp_DatabaseRestore @Version and @VersionDate
@@ -45,5 +45,6 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 
 * Copy the FRK scripts into BrentOzar.com's First Responder Kit zip file (Employees/Products/First Responder Kit/FirstResponderKit.zip)
 * Copy the FirstResponderKit.zip into Employees/Public.BrentOzar
-* Copy the Github release text into a WordPress blog post with the First Responder Kit category. The nice thing about doing the Github release first is that you should be able to copy/paste the Github release page and the HTML should paste smoothly into the WordPress draft window, complete with links to the Github issues. At the end of the post, put a download now link that points to: https://www.brentozar.com/first-aid/
+* For PowerBi, only keep the .pbit file
+* Copy the Github release text into a WordPress blog post with the First Responder Kit Updates category. The nice thing about doing the Github release first is that you should be able to copy/paste the Github release page and the HTML should paste smoothly into the WordPress draft window, complete with links to the Github issues. At the end of the post, put a download now link that points to: https://www.brentozar.com/first-aid/
 

@@ -1,8 +1,7 @@
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
-
-ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
+CREATE PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128) = NULL, 
 	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
 	  @BackupPathFull NVARCHAR(MAX) = NULL, 
@@ -19,6 +18,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @StandbyUndoPath NVARCHAR(MAX) = NULL,
 	  @RunRecovery BIT = 0, 
 	  @ForceSimpleRecovery BIT = 0,
+      @ExistingDBAction tinyint = 0,
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
 	  @Debug INT = 0, 
@@ -28,9 +28,9 @@ AS
 SET NOCOUNT ON;
 
 /*Versioning details*/
-	DECLARE @Version NVARCHAR(30);
-	SET @Version = '6.2';
-	SET @VersionDate = '20180201';
+DECLARE @Version NVARCHAR(30);
+SET @Version = '6.2';
+SET @VersionDate = '20180201';
 
 
 IF @Help = 1
@@ -210,7 +210,8 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@i TINYINT = 1,  --Maintains loop to continue logs
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
-		@FileListParamSQL NVARCHAR(4000) = N''; --Holds INSERT list for #FileListParameters
+		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
+        @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
 
 DECLARE @FileList TABLE
 (
@@ -370,19 +371,15 @@ IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' --Has to end in a '\'
 		SET @StandbyUndoPath += N'\';
 	END;
 
-
 IF @RestoreDatabaseName IS NULL
-	BEGIN
-		SET @RestoreDatabaseName = QUOTENAME(@Database);
-	END
-ELSE
-	BEGIN
-		SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName)
-	END
+BEGIN
+	SET @RestoreDatabaseName = @Database;
+END
+SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
+SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 
 
 IF @BackupPathFull IS NOT NULL
-
 BEGIN
 
 -- Get list of files 
@@ -526,27 +523,90 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 
 IF @MoveFiles = 1
-	BEGIN
-		
-		RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
+BEGIN
+	RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
 	
-		WITH Files
-	    AS (
-			SELECT N', MOVE ''' + LogicalName + N''' TO ''' +
-				CASE
-					WHEN Type = 'D' THEN @MoveDataDrive
-					WHEN Type = 'L' THEN @MoveLogDrive
-				END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
-					  ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
-					  END AS logicalcmds
-			FROM #FileListParameters)
+	WITH Files
+	AS (
+		SELECT N', MOVE ''' + LogicalName + N''' TO ''' +
+			CASE
+				WHEN Type = 'D' THEN @MoveDataDrive
+				WHEN Type = 'L' THEN @MoveLogDrive
+			END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
+					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
+					END AS logicalcmds
+		FROM #FileListParameters)
 	
-		SELECT @MoveOption = @MoveOption + Files.logicalcmds
-		FROM Files;
+	SELECT @MoveOption = @MoveOption + Files.logicalcmds
+	FROM Files;
 		
-		IF @Debug = 1 PRINT @MoveOption
+	IF @Debug = 1 PRINT @MoveOption
 
-	END;
+END;
+
+/*Process @ExistingDBAction flag */
+IF @ExistingDBAction BETWEEN 1 AND 3
+BEGIN
+    IF @RestoreDatabaseID IS NOT NULL
+    BEGIN
+
+        IF @ExistingDBAction = 1
+        BEGIN
+            RAISERROR('Setting single user', 0, 1) WITH NOWAIT;
+
+            SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + ' SET SINGLE_USER WITH ROLLBACK IMMEDIATE; ' + NCHAR(13);
+            IF @Debug = 1
+		    BEGIN
+			    IF @sql IS NULL PRINT '@sql is NULL for SINGLE_USER';
+			    PRINT @sql;
+		    END;
+		    IF @Debug IN (0, 1)
+			    EXECUTE sp_executesql @sql;
+        END
+
+        IF @ExistingDBAction IN (2, 3)
+        BEGIN
+            RAISERROR('Killing connections', 0, 1) WITH NOWAIT;
+
+            SET @sql = N'/* Kill connections */' + NCHAR(13);
+            SELECT 
+                @sql = CONCAT(@sql, N'KILL ', spid, N';' + NCHAR(13))
+            FROM
+                --database_ID was only added to sys.dm_exec_sessions in SQL Server 2012 but we need to support older
+                sys.sysprocesses
+            WHERE
+                dbid = @RestoreDatabaseID;
+
+            IF @Debug = 1
+		    BEGIN
+			    IF @sql IS NULL PRINT '@sql is NULL for Kill connections';
+			    PRINT @sql;
+		    END;
+            IF @Debug IN (0, 1)
+			    EXECUTE sp_executesql @sql;
+        END
+
+        IF @ExistingDBAction = 3
+        BEGIN
+            RAISERROR('Dropping database', 0, 1) WITH NOWAIT;
+            
+            SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
+            IF @Debug = 1
+		    BEGIN
+			    IF @sql IS NULL PRINT '@sql is NULL for DROP DATABASE';
+			    PRINT @sql;
+		    END;
+		    IF @Debug IN (0, 1)
+			    EXECUTE sp_executesql @sql;
+        END
+
+    END
+    ELSE
+        RAISERROR('@ExistingDBAction > 0, but no existing @RestoreDatabaseName', 0, 1) WITH NOWAIT;
+END
+ELSE
+    RAISERROR('@ExistingDBAction %u so do nothing', 0, 1, @ExistingDBAction) WITH NOWAIT;
+
 
 
 IF @ContinueLogs = 0
@@ -934,14 +994,12 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 	
 	CLOSE BackupFiles;
 
-DEALLOCATE BackupFiles;  
+    DEALLOCATE BackupFiles;  
 
-				IF @Debug = 1
-				BEGIN
-					SELECT '#Headers' AS table_name, * FROM #Headers AS h
-				END
-
-
+	IF @Debug = 1
+	BEGIN
+		SELECT '#Headers' AS table_name, * FROM #Headers AS h
+	END
 END
 
 -- Put database in a useable state 
@@ -977,7 +1035,7 @@ IF @ForceSimpleRecovery = 1
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
-		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
+		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
 			
 			IF @Debug = 1
 			BEGIN
@@ -1005,5 +1063,5 @@ IF @TestRestore = 1
 
 	END;
 
-GO
 
+GO
