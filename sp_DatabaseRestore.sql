@@ -1,7 +1,6 @@
-SET QUOTED_IDENTIFIER ON
-SET ANSI_NULLS ON
+IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
+	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
-
 CREATE PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128) = NULL, 
 	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
@@ -525,7 +524,6 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 IF @MoveFiles = 1
 BEGIN
-	
 	RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
 	
 	WITH Files
@@ -1037,7 +1035,7 @@ IF @ForceSimpleRecovery = 1
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
-		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' +   + N', @LogToTable = ''Y''' + NCHAR(13);
+		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
 			
 			IF @Debug = 1
 			BEGIN
