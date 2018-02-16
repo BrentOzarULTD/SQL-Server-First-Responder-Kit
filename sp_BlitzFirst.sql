@@ -2475,11 +2475,12 @@ BEGIN
                 /* Get the most recent sp_BlitzCache execution before this one - don't use sp_BlitzFirst because user logs are added in there at any time */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-                    + @OutputSchemaName + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+                    + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+                    + QUOTENAME(@OutputTableNameBlitzCache) + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
-                    + @OutputTableNameBlitzCache
+                    + QUOTENAME(@OutputTableNameBlitzCache)
                     + ' WHERE ServerName = ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''' ORDER BY CheckDate DESC;';
                 EXEC sp_executesql @StringToExecute, N'@BlitzCacheMinutesBack INT OUTPUT', @BlitzCacheMinutesBack OUTPUT;
 
@@ -2512,7 +2513,7 @@ BEGIN
                     + @OutputSchemaName + ''') DELETE '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
-                    + @OutputTableNameBlitzCache
+                    + QUOTENAME(@OutputTableNameBlitzCache)
                     + ' WHERE ServerName = '''
                     + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
                     + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
