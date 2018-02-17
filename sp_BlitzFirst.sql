@@ -2838,16 +2838,41 @@ BEGIN
                 + '; EXEC (''CREATE VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNamePerfmonStats_View + ' AS ' + @LineFeed
-                + 'SELECT p.ServerName, p.CheckDate, p.object_name, p.counter_name, p.instance_name' + @LineFeed
-                + ', DATEDIFF(ss, pPrior.CheckDate, p.CheckDate) AS ElapsedSeconds' + @LineFeed
-                + ', p.cntr_value' + @LineFeed
-                + ', p.cntr_type' + @LineFeed
-                + ', (p.cntr_value - pPrior.cntr_value) AS cntr_delta' + @LineFeed
-                + ', (p.cntr_value - pPrior.cntr_value) * 1.0 / DATEDIFF(ss, pPrior.CheckDate, p.CheckDate) AS cntr_delta_per_second' + @LineFeed
-                + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' p' + @LineFeed
-                + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' pPrior ON p.ServerName = pPrior.ServerName AND p.object_name = pPrior.object_name AND p.counter_name = pPrior.counter_name AND p.instance_name = pPrior.instance_name AND p.CheckDate > pPrior.CheckDate' + @LineFeed
-                + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats + ' pMiddle ON p.ServerName = pMiddle.ServerName AND p.object_name = pMiddle.object_name AND p.counter_name = pMiddle.counter_name AND p.instance_name = pMiddle.instance_name AND p.CheckDate > pMiddle.CheckDate AND pMiddle.CheckDate > pPrior.CheckDate' + @LineFeed
-                + 'WHERE pMiddle.ID IS NULL AND DATEDIFF(MI, pPrior.CheckDate, p.CheckDate) BETWEEN 1 AND 60;'')'
+                                + 'WITH RowDates as' + @LineFeed
+                + '(' + @LineFeed
+                + '        SELECT ' + @LineFeed
+                + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [CheckDate]' + @LineFeed
+                + '        FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + '' + @LineFeed
+                + '        GROUP BY [CheckDate]' + @LineFeed
+                + '),' + @LineFeed
+                + 'CheckDates as' + @LineFeed
+                + '(' + @LineFeed
+                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
+                + '        FROM RowDates ThisDate' + @LineFeed
+                + '        JOIN RowDates LastDate' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + ')' + @LineFeed
+                + 'SELECT' + @LineFeed
+                + '       pMon.[ServerName]' + @LineFeed
+                + '      ,pMon.[CheckDate]' + @LineFeed
+                + '      ,pMon.[object_name]' + @LineFeed
+                + '      ,pMon.[counter_name]' + @LineFeed
+                + '      ,pMon.[instance_name]' + @LineFeed
+                + '      ,DATEDIFF(SECOND,pMonPrior.[CheckDate],pMon.[CheckDate]) AS ElapsedSeconds' + @LineFeed
+                + '      ,pMon.[cntr_value]' + @LineFeed
+                + '      ,pMon.[cntr_type]' + @LineFeed
+                + '      ,(pMon.[cntr_value] - pMonPrior.[cntr_value]) AS cntr_delta' + @LineFeed
+                + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
+                + '  JOIN CheckDates Dates' + @LineFeed
+                + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
+                + '  JOIN ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMonPrior' + @LineFeed
+                + '  ON  Dates.PreviousCheckDate = pMonPrior.CheckDate' + @LineFeed
+                + '      AND pMon.[ServerName]    = pMonPrior.[ServerName]   ' + @LineFeed
+                + '      AND pMon.[object_name]   = pMonPrior.[object_name]  ' + @LineFeed
+                + '      AND pMon.[counter_name]  = pMonPrior.[counter_name] ' + @LineFeed
+                + '      AND pMon.[instance_name] = pMonPrior.[instance_name];'')'
             EXEC(@StringToExecute);
             END;
 
