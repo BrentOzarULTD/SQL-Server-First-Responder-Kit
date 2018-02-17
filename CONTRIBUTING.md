@@ -65,8 +65,8 @@ Why not just email your file to the maintainers? Well, lots of folks may be work
 2. If you cloned a while ago, get the latest changes from upstream:
 
    ```bash
-   git checkout master
-   git pull upstream master
+   git checkout dev
+   git pull upstream dev
    ```
 
 3. Create a new topic branch (off the main project development branch) to
@@ -76,23 +76,29 @@ Why not just email your file to the maintainers? Well, lots of folks may be work
    git checkout -b <topic-branch-name>
    ```
 
-4. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
+4. Make changes.
+
+   Make changes to one or more of the files in the project.
+   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz%20Checks%20by%20Priority.md.
+   You should modify the file `Documentation\sp_Blitz Checks by Priority.md` in the project by yourself.
+
+5. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
    or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
    feature to tidy up your commits before making them public.
 
-5. Locally merge (or rebase) the upstream development branch into your topic branch:
+6. Locally merge (or rebase) the upstream development branch into your topic branch:
 
    ```bash
-   git pull [--rebase] upstream master
+   git pull [--rebase] upstream dev
    ```
 
-6. Push your topic branch up to your fork:
+7. Push your topic branch up to your fork:
 
    ```bash
    git push origin <topic-branch-name>
    ```
 
-7. [Open a Pull Request] with a clear title and description.
+8. [Open a Pull Request] with a clear title and description.
 
 **IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
 
