@@ -1,7 +1,7 @@
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
-CREATE PROCEDURE [dbo].[sp_DatabaseRestore]
+ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128) = NULL, 
 	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
 	  @BackupPathFull NVARCHAR(MAX) = NULL, 
