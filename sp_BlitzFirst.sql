@@ -2942,7 +2942,7 @@ BEGIN
                 + '    SELECT ServerName,' + @LineFeed
                 + '           object_name,' + @LineFeed
                 + '           instance_name,' + @LineFeed
-                + '           LEFT(counter_name, CHARINDEX(''''Base'''', counter_name)-1) AS counter_join,' + @LineFeed
+                + '           LEFT(counter_name, CHARINDEX(''''BASE'''', UPPER(counter_name))-1) AS counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
                 + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
