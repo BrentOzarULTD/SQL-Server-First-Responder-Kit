@@ -7025,6 +7025,34 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 214 )
+							AND EXISTS ( SELECT *
+										 FROM   sys.all_objects o
+												INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+										 WHERE  o.name = 'dm_os_sys_info'
+												AND c.name = 'container_type_desc' )
+							BEGIN
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 214) WITH NOWAIT;
+								
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+									SELECT 214 AS CheckID,
+									250 AS Priority,
+									''Server Info'' AS FindingsGroup,
+									''Container'' AS Finding,
+									''https://BrentOzar.com/go/virtual'' AS URL,
+									''Type: ('' + container_type_desc + '')'' AS Details
+									FROM sys.dm_os_sys_info
+									WHERE container_type_desc <> ''NONE'' OPTION (RECOMPILE);';
+								
+								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+								
+								EXECUTE(@StringToExecute);
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 114 )
 							AND EXISTS ( SELECT *
 										 FROM   sys.all_objects o
