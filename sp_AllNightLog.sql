@@ -9,7 +9,7 @@ SET STATISTICS TIME OFF;
 GO
 
 IF OBJECT_ID('dbo.sp_AllNightLog') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog AS RETURN 0;')
+  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog AS RETURN 0;');
 GO
 
 
@@ -24,6 +24,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
+SET XACT_ABORT ON;
 
 BEGIN;
 
@@ -99,8 +100,8 @@ BEGIN
 
 		*/';
 
-RETURN
-END
+RETURN;
+END;
 
 DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
 DECLARE @error_number INT = NULL; --Used for TRY/CATCH
@@ -121,10 +122,11 @@ DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create ms
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
 													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
-DECLARE @cmd NVARCHAR(4000) = N'' --Holds dir cmd 
+DECLARE @cmd NVARCHAR(4000) = N''; --Holds dir cmd 
 DECLARE @FileList TABLE ( BackupFile NVARCHAR(255) ); --Where we dump @cmd
-DECLARE @restore_full BIT = 0 --We use this one
-DECLARE @only_logs_after NVARCHAR(30) = N''
+DECLARE @restore_full BIT = 0; --We use this one
+DECLARE @only_logs_after NVARCHAR(30) = N'';
+DECLARE @CommandLogCheck BIT = 0; -- Make sure dbo.CommandLog exists
 
 
 
@@ -142,40 +144,40 @@ IF (
 	  AND @Help = 0
 )
 		BEGIN 		
-			RAISERROR('You don''t seem to have picked an action for this stored procedure to take.', 0, 1) WITH NOWAIT
+			RAISERROR('You don''t seem to have picked an action for this stored procedure to take.', 0, 1) WITH NOWAIT;
 			
 			RETURN;
-		END 
+		END; 
 
 /*
 Make sure xp_cmdshell is enabled
 */
 IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
 		BEGIN 		
-			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT
+			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT;
 			
 			RETURN;
-		END 
+		END; 
 
 /*
 Make sure Ola Hallengren's scripts are installed in master
 */
 IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
 		BEGIN 		
-			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT;
 			
 			RETURN;
-		END 
+		END; 
 
 /*
 Make sure sp_DatabaseRestore is installed in master
 */
 IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
 		BEGIN 		
-			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT;
 			
 			RETURN;
-		END 
+		END; 
 
 
 IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
@@ -183,9 +185,9 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
 
 		IF @Debug = 1 RAISERROR('Checking restore path', 0, 1) WITH NOWAIT;
 
-		SELECT @restore_path_base = CONVERT(NVARCHAR(512), configuration_setting)
+		SELECT @restore_path_base = CONVERT(NVARCHAR(512), c.configuration_setting)
 		FROM msdb.dbo.restore_configuration c
-		WHERE configuration_name = N'log restore path';
+		WHERE c.configuration_name = N'log restore path';
 
 
 		IF @restore_path_base IS NULL
@@ -205,18 +207,18 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
 
                 SET @restore_path_base = REPLACE(@restore_path_base, '**AVAILABILITYGROUP**', '');
                 SET @restore_path_base = REPLACE(@restore_path_base, '**BACKUPTYPE**', 'FULL');
-                SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAME**', REPLACE(CAST(SERVERPROPERTY('servername') AS nvarchar(max)),'\','$'));
+                SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAME**', REPLACE(CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX)),'\','$'));
 
-                IF CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) > 0
+                IF CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX))) > 0
                     BEGIN
-                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), 1, (CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - 1)));
-                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS nvarchar(max)), CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max))), (LEN(CAST(SERVERPROPERTY('servername') AS nvarchar(max))) - CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS nvarchar(max)))) + 1));
-                    END
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX)), 1, (CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX))) - 1)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', SUBSTRING(CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX)), CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX))), (LEN(CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX))) - CHARINDEX('\',CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX)))) + 1));
+                    END;
                     ELSE /* No instance installed */
                     BEGIN
-                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', CAST(SERVERPROPERTY('servername') AS nvarchar(max)));
+                        SET @restore_path_base = REPLACE(@restore_path_base, '**SERVERNAMEWITHOUTINSTANCE**', CAST(SERVERPROPERTY('servername') AS NVARCHAR(MAX)));
                         SET @restore_path_base = REPLACE(@restore_path_base, '**INSTANCENAME**', 'DEFAULT');
-                    END
+                    END;
 
                 IF CHARINDEX('**CLUSTER**', @restore_path_base) <> 0
                     BEGIN
@@ -224,14 +226,26 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
                     IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_hadr_cluster')
                         BEGIN
                             SELECT @ClusterName = cluster_name FROM sys.dm_hadr_cluster;
-                        END
+                        END;
                     SET @restore_path_base = REPLACE(@restore_path_base, '**CLUSTER**', COALESCE(@ClusterName,''));
                     END;
 
-            END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
+            END; /* IF CHARINDEX('**', @restore_path_base) <> 0 */
                     
-    END /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
+    END; /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
+
+/*Check for dbo.CommandLog*/
+IF EXISTS (   SELECT     *
+              FROM       master.sys.objects AS objects
+              INNER JOIN master.sys.schemas AS schemas
+              ON objects.schema_id = schemas.schema_id
+              WHERE      objects.type = 'U'
+                         AND schemas.name = 'dbo'
+                         AND objects.name = 'CommandLog' )
+    BEGIN
+        SET @CommandLogCheck = 1;
+    END;
 
 /*
 
@@ -396,7 +410,13 @@ Pollster:
 						
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
-	
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdbCentral', 'backup_worker', 'Insert Databases', GETDATE(), GETDATE(), 50000, @msg);
+							END;		
+												
+						
 						WHILE @@TRANCOUNT > 0
 							ROLLBACK;
 
@@ -416,7 +436,7 @@ Pollster:
             BEGIN
 				RAISERROR('sp_AllNightLog_PollForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
 				RETURN;
-            END        
+            END;        
 		
 		END;-- End Pollster loop
 	
@@ -425,6 +445,13 @@ Pollster:
 			BEGIN
 	
 				RAISERROR('msdbCentral.dbo.backup_worker does not exist, please create it.', 0, 1) WITH NOWAIT;
+				
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdbCentral', 'PollForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_worker does not exist, please create it.');
+							END;				
+				
 				RETURN;
 			
 			END; 
@@ -487,7 +514,7 @@ DiskPollster:
 									IF @Debug = 1
 									BEGIN
 										PRINT @cmd;
-									END  
+									END;  
 						
 						
                         DELETE @FileList;
@@ -500,25 +527,43 @@ DiskPollster:
 							WHERE fl.BackupFile = 'The system cannot find the path specified.'
 							OR fl.BackupFile = 'File Not Found'
 							) = 1
-
+					
 							BEGIN
 						
-								RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
-
+								RAISERROR('No rows were returned for that %s', 0, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The system cannot find the path specified.' OR fl.BackupFile = 'File Not Found';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
+								RETURN;
+					
 							END;
-
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
 							WHERE fl.BackupFile = 'Access is denied.'
 							) = 1
-
+					
 							BEGIN
 						
 								RAISERROR('Access is denied to %s', 16, 1, @restore_path_base) WITH NOWAIT;
-
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'Access is denied.';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
+								RETURN;
+					
 							END;
-
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
@@ -528,25 +573,40 @@ DiskPollster:
 							FROM @FileList AS fl 							
 							WHERE fl.BackupFile IS NULL
 							) = 1
-
+					
 							BEGIN
-	
-								RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
+						
+								RAISERROR('The path %s appears to be empty', 0, 1, @restore_path_base) WITH NOWAIT;
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, 'That directory appears to be empty');
+									END;
+								
 								RETURN;
-	
-							END
-
+						
+							END;
+					
 						IF (
 							SELECT COUNT(*) 
 							FROM @FileList AS fl 
 							WHERE fl.BackupFile = 'The user name or password is incorrect.'
 							) = 1
-
+						
 							BEGIN
 						
 								RAISERROR('Incorrect user name or password for %s', 16, 1, @restore_path_base) WITH NOWAIT;
-
+								    
+									IF @CommandLogCheck = 1
+									BEGIN
+										SELECT @msg = fl.BackupFile FROM @FileList AS fl WHERE fl.BackupFile = 'The user name or password is incorrect.';
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										VALUES ('msdb', 'xp_cmdshell', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+									END;
+								
+								RETURN;
+						
 							END;
 
 						INSERT msdb.dbo.restore_worker (database_name) 
@@ -558,7 +618,7 @@ DiskPollster:
 							SELECT 1
 							FROM msdb.dbo.restore_worker rw
 							WHERE rw.database_name = fl.BackupFile
-							)
+							);
 
 						IF @Debug = 1 RAISERROR('Checking for wayward databases', 0, 1) WITH NOWAIT;
 
@@ -622,8 +682,15 @@ DiskPollster:
 						            )
                         BEGIN
 				            RAISERROR('sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				            RETURN;
-                        END        
+				            
+								IF @CommandLogCheck = 1
+								BEGIN
+									INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+									VALUES ('msdb', 'PollDiskForNewDatabases', NULL, GETDATE(), GETDATE(), 50000, 'sp_AllNightLog_PollDiskForNewDatabases job is disabled, so gracefully exiting. It feels graceful to me, anyway.');
+								END;														
+							
+							RETURN;
+                        END;        
 	
 					IF @Debug = 1 RAISERROR('Waiting for 1 minute', 0, 1) WITH NOWAIT;
 					
@@ -639,6 +706,12 @@ DiskPollster:
 							   @error_state = ERROR_STATE();
 						
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'PollDiskForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+							END;
 
 	
 						WHILE @@TRANCOUNT > 0
@@ -677,7 +750,7 @@ LogShamer:
 	IF OBJECT_ID('msdbCentral.dbo.backup_worker') IS NOT NULL
 	
 		BEGIN
-		
+
 			/*
 			
 			Make sure configuration table exists...
@@ -698,10 +771,10 @@ LogShamer:
 			
 			*/
 	
-						SELECT @rpo  = CONVERT(INT, configuration_setting)
+						SELECT @rpo  = CONVERT(INT, c.configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup frequency'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'log backup frequency'
+                          AND c.database_name = N'all';
 	
 							
 							IF @rpo IS NULL
@@ -711,10 +784,10 @@ LogShamer:
 								END;	
 	
 	
-						SELECT @backup_path = CONVERT(NVARCHAR(512), configuration_setting)
+						SELECT @backup_path = CONVERT(NVARCHAR(512), c.configuration_setting)
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'log backup path'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'log backup path'
+                          AND c.database_name = N'all';
 	
 							
 							IF @backup_path IS NULL
@@ -723,39 +796,46 @@ LogShamer:
 									RETURN;
 								END;	
 
-						SELECT @changebackuptype = configuration_setting
+						SELECT @changebackuptype = c.configuration_setting
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'change backup type'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'change backup type'
+                          AND c.database_name = N'all';
 
-						SELECT @encrypt = configuration_setting
+						SELECT @encrypt = c.configuration_setting
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'encrypt'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'encrypt'
+                          AND c.database_name = N'all';
 
-						SELECT @encryptionalgorithm = configuration_setting
+						SELECT @encryptionalgorithm = c.configuration_setting
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'encryptionalgorithm'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'encryptionalgorithm'
+                          AND c.database_name = N'all';
 
-						SELECT @servercertificate = configuration_setting
+						SELECT @servercertificate = c.configuration_setting
 						FROM msdbCentral.dbo.backup_configuration c
-						WHERE configuration_name = N'servercertificate'
-                          AND database_name = N'all';
+						WHERE c.configuration_name = N'servercertificate'
+                          AND c.database_name = N'all';
 
 							IF @encrypt = N'Y' AND (@encryptionalgorithm IS NULL OR @servercertificate IS NULL)
 								BEGIN
 									RAISERROR('If encryption is Y, then both the encryptionalgorithm and servercertificate must be set. Please check the msdbCentral.dbo.backup_configuration table', 0, 1) WITH NOWAIT;
 									RETURN;
-								END;	
-	
+								END;
+
 				END;
 	
 			ELSE
-	
+
 				BEGIN
 	
 					RAISERROR('msdbCentral.dbo.backup_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
+					
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'backup_configuration', 'Set Variables', GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_configuration does not exist, please run setup script');
+							END;										
+					
 					RETURN;
 				
 				END;
@@ -827,7 +907,7 @@ LogShamer:
 													bw.last_log_backup_start_time = GETDATE()
 										FROM msdbCentral.dbo.backup_worker bw 
 										WHERE bw.database_name = @database;
-										END
+										END;
 	
 							COMMIT;
 	
@@ -846,6 +926,13 @@ LogShamer:
 							   @error_state = ERROR_STATE();
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES (ISNULL(@database, 'No Database'), 'backup_worker', 'Fetch Database', GETDATE(), GETDATE(), ERROR_NUMBER(), @msg);
+							END;						
+						
+						
 						SET @database = NULL;
 	
 						WHILE @@TRANCOUNT > 0
@@ -870,11 +957,17 @@ LogShamer:
 						                    )
                                 BEGIN
 				                    RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				                    RETURN;
-                                END        
+				                    
+									IF @CommandLogCheck = 1
+										BEGIN
+											INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+											VALUES ('msdb', 'PollDiskForNewDatabases', @cmd, GETDATE(), GETDATE(), 50000, @msg);
+										END;									
+									
+									RETURN;
+                                END;        
 
-
-						END
+						END;
 	
 	
 					BEGIN TRY
@@ -924,16 +1017,6 @@ LogShamer:
 																	        @Compress = 'Y', --This is usually a good idea
 																	        @LogToTable = 'Y'; --We should do this for posterity
 	
-										
-										/*
-										
-										Catch any erroneous zones
-										
-										*/
-										
-										SELECT @error_number = ERROR_NUMBER(), 
-											   @error_severity = ERROR_SEVERITY(), 
-											   @error_state = ERROR_STATE();
 	
 								END; --End call to dbo.DatabaseBackup
 	
@@ -942,9 +1025,8 @@ LogShamer:
 					END TRY
 	
 					BEGIN CATCH
-	
-						IF  @error_number IS NOT NULL
-
+						
+						IF ERROR_NUMBER() IS NOT NULL
 						/*
 						
 						If the ERROR() function returns a number, update the table with it and the last error date.
@@ -955,7 +1037,18 @@ LogShamer:
 	
 							BEGIN
 	
-								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
+								/*
+								
+								Catch any erroneous zones
+								
+								*/
+								
+								SELECT @error_number = ERROR_NUMBER(), 
+									   @error_severity = ERROR_SEVERITY(), 
+									   @error_state = ERROR_STATE();
+
+
+								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), @error_number); 
 								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 								
 								SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
@@ -970,6 +1063,12 @@ LogShamer:
 												bw.last_error_date = GETDATE()
 									FROM msdbCentral.dbo.backup_worker bw 
 									WHERE bw.database_name = @database;
+
+								/*
+								
+								We don't need dbo.CommandLog check here because dbo.DatabaseRestore will log errors there already.
+
+								*/
 
 
 								/*
@@ -1002,7 +1101,6 @@ LogShamer:
 					If no error, update everything normally
 						
 					*/
-
 							
 						BEGIN
 	
@@ -1030,7 +1128,7 @@ LogShamer:
 
 
 						END; -- End update for successful backup	
-
+				
 										
 				END; -- End @Backup WHILE loop
 
@@ -1043,6 +1141,13 @@ LogShamer:
 		BEGIN
 	
 			RAISERROR('msdbCentral.dbo.backup_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
+			
+				IF @CommandLogCheck = 1
+					BEGIN
+						INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+						VALUES ('msdbCentral', 'backup_worker', 'DATABASE BACKUP', GETDATE(), GETDATE(), 50000, 'msdbCentral.dbo.backup_worker does not exist, please run setup script');
+					END;			
+			
 			
 			RETURN;
 		
@@ -1071,7 +1176,7 @@ IF @Restore = 1
         BEGIN
 			RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
 			RETURN;
-        END        
+        END;        
 
 	IF OBJECT_ID('msdb.dbo.restore_worker') IS NOT NULL
 	
@@ -1095,9 +1200,9 @@ IF @Restore = 1
 			
 			*/
 	
-						SELECT @rto  = CONVERT(INT, configuration_setting)
+						SELECT @rto  = CONVERT(INT, c.configuration_setting)
 						FROM msdb.dbo.restore_configuration c
-						WHERE configuration_name = N'log restore frequency';
+						WHERE c.configuration_name = N'log restore frequency';
 	
 							
 							IF @rto IS NULL
@@ -1114,7 +1219,13 @@ IF @Restore = 1
 				BEGIN
 	
 					RAISERROR('msdb.dbo.restore_configuration does not exist, please run setup script', 0, 1) WITH NOWAIT;
-					
+
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_configuration', 'Fetch config values', GETDATE(), GETDATE(), 50000, 'msdb.dbo.restore_configuration does not exist, please run setup script');
+							END;					
+										
 					RETURN;
 				
 				END;
@@ -1191,10 +1302,10 @@ IF @Restore = 1
 										UPDATE rw
 												SET rw.is_started = 1,
 													rw.is_completed = 0,
-													rw.last_log_restore_start_time = GETDATE()
+													rw.last_log_restore_start_time = CASE WHEN @restore_full = 0 THEN GETDATE() ELSE rw.last_log_restore_start_time END
 										FROM msdb.dbo.restore_worker rw 
 										WHERE rw.database_name = @database;
-										END
+										END;
 	
 							COMMIT;
 	
@@ -1213,6 +1324,13 @@ IF @Restore = 1
 							   @error_state = ERROR_STATE();
 						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_worker', 'Fetch bew database', GETDATE(), GETDATE(), @error_number, @msg);
+							END;							
+						
+						
 						SET @database = NULL;
 	
 						WHILE @@TRANCOUNT > 0
@@ -1238,7 +1356,7 @@ IF @Restore = 1
                                 BEGIN
 			                        RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
 			                        RETURN;
-                                END        
+                                END;        
 
                             /* Check to make sure job is still enabled */
 		                    IF NOT EXISTS (
@@ -1250,20 +1368,18 @@ IF @Restore = 1
                                 BEGIN
 				                    RAISERROR('sp_AllNightLog_Restore jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
 				                    RETURN;
-                                END        
+                                END;        
 
-						END
+						END;
 	
 	
 					BEGIN TRY
 						
 						BEGIN
-	
-							IF @database IS NOT NULL
 
 							/*
 							
-							Make sure we have a database to work on -- I should make this more robust so we do something if it is NULL, maybe
+							Make sure we have a database to work on
 							
 							*/
 
@@ -1280,25 +1396,25 @@ IF @Restore = 1
 
 										/*
 										
-										Call sp_DatabaseRestore to backup the database
+										Call sp_DatabaseRestore to restore the database
 										
 										*/
 
-										SET @restore_path_full = @restore_path_base + N'\' + @database + N'\' + N'FULL\'
+										SET @restore_path_full = @restore_path_base + N'\' + @database + N'\' + N'FULL\';
 										
-											SET @msg = N'Path for FULL backups for ' + @database + N' is ' + @restore_path_full
+											SET @msg = N'Path for FULL backups for ' + @database + N' is ' + @restore_path_full;
 											IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-										SET @restore_path_log = @restore_path_base + N'\' + @database + N'\' + N'LOG\'
+										SET @restore_path_log = @restore_path_base + N'\' + @database + N'\' + N'LOG\';
 
-											SET @msg = N'Path for LOG backups for ' + @database + N' is ' + @restore_path_log
+											SET @msg = N'Path for LOG backups for ' + @database + N' is ' + @restore_path_log;
 											IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-										IF @restore_full = 0
+										IF (@restore_full = 0 AND DB_ID(@database) IS NOT NULL)
 
 											BEGIN
 
-												IF @Debug = 1 RAISERROR('Starting Log only restores', 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR('Starting Log restores from %s', 0, 1, @restore_path_log) WITH NOWAIT;
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,
@@ -1306,25 +1422,26 @@ IF @Restore = 1
 																				   @ContinueLogs = 1,
 																				   @RunRecovery = 0,
 																				   @OnlyLogsAfter = @only_logs_after,
-																				   @Debug = @Debug
+																				   @Debug = @Debug;
 	
-											END
+											END;
 
-										IF @restore_full = 1
+										IF (@restore_full = 1 AND DATABASEPROPERTYEX(@database, 'Status') <> 'ONLINE')
+											OR
+											(@restore_full = 1 AND DATABASEPROPERTYEX(@database, 'Status') IS NULL) 
 
 											BEGIN
 
-												IF @Debug = 1 RAISERROR('Starting first Full restore from: ', 0, 1) WITH NOWAIT;
-												IF @Debug = 1 RAISERROR(@restore_path_full, 0, 1) WITH NOWAIT;
+												IF @Debug = 1 RAISERROR('Starting first Full restore from %s', 0, 1, @restore_path_full) WITH NOWAIT;
 
 												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,
 																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 0,
 																				   @RunRecovery = 0,
-																				   @Debug = @Debug
+																				   @Debug = @Debug;
 	
-											END
+											END;
 
 
 										
@@ -1333,10 +1450,6 @@ IF @Restore = 1
 										Catch any erroneous zones
 										
 										*/
-										
-										SELECT @error_number = ERROR_NUMBER(), 
-											   @error_severity = ERROR_SEVERITY(), 
-											   @error_state = ERROR_STATE();
 	
 								END; --End call to dbo.sp_DatabaseRestore
 	
@@ -1346,6 +1459,10 @@ IF @Restore = 1
 	
 					BEGIN CATCH
 	
+						SELECT @error_number = ERROR_NUMBER(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+
 						IF  @error_number IS NOT NULL
 
 						/*
@@ -1358,21 +1475,40 @@ IF @Restore = 1
 	
 							BEGIN
 	
-								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
+								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), @error_number); 
 								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
 								
-								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
+								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful restore';
 								RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	
 								
 									UPDATE rw
 											SET rw.is_started = 0,
-												rw.is_completed = 1,
+												rw.is_completed = 0,
 												rw.last_log_restore_start_time = '19000101',
 												rw.error_number = @error_number,
 												rw.last_error_date = GETDATE()
 									FROM msdb.dbo.restore_worker rw 
 									WHERE rw.database_name = @database;
+
+								
+								/*Log Results to dbo.Commandlog*/
+								IF @CommandLogCheck = 1
+									BEGIN
+										
+										INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+										SELECT @database,
+										       CASE WHEN @restore_full = 1 THEN 'RESTORE DATABASE'
+										            WHEN @restore_full = 0 THEN 'RESTORE LOG'
+										            ELSE 'UNKNOWN'
+										       END,
+										       ERROR_PROCEDURE(),
+										       GETDATE(),
+										       GETDATE(),
+										       ERROR_NUMBER(),
+										       ERROR_MESSAGE();
+
+									END;
 
 
 								/*
@@ -1383,16 +1519,16 @@ IF @Restore = 1
 
 								SET @database = NULL;
 
-										
-										/*
-										
-										Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
+								
+								/*
+								
+								Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
 
-										*/
-										
-										IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
-										
-										WAITFOR DELAY '00:00:01.000';
+								*/
+								
+								IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
+								
+								WAITFOR DELAY '00:00:01.000';
 
 							END; -- End update of unsuccessful restore
 	
@@ -1415,7 +1551,7 @@ IF @Restore = 1
                             /* Make sure database actually exists and is in the restoring state */
                             IF EXISTS (SELECT * FROM sys.databases WHERE name = @database AND state = 1) /* Restoring */
 								BEGIN
-							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful restore';
 							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
 								    UPDATE rw
@@ -1425,10 +1561,10 @@ IF @Restore = 1
 								    FROM msdb.dbo.restore_worker rw 
 								    WHERE rw.database_name = @database;
 
-                                END
+                                END;
                             ELSE /* The database doesn't exist, or it's not in the restoring state */
                                 BEGIN
-							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful backup';
+							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful restore';
 							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
 								    UPDATE rw
@@ -1439,7 +1575,7 @@ IF @Restore = 1
 											    /* rw.last_log_restore_finish_time = GETDATE()    don't change this - the last log may still be successful */
 								    FROM msdb.dbo.restore_worker rw 
 								    WHERE rw.database_name = @database;
-                                END
+                                END;
 
 
 								
@@ -1465,6 +1601,13 @@ IF @Restore = 1
 		BEGIN
 	
 			RAISERROR('msdb.dbo.restore_worker does not exist, please run setup script', 0, 1) WITH NOWAIT;
+			
+						IF @CommandLogCheck = 1
+							BEGIN
+								INSERT INTO master.dbo.CommandLog (DatabaseName, CommandType, Command, StartTime, EndTime, ErrorNumber, ErrorMessage)
+								VALUES ('msdb', 'restore_worker', 'Fetch database', GETDATE(), GETDATE(), 50000, 'msdb.dbo.restore_worker does not exist, please run setup script');
+							END;				
+			
 			
 			RETURN;
 		
