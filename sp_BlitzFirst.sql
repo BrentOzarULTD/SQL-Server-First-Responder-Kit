@@ -1652,11 +1652,11 @@ BEGIN
 
 
     /* End of checks. If we haven't waited @Seconds seconds, wait. */
-    IF SYSDATETIMEOFFSET() < @FinishSampleTime
-		BEGIN
-		RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
+    IF DATEADD(SECOND,1,SYSDATETIMEOFFSET()) < @FinishSampleTime
+        BEGIN
+        RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
         WAITFOR TIME @FinishSampleTimeWaitFor;
-		END
+        END
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
