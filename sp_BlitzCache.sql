@@ -2247,7 +2247,7 @@ UPDATE b
 		b.MaxUsedGrantKB      = b2.MaxUsedGrantKB,
         b.MinSpills           = b2.MinSpills,
         b.MaxSpills           = b2.MaxSpills,
-        b.TotalSpills           = b2.TotalSpills
+        b.TotalSpills         = b2.TotalSpills
 FROM ##bou_BlitzCacheProcs b
 JOIN agg b2
 ON b2.SqlHandle = b.SqlHandle
