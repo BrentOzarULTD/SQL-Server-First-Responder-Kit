@@ -2225,7 +2225,10 @@ RAISERROR(N'Attempting to aggregate stored proc info from separate statements', 
 		SUM(b.MinGrantKB) AS MinGrantKB,
 		SUM(b.MaxGrantKB) AS MaxGrantKB,
 		SUM(b.MinUsedGrantKB) AS MinUsedGrantKB,
-		SUM(b.MaxUsedGrantKB) AS MaxUsedGrantKB 
+		SUM(b.MaxUsedGrantKB) AS MaxUsedGrantKB,
+        SUM(b.MinSpills) AS MinSpills,
+        SUM(b.MaxSpills) AS MaxSpills,
+        SUM(b.TotalSpills) AS TotalSpills
     FROM ##bou_BlitzCacheProcs b
     WHERE b.SPID = @@SPID
 	AND b.QueryHash IS NOT NULL
@@ -2241,7 +2244,10 @@ UPDATE b
 		b.MinGrantKB		  = b2.MinGrantKB,
 		b.MaxGrantKB		  = b2.MaxGrantKB,
 		b.MinUsedGrantKB	  = b2.MinUsedGrantKB,
-		b.MaxUsedGrantKB      = b2.MaxUsedGrantKB
+		b.MaxUsedGrantKB      = b2.MaxUsedGrantKB,
+        b.MinSpills           = b2.MinSpills,
+        b.MaxSpills           = b2.MaxSpills,
+        b.TotalSpills           = b2.TotalSpills
 FROM ##bou_BlitzCacheProcs b
 JOIN agg b2
 ON b2.SqlHandle = b.SqlHandle
