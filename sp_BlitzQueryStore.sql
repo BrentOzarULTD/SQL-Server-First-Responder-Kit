@@ -3053,8 +3053,10 @@ WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' A
            CROSS APPLY  r.relop.nodes('/p:RelOp/p:IndexScan/p:Predicate/p:ScalarOperator') AS ca(x)
            CROSS APPLY  ca.x.nodes('//p:Const') AS co(x)
            WHERE        ca.x.exist('//p:ScalarOperator/p:Intrinsic/@FunctionName[.="like"]') = 1
-                        AND (   co.x.value('substring(@ConstValue, 2, 1)', 'VARCHAR(100)') = '%'
-                                OR co.x.value('substring(@ConstValue, 3, 1)', 'VARCHAR(100)') = '%' )),
+                        AND (   (   co.x.value('substring(@ConstValue, 1, 1)', 'VARCHAR(100)') <> 'N'
+                                    AND co.x.value('substring(@ConstValue, 2, 1)', 'VARCHAR(100)') = '%' )
+                                OR (   co.x.value('substring(@ConstValue, 1, 1)', 'VARCHAR(100)') = 'N'
+                                       AND co.x.value('substring(@ConstValue, 3, 1)', 'VARCHAR(100)') = '%' ))),
   d_nsarg
     AS (   SELECT   DISTINCT
                     nsarg.query_hash
