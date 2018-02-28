@@ -38,6 +38,21 @@ After your Github issue has gotten good responses from a couple of volunteers wh
 
 Note that if you're not ready to get started coding in the next week, or if you think you can't finish the feature in the next 30 days, you probably don't want to bother opening an issue. You're only going to feel guilty over not making progress, because we'll keep checking in with you to see how it's going. We don't want to have stale "someday I'll build that" issues in the list - we want to keep the open issues list easy to scan for folks who are trying to troubleshoot bugs and feature requests.
 
+### Code Requirements and Standards
+
+We're not picky at all about style, but a few things to know:
+
+Your code needs to compile & run on all currently supported versions of SQL Server. It's okay if functionality degrades, like if not all features are available, but at minimum the code has to compile and run.
+
+Your code must handle:
+
+* Case sensitive databases & servers
+* Unicode object names (databases, tables, indexes, etc.)
+* Different date formats - for guidance: https://xkcd.com/1179/
+
+We know that's a pain, but that's the kind of thing we find out in the wild. Of course you would never build a server like that, but...
+
+
 ### Contributing Changes to Power BI
 
 Power BI files are binary files that don't work well with Git source control. Rather than sending someone your changed Power BI files, here's what you need to do:
@@ -65,8 +80,8 @@ Why not just email your file to the maintainers? Well, lots of folks may be work
 2. If you cloned a while ago, get the latest changes from upstream:
 
    ```bash
-   git checkout master
-   git pull upstream master
+   git checkout dev
+   git pull upstream dev
    ```
 
 3. Create a new topic branch (off the main project development branch) to
@@ -76,23 +91,29 @@ Why not just email your file to the maintainers? Well, lots of folks may be work
    git checkout -b <topic-branch-name>
    ```
 
-4. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
+4. Make changes.
+
+   Make changes to one or more of the files in the project.
+   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz%20Checks%20by%20Priority.md.
+   You should modify the file `Documentation\sp_Blitz Checks by Priority.md` in the project by yourself.
+
+5. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
    or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
    feature to tidy up your commits before making them public.
 
-5. Locally merge (or rebase) the upstream development branch into your topic branch:
+6. Locally merge (or rebase) the upstream development branch into your topic branch:
 
    ```bash
-   git pull [--rebase] upstream master
+   git pull [--rebase] upstream dev
    ```
 
-6. Push your topic branch up to your fork:
+7. Push your topic branch up to your fork:
 
    ```bash
    git push origin <topic-branch-name>
    ```
 
-7. [Open a Pull Request] with a clear title and description.
+8. [Open a Pull Request] with a clear title and description.
 
 **IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
 

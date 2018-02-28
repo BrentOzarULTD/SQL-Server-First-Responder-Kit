@@ -39,8 +39,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.2';
-SET @VersionDate = '20180201';
+SET @Version = '6.3';
+SET @VersionDate = '20180301';
 
 
 IF @Help = 1 PRINT '
@@ -1652,11 +1652,11 @@ BEGIN
 
 
     /* End of checks. If we haven't waited @Seconds seconds, wait. */
-    IF SYSDATETIMEOFFSET() < @FinishSampleTime
-		BEGIN
-		RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
+    IF DATEADD(SECOND,1,SYSDATETIMEOFFSET()) < @FinishSampleTime
+        BEGIN
+        RAISERROR('Waiting to match @Seconds parameter',10,1) WITH NOWAIT;
         WAITFOR TIME @FinishSampleTimeWaitFor;
-		END
+        END
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
@@ -2475,11 +2475,12 @@ BEGIN
                 /* Get the most recent sp_BlitzCache execution before this one - don't use sp_BlitzFirst because user logs are added in there at any time */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-                    + @OutputSchemaName + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+                    + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+                    + QUOTENAME(@OutputTableNameBlitzCache) + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
-                    + @OutputTableNameBlitzCache
+                    + QUOTENAME(@OutputTableNameBlitzCache)
                     + ' WHERE ServerName = ''' + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) + ''' ORDER BY CheckDate DESC;';
                 EXEC sp_executesql @StringToExecute, N'@BlitzCacheMinutesBack INT OUTPUT', @BlitzCacheMinutesBack OUTPUT;
 
@@ -2512,7 +2513,7 @@ BEGIN
                     + @OutputSchemaName + ''') DELETE '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
-                    + @OutputTableNameBlitzCache
+                    + QUOTENAME(@OutputTableNameBlitzCache)
                     + ' WHERE ServerName = '''
                     + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
                     + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';

@@ -54,8 +54,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.2';
-	SET @VersionDate = '20180201';
+	SET @Version = '2.3';
+	SET @VersionDate = '20180301';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -614,6 +614,9 @@ CREATE TABLE #working_warnings
 	is_big_tempdb BIT,
 	is_paul_white_electric BIT,
 	is_row_goal BIT,
+	is_mstvf BIT,
+	is_mm_join BIT,
+    is_nonsargable BIT,
 	implicit_conversion_info XML,
 	cached_execution_parameters XML,
 	missing_indexes XML,
@@ -651,7 +654,7 @@ CREATE TABLE #working_wait_stats
 								WHEN 13 THEN N'BROKER_% (but not BROKER_RECEIVE_WAITFOR)'
 								WHEN 14 THEN N'LOGMGR, LOGBUFFER, LOGMGR_RESERVE_APPEND, LOGMGR_FLUSH, LOGMGR_PMM_LOG, CHKPT, WRITELOG'
 								WHEN 15 THEN N'ASYNC_NETWORK_IO, NET_WAITFOR_PACKET, PROXY_NETWORK_IO, EXTERNAL_SCRIPT_NETWORK_IOF'
-								WHEN 16 THEN N'CXPACKET, EXCHANGE'
+								WHEN 16 THEN N'CXPACKET, EXCHANGE, CXCONSUMER'
 								WHEN 17 THEN N'RESOURCE_SEMAPHORE, CMEMTHREAD, CMEMPARTITIONED, EE_PMOLOCK, MEMORY_ALLOCATION_EXT, RESERVED_MEMORY_ALLOCATION_EXT, MEMORY_GRANT_UPDATE'
 								WHEN 18 THEN N'WAITFOR, WAIT_FOR_RESULTS, BROKER_RECEIVE_WAITFOR'
 								WHEN 19 THEN N'TRACEWRITE, SQLTRACE_LOCK, SQLTRACE_FILE_BUFFER, SQLTRACE_FILE_WRITE_IO_COMPLETION, SQLTRACE_FILE_READ_IO_COMPLETION, SQLTRACE_PENDING_BUFFER_WRITERS, SQLTRACE_SHUTDOWN, QUERY_TRACEOUT, TRACE_EVTNOTIFF'
@@ -2866,7 +2869,8 @@ WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager S
 )
 UPDATE ww
 		SET ww.index_spool_rows = sp.estimated_rows,
-			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE sp.estimated_rewinds WHEN 0 THEN 1 ELSE sp.estimated_rewinds END)
+			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rewinds < 1 THEN 1 ELSE sp.estimated_rewinds END)
+
 FROM #working_warnings ww
 JOIN spools sp
 ON ww.plan_id = sp.plan_id
@@ -2928,6 +2932,7 @@ JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for Row Goals', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 row_goals AS(
 SELECT qs.query_hash
@@ -2992,6 +2997,26 @@ JOIN #trace_flags tf
 ON tf.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking for MSTVFs', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_mstvf = 1
+FROM #relop AS r
+JOIN #working_warnings AS b
+ON b.sql_handle = r.sql_handle
+WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
+OPTION (RECOMPILE);
+
+RAISERROR(N'Checking for many to many merge joins', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_mm_join = 1
+FROM #relop AS r
+JOIN #working_warnings AS b
+ON b.sql_handle = r.sql_handle
+WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+OPTION (RECOMPILE);
+
 RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 is_paul_white_electric AS (
@@ -3007,6 +3032,44 @@ FROM   #working_warnings AS b
 JOIN is_paul_white_electric ipwe 
 ON ipwe.sql_handle = b.sql_handle 
 OPTION (RECOMPILE);
+
+RAISERROR(N'Checking for non-sargable predicates', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, nsarg
+    AS (   SELECT       r.query_hash, 1 AS fn, 0 AS jo, 0 AS lk
+           FROM         #relop AS r
+           CROSS APPLY  r.relop.nodes('/p:RelOp/p:IndexScan/p:Predicate/p:ScalarOperator/p:Compare/p:ScalarOperator') AS ca(x)
+           WHERE        (   ca.x.exist('//p:ScalarOperator/p:Intrinsic/@FunctionName') = 1
+                            OR     ca.x.exist('//p:ScalarOperator/p:IF') = 1 )
+           UNION ALL
+           SELECT       r.query_hash, 0 AS fn, 1 AS jo, 0 AS lk
+           FROM         #relop AS r
+           CROSS APPLY  r.relop.nodes('/p:RelOp//p:ScalarOperator') AS ca(x)
+           WHERE        r.relop.exist('/p:RelOp[contains(@LogicalOp, "Join")]') = 1
+                        AND ca.x.exist('//p:ScalarOperator[contains(@ScalarString, "Expr")]') = 1
+           UNION ALL
+           SELECT       r.query_hash, 0 AS fn, 0 AS jo, 1 AS lk
+           FROM         #relop AS r
+           CROSS APPLY  r.relop.nodes('/p:RelOp/p:IndexScan/p:Predicate/p:ScalarOperator') AS ca(x)
+           CROSS APPLY  ca.x.nodes('//p:Const') AS co(x)
+           WHERE        ca.x.exist('//p:ScalarOperator/p:Intrinsic/@FunctionName[.="like"]') = 1
+                        AND (   (   co.x.value('substring(@ConstValue, 1, 1)', 'VARCHAR(100)') <> 'N'
+                                    AND co.x.value('substring(@ConstValue, 2, 1)', 'VARCHAR(100)') = '%' )
+                                OR (   co.x.value('substring(@ConstValue, 1, 1)', 'VARCHAR(100)') = 'N'
+                                       AND co.x.value('substring(@ConstValue, 3, 1)', 'VARCHAR(100)') = '%' ))),
+  d_nsarg
+    AS (   SELECT   DISTINCT
+                    nsarg.query_hash
+           FROM     nsarg
+           WHERE    nsarg.fn = 1
+                    OR nsarg.jo = 1
+                    OR nsarg.lk = 1 )
+UPDATE  b
+SET     b.is_nonsargable = 1
+FROM    d_nsarg AS d
+JOIN    #working_warnings AS b
+    ON b.query_hash = d.query_hash
+OPTION ( RECOMPILE );
 
 IF EXISTS (   SELECT 1
               FROM   #working_warnings AS ww
@@ -3501,7 +3564,10 @@ SET    b.warnings = SUBSTRING(
 				  CASE WHEN b.is_big_log = 1 THEN + ', High log use' ELSE '' END +
 				  CASE WHEN b.is_big_tempdb = 1 THEN ', High tempdb use' ELSE '' END +
 				  CASE WHEN b.is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
-				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END
+				  CASE WHEN b.is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
+				  CASE WHEN b.is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
+				  CASE WHEN b.is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
+                  CASE WHEN b.is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
                   , 2, 200000) 
 FROM #working_warnings b
 OPTION (RECOMPILE);
@@ -4486,6 +4552,43 @@ BEGIN
                      'This query had row goals introduced',
                      'https://www.brentozar.com/archive/2018/01/sql-server-2017-cu3-adds-optimizer-row-goal-information-query-plans/',
                      'This can be good or bad, and should be investigated for high read queries') ;						 	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_mstvf = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (
+                     60,
+                     100,
+                     'MSTVFs',
+                     'These have many of the same problems scalar UDFs have',
+                     'http://brentozar.com/blitzcache/tvf-join/',
+					 'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_mstvf = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (61,
+                     100,
+                     'Many to Many Merge',
+                     'These use secret worktables that could be doing lots of reads',
+                     'link to blog post when published',
+					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   #working_warnings p
+                    WHERE  p.is_nonsargable = 1
+  					)
+             INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (62,
+                     50,
+                     'Non-SARGable queries',
+                     'Queries may be using',
+                     'link to blog post when published',
+					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
 					
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
