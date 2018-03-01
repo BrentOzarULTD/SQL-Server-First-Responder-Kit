@@ -2999,6 +2999,7 @@ BEGIN
                 + '                                          AND NUM.ServerName = DEN.ServerName' + @LineFeed
                 + '                                          AND NUM.object_name = DEN.object_name' + @LineFeed
                 + '                                          AND NUM.instance_name = DEN.instance_name' + @LineFeed
+                + '                                          AND DEN.cntr_delta <> 0' + @LineFeed
                 + '' + @LineFeed
                 + 'UNION ALL' + @LineFeed
                 + '' + @LineFeed
@@ -3007,13 +3008,14 @@ BEGIN
                 + '       NUM.counter_name,' + @LineFeed
                 + '       NUM.instance_name,' + @LineFeed
                 + '       NUM.CheckDate,' + @LineFeed
-                + '       TRY_CONVERT(DECIMAL(4,3),CAST(NUM.cntr_delta as DECIMAL(18,3)) / DEN.cntr_delta ) AS cntr_value' +         @LineFeed
+                + '       CAST((CAST(NUM.cntr_delta as DECIMAL(19)) / DEN.cntr_delta) as decimal(23,3))  AS cntr_value' +         @LineFeed
                 + 'FROM   PERF_AVERAGE_FRACTION AS NUM' + @LineFeed
                 + '       JOIN PERF_LARGE_RAW_BASE AS DEN ON NUM.counter_join = DEN.counter_join' + @LineFeed
                 + '                                          AND NUM.CheckDate = DEN.CheckDate' + @LineFeed
                 + '                                          AND NUM.ServerName = DEN.ServerName' + @LineFeed
                 + '                                          AND NUM.object_name = DEN.object_name' + @LineFeed
                 + '                                          AND NUM.instance_name = DEN.instance_name' + @LineFeed
+                + '                                          AND DEN.cntr_delta <> 0' + @LineFeed
                 + 'UNION ALL' + @LineFeed
                 + '' + @LineFeed
                 + 'SELECT ServerName,' + @LineFeed
