@@ -31,9 +31,6 @@ SET NOCOUNT ON;
 DECLARE @Version NVARCHAR(30);
 SET @Version = '6.2';
 SET @VersionDate = '20180201';
-	DECLARE @Version NVARCHAR(30);
-	SET @Version = '6.3';
-	SET @VersionDate = '20180301';
 
 
 IF @Help = 1
@@ -573,7 +570,7 @@ BEGIN
 
             SET @sql = N'/* Kill connections */' + NCHAR(13);
             SELECT 
-                @sql = CONCAT(@sql, N'KILL ', spid, N';' + NCHAR(13))
+                @sql = @sql + N'KILL ' + CAST(spid as nvarchar(5)) + N';' + NCHAR(13)
             FROM
                 --database_ID was only added to sys.dm_exec_sessions in SQL Server 2012 but we need to support older
                 sys.sysprocesses
