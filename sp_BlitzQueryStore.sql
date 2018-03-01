@@ -541,6 +541,7 @@ CREATE TABLE #working_warnings
     is_cursor BIT,
 	is_optimistic_cursor BIT,
 	is_forward_only_cursor BIT,
+	is_fast_forward_cursor BIT,	
 	is_cursor_dynamic BIT,
     is_parallel BIT,
 	is_forced_serial BIT,
@@ -2665,6 +2666,17 @@ CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking if cursor is Fast Forward', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_fast_forward_cursor = 1
+FROM #working_warnings b
+JOIN #statements AS qs
+ON b.SqlHandle = qs.SqlHandle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE SPID = @@SPID
+AND n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -3926,6 +3938,20 @@ BEGIN
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'Dynamic Cursors inhibit parallelism!.');
 
+		IF EXISTS (SELECT 1/0
+                   FROM   #working_warnings
+                   WHERE  is_cursor = 1
+				   AND is_fast_forward_cursor = 1
+				   AND SPID = @@SPID)
+            INSERT INTO #warning_results (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (@@SPID,
+                    4,
+                    200,
+                    'Cursors',
+                    'Fast Forward Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'Fast forward cursors inhibit parallelism!.');
+					
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
                    WHERE  is_forced_parameterized = 1
