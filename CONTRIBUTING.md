@@ -38,6 +38,21 @@ After your Github issue has gotten good responses from a couple of volunteers wh
 
 Note that if you're not ready to get started coding in the next week, or if you think you can't finish the feature in the next 30 days, you probably don't want to bother opening an issue. You're only going to feel guilty over not making progress, because we'll keep checking in with you to see how it's going. We don't want to have stale "someday I'll build that" issues in the list - we want to keep the open issues list easy to scan for folks who are trying to troubleshoot bugs and feature requests.
 
+### Code Requirements and Standards
+
+We're not picky at all about style, but a few things to know:
+
+Your code needs to compile & run on all currently supported versions of SQL Server. It's okay if functionality degrades, like if not all features are available, but at minimum the code has to compile and run.
+
+Your code must handle:
+
+* Case sensitive databases & servers
+* Unicode object names (databases, tables, indexes, etc.)
+* Different date formats - for guidance: https://xkcd.com/1179/
+
+We know that's a pain, but that's the kind of thing we find out in the wild. Of course you would never build a server like that, but...
+
+
 ### Contributing Changes to Power BI
 
 Power BI files are binary files that don't work well with Git source control. Rather than sending someone your changed Power BI files, here's what you need to do:
