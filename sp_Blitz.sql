@@ -4553,7 +4553,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 199) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 203) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4618,7 +4618,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 200) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 207) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4649,7 +4649,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 201) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 208) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4680,7 +4680,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 205) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4711,7 +4711,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 203) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 209) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4741,7 +4741,7 @@ IF @ProductVersionMajor >= 10
 							AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 204) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 210) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4776,7 +4776,7 @@ IF @ProductVersionMajor >= 10
 						AND @TraceFileIssue = 0
 					BEGIN
 						
-						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 205) WITH NOWAIT
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 206) WITH NOWAIT
 						
 						  INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
@@ -4804,6 +4804,48 @@ IF @ProductVersionMajor >= 10
 						HAVING AVG(DATEDIFF(SECOND, t.StartTime, t.EndTime)) > 5;
 				
 				END;
+
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 215 )
+						AND @TraceFileIssue = 0
+					BEGIN
+						
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 215) WITH NOWAIT
+						
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+                                      [DatabaseName] ,
+									  [URL] ,
+									  [Details] )
+
+						SELECT	215 AS CheckID ,
+								100 AS Priority ,
+								'Performance' AS FindingsGroup ,
+								'Implicit Transactions' AS Finding ,
+								DB_NAME(s.database_id) AS DatabaseName,
+                                'https://www.brentozar.com/go/ImplicitTransactions/' AS URL ,
+								N'The database ' +
+                                DB_NAME(s.database_id)
+                                + ' has '
+                                + CONVERT(NVARCHAR(20), COUNT_BIG(*))
+                                + ' open implicit transactions '
+                                + ' with an oldest begin time of '
+                                + CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) AS details
+                        FROM    sys.dm_tran_active_transactions AS tat
+                        LEFT JOIN sys.dm_tran_session_transactions AS tst
+                        ON tst.transaction_id = tat.transaction_id
+                        LEFT JOIN sys.dm_exec_sessions AS s
+                        ON s.session_id = tst.session_id
+                        WHERE tat.name = 'implicit_transaction'
+                        GROUP BY DB_NAME(s.database_id), transaction_type, transaction_state
+				
+				END;
+
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
