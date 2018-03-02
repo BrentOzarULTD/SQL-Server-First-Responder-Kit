@@ -6,6 +6,9 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
+CURRENT HIGH CHECKID: 38
+If you want to add a new check, start at 39
+
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
 | 0 | Outdated sp_BlitzFirst | sp_BlitzFirst is Over 6 Months Old | http://FirstResponderKit.org/ | 27 |
@@ -27,6 +30,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Query Problems | Compilations/Sec High | https://BrentOzar.com/go/compile | 15 |
 | 50 | Query Problems | Plan Cache Erased Recently | https://BrentOzar.com/go/freeproccache | 7 |
 | 50 | Query Problems | Re-Compilations/Sec High | https://BrentOzar.com/go/recompile | 16 |
+| 50 | Query Problems | ImplicitTransactions | https://www.brentozar.com/go/ImplicitTransactions/ | 37 |
 | 50 | Server Performance | High CPU Utilization | https://BrentOzar.com/go/cpu | 24 |
 | 50 | Server Performance | High CPU Utilization - Non SQL Processes | https://BrentOzar.com/go/cpu | 28 |
 | 50 | Server Performance | Page Life Expectancy Low | https://BrentOzar.com/go/ple | 10 |
