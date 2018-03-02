@@ -3915,7 +3915,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
 							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
-							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END		
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END
+                            + CASE WHEN is_fast_forward_cursor = 1 THEN '; fast forward' ELSE '' END		
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3989,7 +3990,8 @@ SELECT  DISTINCT
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
 							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
-							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END								
+							+ CASE WHEN is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END
+                            + CASE WHEN is_fast_forward_cursor = 1 THEN '; fast forward' ELSE '' END								
 				  ELSE '' END +
                   CASE WHEN is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +

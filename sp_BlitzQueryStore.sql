@@ -2672,10 +2672,9 @@ UPDATE b
 SET b.is_fast_forward_cursor = 1
 FROM #working_warnings b
 JOIN #statements AS qs
-ON b.SqlHandle = qs.SqlHandle
+ON b.sql_handle = qs.sql_handle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
-WHERE SPID = @@SPID
-AND n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
+WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
@@ -3530,7 +3529,8 @@ SET    b.warnings = SUBSTRING(
                   CASE WHEN b.is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN b.is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
 							+ CASE WHEN b.is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
-							+ CASE WHEN b.is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END			
+							+ CASE WHEN b.is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END
+                            + CASE WHEN b.is_fast_forward_cursor = 1 THEN '; fast forward' ELSE '' END			
 				  ELSE '' END +
                   CASE WHEN b.is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN b.near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3942,10 +3942,9 @@ BEGIN
                    FROM   #working_warnings
                    WHERE  is_cursor = 1
 				   AND is_fast_forward_cursor = 1
-				   AND SPID = @@SPID)
-            INSERT INTO #warning_results (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (@@SPID,
-                    4,
+                    )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (4,
                     200,
                     'Cursors',
                     'Fast Forward Cursors',
