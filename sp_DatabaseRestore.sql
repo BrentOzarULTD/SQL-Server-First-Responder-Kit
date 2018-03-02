@@ -956,7 +956,7 @@ IF @RunRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	END;
 
 -- Ensure simple recovery model
@@ -971,7 +971,7 @@ IF @ForceSimpleRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	END;	    
 
  -- Run checkdb against this database
@@ -986,7 +986,7 @@ IF @RunCheckDB = 1
 			END; 
 		
 		IF @Debug IN (0, 1)
-			EXECUTE sys.sp_executesql @sql;
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'INTEGRITY CHECK', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 	END;
 
  -- If test restore then blow the database away (be careful)
@@ -1001,7 +1001,7 @@ IF @TestRestore = 1
 			END; 
 		
 		IF @Debug IN (0, 1)
-			EXECUTE sp_executesql @sql;
+			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 
 	END;
 
