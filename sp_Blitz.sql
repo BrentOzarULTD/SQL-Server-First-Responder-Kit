@@ -2270,7 +2270,7 @@ AS
 		  ''Corruption'' AS FindingsGroup ,
 		  ''Database Corruption Detected'' AS Finding ,
 		  ''https://BrentOzar.com/go/repair'' AS URL ,
-		  ( ''AlwaysOn has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_hadr_auto_page_repair.'' ) AS Details
+		  ( ''Availability Groups has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_hadr_auto_page_repair.'' ) AS Details
 		  FROM    sys.dm_hadr_auto_page_repair rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
 		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE) ;';
@@ -5582,7 +5582,7 @@ IF @ProductVersionMajor >= 10
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 122) WITH NOWAIT;
 								
-								/* SQL Server 2012 and newer uses temporary stats for AlwaysOn Availability Groups, and those show up as user-created */
+								/* SQL Server 2012 and newer uses temporary stats for Availability Groups, and those show up as user-created */
 								IF EXISTS (SELECT *
 									  FROM sys.all_columns c
 									  INNER JOIN sys.all_objects o ON c.object_id = o.object_id
@@ -6951,10 +6951,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												+ CAST(SERVERPROPERTY('productlevel') AS NVARCHAR(100))
 												+ N'. Edition: '
 												+ CAST(SERVERPROPERTY('edition') AS VARCHAR(100))
-												+ N'. AlwaysOn Enabled: '
+												+ N'. Availability Groups Enabled: '
 												+ CAST(COALESCE(SERVERPROPERTY('IsHadrEnabled'),
 																0) AS VARCHAR(100))
-												+ N'. AlwaysOn Mgr Status: '
+												+ N'. Availability Groups Manager Status: '
 												+ CAST(COALESCE(SERVERPROPERTY('HadrManagerStatus'),
 																0) AS VARCHAR(100));
 							END;
