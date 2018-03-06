@@ -373,7 +373,7 @@ SET @VersionDate = '20180301';
 			   dow.object_name AS object_name,
 			   'Total object deadlocks' AS finding_group,
 			   'This object was involved in ' 
-				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.object_name))
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
 				+ ' deadlock(s).'
         FROM   #deadlock_owner_waiter AS dow
 		WHERE 1 = 1
