@@ -6949,6 +6949,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												+ CAST(SERVERPROPERTY('productversion') AS NVARCHAR(100))
 												+ N'. Patch Level: '
 												+ CAST(SERVERPROPERTY('productlevel') AS NVARCHAR(100))
+								  				+ CASE WHEN SERVERPROPERTY('ProductUpdateLevel') IS NULL
+												       THEN N''
+												       ELSE N'. Cumulative Update: '
+													   + CAST(SERVERPROPERTY('ProductUpdateLevel') AS NVARCHAR(100))
+												END
 												+ N'. Edition: '
 												+ CAST(SERVERPROPERTY('edition') AS VARCHAR(100))
 												+ N'. Availability Groups Enabled: '
