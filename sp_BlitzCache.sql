@@ -884,6 +884,7 @@ BEGIN
         is_cursor BIT,
 		is_optimistic_cursor BIT,
 		is_forward_only_cursor BIT,
+        is_fast_forward_cursor BIT,
 		is_cursor_dynamic BIT,
         is_parallel BIT,
 		is_forced_serial BIT,
