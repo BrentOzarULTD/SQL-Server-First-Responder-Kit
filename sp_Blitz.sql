@@ -4454,19 +4454,19 @@ IF @ProductVersionMajor >= 10
 						'Mismatch between the number of TempDB files in sys.master_files versus tempdb.sys.database_files' AS [Details];
 				END;
 
-/*Perf - Odd number of cores in a socket*/
+/*Perf - Uneven core distribution across sockets */
 		IF NOT EXISTS ( SELECT  1
 		                FROM    #SkipChecks
 		                WHERE   DatabaseName IS NULL
 		                        AND CheckID = 198 )
-		   AND EXISTS ( SELECT  1
-		                FROM    sys.dm_os_schedulers
-		                WHERE   is_online = 1
-		                        AND scheduler_id < 255
-		                        AND parent_node_id < 64
-		                GROUP BY parent_node_id,
-		                        is_online
-		                HAVING  ( COUNT(cpu_id) + 2 ) % 2 = 1 )
+		   AND EXISTS ( SELECT MIN(schedulers) as bottom, MAX(schedulers) AS topper
+                        FROM (SELECT parent_node_id, COUNT(*) AS schedulers
+                                        FROM sys.dm_os_schedulers
+                                        WHERE   is_online = 1
+                                            AND scheduler_id < 255
+                                            AND parent_node_id < 64
+                                        GROUP BY parent_node_id) AS nodes
+                          HAVING MIN(schedulers) <> MAX(schedulers))
 		   BEGIN
 		
 		         IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 198) WITH NOWAIT
@@ -4485,19 +4485,17 @@ IF @ProductVersionMajor >= 10
 		                NULL AS DatabaseName,
 		                10 AS Priority,
 		                'Performance' AS FindingsGroup,
-		                'CPU w/Odd Number of Cores' AS Finding,
+		                'Uneven Core Distribution Across NUMA Nodes' AS Finding,
 		                'https://BrentOzar.com/go/oddity' AS URL,
 		                'Node ' + CONVERT(VARCHAR(10), parent_node_id) + ' has ' + CONVERT(VARCHAR(10), COUNT(cpu_id))
-		                + CASE WHEN COUNT(cpu_id) = 1 THEN ' core assigned to it. This is a really bad NUMA configuration.'
-		                       ELSE ' cores assigned to it. This is a really bad NUMA configuration.'
+		                + CASE WHEN COUNT(cpu_id) = 1 THEN ' core assigned to it.'
+		                       ELSE ' cores assigned to it.'
 		                  END AS Details
 		         FROM   sys.dm_os_schedulers
 		         WHERE  is_online = 1
 		                AND scheduler_id < 255
 		                AND parent_node_id < 64
-		         GROUP BY parent_node_id,
-		                is_online
-		         HAVING ( COUNT(cpu_id) + 2 ) % 2 = 1;
+		         GROUP BY parent_node_id;
 		
 		   END;
 
