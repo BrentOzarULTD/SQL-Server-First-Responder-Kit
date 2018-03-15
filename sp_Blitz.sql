@@ -6202,7 +6202,9 @@ IF @ProductVersionMajor >= 10
 												Value ,
 												DbName
 									   FROM     #DBCCs
+                                       INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
 									   WHERE    Field = 'dbi_dbccLastKnownGood'
+                                         AND d.create_date < DATEADD(dd, -14, GETDATE())
 									 )
 							INSERT  INTO #BlitzResults
 									( CheckID ,
