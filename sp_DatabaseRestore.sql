@@ -10,6 +10,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
+	  @MoveFilestreamDrive NVARCHAR(260) = NULL,
 	  @TestRestore BIT = 0, 
 	  @RunCheckDB BIT = 0, 
 	  @RestoreDiff BIT = 0,
@@ -532,6 +533,7 @@ BEGIN
 			CASE
 				WHEN Type = 'D' THEN @MoveDataDrive
 				WHEN Type = 'L' THEN @MoveLogDrive
+				WHEN Type = 'S' THEN @MoveFilestreamDrive
 			END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
 					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
 					END AS logicalcmds
