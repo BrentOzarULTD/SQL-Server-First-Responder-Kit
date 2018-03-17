@@ -6366,14 +6366,14 @@ IF @ProductVersionMajor >= 10
 										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
 											 ELSE'https://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' +
-										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests'
+										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests!'
 											 WHEN [T].[TraceFlag] = '1211' THEN ' 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
 											 WHEN [T].[TraceFlag] = '1224' THEN ' 1224 enabled globally. Using this Trace Flag disables lock escalation based on the number of locks being taken. You shouldn''t have done that, Dave.'
 											 WHEN [T].[TraceFlag] = '652'  THEN ' 652 enabled globally. Using this Trace Flag disables pre-fetching during index scans. If you hate slow queries, you should turn that off.'
 											 WHEN [T].[TraceFlag] = '661'  THEN ' 661 enabled globally. Using this Trace Flag disables ghost record removal. Who you gonna call? No one, turn that thing off.'
-											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables instant file initialization. I question your sanity.'
+											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables Instant File Initialization. I question your sanity.'
 											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
-											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost thresholf for parallelism down to 0. I hope this is a dev server.'
+											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost threshold for parallelism down to 0. I hope this is a dev server.'
 										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
 											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN ' 8017 is enabled globally, which is the default for express edition.'
                                              WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 8017 is enabled globally. Using this Trace Flag disables creation schedulers for all logical processors. Not good.'
