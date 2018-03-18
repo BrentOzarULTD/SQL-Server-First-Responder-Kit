@@ -4809,11 +4809,12 @@ IF @ProductVersionMajor >= 10
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 215 )
 						AND @TraceFileIssue = 0
+                        AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'database_id' AND object_id = OBJECT_ID('sys.dm_exec_sessions'))
 					BEGIN
 						
 						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 215) WITH NOWAIT
 						
-						  INSERT    INTO [#BlitzResults]
+						  SET @StringToExecute = 'INSERT    INTO [#BlitzResults]
 									( [CheckID] ,
 									  [Priority] ,
 									  [FindingsGroup] ,
@@ -4822,26 +4823,34 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 
-						SELECT	215 AS CheckID ,
-								100 AS Priority ,
-								'Performance' AS FindingsGroup ,
-								'Implicit Transactions' AS Finding ,
-								DB_NAME(s.database_id) AS DatabaseName,
-                                'https://www.brentozar.com/go/ImplicitTransactions/' AS URL ,
-								N'The database ' +
-                                DB_NAME(s.database_id)
-                                + ' has '
-                                + CONVERT(NVARCHAR(20), COUNT_BIG(*))
-                                + ' open implicit transactions '
-                                + ' with an oldest begin time of '
-                                + CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) AS details
-                        FROM    sys.dm_tran_active_transactions AS tat
-                        LEFT JOIN sys.dm_tran_session_transactions AS tst
-                        ON tst.transaction_id = tat.transaction_id
-                        LEFT JOIN sys.dm_exec_sessions AS s
-                        ON s.session_id = tst.session_id
-                        WHERE tat.name = 'implicit_transaction'
-                        GROUP BY DB_NAME(s.database_id), transaction_type, transaction_state
+								SELECT	215 AS CheckID ,
+										100 AS Priority ,
+										''Performance'' AS FindingsGroup ,
+										''Implicit Transactions'' AS Finding ,
+										DB_NAME(s.database_id) AS DatabaseName,
+										''https://www.brentozar.com/go/ImplicitTransactions/'' AS URL ,
+										N''The database '' +
+										DB_NAME(s.database_id)
+										+ '' has ''
+										+ CONVERT(NVARCHAR(20), COUNT_BIG(*))
+										+ '' open implicit transactions ''
+										+ '' with an oldest begin time of ''
+										+ CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) AS details
+								FROM    sys.dm_tran_active_transactions AS tat
+								LEFT JOIN sys.dm_tran_session_transactions AS tst
+								ON tst.transaction_id = tat.transaction_id
+								LEFT JOIN sys.dm_exec_sessions AS s
+								ON s.session_id = tst.session_id
+								WHERE tat.name = ''implicit_transaction''
+								GROUP BY DB_NAME(s.database_id), transaction_type, transaction_state;';
+
+
+							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+								
+							EXECUTE(@StringToExecute);
+
+
 				
 				END;
 
