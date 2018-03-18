@@ -7228,6 +7228,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								                           @value_name = 'ActivePowerScheme',
 								                           @value = @outval OUTPUT;
 
+								DECLARE @cpu_speed VARCHAR(256)
+								
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+								                           @key = 'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
+								                           @value_name = 'ProcessorNameString',
+								                           @value = @cpu_speed OUTPUT;
+								
+								SELECT @cpu_speed = SUBSTRING(@cpu_speed, CHARINDEX('@ ', @cpu_speed) + 1, LEN(@cpu_speed))
+
 									INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -7241,7 +7250,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Server Info' AS FindingsGroup,
 									'Power Plan' AS Finding,
 									'https://www.brentozar.com/blitz/power-mode/' AS URL,
-									'Your server is in '
+									'Your server has'
+									+ @cpu_speed
+									+ ' CPUs, and is in '
 									+ CASE @outval
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
 							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
