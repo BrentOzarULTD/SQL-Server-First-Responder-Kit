@@ -325,6 +325,15 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
 			END; /* Express Edition skipped checks */
 
+		/* If the server is an Azure Managed Instance, skip checks that it doesn't allow */
+		IF SERVERPROPERTY('EngineEdition') = 8
+			BEGIN
+						INSERT INTO #SkipChecks (CheckID) VALUES (1);  /* Full backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (2);  /* Log backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (100);  /* Remote DAC disabled - but it's working anyway, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+            END; /* Azure Managed Instance skipped checks */
+
 		/*
 		That's the end of the SkipChecks stuff.
 		The next several tables are used by various checks later.
@@ -684,42 +693,87 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 1) WITH NOWAIT;
 
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  DatabaseName ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT  1 AS CheckID ,
-										d.[name] AS DatabaseName ,
-										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Backups Not Performed Recently' AS Finding ,
-										'https://BrentOzar.com/go/nobak' AS URL ,
-										'Last backed up: '
-										+ COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
-								FROM    master.sys.databases d
-										LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																  AND b.type = 'D'
-																  AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server */
-								WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
-										AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
-										AND d.is_in_standby = 0 /* Not a log shipping target database */
-										AND d.source_database_id IS NULL /* Excludes database snapshots */
-										AND d.name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-															FROM  #SkipChecks
-															WHERE CheckID IS NULL OR CheckID = 1)
-										/*
-										The above NOT IN filters out the databases we're not supposed to check.
-										*/
-								GROUP BY d.name
-								HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
-																  -7, GETDATE())
-                                        OR MAX(b.backup_finish_date) IS NULL;
+                        IF SERVERPROPERTY('EngineName') <> 8 /* Azure Managed Instances need a special query */
+                            BEGIN
+						    INSERT  INTO #BlitzResults
+								    ( CheckID ,
+								      DatabaseName ,
+								      Priority ,
+								      FindingsGroup ,
+								      Finding ,
+								      URL ,
+								      Details
+								    )
+								    SELECT  1 AS CheckID ,
+										    d.[name] AS DatabaseName ,
+										    1 AS Priority ,
+										    'Backup' AS FindingsGroup ,
+										    'Backups Not Performed Recently' AS Finding ,
+										    'https://BrentOzar.com/go/nobak' AS URL ,
+										    'Last backed up: '
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+								    FROM    master.sys.databases d
+										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																      AND b.type = 'D'
+																      AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server  */
+								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
+										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
+										    AND d.is_in_standby = 0 /* Not a log shipping target database */
+										    AND d.source_database_id IS NULL /* Excludes database snapshots */
+										    AND d.name NOT IN ( SELECT DISTINCT
+																      DatabaseName
+															    FROM  #SkipChecks
+															    WHERE CheckID IS NULL OR CheckID = 1)
+										    /*
+										    The above NOT IN filters out the databases we're not supposed to check.
+										    */
+								    GROUP BY d.name
+								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
+																      -7, GETDATE())
+                                            OR MAX(b.backup_finish_date) IS NULL;
+                                END;
+
+                        ELSE /* SERVERPROPERTY('EngineName') must be 8, Azure Managed Instances */
+                            BEGIN
+						    INSERT  INTO #BlitzResults
+								    ( CheckID ,
+								      DatabaseName ,
+								      Priority ,
+								      FindingsGroup ,
+								      Finding ,
+								      URL ,
+								      Details
+								    )
+								    SELECT  1 AS CheckID ,
+										    d.[name] AS DatabaseName ,
+										    1 AS Priority ,
+										    'Backup' AS FindingsGroup ,
+										    'Backups Not Performed Recently' AS Finding ,
+										    'https://BrentOzar.com/go/nobak' AS URL ,
+										    'Last backed up: '
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+								    FROM    master.sys.databases d
+										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																      AND b.type = 'D'
+								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
+										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
+										    AND d.is_in_standby = 0 /* Not a log shipping target database */
+										    AND d.source_database_id IS NULL /* Excludes database snapshots */
+										    AND d.name NOT IN ( SELECT DISTINCT
+																      DatabaseName
+															    FROM  #SkipChecks
+															    WHERE CheckID IS NULL OR CheckID = 1)
+										    /*
+										    The above NOT IN filters out the databases we're not supposed to check.
+										    */
+								    GROUP BY d.name
+								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
+																      -7, GETDATE())
+                                            OR MAX(b.backup_finish_date) IS NULL;
+                                END;
+
+
+
 						/*
 						And there you have it. The rest of this stored procedure works the same
 						way: it asks:
@@ -862,7 +916,8 @@ AS
 																  -14, GETDATE()) )
 										/* Filter out databases that were recently restored: */
 										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
-								WHERE   UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
+								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> 'HTT' AND
+                                        UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
 										FROM    sys.master_files AS mf )
@@ -1856,6 +1911,7 @@ AS
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 25 )
+                    AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 25) WITH NOWAIT;
@@ -1888,6 +1944,7 @@ AS
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 26 )
+                    AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 26) WITH NOWAIT;
@@ -2773,6 +2830,7 @@ AS
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 154 )
+                    AND SERVERPROPERTY('EngineEdition') <> 8
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 154) WITH NOWAIT;
@@ -3285,6 +3343,7 @@ AS
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 128 )
+                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 							BEGIN
 
 							IF (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
@@ -3312,6 +3371,7 @@ AS
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 129 )
+                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 							BEGIN
 							IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3000 AND @ProductVersionMinor <= 3436) OR
 							   (@ProductVersionMajor = 11 AND @ProductVersionMinor = 5058) OR
@@ -3331,6 +3391,7 @@ AS
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 157 )
+                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 							BEGIN
 							IF (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5500 AND @ProductVersionMinor <= 5512) OR
 							   (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5750 AND @ProductVersionMinor <= 5867) OR
@@ -3355,6 +3416,7 @@ AS
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 189 )
+                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 							BEGIN
 							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001 AND @@VERSION LIKE '%Standard Edition%')
 								BEGIN
