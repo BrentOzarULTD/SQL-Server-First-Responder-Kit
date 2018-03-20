@@ -4667,6 +4667,7 @@ IF @ProductVersionMajor >= 10
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
 			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
 			AND d.application_name NOT LIKE '%Sentry%'
+			AND d.application_name NOT LIKE '%Repl-LogReader%'
 			
 
 			HAVING COUNT(*) > 0;
