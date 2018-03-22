@@ -10,6 +10,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
+	  @MoveFilestreamDrive NVARCHAR(260) = NULL,
 	  @TestRestore BIT = 0, 
 	  @RunCheckDB BIT = 0, 
 	  @RestoreDiff BIT = 0,
@@ -355,13 +356,25 @@ IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
 /*Move Log File*/
 IF NULLIF(@MoveLogDrive, '') IS NULL
 	BEGIN
-		RAISERROR('Getting default log drive for @@MoveLogDrive', 0, 1) WITH NOWAIT;
+		RAISERROR('Getting default log drive for @MoveLogDrive', 0, 1) WITH NOWAIT;
 		SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
 	END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
 		SET @MoveLogDrive += N'\';
+	END;
+
+/*Move Filestream File*/
+IF NULLIF(@MoveFilestreamDrive, '') IS NULL
+	BEGIN
+		RAISERROR('Setting default data drive for @MoveFilestreamDrive', 0, 1) WITH NOWAIT;
+		SET @MoveFilestreamDrive  = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
+	END;
+IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '\' --Has to end in a '\'
+	BEGIN
+		RAISERROR('Fixing @MoveFilestreamDrive to add a "\"', 0, 1) WITH NOWAIT;
+		SET @MoveFilestreamDrive += N'\';
 	END;
 
 /*Standby Undo File*/
@@ -532,6 +545,7 @@ BEGIN
 			CASE
 				WHEN Type = 'D' THEN @MoveDataDrive
 				WHEN Type = 'L' THEN @MoveLogDrive
+				WHEN Type = 'S' THEN @MoveFilestreamDrive
 			END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
 					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
 					END AS logicalcmds
