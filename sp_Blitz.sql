@@ -4639,6 +4639,7 @@ IF @ProductVersionMajor >= 10
 			   command they're trying to run. See Github issues 1062, 1074, 1075.
 			*/
 			WHERE d.dbcc_event_full_upper NOT LIKE '%DBCC%ADDINSTANCE%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%AUTOPILOT%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKALLOC%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCATALOG%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%CHECKCONSTRAINTS%'
