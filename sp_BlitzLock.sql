@@ -298,11 +298,19 @@ SET @VersionDate = '20180301';
 		OPTION ( RECOMPILE );
 
 		/*Parse parallel deadlocks*/
-        SELECT      dr.event_date,
+        SELECT		dr.event_date,
 					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
                     ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
                     ca.dr.value('@nodeId', 'BIGINT') AS node_id,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+					/* These columns are in 2017 CU5 ONLY */
+					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
+					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
+					ca.dr.value('@waiterActivity', 'NVARCHAR(256)') AS waiter_activity,
+					ca.dr.value('@merging', 'NVARCHAR(256)') AS merging,
+					ca.dr.value('@spilling', 'NVARCHAR(256)') AS spilling,
+					ca.dr.value('@waitingToClose', 'NVARCHAR(256)') AS waiting_to_close,
+                    /*                                    */
+					w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id
         INTO #deadlock_resource_parallel
 		FROM        #deadlock_resource AS dr
@@ -310,6 +318,18 @@ SET @VersionDate = '20180301';
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
+
+		/*Get rid of parallel noise*/
+		WITH c
+		    AS
+		     (
+		         SELECT *, ROW_NUMBER() OVER ( PARTITION BY drp.owner_id, drp.waiter_id ORDER BY drp.event_date ) AS rn
+		         FROM   #deadlock_resource_parallel AS drp
+		     )
+		DELETE FROM c
+		WHERE c.rn > 1;
+
+
 
 		/*Get rid of nonsense*/
 		DELETE dow
@@ -743,7 +763,19 @@ SET @VersionDate = '20180301';
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
 					dp.is_victim,
 					ISNULL(dp.owner_mode, '-') AS owner_mode,
-					ISNULL(dp.waiter_mode, '-') AS waiter_mode
+					NULL AS owner_waiter_type,
+					NULL AS owner_activity,
+					NULL AS owner_waiter_activity,
+					NULL AS owner_merging,
+					NULL AS owner_spilling,
+					NULL AS owner_waiting_to_close,
+					ISNULL(dp.waiter_mode, '-') AS waiter_mode,
+					NULL AS waiter_waiter_type,
+					NULL AS waiter_owner_activity,
+					NULL AS waiter_waiter_activity,
+					NULL AS waiter_merging,
+					NULL AS waiter_spilling,
+					NULL AS waiter_waiting_to_close
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
@@ -774,7 +806,19 @@ SET @VersionDate = '20180301';
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
 					NULL AS is_victim,
 					cao.wait_type AS owner_mode,
-					caw.wait_type AS waiter_mode
+					cao.waiter_type AS owner_waiter_type,
+					cao.owner_activity AS owner_activity,
+					cao.waiter_activity	AS owner_waiter_activity,
+					cao.merging	AS owner_merging,
+					cao.spilling AS owner_spilling,
+					cao.waiting_to_close AS owner_waiting_to_close,
+					caw.wait_type AS waiter_mode,
+					caw.waiter_type AS waiter_waiter_type,
+					caw.owner_activity AS waiter_owner_activity,
+					caw.waiter_activity	AS waiter_waiter_activity,
+					caw.merging	AS waiter_merging,
+					caw.spilling AS waiter_spilling,
+					caw.waiting_to_close AS waiter_waiting_to_close
 		     FROM   #deadlock_process AS dp 
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
@@ -803,9 +847,25 @@ SET @VersionDate = '20180301';
 		       d.last_tran_started,
 		       d.last_batch_started,
 		       d.last_batch_completed,
-		       d.transaction_name
+		       d.transaction_name,
+			   /*These columns will be NULL for regular (non-parallel) deadlocks*/
+			   d.owner_mode,
+			   d.owner_waiter_type,
+			   d.owner_activity,
+			   d.owner_waiter_activity,
+			   d.owner_merging,
+			   d.owner_spilling,
+			   d.owner_waiting_to_close,
+			   d.waiter_mode,
+			   d.waiter_waiter_type,
+			   d.waiter_owner_activity,
+			   d.waiter_waiter_activity,
+			   d.waiter_merging,
+			   d.waiter_spilling,
+			   d.waiter_waiting_to_close
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
+		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (d.event_date < @EndDate OR @EndDate IS NULL)
