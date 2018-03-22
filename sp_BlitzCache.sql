@@ -4136,7 +4136,11 @@ OPTION (RECOMPILE);
 
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
 UPDATE ##bou_BlitzCacheProcs
-SET Warnings = 'No warnings detected.'
+SET Warnings = 'No warnings detected. ' + CASE @ExpertMode 
+											WHEN 0 
+											THEN ' Try running sp_BlitzCache with @ExpertMode = 1 to find more advanced problems.' 
+											ELSE '' 
+										  END
 WHERE Warnings = '' OR	Warnings IS NULL
 AND SPID = @@SPID
 OPTION (RECOMPILE);
