@@ -2716,8 +2716,6 @@ OPTION (RECOMPILE);
 END; 
 
 
-IF @ExpertMode > 0
-BEGIN
 RAISERROR(N'Performing TVF join check', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 UPDATE p
@@ -2732,7 +2730,6 @@ FROM   ##bou_BlitzCacheProcs p
        ) AS x ON p.SqlHandle = x.SqlHandle
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
-END; 
 
 
 RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
