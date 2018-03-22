@@ -233,6 +233,7 @@ SET @VersionDate = '20180301';
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(1000)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -253,6 +254,7 @@ SET @VersionDate = '20180301';
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -270,6 +272,7 @@ SET @VersionDate = '20180301';
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -287,6 +290,7 @@ SET @VersionDate = '20180301';
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
                     w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -296,6 +300,25 @@ SET @VersionDate = '20180301';
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
+
+
+		/*This parses row group locks*/
+        INSERT #deadlock_owner_waiter
+        SELECT      dr.event_date,
+					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+        FROM        #deadlock_resource AS dr
+        CROSS APPLY dr.resource_xml.nodes('//resource-list/rowgrouplock') AS ca(dr)
+        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+		OPTION ( RECOMPILE );
+
 
 		/*Parse parallel deadlocks*/
         SELECT		dr.event_date,
@@ -389,8 +412,8 @@ SET @VersionDate = '20180301';
 
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
-			   DB_NAME(dow.database_id) AS database_name, 
-			   dow.object_name AS object_name,
+			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
+			   ISNULL(dow.object_name, 'UNKNOWN') AS object_name,
 			   'Total object deadlocks' AS finding_group,
 			   'This object was involved in ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
@@ -403,6 +426,26 @@ SET @VersionDate = '20180301';
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		GROUP BY DB_NAME(dow.database_id), dow.object_name
 		OPTION ( RECOMPILE );
+
+		/*Check 2 continuation, number of locks per index*/
+
+		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+		SELECT 2 AS check_id, 
+			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
+			   ISNULL(dow.index_name, 'UNKNOWN') AS index_name,
+			   'Total index deadlocks' AS finding_group,
+			   'This index was involved in ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
+				+ ' deadlock(s).'
+        FROM   #deadlock_owner_waiter AS dow
+		WHERE 1 = 1
+		AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+		GROUP BY DB_NAME(dow.database_id), dow.index_name
+		OPTION ( RECOMPILE );
+
 		
 
 		/*Check 3 looks for Serializable locking*/
@@ -494,6 +537,7 @@ SET @VersionDate = '20180301';
 				AND (dp.host_name = @HostName OR @HostName IS NULL)
 				AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+				AND dow.object_name IS NOT NULL
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
@@ -536,7 +580,7 @@ SET @VersionDate = '20180301';
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
-			   DB_NAME(dow.database_id) AS database_name,
+			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name,
 			   ds.proc_name AS object_name,
 			   'More Info - Query' AS finding_group,
 			   'EXEC sp_BlitzCache ' +
@@ -638,6 +682,7 @@ SET @VersionDate = '20180301';
 				AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 				AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+				AND dow.object_name IS NOT NULL
 					)
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
