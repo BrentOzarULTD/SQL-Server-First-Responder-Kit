@@ -66,6 +66,17 @@ SET @VersionDate = '20180301';
 	versions for free, watch training videos on how it works, get more info on
 	the findings, contribute your own code, and more.
 
+	Known limitations of this version:
+	 - Only 2012+ is supported (2008 and 2008R2 are kaput in 2019, so I''m not putting time into them)
+	 - If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references) you may get errors trying to parse the XML.
+	   I took a long look at this one, and:
+		1) Trying to account for all the weird places these could crop up is a losing effort. 
+		2) Replace is slow af on lots of XML.
+	- Your mom.
+
+
+
+
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
