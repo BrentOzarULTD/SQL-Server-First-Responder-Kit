@@ -554,7 +554,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 		  table_name NVARCHAR(128) NULL,
 		  schema_name NVARCHAR(128) NULL,
 		  index_name  NVARCHAR(128) NULL,
-		  column_names  NVARCHAR(4000) NULL,
+		  column_names  NVARCHAR(MAX) NULL,
 		  statistics_name NVARCHAR(128) NULL,
 		  last_statistics_update DATETIME NULL,
 		  days_since_last_stats_update INT NULL,
