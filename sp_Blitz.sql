@@ -3310,7 +3310,7 @@ AS
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
 									AND RTRIM(p.instance_name) = '_Total'
 									AND p.cntr_value > 0
-									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 1;
+									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
 							END;
 
 						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
