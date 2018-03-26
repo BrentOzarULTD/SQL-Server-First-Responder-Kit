@@ -141,10 +141,19 @@ AS
 			,@ColumnStoreIndexesInUse bit
 			,@TraceFileIssue bit
 			-- Flag for Windows OS to help with Linux support
-			,@IsWindowsOperatingSystem BIT;
+			,@IsWindowsOperatingSystem BIT
+			,@DaysUptime NUMERIC(23,2);
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
+
+		/* Last startup */
+		SELECT @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC(23, 2))
+		FROM   sys.databases
+		WHERE  database_id = 2;
+		
+		IF @DaysUptime = 0
+		    SET @DaysUptime = .01;
 		
 		/*
 		--TOURSTOP01--
@@ -3290,8 +3299,12 @@ AS
 									Finding,
 									URL,
 									Details)
-								SELECT 124, 150, 'Performance', 'Deadlocks Happening Daily', 'https://BrentOzar.com/go/deadlocks',
-									CAST(p.cntr_value AS NVARCHAR(100)) + ' deadlocks recorded since startup. To find them, run sp_BlitzLock.' AS Details
+								SELECT 124, 
+										150, 
+										'Performance', 
+										'Deadlocks Happening Daily', 
+										'https://BrentOzar.com/go/deadlocks',
+										CAST(CAST(p.cntr_value / @DaysUptime AS BIGINT) AS NVARCHAR(100)) + ' average deadlocks per day. To find them, run sp_BlitzLock.' AS Details
 								FROM sys.dm_os_performance_counters p
 									INNER JOIN sys.databases d ON d.name = 'tempdb'
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
@@ -6792,9 +6805,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							'https://BrentOzar.com/go/lpim' AS [URL] ,
 							( 'You currently have '
 							  + CASE WHEN [dopm].[locked_page_allocations_kb] / 1024. / 1024. > 0
-									 THEN CAST([dopm].[locked_page_allocations_kb] / 1024. / 1024. AS VARCHAR(100))
+									 THEN CAST([dopm].[locked_page_allocations_kb] / 1024 / 1024 AS VARCHAR(100))
 										  + ' GB'
-									 ELSE CAST([dopm].[locked_page_allocations_kb] / 1024. AS VARCHAR(100))
+									 ELSE CAST([dopm].[locked_page_allocations_kb] / 1024 AS VARCHAR(100))
 										  + ' MB'
 								END + ' of pages locked in memory.' ) AS [Details]
 						  FROM
