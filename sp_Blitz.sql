@@ -4931,6 +4931,44 @@ IF @ProductVersionMajor >= 10
 				
 				END;
 
+						
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 216 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+						
+							WITH reboot_airhorn
+							    AS
+							     (
+							         SELECT create_date
+							         FROM   sys.databases
+							         WHERE  database_id = 2
+							         UNION ALL
+							         SELECT CAST(DATEADD(SECOND, ( ms_ticks / 1000 ) * ( -1 ), GETDATE()) AS DATETIME)
+							         FROM   sys.dm_os_sys_info
+							     )
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 216 AS CheckID,
+							       10 AS Priority,
+							       'Recent Restart' AS FindingsGroup,
+							       'Server restarted in last 24 hours' AS Finding,
+							       '' AS URL,
+							       'Surprise! Your server was last restarted on: ' + CONVERT(VARCHAR(30), MAX(reboot_airhorn.create_date)) AS details
+							FROM   reboot_airhorn
+							HAVING MAX(reboot_airhorn.create_date) >= DATEADD(HOUR, -24, GETDATE());						
+						
+
+					END;
+
 
 
 				IF @CheckUserDatabaseObjects = 1
