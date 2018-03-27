@@ -993,7 +993,7 @@ IF @DurationFilter IS NOT NULL
 
 RAISERROR(N'Checking database validity', 0, 1) WITH NOWAIT;
 SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
-IF (DB_ID(@DatabaseName)) IS NULL AND @DatabaseName <> ''
+IF (DB_ID(@DatabaseName)) IS NULL AND @DatabaseName <> N''
 BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
@@ -1688,10 +1688,10 @@ IF @IgnoreSystemDBs = 1
 	SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 	END; 
 
-IF @DatabaseName IS NOT NULL OR @DatabaseName <> ''
+IF @DatabaseName IS NOT NULL OR @DatabaseName <> N''
 	BEGIN 
     RAISERROR(N'Filtering database name chosen', 0, 1) WITH NOWAIT;
-	SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID('
+	SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID(N'
                  + QUOTENAME(@DatabaseName, N'''')
                  + N') ' + @nl;
 	END; 
@@ -1798,7 +1798,7 @@ SELECT TOP (@Top)
 	   + QUOTENAME(COALESCE(OBJECT_SCHEMA_NAME(qs.object_id, qs.database_id),''''))
 	   + ''.''
 	   + QUOTENAME(COALESCE(OBJECT_NAME(qs.object_id, qs.database_id),'''')) AS QueryType,
-       COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), ''-- N/A --'') AS DatabaseName,
+       COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), N''-- N/A --'') AS DatabaseName,
        (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
        (total_worker_time / 1000.0) AS TotalCPU ,
        CASE WHEN total_worker_time = 0 THEN 0
@@ -1899,7 +1899,7 @@ BEGIN
     SELECT TOP (@Top)
            @@SPID ,
            ''Statement'' AS QueryType,
-           COALESCE(DB_NAME(CAST(pa.value AS INT)), ''-- N/A --'') AS DatabaseName,
+           COALESCE(DB_NAME(CAST(pa.value AS INT)), N''-- N/A --'') AS DatabaseName,
            (total_worker_time / 1000.0) / execution_count AS AvgCPU ,
            (total_worker_time / 1000.0) AS TotalCPU ,
            CASE WHEN total_worker_time = 0 THEN 0
@@ -5738,7 +5738,7 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
          CREATE TABLE #bou_allsort
          (
            Id INT IDENTITY(1, 1),
-           DatabaseName VARCHAR(128),
+           DatabaseName NVARCHAR(128),
            Cost FLOAT,
            QueryText NVARCHAR(MAX),
            QueryType NVARCHAR(258),
