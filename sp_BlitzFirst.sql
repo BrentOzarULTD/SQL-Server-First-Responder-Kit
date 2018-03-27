@@ -1490,31 +1490,43 @@ BEGIN
 
 
     /*Query Problems - Clients using implicit transactions */
-    IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-    SELECT  37 AS CheckId,
-            50 AS Priotity,
-            'Implicit Transactions' AS FindingsGroup,
-            'Queries were found running using implicit transactions',
-            'https://www.brentozar.com/go/ImplicitTransactions/' AS URL,
-            'Database: ' + DB_NAME(s.database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name]   + @LineFeed + CONVERT(VARCHAR(10), s.open_transaction_count) + ' open transactions since' + CAST  (tat.transaction_begin_time AS NVARCHAR(100)) + '. ' AS Details,
-            'Check client configuration options' AS HowToStopit,
-            tat.transaction_begin_time,
-            s.login_name,
-            s.nt_user_name,
-            s.program_name,
-            s.host_name,
-            s.database_id,
-            DB_NAME(s.database_id) AS DatabaseName,
-            NULL AS Querytext,
-            s.open_transaction_count AS OpenTransactionCount
-    FROM    sys.dm_tran_active_transactions AS tat
-    LEFT JOIN sys.dm_tran_session_transactions AS tst
-    ON tst.transaction_id = tat.transaction_id
-    LEFT JOIN sys.dm_exec_sessions AS s
-    ON s.session_id = tst.session_id
-    WHERE tat.name = 'implicit_transaction';
-
+    IF @Seconds > 0 
+		AND ( @@VERSION NOT LIKE 'Microsoft SQL Server 2005%'
+		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008%'
+		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008 R2%' )
+     BEGIN
+        SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+		SELECT  37 AS CheckId,
+		        50 AS Priority,
+		        ''Implicit Transactions'' AS FindingsGroup,
+		        ''Queries were found running using implicit transactions'',
+		        ''https://www.brentozar.com/go/ImplicitTransactions/'' AS URL,
+		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + 
+				''Host: '' + s.[host_name]  + '' '' + 
+				''Program: '' + s.[program_name]  + '' '' + 
+				CONVERT(NVARCHAR(10), s.open_transaction_count) + 
+				'' open transactions since: '' + 
+				CONVERT(NVARCHAR(30), tat.transaction_begin_time) + ''. '' 
+					AS Details,
+				''Check client configuration options'' AS HowToStopit,
+		        tat.transaction_begin_time,
+		        s.login_name,
+		        s.nt_user_name,
+		        s.program_name,
+		        s.host_name,
+		        s.database_id,
+		        DB_NAME(s.database_id) AS DatabaseName,
+		        NULL AS Querytext,
+		        s.open_transaction_count AS OpenTransactionCount
+		FROM    sys.dm_tran_active_transactions AS tat
+		LEFT JOIN sys.dm_tran_session_transactions AS tst
+		ON tst.transaction_id = tat.transaction_id
+		LEFT JOIN sys.dm_exec_sessions AS s
+		ON s.session_id = tst.session_id
+		WHERE tat.name = ''implicit_transaction'';
+		'
+		EXECUTE sp_executesql @StringToExecute;
+    END;
 
     /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
