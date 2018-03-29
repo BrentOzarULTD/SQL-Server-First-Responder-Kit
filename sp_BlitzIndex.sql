@@ -37,8 +37,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.3';
-SET @VersionDate = '20180301';
+SET @Version = '6.4';
+SET @VersionDate = '20180401';
 
 
 IF @Help = 1 PRINT '
@@ -173,10 +173,10 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               check_id INT NOT NULL,
               index_sanity_id INT NULL,
               Priority INT NULL,
-              findings_group VARCHAR(4000) NOT NULL,
-              finding VARCHAR(200) NOT NULL,
-              [database_name] VARCHAR(200) NULL,
-              URL VARCHAR(200) NOT NULL,
+              findings_group NVARCHAR(4000) NOT NULL,
+              finding NVARCHAR(200) NOT NULL,
+              [database_name] NVARCHAR(128) NULL,
+              URL NVARCHAR(200) NOT NULL,
               details NVARCHAR(MAX) NOT NULL,
               index_definition NVARCHAR(MAX) NOT NULL,
               secret_columns NVARCHAR(MAX) NULL,
@@ -230,11 +230,11 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               count_secret_columns INT NULL,
               create_date DATETIME NOT NULL,
               modify_date DATETIME NOT NULL,
-            [db_schema_object_name] AS [schema_name] + '.' + [object_name]  ,
-            [db_schema_object_indexid] AS [schema_name] + '.' + [object_name]
-                + CASE WHEN [index_name] IS NOT NULL THEN '.' + index_name
-                ELSE ''
-                END + ' (' + CAST(index_id AS NVARCHAR(20)) + ')' ,
+            [db_schema_object_name] AS [schema_name] + N'.' + [object_name]  ,
+            [db_schema_object_indexid] AS [schema_name] + N'.' + [object_name]
+                + CASE WHEN [index_name] IS NOT NULL THEN N'.' + index_name
+                ELSE N''
+                END + N' (' + CAST(index_id AS NVARCHAR(20)) + N')' ,
             first_key_column_name AS CASE    WHEN count_key_columns > 1
                 THEN LEFT(key_column_names, CHARINDEX(',', key_column_names, 0) - 1)
                 ELSE key_column_names
@@ -247,7 +247,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                 CASE index_id
                     WHEN 0 THEN N'[HEAP] '
                     WHEN 1 THEN N'[CX] '
-                    ELSE N'' END + CASE WHEN is_indexed_view = 1 THEN '[VIEW] '
+                    ELSE N'' END + CASE WHEN is_indexed_view = 1 THEN N'[VIEW] '
                     ELSE N'' END + CASE WHEN is_primary_key = 1 THEN N'[PK] '
                     ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
                     ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
@@ -256,11 +256,11 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                     ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
                     ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
                     ELSE N'' END + CASE WHEN count_key_columns > 0 THEN 
-                        N'[' + CAST(count_key_columns AS VARCHAR(10)) + N' KEY' 
+                        N'[' + CAST(count_key_columns AS NVARCHAR(10)) + N' KEY' 
                             + CASE WHEN count_key_columns > 1 THEN  N'S' ELSE N'' END
                             + N'] ' + LTRIM(key_column_names_with_sort_order)
                     ELSE N'' END + CASE WHEN count_included_columns > 0 THEN 
-                        N' [' + CAST(count_included_columns AS VARCHAR(10))  + N' INCLUDE' + 
+                        N' [' + CAST(count_included_columns AS NVARCHAR(10))  + N' INCLUDE' + 
                             + CASE WHEN count_included_columns > 1 THEN  N'S' ELSE N'' END                    
                             + N'] ' + include_column_names
                     ELSE N'' END + CASE WHEN filter_definition <> N'' THEN N' [FILTER] ' + filter_definition
@@ -270,20 +270,20 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                 THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
                 ELSE 0 END AS MONEY) ,
             [index_usage_summary] AS N'Reads: ' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), '.00', '')
+                REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
                 + CASE WHEN user_seeks + user_scans + user_lookups > 0 THEN
                     N' (' 
                         + RTRIM(
-                        CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), '.00', '') + N' seek ' ELSE N'' END
-                        + CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), '.00', '') + N' scan '  ELSE N'' END
-                        + CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), '.00', '') + N' lookup' ELSE N'' END
+                        CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), N'.00', N'') + N' seek ' ELSE N'' END
+                        + CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), N'.00', N'') + N' scan '  ELSE N'' END
+                        + CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), N'.00', N'') + N' lookup' ELSE N'' END
                         )
                         + N') '
                     ELSE N' ' END 
                 + N'Writes:' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), '.00', ''),
-            [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
-                N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([object_name],'''') + N';'
+                REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), N'.00', N''),
+            [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
+                N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';'
 		);
         RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
         IF NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE name='uq_database_id_object_id_index_id') 
@@ -321,7 +321,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               page_lock_wait_in_ms BIGINT NULL ,
               index_lock_promotion_attempt_count BIGINT NULL ,
               index_lock_promotion_count BIGINT NULL,
-              data_compression_desc VARCHAR(60) NULL
+              data_compression_desc NVARCHAR(60) NULL
             );
 
         CREATE TABLE #IndexSanitySize
@@ -350,7 +350,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               avg_page_lock_wait_in_ms BIGINT NULL ,
                total_index_lock_promotion_attempt_count BIGINT NULL ,
               total_index_lock_promotion_count BIGINT NULL ,
-              data_compression_desc VARCHAR(8000) NULL,
+              data_compression_desc NVARCHAR(4000) NULL,
               index_size_summary AS ISNULL(
                 CASE WHEN partition_count > 1
                         THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
@@ -545,7 +545,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 
 		CREATE TABLE #PartitionCompressionInfo (
 			[index_sanity_id] INT NULL,
-			[partition_compression_detail] VARCHAR(8000) NULL
+			[partition_compression_detail] NVARCHAR(4000) NULL
         );
 
 		CREATE TABLE #Statistics (
@@ -554,7 +554,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 		  table_name NVARCHAR(128) NULL,
 		  schema_name NVARCHAR(128) NULL,
 		  index_name  NVARCHAR(128) NULL,
-		  column_names  NVARCHAR(4000) NULL,
+		  column_names  NVARCHAR(MAX) NULL,
 		  statistics_name NVARCHAR(128) NULL,
 		  last_statistics_update DATETIME NULL,
 		  days_since_last_stats_update INT NULL,
@@ -592,7 +592,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 		
 		CREATE TABLE #TraceStatus
 		(
-		 TraceFlag VARCHAR(10) ,
+		 TraceFlag NVARCHAR(10) ,
 		 status BIT ,
 		 Global BIT ,
 		 Session BIT
@@ -965,13 +965,13 @@ BEGIN TRY
             column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
             is_replicated, is_sparse, is_filestream )
                 EXEC sp_executesql @dsql;
-                    
+           
         SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                SELECT    ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id, 
+                SELECT    ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id, 
                         so.object_id, 
                         si.index_id, 
                         si.type,
-                        ' + QUOTENAME(@DatabaseName, '''') + ' AS database_name, 
+                        @i_DatabaseName AS database_name, 
                         COALESCE(sc.NAME, ''Unknown'') AS [schema_name],
                         COALESCE(so.name, ''Unknown'') AS [object_name], 
                         COALESCE(si.name, ''Unknown'') AS [index_name],
@@ -986,26 +986,26 @@ BEGIN TRY
                         si.is_hypothetical, 
                         si.is_padded, 
                         si.fill_factor,'
-                        + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN '
+                        + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'
                         CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
-                             ELSE ''''
-                        END AS filter_definition' ELSE ''''' AS filter_definition' END + '
+                             ELSE N''''
+                        END AS filter_definition' ELSE N''''' AS filter_definition' END + N'
                         , ISNULL(us.user_seeks, 0), ISNULL(us.user_scans, 0),
                         ISNULL(us.user_lookups, 0), ISNULL(us.user_updates, 0), us.last_user_seek, us.last_user_scan,
                         us.last_user_lookup, us.last_user_update,
                         so.create_date, so.modify_date
-                FROM    ' + QUOTENAME(@DatabaseName) + '.sys.indexes AS si WITH (NOLOCK)
-                        JOIN ' + QUOTENAME(@DatabaseName) + '.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
+                FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si WITH (NOLOCK)
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
                                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                                AND so.type <> ''TF'' /*Exclude table valued functions*/
-                        JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas sc ON so.schema_id = sc.schema_id
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sc ON so.schema_id = sc.schema_id
                         LEFT JOIN sys.dm_db_index_usage_stats AS us WITH (NOLOCK) ON si.[object_id] = us.[object_id]
                                                                        AND si.index_id = us.index_id
-                                                                       AND us.database_id = '+ CAST(@DatabaseID AS NVARCHAR(10)) + '
+                                                                       AND us.database_id = ' + CAST(@DatabaseID AS NVARCHAR(10)) + N'
                 WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
                 /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
-                CASE WHEN @TableName IS NOT NULL THEN ' and so.name=' + QUOTENAME(@TableName,'''') + ' ' ELSE '' END + 
-        'OPTION    ( RECOMPILE );
+                CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END + 
+        N'OPTION    ( RECOMPILE );
         ';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1016,7 +1016,7 @@ BEGIN TRY
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
-                EXEC sp_executesql @dsql;
+                EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
         RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
@@ -1035,7 +1035,7 @@ BEGIN TRY
                         VALUES  ( 1, 0 , 
 		                       'Some Checks Were Skipped',
                                '@SkipPartitions Forced to 1',
-                               'http://FirstResponderKit.org', CAST(@Rowcount AS VARCHAR(50)) + ' partitions found. To analyze them, use @BringThePain = 1.', 'We try to keep things quick - and warning, running @BringThePain = 1 can take tens of minutes.', '', ''
+                               'http://FirstResponderKit.org', CAST(@Rowcount AS NVARCHAR(50)) + ' partitions found. To analyze them, use @BringThePain = 1.', 'We try to keep things quick - and warning, running @BringThePain = 1 can take tens of minutes.', '', ''
                                 );
                     END;
             END;
@@ -1187,7 +1187,7 @@ BEGIN TRY
 
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                SELECT  id.database_id, id.object_id, ' + QUOTENAME(@DatabaseName,'''') + N', sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
+                SELECT  id.database_id, id.object_id, @i_DatabaseName, sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
                         gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
                         id.inequality_columns,id.included_columns
                 FROM    sys.dm_db_missing_index_groups ig
@@ -1208,11 +1208,11 @@ BEGIN TRY
         INSERT    #MissingIndexes ( [database_id], [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
                                     inequality_columns, included_columns)
-        EXEC sp_executesql @dsql;
+        EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
         SET @dsql = N'
-            SELECT DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], '
-			    + QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
+            SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+			    @i_DatabaseName AS database_name,
 				s.name,
                 fk_object.name AS foreign_key_name,
                 parent_object.[object_id] AS parent_object_id,
@@ -1239,7 +1239,7 @@ BEGIN TRY
                                                 AND fk.[object_id]=fkc.constraint_object_id
                                             ORDER BY fkc.constraint_column_id 
                                     FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''varchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
+                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
             CROSS APPLY ( SELECT    STUFF( (SELECT    N'', '' + c_referenced.name AS fk_columns
                                             FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.    foreign_key_columns fkc 
                                             JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
@@ -1248,7 +1248,7 @@ BEGIN TRY
                                                 and fk.[object_id]=fkc.constraint_object_id
                                             ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
                                     FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''varchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
+                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
             ' + CASE WHEN @ObjectID IS NOT NULL THEN 
                     'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
                     ELSE N' ' END + '
@@ -1261,7 +1261,7 @@ BEGIN TRY
         INSERT  #ForeignKeys ( [database_id], [database_name], [schema_name], foreign_key_name, parent_object_id,parent_object_name, referenced_object_id, referenced_object_name,
                                 is_disabled, is_not_trusted, is_not_for_replication, parent_fk_columns, referenced_fk_columns,
                                 [update_referential_action_desc], [delete_referential_action_desc] )
-                EXEC sp_executesql @dsql;
+                EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
 		IF @SkipStatistics = 0 
@@ -1272,8 +1272,8 @@ BEGIN TRY
 		BEGIN
 		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
 		SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-					 SELECT DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], '
-					+ QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
+				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+				    @i_DatabaseName AS database_name,
 					obj.name AS table_name,
 					sch.name AS schema_name,
 			        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
@@ -1314,7 +1314,7 @@ BEGIN TRY
 						  ON       sc.column_id = c.column_id AND sc.object_id = c.object_id
 						  WHERE    sc.stats_id = s.stats_id AND sc.object_id = s.object_id
 						  ORDER BY sc.stats_column_id
-						  FOR   XML PATH(''''), TYPE).value(''.'', ''varchar(max)''), 1, 2, '''') 
+						  FOR   XML PATH(''''), TYPE).value(''.'', ''nvarchar(max)''), 1, 2, '''') 
 						) ca (column_names)
 			WHERE obj.is_ms_shipped = 0
 			OPTION (RECOMPILE);';
@@ -1328,14 +1328,14 @@ BEGIN TRY
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition)
 			
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 			END;
 			ELSE 
 			BEGIN
 			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
 			SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-						 SELECT DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], '
-								+ QUOTENAME(@DatabaseName,'''')  + N' AS [database_name],
+							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+							    @i_DatabaseName AS database_name,
 								obj.name AS table_name,
 								sch.name AS schema_name,
 						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
@@ -1378,7 +1378,7 @@ BEGIN TRY
 									  ON       sc.column_id = c.column_id AND sc.object_id = c.object_id
 									  WHERE    sc.stats_id = s.stats_id AND sc.object_id = s.object_id
 									  ORDER BY sc.stats_column_id
-									  FOR   XML PATH(''''), TYPE).value(''.'', ''varchar(max)''), 1, 2, '''') 
+									  FOR   XML PATH(''''), TYPE).value(''.'', ''nvarchar(max)''), 1, 2, '''') 
 									) ca (column_names)
 						WHERE obj.is_ms_shipped = 0
 						AND si.rowcnt > 0
@@ -1393,7 +1393,7 @@ BEGIN TRY
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition)
 			
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 			END;
 
 			END;
@@ -1401,8 +1401,8 @@ BEGIN TRY
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
 			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
-			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS [database_name],
-							   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+			SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+							   @i_DatabaseName AS database_name,
    					   		   t.name AS table_name,
    					           s.name AS schema_name,
    					           c.name AS column_name,
@@ -1425,13 +1425,12 @@ BEGIN TRY
    					   ON      s.schema_id = t.schema_id
 					   OPTION (RECOMPILE);';
 
-			IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+			IF @dsql IS NULL RAISERROR('@dsql is null',16,1);
 
 			INSERT #ComputedColumns
-			        ( [database_name], database_id, table_name, schema_name, column_name, is_nullable, definition, 
+			        ( database_id, [database_name], table_name, schema_name, column_name, is_nullable, definition, 
 					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 			END; 
 			
@@ -1443,7 +1442,7 @@ BEGIN TRY
 			BEGIN
 			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
-								   DB_ID(' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
 								   s.name AS schema_name,
 								   t.name AS table_name, 
 								   oa.hsn as history_schema_name,
@@ -1531,7 +1530,7 @@ FROM    #IndexSanity si
                                     AND c.is_included_column = 0 /*Just Keys*/
                                     AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
                             ORDER BY c.object_id, c.index_id, c.key_ordinal    
-                    FOR      XML PATH('') ,TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+                    FOR      XML PATH('') ,TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                                 ) D1 ( key_column_names );
 
 RAISERROR (N'Updating #IndexSanity.partition_key_column_name',0,1) WITH NOWAIT;
@@ -1546,7 +1545,7 @@ FROM    #IndexSanity si
                                     AND c.index_id = si.index_id
                                     AND c.partition_ordinal <> 0 /*Just Partitioned Keys*/
                             ORDER BY c.object_id, c.index_id, c.key_ordinal    
-                    FOR      XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1,''))) D1 
+                    FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
                                 ( partition_key_column_name );
 
 RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
@@ -1566,7 +1565,7 @@ FROM    #IndexSanity si
                             AND c.is_included_column = 0 /*Just Keys*/
                             AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
                     ORDER BY c.object_id, c.index_id, c.key_ordinal    
-            FOR      XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+            FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order );
 
 RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
@@ -1585,7 +1584,7 @@ FROM    #IndexSanity si
                             AND c.is_included_column = 0 /*Just Keys*/
                             AND c.key_ordinal > 0 /*Ignore non-key columns, such as partitioning keys*/
                     ORDER BY c.object_id, c.index_id, c.key_ordinal    
-            FOR      XML PATH('') , TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+            FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order_no_types );
 
 RAISERROR (N'Updating #IndexSanity.include_column_names',0,1) WITH NOWAIT;
@@ -1602,7 +1601,7 @@ FROM    #IndexSanity si
                                 AND c.is_included_column = 1 /*Just includes*/
                         ORDER BY c.column_name /*Order doesn't matter in includes, 
                                 this is here to make rows easy to compare.*/ 
-                FOR      XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+                FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names );
 
 RAISERROR (N'Updating #IndexSanity.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
@@ -1618,7 +1617,7 @@ FROM    #IndexSanity si
                                 AND c.is_included_column = 1 /*Just includes*/
                         ORDER BY c.column_name /*Order doesn't matter in includes, 
                                 this is here to make rows easy to compare.*/ 
-                FOR      XML PATH('') ,  TYPE).value('.', 'varchar(max)'), 1, 1, ''))
+                FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names_no_types );
 
 RAISERROR (N'Updating #IndexSanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
@@ -1691,7 +1690,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                 AND ipp.database_id = ipp2.database_id
 				AND ipp.schema_name = ipp2.schema_name
             ORDER BY ipp2.partition_number
-            FOR      XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
+            FOR      XML PATH(''),TYPE).value('.', 'nvarchar(max)'), 1, 1, '')) 
                 data_compression_info(data_compression_rollup)
         GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name
         ORDER BY index_sanity_id 
@@ -1717,7 +1716,7 @@ RAISERROR (N'Update index_secret on #IndexSanity for NC indexes.',0,1) WITH NOWA
 UPDATE nc 
 SET secret_columns=
     N'[' + 
-    CASE tb.count_key_columns WHEN 0 THEN '1' ELSE CAST(tb.count_key_columns AS VARCHAR(10)) END +
+    CASE tb.count_key_columns WHEN 0 THEN '1' ELSE CAST(tb.count_key_columns AS NVARCHAR(10)) END +
     CASE nc.is_unique WHEN 1 THEN N' INCLUDE' ELSE N' KEY' END +
     CASE WHEN tb.count_key_columns > 1 THEN  N'S] ' ELSE N'] ' END +
     CASE tb.index_id WHEN 0 THEN '[RID]' ELSE LTRIM(tb.key_column_names) +
@@ -1820,23 +1819,23 @@ RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 			GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
 INSERT #PartitionCompressionInfo
 		(index_sanity_id, partition_compression_detail)
-SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT ', ' + ' Partition'
+SELECT DISTINCT grps.index_sanity_id , SUBSTRING((  STUFF((SELECT N', ' + N' Partition'
 											+ CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
-													THEN +'s '
-														+ CAST([grps2].[MinKey] AS VARCHAR)
-														+ ' - '
-														+ CAST([grps2].[MaxKey] AS VARCHAR)
-														+ ' use ' + grps2.data_compression_desc
-													ELSE ' '
-														+ CAST([grps2].[MinKey] AS VARCHAR)
-														+ ' uses '  + grps2.data_compression_desc
+													THEN + N's '
+														+ CAST([grps2].[MinKey] AS NVARCHAR(10))
+														+ N' - '
+														+ CAST([grps2].[MaxKey] AS NVARCHAR(10))
+														+ N' use ' + grps2.data_compression_desc
+													ELSE N' '
+														+ CAST([grps2].[MinKey] AS NVARCHAR(10))
+														+ N' uses '  + grps2.data_compression_desc
 												END AS [Partitions]
 										FROM   [grps] AS grps2
 										WHERE grps2.index_sanity_id = grps.index_sanity_id
 										ORDER BY grps2.MinKey, grps2.MaxKey
 							FOR     XML PATH('') ,
 										TYPE 
-					).[value]('.', 'VARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
+					).[value]('.', 'NVARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
 FROM grps;
 		
 RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
@@ -1845,7 +1844,6 @@ SET sz.data_compression_desc = pci.partition_compression_detail
 FROM #IndexSanitySize sz
 JOIN #PartitionCompressionInfo AS pci
 ON pci.index_sanity_id = sz.index_sanity_id;
-
 
 
 /*This is for debugging*/ 
@@ -2804,8 +2802,8 @@ BEGIN;
                                 N'Heaps with forwarded records or deletes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-                                CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + ' forwarded fetches, '
-                                + CAST(h.leaf_delete_count AS NVARCHAR(256)) + ' deletes against heap:'
+                                CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + N' forwarded fetches, '
+                                + CAST(h.leaf_delete_count AS NVARCHAR(256)) + N' deletes against heap:'
                                 + db_schema_object_indexid AS details, 
                                 i.index_definition, 
                                 i.secret_columns,
@@ -4056,7 +4054,7 @@ BEGIN;
 											[avg_page_lock_wait_in_ms] BIGINT, 
 											[total_index_lock_promotion_attempt_count] BIGINT, 
 											[total_index_lock_promotion_count] BIGINT, 
-											[data_compression_desc] VARCHAR(8000), 
+											[data_compression_desc] NVARCHAR(4000), 
 											[create_date] DATETIME, 
 											[modify_date] DATETIME, 
 											[more_info] NVARCHAR(500),
@@ -4169,7 +4167,7 @@ BEGIN;
 										i.[schema_name] AS [Schema Name], 
 										i.[object_name] AS [Object Name], 
 										ISNULL(i.index_name, '''') AS [Index Name], 
-										CAST(i.index_id AS VARCHAR(10))AS [Index ID],
+										CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
 										db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
 										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
 											ELSE ''NonClustered''
@@ -4250,7 +4248,7 @@ BEGIN;
                 i.[schema_name] AS [Schema Name], 
                 i.[object_name] AS [Object Name], 
                 ISNULL(i.index_name, '') AS [Index Name], 
-                CAST(i.index_id AS VARCHAR(10))AS [Index ID],
+                CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
                 db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
                 CASE    WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
                     ELSE 'NonClustered'

@@ -54,8 +54,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.3';
-	SET @VersionDate = '20180301';
+	SET @Version = '2.4';
+	SET @VersionDate = '20180401';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -541,6 +541,7 @@ CREATE TABLE #working_warnings
     is_cursor BIT,
 	is_optimistic_cursor BIT,
 	is_forward_only_cursor BIT,
+	is_fast_forward_cursor BIT,	
 	is_cursor_dynamic BIT,
     is_parallel BIT,
 	is_forced_serial BIT,
@@ -926,8 +927,8 @@ CREATE TABLE #missing_index_pretty
 			   + N')' 
 			   + CHAR(10)
 			   + CASE WHEN include IS NOT NULL
-					  THEN N'INCLUDE (' + include + N')'
-					  ELSE N''
+					  THEN N'INCLUDE (' + include + N')WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  ELSE N'WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
 				 END
 			   + CHAR(10)
 			   + N'GO'
@@ -2665,6 +2666,16 @@ CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking if cursor is Fast Forward', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE b
+SET b.is_fast_forward_cursor = 1
+FROM #working_warnings b
+JOIN #statements AS qs
+ON b.sql_handle = qs.sql_handle
+CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for Dynamic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -3518,7 +3529,8 @@ SET    b.warnings = SUBSTRING(
                   CASE WHEN b.is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN b.is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
 							+ CASE WHEN b.is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
-							+ CASE WHEN b.is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END			
+							+ CASE WHEN b.is_cursor_dynamic = 1 THEN '; dynamic' ELSE '' END
+                            + CASE WHEN b.is_fast_forward_cursor = 1 THEN '; fast forward' ELSE '' END			
 				  ELSE '' END +
                   CASE WHEN b.is_parallel = 1 THEN ', Parallel' ELSE '' END +
                   CASE WHEN b.near_parallel = 1 THEN ', Nearly Parallel' ELSE '' END +
@@ -3926,6 +3938,19 @@ BEGIN
                     'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
                     'Dynamic Cursors inhibit parallelism!.');
 
+		IF EXISTS (SELECT 1/0
+                   FROM   #working_warnings
+                   WHERE  is_cursor = 1
+				   AND is_fast_forward_cursor = 1
+                    )
+            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            VALUES (4,
+                    200,
+                    'Cursors',
+                    'Fast Forward Cursors',
+                    'http://brentozar.com/blitzcache/cursors-found-slow-queries/',
+                    'Fast forward cursors inhibit parallelism!.');
+					
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
                    WHERE  is_forced_parameterized = 1
