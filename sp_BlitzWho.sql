@@ -13,8 +13,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.4';
-	SET @VersionDate = '20180401';
+	SET @Version = '6.3';
+	SET @VersionDate = '20180301';
 
 
 	IF @Help = 1
@@ -164,22 +164,13 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							 WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
 							 THEN blocked.blocking_session_id
 							ELSE NULL 
-						END AS blocking_session_id , 
+						END AS blocking_session_id,
 			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
-						CASE WHEN EXISTS (  SELECT 1 
-                                            FROM sys.dm_tran_active_transactions AS tat
-                                            JOIN sys.dm_tran_session_transactions AS tst
-                                            ON tst.transaction_id = tat.transaction_id
-                                            WHERE tat.name = ''implicit_transaction''
-                                            AND s.session_id = tst.session_id 
-                                         )  THEN 1 
-                             ELSE 0 
-                        END AS is_implicit_transaction ,
 					    s.nt_domain ,
 			            s.host_name ,
 			            s.login_name ,
 			            s.nt_user_name ,
-			            s.program_name
+			            s.program_name 
 						'
 						
 					IF @ExpertMode = 1
@@ -394,16 +385,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							   THEN blocked.blocking_session_id
 							   ELSE NULL 
 						  END AS blocking_session_id,
-			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
-						CASE WHEN EXISTS (  SELECT 1 
-                                            FROM sys.dm_tran_active_transactions AS tat
-                                            JOIN sys.dm_tran_session_transactions AS tst
-                                            ON tst.transaction_id = tat.transaction_id
-                                            WHERE tat.name = ''implicit_transaction''
-                                            AND s.session_id = tst.session_id 
-                                         )  THEN 1 
-                             ELSE 0 
-                        END AS is_implicit_transaction ,                        		
+			            COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,		
 					    s.nt_domain ,
 			            s.host_name ,
 			            s.login_name ,

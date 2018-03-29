@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 215
-If you want to add a new one, start at 216
+CURRENT HIGH CHECKID: 214
+If you want to add a new one, start at 215
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -85,7 +85,6 @@ If you want to add a new one, start at 216
 | 100 | Performance | Single-Use Plans in Procedure Cache | https://www.BrentOzar.com/go/single | 35 |
 | 100 | Performance | Stored Procedure WITH RECOMPILE | https://www.BrentOzar.com/go/recompile | 78 |
 | 100 | Performance | Unusual SQL Server Edition | https://www.BrentOzar.com/go/workgroup | 97 |
-| 100 | Performance | Implicit Transactions | https://www.brentozar.com/go/ImplicitTransactions/ | 215 |
 | 110 | Performance | Active Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 38 |
 | 110 | Performance | Auto-Create Stats Disabled | https://www.BrentOzar.com/go/acs | 15 |
 | 110 | Performance | Auto-Update Stats Disabled | https://www.BrentOzar.com/go/aus | 16 |
