@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 215
-If you want to add a new one, start at 216
+CURRENT HIGH CHECKID: 216
+If you want to add a new one, start at 217
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -68,7 +68,8 @@ If you want to add a new one, start at 216
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
 | 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | https://www.BrentOzar.com/go/hekaton | 147 |
-| 100 | Features | Missing Features | https://www.BrentOzar.com/ | 189 |
+| 100 | Features | Missing Features (2016 SP1) | https://www.BrentOzar.com/ | 189 |
+| 100 | Features | Missing Features (2017 CU3) | https://www.BrentOzar.com/ | 216 |
 | 100 | Performance | Change Tracking Enabled | https://www.BrentOzar.com/go/tracking | 112 |
 | 100 | Performance | Fill Factor Changed | https://www.BrentOzar.com/go/fillfactor | 60 |
 | 100 | Performance | High Number of Cached Plans | https://www.BrentOzar.com/go/planlimits | 161 |
