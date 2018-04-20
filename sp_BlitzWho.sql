@@ -83,13 +83,13 @@ DECLARE  @ProductVersion NVARCHAR(128)
 						 N'LEFT JOIN ( SELECT DISTINCT
 												wait.session_id ,
 												( SELECT    TOP  5 waitwait.wait_type + N'' (''
-												           + CAST(SUM(waitwait.wait_time_ms) AS NVARCHAR(128))
+												           + CAST(MAX(waitwait.wait_time_ms) AS NVARCHAR(128))
 												           + N'' ms), ''
 												 FROM      sys.dm_exec_session_wait_stats AS waitwait
 												 WHERE     waitwait.session_id = wait.session_id
 												 GROUP BY  waitwait.wait_type
 												 HAVING SUM(waitwait.wait_time_ms) > 5
-												 ORDER BY  SUM(waitwait.wait_time_ms) DESC
+												 ORDER BY 1												 
 												 FOR
 												 XML PATH('''') ) AS session_wait_info
 										FROM    sys.dm_exec_session_wait_stats AS wait ) AS wt2
@@ -262,7 +262,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			    LEFT JOIN ( SELECT DISTINCT
 			                        wait.session_id ,
 			                        ( SELECT    waitwait.wait_type + N'' (''
-			                                    + CAST(SUM(waitwait.wait_duration_ms) AS NVARCHAR(128))
+			                                    + CAST(MAX(waitwait.wait_duration_ms) AS NVARCHAR(128))
 			                                    + N'' ms) ''
 			                          FROM      sys.dm_os_waiting_tasks AS waitwait
 			                          WHERE     waitwait.session_id = wait.session_id
@@ -498,7 +498,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						LEFT JOIN ( SELECT DISTINCT
 									                        wait.session_id ,
 									                        ( SELECT    waitwait.wait_type + N'' (''
-									                                    + CAST(SUM(waitwait.wait_duration_ms) AS NVARCHAR(128))
+									                                    + CAST(MAX(waitwait.wait_duration_ms) AS NVARCHAR(128))
 									                                    + N'' ms) ''
 									                          FROM      sys.dm_os_waiting_tasks AS waitwait
 									                          WHERE     waitwait.session_id = wait.session_id
