@@ -4917,7 +4917,7 @@ BEGIN
                 16,
                 100,
                 'Performance',
-                'Frequently executed operators',
+                'Busy Loops',
                 'http://brentozar.com/blitzcache/busy-loops/',
                 'Operations have been found that are executed 100 times more often than the number of rows returned by each iteration. This is an indicator that something is off in query execution.');
 
