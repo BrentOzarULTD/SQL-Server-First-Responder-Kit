@@ -1643,7 +1643,7 @@ BEGIN
 END;
 
 IF (@SortOrder IN ('spills', 'avg spills')) 
-AND (@v < 14)
+AND (@v < 14 OR @v = 14 AND @build < 3015)
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
    RETURN;
@@ -1851,7 +1851,7 @@ SELECT TOP (@Top)
 	   NULL AS PercentMemoryGrantUsed, 
 	   NULL AS AvgMaxMemoryGrant,';
 
-		IF @v >=14
+		IF @v >=15 OR (@v = 14 AND @build >= 3015)
     BEGIN
         RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @plans_triggers_select_list += N'
@@ -1984,7 +1984,7 @@ BEGIN
 		   NULL AS AvgMaxMemoryGrant, ' ;
     END;
 
-		IF @v >=14
+		IF @v >=15 OR (@v = 14 AND @build >= 3015)
     BEGIN
         RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @sql += N'
@@ -5802,7 +5802,7 @@ SELECT  @MemGrant = CASE WHEN (
                     END;
 
 DECLARE @Spills BIT;
-SELECT @Spills = CASE WHEN (@v >= 14) THEN 1 ELSE 0 END;
+SELECT @Spills = CASE WHEN (@v >= 15 OR (@v = 14 AND @build >= 3015)) THEN 1 ELSE 0 END;
 		 
 
 IF LOWER(@SortOrder) = 'all'
