@@ -186,6 +186,7 @@ SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					BEGIN
 					SET @StringToExecute += 
 			            N',
+						''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,						                        		
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,
@@ -403,7 +404,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                             AND s.session_id = tst.session_id 
                                          )  THEN 1 
                              ELSE 0 
-                        END AS is_implicit_transaction ,                        		
+                        END AS is_implicit_transaction ,
 					    s.nt_domain ,
 			            s.host_name ,
 			            s.login_name ,
@@ -414,6 +415,7 @@ SELECT @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 					BEGIN
 					SET @StringToExecute += 						
 						N',
+						''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,						                        		
 			            s.client_interface_name ,
 			            s.login_time ,
 			            r.start_time ,		
