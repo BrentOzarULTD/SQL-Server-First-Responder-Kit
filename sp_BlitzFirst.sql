@@ -2803,7 +2803,7 @@ BEGIN
                 + '' + @LineFeed
                 + '     WHERE  f.num_of_reads >= fPrior.num_of_reads' + @LineFeed
                 + '            AND f.num_of_writes >= fPrior.num_of_writes' + @LineFeed
-                + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) <= 60;'')'
+                + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END;
 
@@ -2953,7 +2953,8 @@ BEGIN
                 + '      AND pMon.[ServerName]    = pMonPrior.[ServerName]   ' + @LineFeed
                 + '      AND pMon.[object_name]   = pMonPrior.[object_name]  ' + @LineFeed
                 + '      AND pMon.[counter_name]  = pMonPrior.[counter_name] ' + @LineFeed
-                + '      AND pMon.[instance_name] = pMonPrior.[instance_name];'')'
+                + '      AND pMon.[instance_name] = pMonPrior.[instance_name]' + @LineFeed
+                + '    WHERE DATEDIFF(MI, pMonPrior.CheckDate, pMon.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END
 
@@ -3240,7 +3241,7 @@ BEGIN
                 + 'ON Dates.CheckDate = w.CheckDate' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
 			 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
-                + 'WHERE DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) > 0;'')'
+                + 'WHERE DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60;'')'
             EXEC(@StringToExecute);
             END;
 
