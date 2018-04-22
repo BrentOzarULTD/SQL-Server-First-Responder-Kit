@@ -227,10 +227,10 @@ You can log sp_BlitzFirst performance data to tables and then analyze the result
 * @OutputDatabaseName = typically 'DBAtools'
 * @OutputSchemaName = 'dbo'
 * @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
-* @OutputTableName_FileStats = 'BlitzFirst_FileStats'
-* @OutputTableName_PerfmonStats = 'BlitzFirst_PerfmonStats'
-* @OutputTableName_WaitStats = 'BlitzFirst_WaitStats'
-* @OutputTableName_BlitzCache = 'BlitzCache' 
+* @OutputTableNameFileStats = 'BlitzFirst_FileStats'
+* @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats'
+* @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
+* @OutputTableNameBlitzCache = 'BlitzCache' 
 
 All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
 
