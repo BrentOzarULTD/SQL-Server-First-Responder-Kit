@@ -2807,9 +2807,6 @@ BEGIN
             EXEC(@StringToExecute);
             END;
 
-            --Debug
-            INSERT INTO TestBlitz..Strings
-            VALUES (@OutputTableNameFileStats_View,@StringToExecute)
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
@@ -2947,6 +2944,7 @@ BEGIN
                 + '      ,pMon.[cntr_value]' + @LineFeed
                 + '      ,pMon.[cntr_type]' + @LineFeed
                 + '      ,(pMon.[cntr_value] - pMonPrior.[cntr_value]) AS cntr_delta' + @LineFeed
+                + ' ,(pMon.cntr_value - pMonPrior.cntr_value) * 1.0 / DATEDIFF(ss, pMonPrior.CheckDate, pMon.CheckDate) AS cntr_delta_per_second' + @LineFeed
                 + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
                 + '  INNER HASH JOIN CheckDates Dates' + @LineFeed
                 + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
@@ -2956,12 +2954,8 @@ BEGIN
                 + '      AND pMon.[object_name]   = pMonPrior.[object_name]  ' + @LineFeed
                 + '      AND pMon.[counter_name]  = pMonPrior.[counter_name] ' + @LineFeed
                 + '      AND pMon.[instance_name] = pMonPrior.[instance_name];'')'
-            --EXEC(@StringToExecute);
+            EXEC(@StringToExecute);
             END
-
-            --DEBUG
-            INSERT INTO TestBlitz.dbo.Strings 
-            VALUES (@OutputTableNamePerfmonStats,@StringToExecute)
 
         /* Create the second view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStatsActuals_View;
@@ -3086,9 +3080,6 @@ BEGIN
             EXEC(@StringToExecute);
             END;
 
-                        --DEBUG
-            INSERT INTO TestBlitz.dbo.Strings 
-            VALUES (@OutputTableNamePerfmonStatsActuals_View,@StringToExecute)
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
