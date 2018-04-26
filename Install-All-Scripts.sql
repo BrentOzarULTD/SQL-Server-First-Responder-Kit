@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.4';
-SET @VersionDate = '20180401';
+SET @Version = '2.5';
+SET @VersionDate = '20180501';
 
 IF @Help = 1
 
@@ -1513,8 +1513,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.4';
-SET @VersionDate = '20180401';;
+SET @Version = '2.5';
+SET @VersionDate = '20180501';;
 
 
 IF @Help = 1
@@ -2829,8 +2829,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.4';
-	SET @VersionDate = '20180401';
+	SET @Version = '6.5';
+	SET @VersionDate = '20180501';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -10781,8 +10781,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '2.4';
-	SET @VersionDate = '20180401';
+	SET @Version = '2.5';
+	SET @VersionDate = '20180501';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12546,8 +12546,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.4';
-SET @VersionDate = '20180401';
+SET @Version = '6.5';
+SET @VersionDate = '20180501';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -18527,8 +18527,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.4';
-SET @VersionDate = '20180401';
+SET @Version = '6.5';
+SET @VersionDate = '20180501';
 
 
 IF @Help = 1 PRINT '
@@ -22266,8 +22266,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.4';
-SET @VersionDate = '20180401';
+SET @Version = '6.5';
+SET @VersionDate = '20180501';
 
 
 IF @Help = 1 PRINT '
@@ -26638,8 +26638,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.4';
-SET @VersionDate = '20180401';
+SET @Version = '1.5';
+SET @VersionDate = '20180501';
 
 
 	IF @Help = 1 PRINT '
@@ -27642,8 +27642,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.4';
-	SET @VersionDate = '20180401';
+	SET @Version = '2.5';
+	SET @VersionDate = '20180501';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -32721,8 +32721,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.4';
-	SET @VersionDate = '20180401';
+	SET @Version = '6.5';
+	SET @VersionDate = '20180501';
 
 
 	IF @Help = 1
@@ -33320,8 +33320,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.4';
-SET @VersionDate = '20180401';
+SET @Version = '6.5';
+SET @VersionDate = '20180501';
 
 
 IF @Help = 1
@@ -34406,8 +34406,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.4';
-		SET @VersionDate = '20180401';
+		SET @Version = '2.5';
+		SET @VersionDate = '20180501';
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
