@@ -4559,6 +4559,14 @@ IF @ProductVersionMajor >= 10
 		         WHERE  is_online = 1
 		                AND scheduler_id < 255
 		                AND parent_node_id < 64
+						AND EXISTS (
+									SELECT 1
+									FROM ( SELECT    memory_node_id, SUM(online_scheduler_count) AS schedulers
+									       FROM      sys.dm_os_nodes
+									       WHERE     memory_node_id < 64
+									       GROUP  BY memory_node_id ) AS nodes
+										   HAVING MIN(nodes.schedulers) <> MAX(nodes.schedulers)
+									)
 		         GROUP BY parent_node_id,
 		                is_online
 		         HAVING ( COUNT(cpu_id) + 2 ) % 2 = 1;
