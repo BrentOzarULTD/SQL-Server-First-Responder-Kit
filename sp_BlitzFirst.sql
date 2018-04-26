@@ -110,12 +110,15 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @StartSampleTime DATETIMEOFFSET,
     @FinishSampleTime DATETIMEOFFSET,
 	@FinishSampleTimeWaitFor DATETIME,
+	@AsOf1 DATETIMEOFFSET,
+	@AsOf2 DATETIMEOFFSET,
     @ServiceName sysname,
     @OutputTableNameFileStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStats_View NVARCHAR(256),
     @OutputTableNamePerfmonStatsActuals_View NVARCHAR(256),
     @OutputTableNameWaitStats_View NVARCHAR(256),
     @OutputTableNameWaitStats_Categories NVARCHAR(256),
+	@OutputTableCleanupDate DATE,
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
     @BlitzCacheMinutesBack INT,
@@ -139,6 +142,7 @@ SELECT
     @OutputTableNameFileStats = QUOTENAME(@OutputTableNameFileStats),
     @OutputTableNamePerfmonStats = QUOTENAME(@OutputTableNamePerfmonStats),
     @OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
+	@OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE),
     /* @OutputTableNameBlitzCache = QUOTENAME(@OutputTableNameBlitzCache),  We purposely don't sanitize this because sp_BlitzCache will */
     @LineFeed = CHAR(13) + CHAR(10),
     @StartSampleTime = SYSDATETIMEOFFSET(),
@@ -184,13 +188,12 @@ IF @LogMessage IS NOT NULL
         + @OutputDatabaseName + '.'
         + @OutputSchemaName + '.'
         + @OutputTableName
-        + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, Details, URL) VALUES( '''
-        + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-        + ''', ''' + CONVERT(NVARCHAR(100), @LogMessageCheckDate, 121) + ''', @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageURL)';
+        + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, Details, URL) VALUES( '
+        + ' @SrvName, @CheckDate, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageURL)';
 
-    EXECUTE sp_executesql @StringToExecute, 
-        N'@LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
-        @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+    EXECUTE sp_executesql @StringToExecute,
+        N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset, @LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
+        @@SERVERNAME, @StartSampleTime, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
 
     RAISERROR('LogMessage saved to table. We have made a note of your activity. Keep up the good work.',10,1) WITH NOWAIT;
 
@@ -220,6 +223,8 @@ END;
 ELSE IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 BEGIN
     /* They want to look into the past. */
+        SET @AsOf1= DATEADD(mi, -15, @AsOf);
+		SET @AsOf2= DATEADD(mi, +15, @AsOf);
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
@@ -230,10 +235,12 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' WHERE CheckDate >= DATEADD(mi, -15, CONVERT(DATETIMEOFFSET, ''' + CAST(@AsOf AS NVARCHAR(100)) + '''))'
-            + ' AND CheckDate <= DATEADD(mi, 15, CONVERT(DATETIMEOFFSET, ''' + CAST(@AsOf AS NVARCHAR(100)) + '''))'
+            + ' WHERE CheckDate >= @AsOf1'
+            + ' AND CheckDate <= @AsOf2'
             + ' /*ORDER BY CheckDate, Priority , FindingsGroup , Finding , Details*/;';
-		EXEC(@StringToExecute);
+		EXEC sp_executesql @StringToExecute,
+			N'@AsOf1 DATETIMEOFFSET, @AsOf2 DATETIMEOFFSET',
+			@AsOf1, @AsOf2
 
 
 END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL */
@@ -2555,10 +2562,10 @@ BEGIN
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
                     + QUOTENAME(@OutputTableNameBlitzCache)
-                    + ' WHERE ServerName = '''
-                    + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-                    + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
-                EXEC(@StringToExecute);
+                    + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate;';
+                EXEC sp_executesql @StringToExecute,
+					N'@SrvName NVARCHAR(128), @CheckDate date',
+					@@SERVERNAME, @OutputTableCleanupDate;
 
 
             END;
@@ -2629,7 +2636,7 @@ BEGIN
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));';
+                PRIMARY KEY CLUSTERED (ID ASC));';
 
         EXEC(@StringToExecute);
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -2639,10 +2646,11 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + (CONVERT(NVARCHAR(100), @StartSampleTime, 121)) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '
+            + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -2652,11 +2660,10 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' WHERE ServerName = '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
-        EXEC(@StringToExecute);
-
+            + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate date',
+			@@SERVERNAME, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -2687,13 +2694,14 @@ BEGIN
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableName
-            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '
+            + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
     BEGIN
@@ -2739,7 +2747,7 @@ BEGIN
                 num_of_writes BIGINT ,
                 bytes_written BIGINT,
                 PhysicalName NVARCHAR(520) ,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));';
+                PRIMARY KEY CLUSTERED (ID ASC));';
         EXEC(@StringToExecute);
 
         /* Create the view */
@@ -2815,11 +2823,11 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
-            + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '
+            + ' @SrvName, @CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -2829,10 +2837,10 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
-            + ' WHERE ServerName = '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
-        EXEC(@StringToExecute);
+            + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate date',
+			@@SERVERNAME, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
@@ -2858,14 +2866,14 @@ BEGIN
                 bytes_written BIGINT,
                 PhysicalName NVARCHAR(520) ,
                 DetailsInt INT NULL,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableNameFileStats
-            + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '
+            + ' @SrvName, @CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
     BEGIN
@@ -2906,7 +2914,7 @@ BEGIN
                 [cntr_type] INT NOT NULL,
                 [value_delta] BIGINT NULL,
                 [value_per_second] DECIMAL(18,2) NULL,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));';
+                PRIMARY KEY CLUSTERED (ID ASC));';
         EXEC(@StringToExecute);
 
         /* Create the view */
@@ -3089,11 +3097,11 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
-            + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
+            + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3103,10 +3111,10 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
-            + ' WHERE ServerName = '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
-        EXEC(@StringToExecute);
+            + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate date',
+			@@SERVERNAME, @OutputTableCleanupDate;
 
 
 
@@ -3127,14 +3135,15 @@ BEGIN
                 [cntr_type] INT NOT NULL,
                 [value_delta] BIGINT NULL,
                 [value_per_second] DECIMAL(18,2) NULL,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableNamePerfmonStats
-            + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '''
+            + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
-        EXEC(@StringToExecute);
+            + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
     BEGIN
@@ -3174,7 +3183,7 @@ BEGIN
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
                 waiting_tasks_count BIGINT ,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID));' + @LineFeed
+                PRIMARY KEY CLUSTERED (ID));' + @LineFeed
 			+ 'CREATE NONCLUSTERED INDEX IX_ServerName_wait_type_CheckDate_Includes ON ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
 			+ '(ServerName, wait_type, CheckDate) INCLUDE (wait_time_ms, signal_wait_time_ms, waiting_tasks_count);' + @LineFeed
 			+ 'END';
@@ -3254,11 +3263,11 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
-            + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '
+            + ' @SrvName, @CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3268,10 +3277,10 @@ BEGIN
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
-            + ' WHERE ServerName = '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''' AND CheckDate < ''' + CAST(CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE) AS NVARCHAR(20)) + ''';';
-        EXEC(@StringToExecute);
+            + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate date',
+			@@SERVERNAME, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
@@ -3287,14 +3296,14 @@ BEGIN
                 wait_time_ms BIGINT,
                 signal_wait_time_ms BIGINT,
                 waiting_tasks_count BIGINT ,
-                CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));'
+                PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableNameWaitStats
-            + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '''
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-            + ''', ''' + CONVERT(NVARCHAR(100), @StartSampleTime, 121) + ''', '
-            + 'wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
-        EXEC(@StringToExecute);
+            + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '
+            + ' @SrvName, @CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+		EXEC sp_executesql @StringToExecute,
+			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
+			@@SERVERNAME, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
     BEGIN
