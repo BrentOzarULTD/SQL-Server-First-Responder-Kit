@@ -2639,6 +2639,7 @@ BEGIN
                 PRIMARY KEY CLUSTERED (ID ASC));';
 
         EXEC(@StringToExecute);
+
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
             + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
@@ -2648,6 +2649,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '
             + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -2661,6 +2663,7 @@ BEGIN
             + @OutputSchemaName + '.'
             + @OutputTableName
             + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
@@ -2699,6 +2702,7 @@ BEGIN
             + @OutputTableName
             + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '
             + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -2748,7 +2752,8 @@ BEGIN
                 bytes_written BIGINT,
                 PhysicalName NVARCHAR(520) ,
                 PRIMARY KEY CLUSTERED (ID ASC));';
-        EXEC(@StringToExecute);
+
+		EXEC(@StringToExecute);
 
         /* Create the view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameFileStats_View;
@@ -2812,7 +2817,8 @@ BEGIN
                 + '     WHERE  f.num_of_reads >= fPrior.num_of_reads' + @LineFeed
                 + '            AND f.num_of_writes >= fPrior.num_of_writes' + @LineFeed
                 + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
-            EXEC(@StringToExecute);
+
+			EXEC(@StringToExecute);
             END;
 
 
@@ -2825,6 +2831,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '
             + ' @SrvName, @CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -2838,6 +2845,7 @@ BEGIN
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
             + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
@@ -2871,6 +2879,7 @@ BEGIN
             + @OutputTableNameFileStats
             + ' (ServerName, CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName) SELECT '
             + ' @SrvName, @CheckDate, DatabaseID, FileID, DatabaseName, FileLogicalName, TypeDesc, SizeOnDiskMB, io_stall_read_ms, num_of_reads, bytes_read, io_stall_write_ms, num_of_writes, bytes_written, PhysicalName FROM #FileStats WHERE Pass = 2';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -2915,7 +2924,8 @@ BEGIN
                 [value_delta] BIGINT NULL,
                 [value_per_second] DECIMAL(18,2) NULL,
                 PRIMARY KEY CLUSTERED (ID ASC));';
-        EXEC(@StringToExecute);
+
+		EXEC(@StringToExecute);
 
         /* Create the view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStats_View;
@@ -2963,7 +2973,8 @@ BEGIN
                 + '      AND pMon.[counter_name]  = pMonPrior.[counter_name] ' + @LineFeed
                 + '      AND pMon.[instance_name] = pMonPrior.[instance_name]' + @LineFeed
                 + '    WHERE DATEDIFF(MI, pMonPrior.CheckDate, pMon.CheckDate) BETWEEN 1 AND 60;'')'
-            EXEC(@StringToExecute);
+
+			EXEC(@StringToExecute);
             END
 
         /* Create the second view */
@@ -2981,7 +2992,7 @@ BEGIN
                 + '           object_name,' + @LineFeed
                 + '           instance_name,' + @LineFeed
                 + '           counter_name,' + @LineFeed
-                + '           IIF(CHARINDEX(''''('''', counter_name) = 0, counter_name, LEFT(counter_name, CHARINDEX(''''('''',counter_name)-1))    AS   counter_join,' + @LineFeed
+                + '           CASE WHEN CHARINDEX(''''('''', counter_name) = 0 THEN counter_name ELSE LEFT (counter_name, CHARINDEX(''''('''',counter_name)-1) END    AS   counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
                 + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + @LineFeed
@@ -3086,7 +3097,8 @@ BEGIN
                 + '       CheckDate,' + @LineFeed
                 + '       cntr_value' + @LineFeed
                 + 'FROM   PERF_COUNTER_RAWCOUNT;'')';
-            EXEC(@StringToExecute);
+
+			EXEC(@StringToExecute);
             END;
 
 
@@ -3099,6 +3111,7 @@ BEGIN
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
             + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -3112,6 +3125,7 @@ BEGIN
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
             + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
@@ -3141,6 +3155,7 @@ BEGIN
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
             + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -3199,7 +3214,8 @@ BEGIN
                 + '; EXEC (''CREATE TABLE '
                 + @OutputSchemaName + '.'
                 + @OutputTableNameWaitStats_Categories + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')';
-            EXEC(@StringToExecute);
+
+			EXEC(@StringToExecute);
             END;
 
 		/* Make sure the wait stats category table has the current number of rows */
@@ -3210,7 +3226,8 @@ BEGIN
 			+ 'TRUNCATE TABLE '  + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + @LineFeed
 			+ 'INSERT INTO ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
 			+ 'END'')';
-        EXEC(@StringToExecute);
+
+		EXEC(@StringToExecute);
 
 
         /* Create the wait stats view */
@@ -3252,7 +3269,8 @@ BEGIN
 			 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
                 + 'WHERE DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60' + @LineFeed
                 + 'AND [w].[wait_time_ms] >= [wPrior].[wait_time_ms];'')'
-            EXEC(@StringToExecute);
+
+			EXEC(@StringToExecute);
             END;
 
 
@@ -3265,6 +3283,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '
             + ' @SrvName, @CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
@@ -3278,6 +3297,7 @@ BEGIN
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
             + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate ;';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
@@ -3301,6 +3321,7 @@ BEGIN
             + @OutputTableNameWaitStats
             + ' (ServerName, CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count) SELECT '
             + ' @SrvName, @CheckDate, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count FROM #WaitStats WHERE Pass = 2 AND wait_time_ms > 0 AND waiting_tasks_count > 0';
+
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
 			@@SERVERNAME, @StartSampleTime;
