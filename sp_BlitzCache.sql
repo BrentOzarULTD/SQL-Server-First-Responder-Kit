@@ -1643,7 +1643,9 @@ BEGIN
 END;
 
 IF (@SortOrder IN ('spills', 'avg spills')) 
-AND (@v < 14 OR @v = 14 AND @build < 3015)
+AND (@v < 13 
+	OR @v = 13 AND @build < 5026
+	OR @v = 14 AND @build < 3015)
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
    RETURN;
@@ -1851,7 +1853,7 @@ SELECT TOP (@Top)
 	   NULL AS PercentMemoryGrantUsed, 
 	   NULL AS AvgMaxMemoryGrant,';
 
-		IF @v >=15 OR (@v = 14 AND @build >= 3015)
+		IF @v >=15 OR (@v = 14 AND @build >= 3015) OR (@v = 13 AND @build >= 5026)
     BEGIN
         RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @plans_triggers_select_list += N'
@@ -3136,9 +3138,11 @@ BEGIN
 END ;
 
 /* 2017+ only */
-IF @v >= 14
+IF @v >= 14 OR	(@v = 13 AND @build >= 5026)
 BEGIN
 
+IF @ExpertMode > 0
+BEGIN
 RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #stats_agg
@@ -3170,8 +3174,10 @@ JOIN stale_stats os
 ON b.SqlHandle = os.SqlHandle
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
+END
 
-
+IF @v >= 14 AND @ExpertMode > 0
+BEGIN
 RAISERROR('Checking for adaptive joins', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 aj AS (
@@ -3188,7 +3194,7 @@ JOIN aj
 ON b.SqlHandle = aj.SqlHandle
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
-
+END 
 
 IF @ExpertMode > 0
 BEGIN;
@@ -3258,7 +3264,7 @@ WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-/* Trace Flag Checks 2014 SP2 and 2016 SP1 only)*/
+/* Trace Flag Checks 2012 SP3, 2014 SP2 and 2016 SP1 only)*/
 IF @v >= 11
 BEGIN
 
@@ -5430,7 +5436,7 @@ BEGIN
                      'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
 
-		IF @v >= 14
+		IF @v >= 14 OR (@v = 13 AND @build >= 5026)
 			BEGIN	
 
 				INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -5802,7 +5808,7 @@ SELECT  @MemGrant = CASE WHEN (
                     END;
 
 DECLARE @Spills BIT;
-SELECT @Spills = CASE WHEN (@v >= 15 OR (@v = 14 AND @build >= 3015)) THEN 1 ELSE 0 END;
+SELECT @Spills = CASE WHEN (@v >= 15 OR (@v = 14 AND @build >= 3015) OR (@v = 13 AND @build >= 5026)) THEN 1 ELSE 0 END;
 		 
 
 IF LOWER(@SortOrder) = 'all'
