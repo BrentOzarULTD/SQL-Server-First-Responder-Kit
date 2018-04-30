@@ -48,7 +48,7 @@ The First Responder Kit runs on:
 ## How to Get Support
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](CONTRIBUTING.md#the-contributor-covenant-code-of-conduct).
 
-When you have questions about how the tools work, talk with the community in the [#FirstResponderKit Slack channel](https://sqlcommunity.slack.com/messages/firstresponderkit/). If you need a free invite, hit [SQLslack.com](https://SQLslack.com/). Be patient - it's staffed with volunteers who have day jobs, heh.
+When you have questions about how the tools work, talk with the community in the [#FirstResponderKit Slack channel](https://sqlcommunity.slack.com/messages/firstresponderkit/). If you need a free invite, hit [SQLslack.com](http://SQLslack.com/). Be patient - it's staffed with volunteers who have day jobs, heh.
 
 When you find a bug or want something changed, [read the contributing.md file](CONTRIBUTING.md).
 
