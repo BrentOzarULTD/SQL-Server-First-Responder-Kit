@@ -3545,10 +3545,8 @@ WITH precheck AS (
 SELECT spi.SPID,
 	   spi.SqlHandle,
 	   spi.proc_name,
-			CONVERT(XML, 
-			N'<ClickMe><![CDATA['
-			+ @nl
-			+ CASE WHEN spi.proc_name <> 'Statement' 
+			(SELECT  
+			  CASE WHEN spi.proc_name <> 'Statement' 
 				   THEN N'The stored procedure ' + spi.proc_name 
 				   ELSE N'This ad hoc statement' 
 			  END
@@ -3600,9 +3598,8 @@ SELECT spi.SPID,
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ CHAR(10)
-			+ N']]></ClickMe>'
-			) AS implicit_conversion_info
+			  AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS implicit_conversion_info
 FROM #stored_proc_info AS spi
 GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name
 )
@@ -3619,10 +3616,8 @@ WITH precheck AS (
 SELECT spi.SPID,
 	   spi.SqlHandle,
 	   spi.proc_name,
-CONVERT(XML, 
-			N'<ClickMe><![CDATA['
-			+ @nl
-			+ N'EXEC ' 
+	   (SELECT 
+			  N'EXEC ' 
 			+ spi.proc_name 
 			+ N' '
 			+ STUFF((
@@ -3641,9 +3636,8 @@ CONVERT(XML,
 				WHERE spi.SqlHandle = spi2.SqlHandle
 				AND spi2.proc_name <> N'Statement'
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ @nl
-			+ N']]></ClickMe>'
-			) AS cached_execution_parameters
+			AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS cached_execution_parameters
 FROM #stored_proc_info AS spi
 GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name
 ) 
@@ -3660,8 +3654,14 @@ END; --End implicit conversion information gathering
 
 RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
 UPDATE b
-SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
-	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
+									  OR CONVERT(NVARCHAR(4000), b.implicit_conversion_info) = N''
+									  THEN '<?NoNeedToClickMe -- N/A --?>' 
+							     ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
+										 OR CONVERT(NVARCHAR(4000), b.cached_execution_parameters) = N''
+										 THEN '<?NoNeedToClickMe -- N/A --?>' 
+									ELSE b.cached_execution_parameters END
 FROM ##bou_BlitzCacheProcs AS b
 WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
