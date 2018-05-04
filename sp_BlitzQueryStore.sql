@@ -787,7 +787,7 @@ CREATE TABLE #stored_proc_info
 	converted_column_name NVARCHAR(258),
     compile_time_value NVARCHAR(258),
     proc_name NVARCHAR(1000),
-    column_name NVARCHAR(258),
+    column_name NVARCHAR(4000),
     converted_to NVARCHAR(258)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
