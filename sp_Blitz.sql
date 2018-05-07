@@ -7322,14 +7322,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								                           @value_name = 'ActivePowerScheme',
 								                           @value = @outval OUTPUT;
 
-								DECLARE @cpu_speed VARCHAR(256)
+								DECLARE @cpu_speed_mhz int,
+								        @cpu_speed_ghz decimal(18,2);
 								
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 								                           @key = 'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
-								                           @value_name = 'ProcessorNameString',
-								                           @value = @cpu_speed OUTPUT;
+								                           @value_name = '~MHz',
+								                           @value = @cpu_speed_mhz OUTPUT;
 								
-								SELECT @cpu_speed = SUBSTRING(@cpu_speed, CHARINDEX('@ ', @cpu_speed) + 1, LEN(@cpu_speed))
+								SELECT @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS DECIMAL) / 1000 AS DECIMAL(18,2));
 
 									INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -7344,9 +7345,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Server Info' AS FindingsGroup,
 									'Power Plan' AS Finding,
 									'https://www.brentozar.com/blitz/power-mode/' AS URL,
-									'Your server has'
-									+ @cpu_speed
-									+ ' CPUs, and is in '
+									'Your server has '
+									+ CAST(@cpu_speed_ghz as VARCHAR(4))
+									+ 'GHz CPUs, and is in '
 									+ CASE @outval
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
 							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
@@ -7354,7 +7355,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							             THEN 'balanced power mode -- Uh... you want your CPUs to run at full speed, right?'
 							             WHEN '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 							             THEN 'high performance power mode'
-										 ELSE 'Unknown!'
+										 ELSE 'an unknown power mode.'
 							        END AS Details
 								
 								END;
