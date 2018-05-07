@@ -1665,18 +1665,43 @@ BEGIN
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
-        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
-            FROM (
-                SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
-                FROM (
-                    SELECT TOP 1 CONVERT(XML, record) AS record
-                    FROM sys.dm_os_ring_buffers
-                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
-                    AND record LIKE '%<SystemHealth>%'
-                    ORDER BY timestamp DESC) AS rb
-            ) AS y;
+		WITH y
+		    AS
+		     (
+		         SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+		                     CONVERT(VARCHAR(30), rb.event_date) AS event_date,
+		                     CONVERT(VARCHAR(8000), rb.record) AS record
+		         FROM
+		                     (   SELECT CONVERT(XML, dorb.record) AS record,
+		                                DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+		                         FROM   sys.dm_os_ring_buffers AS dorb
+		                         CROSS JOIN
+		                                ( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
+		                         WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+		                         AND    record LIKE '%<SystemHealth>%' ) AS rb
+		         CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+		     )
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
+		SELECT TOP 1 
+				23, 
+				250, 
+				'Server Info', 
+				'CPU Utilization', 
+				y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+				y.system_idle	, 
+				'http://www.BrentOzar.com/go/cpu',
+				STUFF(( SELECT TOP 2147483647
+						  CHAR(10) + CHAR(13)
+						+ y2.system_idle 
+						+ '% ON ' 
+						+ y2.event_date 
+						+ ' Ring buffer details:  '
+						+ y2.record
+		        FROM   y AS y2
+				ORDER BY y2.event_date DESC
+		        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
+		FROM   y;
+
 		
 		/* Highlight if non SQL processes are using >25% CPU */
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
