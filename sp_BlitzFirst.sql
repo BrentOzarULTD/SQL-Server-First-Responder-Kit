@@ -1700,7 +1700,8 @@ BEGIN
 		        FROM   y AS y2
 				ORDER BY y2.event_date DESC
 		        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
-		FROM   y;
+		FROM   y
+		ORDER BY y.event_date DESC;
 
 		
 		/* Highlight if non SQL processes are using >25% CPU */
