@@ -48,6 +48,10 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 * Copy the Github release text into a WordPress blog post with the First Responder Kit category. The nice thing about doing the Github release first is that you should be able to copy/paste the Github release page and the HTML should paste smoothly into the WordPress draft window, complete with links to the Github issues. At the end of the post, put a download now link that points to: https://www.brentozar.com/first-aid/
 * Blog post support wording:
 
+<h3>For Support</h3>
+
+<strong>You can <a href="https://www.brentozar.com/first-aid/">download the updated FirstResponderKit.zip here</a>.</strong>
+
 When you have questions about how the tools work, talk with the community in the <a href="https://sqlcommunity.slack.com/messages/firstresponderkit/" target="_blank" rel="noopener">#FirstResponderKit Slack channel</a>. If you need a free invite, hit <a href="http://SQLslack.com/" target="_blank" rel="noopener">SQLslack.com</a>. Be patient - it's staffed with volunteers who have day jobs, heh.
 When you find a bug or want something changed, read the <a href="https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/CONTRIBUTING.md" target="_blank" rel="noopener">contributing.md</a> file.
 
