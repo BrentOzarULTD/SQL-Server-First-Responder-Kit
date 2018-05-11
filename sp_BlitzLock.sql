@@ -444,7 +444,7 @@ SET @VersionDate = '20180501';
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
-			   ISNULL(dow.index_name, 'UNKNOWN') AS index_name,
+			   dow.index_name AS index_name,
 			   'Total index deadlocks' AS finding_group,
 			   'This index was involved in ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
@@ -455,6 +455,7 @@ SET @VersionDate = '20180501';
 		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+		AND dow.index_name IS NOT NULL
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
