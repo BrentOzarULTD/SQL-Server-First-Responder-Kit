@@ -1196,6 +1196,7 @@ CREATE TABLE #plan_cost
 (
     QueryPlanCost FLOAT,
     SqlHandle VARBINARY(64),
+	PlanHandle VARBINARY(64),
     QueryHash BINARY(8),
     QueryPlanHash BINARY(8)
 );
@@ -1367,8 +1368,8 @@ CREATE TABLE #missing_index_pretty
 			   + N')' 
 			   + CHAR(10)
 			   + CASE WHEN include IS NOT NULL
-					  THEN N'INCLUDE (' + include + N')WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
-					  ELSE N'WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  THEN N'INCLUDE (' + include + N') WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  ELSE N' WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
 				 END
 			   + CHAR(10)
 			   + N'GO'
@@ -2600,10 +2601,11 @@ OPTION (RECOMPILE);
 --Gather costs
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT INTO #plan_cost
+INSERT INTO #plan_cost ( QueryPlanCost, SqlHandle, PlanHandle, QueryHash, QueryPlanHash )
 SELECT  DISTINCT
 		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') QueryPlanCost,
 		s.SqlHandle,
+		s.PlanHandle,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryPlanHash
 FROM #statements s
@@ -2613,16 +2615,16 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
+	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash, pc.SqlHandle, pc.PlanHandle
 	FROM #plan_cost AS pc
-	GROUP BY pc.QueryHash, pc.QueryPlanHash
+	GROUP BY pc.QueryHash, pc.QueryPlanHash, pc.SqlHandle, pc.PlanHandle
 )
 	UPDATE b
 		SET b.QueryPlanCost = ISNULL(pc.QueryPlanCostSum, 0)
 		FROM pc
 		JOIN ##bou_BlitzCacheProcs b
-		ON b.QueryPlanHash = pc.QueryPlanHash
-		OR b.QueryHash = pc.QueryHash
+		ON b.SqlHandle = pc.SqlHandle
+		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
 	OPTION (RECOMPILE);
 
