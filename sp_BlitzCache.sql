@@ -3399,11 +3399,6 @@ JOIN    ##bou_BlitzCacheProcs AS b
 WHERE   b.SPID = @@SPID
 OPTION ( RECOMPILE );
 
-IF EXISTS ( SELECT 1 
-			FROM ##bou_BlitzCacheProcs AS bbcp 
-			WHERE bbcp.implicit_conversions = 1 
-			OR bbcp.QueryType LIKE '%Procedure or Function: %')
-BEGIN
 
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
@@ -3491,7 +3486,7 @@ OPTION (RECOMPILE);
 
 
 
-RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
+RAISERROR(N'Updating variables for inserted procs', 0, 1) WITH NOWAIT;
 UPDATE sp
 SET sp.variable_datatype = vi.variable_datatype,
 	sp.compile_time_value = vi.compile_time_value
@@ -3689,8 +3684,48 @@ ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 OPTION (RECOMPILE);
 
+RAISERROR(N'Updating cached parameter XML', 0, 1) WITH NOWAIT;
+WITH precheck AS (
+SELECT spi.SPID,
+	   spi.SqlHandle,
+	   spi.proc_name,
+	   (SELECT 
+			set_options
+			+ @nl
+			+ @nl
+			+ N' See QueryText column for full query text'
+			+ @nl
+			+ @nl
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'**idk_man**'
+								THEN spi2.variable_name + N' = '
+								ELSE @nl + N' We could not find any cached parameter values for this stored proc. ' 
+						  END
+						+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
+							   THEN @nl + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+							   WHEN spi2.compile_time_value = N'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE RTRIM(spi2.compile_time_value)
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.SqlHandle = spi2.SqlHandle
+				AND spi2.proc_name = N'Statement'
+				AND spi2.variable_name NOT LIKE N'%msparam%'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name, spi.set_options
+) 
+UPDATE b
+SET b.cached_execution_parameters = pk.cached_execution_parameters
+FROM ##bou_BlitzCacheProcs AS b
+JOIN precheck pk
+ON pk.SqlHandle = b.SqlHandle
+AND pk.SPID = b.SPID
+OPTION (RECOMPILE);
 
-END; --End implicit conversion information gathering
 
 RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
 UPDATE b
