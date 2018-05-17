@@ -1598,7 +1598,7 @@ BEGIN
 			AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
 		WHERE cFree.object_name LIKE N'%Memory Manager%'
 			AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
-			AND CAST(cTotal.cntr_value AS BIGINT) > 20480000000
+			AND CAST(cFree.cntr_value AS BIGINT) > 20480000000
 			AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
             AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
 
