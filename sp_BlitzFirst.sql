@@ -3218,7 +3218,7 @@ BEGIN
                 + '        SELECT ' + @LineFeed
                 + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
                 + '                [CheckDate]' + @LineFeed
-                + '        FROM [dbo].[BlitzFirst_WaitStats]' + @LineFeed
+                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
                 + '        GROUP BY [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
