@@ -4678,6 +4678,7 @@ IF @ProductVersionMajor >= 10
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEON%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEOFF%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACESTATUS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%USEROPTIONS%'
 			AND d.application_name NOT LIKE 'Critical Care(R) Collector'
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
