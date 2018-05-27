@@ -4115,7 +4115,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
 				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
-				  , 2, 200000) 
+				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
