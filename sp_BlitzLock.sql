@@ -204,7 +204,8 @@ SET @VersionDate = '20180501';
                     ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
                     ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
                     ca2.ib.query('.') AS input_buffer,
-                    ca.dp.query('.') AS process_xml
+                    ca.dp.query('.') AS process_xml,
+                    dd.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -834,7 +835,8 @@ SET @VersionDate = '20180501';
 					NULL AS waiter_waiter_activity,
 					NULL AS waiter_merging,
 					NULL AS waiter_spilling,
-					NULL AS waiter_waiting_to_close
+					NULL AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
@@ -878,7 +880,8 @@ SET @VersionDate = '20180501';
 					caw.waiter_activity	AS waiter_waiter_activity,
 					caw.merging	AS waiter_merging,
 					caw.spilling AS waiter_spilling,
-					caw.waiting_to_close AS waiter_waiting_to_close
+					caw.waiting_to_close AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
@@ -923,7 +926,8 @@ SET @VersionDate = '20180501';
 			   d.waiter_waiter_activity,
 			   d.waiter_merging,
 			   d.waiter_spilling,
-			   d.waiter_waiting_to_close
+			   d.waiter_waiting_to_close,
+			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
 		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
