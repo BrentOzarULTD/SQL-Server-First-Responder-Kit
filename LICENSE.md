@@ -12,9 +12,12 @@ https://github.com/GregWhiteDBA/MSSQLAutoRestore
 All other copyrights for DatabaseRestore are held by Brent Ozar Unlimited, 2017
 as described below.
 
+Copyright for sp_BlitzInMemoryOLTP are held by Ned Otter and Konstantin
+Taranov as part of project sqlserver-kit and are provided under the MIT license:
+https://github.com/ktaranov/sqlserver-kit
 
 
-Copyright (c) 2017 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
