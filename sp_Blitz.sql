@@ -617,7 +617,9 @@ AS
 								'Wait Stats',
 								'Wait Stats Have Been Cleared',
 								'https://BrentOzar.com/go/waits',
-								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' + CONVERT(NVARCHAR(100), DATEADD(ms, (-1 * @MsSinceWaitsCleared), GETDATE()), 120));
+								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' 
+									+ CONVERT(NVARCHAR(100), 
+										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), GETDATE()), 120));
 			END;
 
 		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
