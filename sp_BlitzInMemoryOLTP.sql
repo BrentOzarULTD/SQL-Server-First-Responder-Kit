@@ -285,6 +285,14 @@ BEGIN TRY
 
     );
 
+    DECLARE @resultsxtp_storage_percent TABLE
+    (
+        databaseName NVARCHAR(MAX)
+       ,end_time DATETIME
+       ,xtp_storage_percent DECIMAL(5, 2)
+
+    )
+    
     CREATE TABLE #resultsContainerDetails 
     (
          [object] NVARCHAR(256)
@@ -1591,19 +1599,38 @@ BEGIN TRY
 
             IF @RunningOnAzureSQLDB = 1
             BEGIN 
-                SELECT 'xtp_storage_percent in descending order' AS object
+
+                DELETE @resultsxtp_storage_percent
+                INSERT @resultsxtp_storage_percent
+                (
+                    databaseName
+                   ,end_time
+                   ,xtp_storage_percent
+                )
+                SELECT DB_NAME() AS databaseName
                       ,end_time
                       ,xtp_storage_percent
                 FROM sys.dm_db_resource_stats
                 WHERE xtp_storage_percent > 0
-                ORDER BY end_time DESC;
 
-                SELECT DBScopedConfig = 'XTP_PROCEDURE_EXECUTION_STATISTICS enabled:'
+                IF EXISTS(SELECT 1 FROM @resultsxtp_storage_percent)
+                BEGIN 
+                    SELECT databaseName
+                          ,'xtp_storage_percent in descending order' AS object
+                          ,end_time
+                          ,xtp_storage_percent
+                    FROM @resultsxtp_storage_percent
+                    ORDER BY end_time DESC;
+                END
+
+                SELECT DB_NAME() AS databaseName
+                      ,DBScopedConfig = 'XTP_PROCEDURE_EXECUTION_STATISTICS enabled:'
                       ,Status = CASE WHEN value = 1 THEN 'Yes' ELSE 'No' END
                 FROM sys.database_scoped_configurations
                 WHERE UPPER(name) = 'XTP_PROCEDURE_EXECUTION_STATISTICS';
 
-                SELECT DBScopedConfig = 'XTP_QUERY_EXECUTION_STATISTICS enabled:'
+                SELECT DB_NAME() AS databaseName
+                      ,DBScopedConfig = 'XTP_QUERY_EXECUTION_STATISTICS enabled:'
                       ,Status = CASE WHEN value = 1 THEN 'Yes' ELSE 'No' END
                 FROM sys.database_scoped_configurations
                 WHERE UPPER(name) = 'XTP_QUERY_EXECUTION_STATISTICS';
@@ -1703,11 +1730,15 @@ BEGIN TRY
                   ,pagesUsedMB
             FROM @xtp_system_memory_consumers;
 
-        SELECT 'Committed Target memory' AS Object
-              ,FORMAT(committed_target_kb, '###,###,###,###,###') AS committedTargetKB
-              ,FORMAT(committed_target_kb / 1024, '###,###,###,###,###') AS committedTargetMB
-              ,FORMAT(committed_target_kb / 1048576, '###,###,###,###,###') AS committedTargetGB
-        FROM sys.dm_os_sys_info;
+        -- sys.dm_os_sys_info not supported on Azure SQL Database
+        IF @RunningOnAzureSQLDB = 0
+        BEGIN
+            SELECT 'Committed Target memory' AS Object
+                  ,FORMAT(committed_target_kb, '###,###,###,###,###') AS committedTargetKB
+                  ,FORMAT(committed_target_kb / 1024, '###,###,###,###,###') AS committedTargetMB
+                  ,FORMAT(committed_target_kb / 1048576, '###,###,###,###,###') AS committedTargetGB
+            FROM sys.dm_os_sys_info;
+        END
 
         IF OBJECT_ID('#TraceFlags', 'U') IS NOT NULL DROP TABLE #TraceFlags;
 
@@ -1759,14 +1790,58 @@ BEGIN TRY
         -- instance level
         DECLARE @InstancecollectionStatus BIT;
 
-        EXEC sys.sp_xtp_control_query_exec_stats
-        @old_collection_value = @InstancecollectionStatus OUTPUT;
+        IF @RunningOnAzureSQLDB = 0
+        BEGIN
 
-        SELECT
-            CASE 
-                WHEN @InstancecollectionStatus = 1 THEN 'YES' 
-                ELSE 'NO'
-            END AS [instance-level collection of execution statistics for Native Modules enabled];
+            EXEC sys.sp_xtp_control_query_exec_stats
+            @old_collection_value = @InstancecollectionStatus OUTPUT;
+
+            SELECT
+                CASE 
+                    WHEN @InstancecollectionStatus = 1 THEN 'YES' 
+                    ELSE 'NO'
+                END AS [instance-level collection of execution statistics for Native Modules enabled];
+        END
+        ELSE
+        BEGIN 
+            -- repeating this from the database section if we are running @instanceLevelOnly = 1
+
+                DELETE @resultsxtp_storage_percent
+
+                INSERT @resultsxtp_storage_percent
+                (
+                    databaseName
+                   ,end_time
+                   ,xtp_storage_percent
+                )
+                SELECT DB_NAME() AS databaseName
+                      ,end_time
+                      ,xtp_storage_percent
+                FROM sys.dm_db_resource_stats
+                WHERE xtp_storage_percent > 0
+
+                IF EXISTS(SELECT 1 FROM @resultsxtp_storage_percent)
+                BEGIN 
+                    SELECT databaseName
+                          ,'xtp_storage_percent in descending order' AS object
+                          ,end_time
+                          ,xtp_storage_percent
+                    FROM @resultsxtp_storage_percent
+                    ORDER BY end_time DESC;
+                END
+
+            SELECT DB_NAME() AS databaseName
+                  ,DBScopedConfig = 'XTP_PROCEDURE_EXECUTION_STATISTICS enabled:'
+                  ,Status = CASE WHEN value = 1 THEN 'Yes' ELSE 'No' END
+            FROM sys.database_scoped_configurations
+            WHERE UPPER(name) = 'XTP_PROCEDURE_EXECUTION_STATISTICS';
+
+            SELECT DB_NAME() AS databaseName
+                  ,DBScopedConfig = 'XTP_QUERY_EXECUTION_STATISTICS enabled:'
+                  ,Status = CASE WHEN value = 1 THEN 'Yes' ELSE 'No' END
+            FROM sys.database_scoped_configurations
+            WHERE UPPER(name) = 'XTP_QUERY_EXECUTION_STATISTICS';
+        END;
 
         /*
         ####################################################################################
