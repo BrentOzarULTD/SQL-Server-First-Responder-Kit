@@ -55,8 +55,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.5';
-	SET @VersionDate = '20180501';
+	SET @Version = '2.6';
+	SET @VersionDate = '20180601';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -3442,6 +3442,7 @@ OPTION ( RECOMPILE );
         FROM   #working_warnings AS b
         JOIN   precheck AS pk
         ON pk.sql_handle = b.sql_handle
+		WHERE b.proc_or_function_name <> N'Statement'
         OPTION (RECOMPILE);
 
 
@@ -3483,6 +3484,7 @@ OPTION ( RECOMPILE );
     FROM   #working_warnings AS b
     JOIN   precheck AS pk
     ON pk.sql_handle = b.sql_handle
+	WHERE b.proc_or_function_name = N'Statement'
     OPTION (RECOMPILE);
 
 
@@ -4795,7 +4797,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may be using',
-                     'link to blog post when published',
+                     'http://brentozar.com/go/sargable',
 					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
 					
         IF EXISTS (SELECT 1/0

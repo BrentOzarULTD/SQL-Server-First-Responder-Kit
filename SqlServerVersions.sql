@@ -9,8 +9,8 @@ CREATE TABLE dbo.SqlServerVersions
     Branch varchar(34) not null,
     [Url] varchar(99) not null,
     ReleaseDate date not null,
-    MainstreamSupportEndDate date null, -- I think this should be "not null", but the support dates for SQL 2016 SP2 are nowhere to be found
-    ExtendedSupportEndDate date null, -- I think this should be "not null", but the support dates for SQL 2016 SP2 are nowhere to be found
+    MainstreamSupportEndDate date not null,
+    ExtendedSupportEndDate date not null,
     MajorVersionName varchar(19) not null,
     MinorVersionName varchar(67) not null
 );
@@ -18,6 +18,7 @@ CREATE TABLE dbo.SqlServerVersions
 insert into dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 values
+    (14, 3026, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
     (14, 3025, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4101464', '2018-04-17', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 6'),
     (14, 3023, 'RTM CU5', 'https://support.microsoft.com/en-us/help/4092643', '2018-03-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 5'),
     (14, 3022, 'RTM CU4', 'https://support.microsoft.com/en-us/help/4056498', '2018-02-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 4'),
@@ -25,7 +26,9 @@ values
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
     (13, 5026, 'SP2 ', 'https://support.microsoft.com/en-us/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
+    (13, 4502, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/4100997', '2018-05-30', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 9'),
     (13, 4474, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/4077064', '2018-03-19', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 8'),
     (13, 4466, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/4057119', '2018-01-04', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 7'),
     (13, 4457, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/4037354', '2017-11-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 6'),

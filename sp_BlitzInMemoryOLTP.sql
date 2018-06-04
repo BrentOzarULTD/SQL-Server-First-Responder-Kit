@@ -8,6 +8,7 @@ ALTER PROCEDURE dbo.sp_BlitzInMemoryOLTP(
       , @dbName            NVARCHAR(4000) = N'ALL'
       , @tableName         NVARCHAR(4000) = NULL
       , @debug             BIT            = 0
+	  , @VersionDate DATETIME = NULL OUTPUT
 )
 /*
 .SYNOPSIS
@@ -61,6 +62,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 */
 AS 
+DECLARE @Version VARCHAR(30);
+SET @Version = '1.6';
+SET @VersionDate = '20180601';
+
 BEGIN TRY
 
     SET NOCOUNT ON;

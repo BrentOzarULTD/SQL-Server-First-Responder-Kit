@@ -268,8 +268,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.5';
-SET @VersionDate = '20180501';
+SET @Version = '6.6';
+SET @VersionDate = '20180601';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -3682,6 +3682,7 @@ FROM ##bou_BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.QueryType <> N'Statement'
 OPTION (RECOMPILE);
 
 
@@ -3725,6 +3726,7 @@ FROM ##bou_BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.QueryType = N'Statement'
 OPTION (RECOMPILE);
 
 

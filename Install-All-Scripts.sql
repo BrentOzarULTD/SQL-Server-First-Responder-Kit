@@ -3362,6 +3362,11 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('LAZYWRITER_SLEEP');
 		INSERT INTO #IgnorableWaits VALUES ('LOGMGR_QUEUE');
 		INSERT INTO #IgnorableWaits VALUES ('ONDEMAND_TASK_QUEUE');
+		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_DRAIN_WORKER');
+		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_LOG_CACHE');
+		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_TRAN_LIST');
+		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_SYNC');
+		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
@@ -3409,7 +3414,9 @@ AS
 								'Wait Stats',
 								'Wait Stats Have Been Cleared',
 								'https://BrentOzar.com/go/waits',
-								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' + CONVERT(NVARCHAR(100), DATEADD(ms, (-1 * @MsSinceWaitsCleared), GETDATE()), 120));
+								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' 
+									+ CONVERT(NVARCHAR(100), 
+										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), GETDATE()), 120));
 			END;
 
 		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
@@ -7475,6 +7482,7 @@ IF @ProductVersionMajor >= 10
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEON%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACEOFF%'
 			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%TRACESTATUS%'
+			AND d.dbcc_event_full_upper NOT LIKE '%DBCC%USEROPTIONS%'
 			AND d.application_name NOT LIKE 'Critical Care(R) Collector'
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
@@ -8359,7 +8367,7 @@ IF @ProductVersionMajor >= 10
 								
 								EXECUTE master.sys.sp_MSforeachdb 'USE [?];
                                     INSERT INTO #Recompile
-                                    SELECT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
+                                    SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
                                     FROM sys.sql_modules AS SM
                                     LEFT OUTER JOIN master.sys.databases AS sDB ON SM.object_id = DB_id()
                                     LEFT OUTER JOIN dbo.sysobjects AS SO ON SM.object_id = SO.id and type = ''P''
@@ -10119,14 +10127,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								                           @value_name = 'ActivePowerScheme',
 								                           @value = @outval OUTPUT;
 
-								DECLARE @cpu_speed VARCHAR(256)
+								DECLARE @cpu_speed_mhz int,
+								        @cpu_speed_ghz decimal(18,2);
 								
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 								                           @key = 'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
-								                           @value_name = 'ProcessorNameString',
-								                           @value = @cpu_speed OUTPUT;
+								                           @value_name = '~MHz',
+								                           @value = @cpu_speed_mhz OUTPUT;
 								
-								SELECT @cpu_speed = SUBSTRING(@cpu_speed, CHARINDEX('@ ', @cpu_speed) + 1, LEN(@cpu_speed))
+								SELECT @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS DECIMAL) / 1000 AS DECIMAL(18,2));
 
 									INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -10141,9 +10150,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Server Info' AS FindingsGroup,
 									'Power Plan' AS Finding,
 									'https://www.brentozar.com/blitz/power-mode/' AS URL,
-									'Your server has'
-									+ @cpu_speed
-									+ ' CPUs, and is in '
+									'Your server has '
+									+ CAST(@cpu_speed_ghz as VARCHAR(4))
+									+ 'GHz CPUs, and is in '
 									+ CASE @outval
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
 							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
@@ -10151,7 +10160,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							             THEN 'balanced power mode -- Uh... you want your CPUs to run at full speed, right?'
 							             WHEN '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 							             THEN 'high performance power mode'
-										 ELSE 'Unknown!'
+										 ELSE 'an unknown power mode.'
 							        END AS Details
 								
 								END;
@@ -12572,7 +12581,6 @@ Known limitations of this version:
  - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
    with no spaces between the hash values.
  - @OutputServerName is not functional yet.
- - Variables with unsafe XML characters will look funny in output. If you can fix this, I bow to you.
 
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
@@ -13480,6 +13488,7 @@ CREATE TABLE #plan_cost
 (
     QueryPlanCost FLOAT,
     SqlHandle VARBINARY(64),
+	PlanHandle VARBINARY(64),
     QueryHash BINARY(8),
     QueryPlanHash BINARY(8)
 );
@@ -13521,8 +13530,9 @@ CREATE TABLE #stored_proc_info
 	converted_column_name NVARCHAR(258),
     compile_time_value NVARCHAR(258),
     proc_name NVARCHAR(1000),
-    column_name NVARCHAR(258),
-    converted_to NVARCHAR(258)
+    column_name NVARCHAR(4000),
+    converted_to NVARCHAR(258),
+	set_options NVARCHAR(1000)
 );
 
 CREATE TABLE #variable_info
@@ -13650,8 +13660,8 @@ CREATE TABLE #missing_index_pretty
 			   + N')' 
 			   + CHAR(10)
 			   + CASE WHEN include IS NOT NULL
-					  THEN N'INCLUDE (' + include + N')WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
-					  ELSE N'WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  THEN N'INCLUDE (' + include + N') WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  ELSE N' WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
 				 END
 			   + CHAR(10)
 			   + N'GO'
@@ -14883,10 +14893,11 @@ OPTION (RECOMPILE);
 --Gather costs
 RAISERROR(N'Gathering statement costs', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT INTO #plan_cost
+INSERT INTO #plan_cost ( QueryPlanCost, SqlHandle, PlanHandle, QueryHash, QueryPlanHash )
 SELECT  DISTINCT
 		statement.value('sum(/p:StmtSimple/@StatementSubTreeCost)', 'float') QueryPlanCost,
 		s.SqlHandle,
+		s.PlanHandle,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryHash,
 		CONVERT(BINARY(8), RIGHT('0000000000000000' + SUBSTRING(q.n.value('@QueryPlanHash', 'VARCHAR(18)'), 3, 18), 16), 2) AS QueryPlanHash
 FROM #statements s
@@ -14896,16 +14907,16 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating statement costs', 0, 1) WITH NOWAIT;
 WITH pc AS (
-	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash
+	SELECT SUM(DISTINCT pc.QueryPlanCost) AS QueryPlanCostSum, pc.QueryHash, pc.QueryPlanHash, pc.SqlHandle, pc.PlanHandle
 	FROM #plan_cost AS pc
-	GROUP BY pc.QueryHash, pc.QueryPlanHash
+	GROUP BY pc.QueryHash, pc.QueryPlanHash, pc.SqlHandle, pc.PlanHandle
 )
 	UPDATE b
 		SET b.QueryPlanCost = ISNULL(pc.QueryPlanCostSum, 0)
 		FROM pc
 		JOIN ##bou_BlitzCacheProcs b
-		ON b.QueryPlanHash = pc.QueryPlanHash
-		OR b.QueryHash = pc.QueryHash
+		ON b.SqlHandle = pc.SqlHandle
+		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
 	OPTION (RECOMPILE);
 
@@ -15017,7 +15028,8 @@ FROM   ##bou_BlitzCacheProcs p
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
-
+IF @ExpertMode > 0
+BEGIN
 RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , x AS (
@@ -15036,6 +15048,7 @@ FROM ##bou_BlitzCacheProcs AS p
 JOIN x ON x.SqlHandle = p.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
+END; 
 
 
 RAISERROR(N'Checking for table variables', 0, 1) WITH NOWAIT;
@@ -15213,7 +15226,7 @@ CROSS APPLY qs.relop.nodes('//p:TableScan') AS q(n)
 ) AS x ON b.SqlHandle = x.SqlHandle
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
-END 
+END; 
 
 
 IF @ExpertMode > 0
@@ -15458,7 +15471,7 @@ JOIN stale_stats os
 ON b.SqlHandle = os.SqlHandle
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
-END
+END;
 
 IF @v >= 14 AND @ExpertMode > 0
 BEGIN
@@ -15478,7 +15491,7 @@ JOIN aj
 ON b.SqlHandle = aj.SqlHandle
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
-END 
+END; 
 
 IF @ExpertMode > 0
 BEGIN;
@@ -15678,11 +15691,6 @@ JOIN    ##bou_BlitzCacheProcs AS b
 WHERE   b.SPID = @@SPID
 OPTION ( RECOMPILE );
 
-IF EXISTS ( SELECT 1 
-			FROM ##bou_BlitzCacheProcs AS bbcp 
-			WHERE bbcp.implicit_conversions = 1 
-			OR bbcp.QueryType LIKE '%Procedure or Function: %')
-BEGIN
 
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
@@ -15770,7 +15778,7 @@ OPTION (RECOMPILE);
 
 
 
-RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
+RAISERROR(N'Updating variables for inserted procs', 0, 1) WITH NOWAIT;
 UPDATE sp
 SET sp.variable_datatype = vi.variable_datatype,
 	sp.compile_time_value = vi.compile_time_value
@@ -15823,15 +15831,45 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
 FROM   #stored_proc_info AS s
 OPTION (RECOMPILE);
 
+
+RAISERROR(N'Updating SET options', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE s
+SET set_options = set_options.ansi_set_options
+FROM #stored_proc_info AS s
+JOIN (
+		SELECT  x.SqlHandle,
+				N'SET ANSI_NULLS = ' + CASE WHEN [ANSI_NULLS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+				N'SET ANSI_PADDING = ' + CASE WHEN [ANSI_PADDING] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+				N'SET ANSI_WARNINGS = ' + CASE WHEN [ANSI_WARNINGS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+				N'SET ARITHABORT = ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N' OFF ' END + NCHAR(10) +
+				N'SET CONCAT_NULL_YIELDS_NULL = ' + CASE WHEN [CONCAT_NULL_YIELDS_NULL] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+				N'SET NUMERIC_ROUNDABORT = ' + CASE WHEN [NUMERIC_ROUNDABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+				N'SET QUOTED_IDENTIFIER = ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' + NCHAR(10) END AS [ansi_set_options]
+		FROM (
+			SELECT
+				s.SqlHandle,
+				so.o.value('@ANSI_NULLS', 'NVARCHAR(20)') AS [ANSI_NULLS],
+				so.o.value('@ANSI_PADDING', 'NVARCHAR(20)') AS [ANSI_PADDING],
+				so.o.value('@ANSI_WARNINGS', 'NVARCHAR(20)') AS [ANSI_WARNINGS],
+				so.o.value('@ARITHABORT', 'NVARCHAR(20)') AS [ARITHABORT],
+				so.o.value('@CONCAT_NULL_YIELDS_NULL', 'NVARCHAR(20)') AS [CONCAT_NULL_YIELDS_NULL],
+				so.o.value('@NUMERIC_ROUNDABORT', 'NVARCHAR(20)') AS [NUMERIC_ROUNDABORT],
+				so.o.value('@QUOTED_IDENTIFIER', 'NVARCHAR(20)') AS [QUOTED_IDENTIFIER]
+			FROM #statements AS s
+			CROSS APPLY s.statement.nodes('//p:StatementSetOptions') AS so(o)
+		   ) AS x
+) AS set_options ON set_options.SqlHandle = s.SqlHandle
+OPTION(RECOMPILE);
+
+
 RAISERROR(N'Updating conversion XML', 0, 1) WITH NOWAIT;
 WITH precheck AS (
 SELECT spi.SPID,
 	   spi.SqlHandle,
 	   spi.proc_name,
-			CONVERT(XML, 
-			N'<ClickMe><![CDATA['
-			+ @nl
-			+ CASE WHEN spi.proc_name <> 'Statement' 
+			(SELECT  
+			  CASE WHEN spi.proc_name <> 'Statement' 
 				   THEN N'The stored procedure ' + spi.proc_name 
 				   ELSE N'This ad hoc statement' 
 			  END
@@ -15883,9 +15921,8 @@ SELECT spi.SPID,
 				FROM #stored_proc_info AS spi2
 				WHERE spi.SqlHandle = spi2.SqlHandle
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ CHAR(10)
-			+ N']]></ClickMe>'
-			) AS implicit_conversion_info
+			  AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS implicit_conversion_info
 FROM #stored_proc_info AS spi
 GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name
 )
@@ -15897,13 +15934,15 @@ ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 OPTION (RECOMPILE);
 
-RAISERROR(N'Updating cached parameter XML', 0, 1) WITH NOWAIT;
+
+RAISERROR(N'Updating cached parameter XML for stored procs', 0, 1) WITH NOWAIT;
 WITH precheck AS (
 SELECT spi.SPID,
 	   spi.SqlHandle,
 	   spi.proc_name,
-CONVERT(XML, 
-			N'<ClickMe><![CDATA['
+	   (SELECT 
+			set_options
+			+ @nl
 			+ @nl
 			+ N'EXEC ' 
 			+ spi.proc_name 
@@ -15924,11 +15963,10 @@ CONVERT(XML,
 				WHERE spi.SqlHandle = spi2.SqlHandle
 				AND spi2.proc_name <> N'Statement'
 				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-			+ @nl
-			+ N']]></ClickMe>'
-			) AS cached_execution_parameters
+			AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS cached_execution_parameters
 FROM #stored_proc_info AS spi
-GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name
+GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name, spi.set_options
 ) 
 UPDATE b
 SET b.cached_execution_parameters = pk.cached_execution_parameters
@@ -15936,15 +15974,64 @@ FROM ##bou_BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.QueryType <> N'Statement'
 OPTION (RECOMPILE);
 
 
-END; --End implicit conversion information gathering
+RAISERROR(N'Updating cached parameter XML for statements', 0, 1) WITH NOWAIT;
+WITH precheck AS (
+SELECT spi.SPID,
+	   spi.SqlHandle,
+	   spi.proc_name,
+	   (SELECT 
+			set_options
+			+ @nl
+			+ @nl
+			+ N' See QueryText column for full query text'
+			+ @nl
+			+ @nl
+			+ STUFF((
+				SELECT DISTINCT N', ' 
+						+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'**idk_man**'
+								THEN spi2.variable_name + N' = '
+								ELSE @nl + N' We could not find any cached parameter values for this stored proc. ' 
+						  END
+						+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
+							   THEN @nl + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+							   WHEN spi2.compile_time_value = N'NULL' 
+							   THEN spi2.compile_time_value 
+							   ELSE RTRIM(spi2.compile_time_value)
+						  END
+				FROM #stored_proc_info AS spi2
+				WHERE spi.SqlHandle = spi2.SqlHandle
+				AND spi2.proc_name = N'Statement'
+				AND spi2.variable_name NOT LIKE N'%msparam%'
+				FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+			AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+			AS cached_execution_parameters
+FROM #stored_proc_info AS spi
+GROUP BY spi.SPID, spi.SqlHandle, spi.proc_name, spi.set_options
+) 
+UPDATE b
+SET b.cached_execution_parameters = pk.cached_execution_parameters
+FROM ##bou_BlitzCacheProcs AS b
+JOIN precheck pk
+ON pk.SqlHandle = b.SqlHandle
+AND pk.SPID = b.SPID
+WHERE b.QueryType = N'Statement'
+OPTION (RECOMPILE);
+
 
 RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
 UPDATE b
-SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.implicit_conversion_info END,
-	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN '<?NoNeedToClickMe -- N/A --?>' ELSE b.cached_execution_parameters END
+SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
+									  OR CONVERT(NVARCHAR(4000), b.implicit_conversion_info) = N''
+									  THEN '<?NoNeedToClickMe -- N/A --?>' 
+							     ELSE b.implicit_conversion_info END,
+	b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
+										 OR CONVERT(NVARCHAR(4000), b.cached_execution_parameters) = N''
+										 THEN '<?NoNeedToClickMe -- N/A --?>' 
+									ELSE b.cached_execution_parameters END
 FROM ##bou_BlitzCacheProcs AS b
 WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
@@ -16322,7 +16409,7 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
 				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
-				  , 2, 200000) 
+				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -16397,7 +16484,7 @@ SELECT  DISTINCT
 				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
 				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
-                  , 2, 200000) 
+                  , 3, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
 AND QueryType LIKE 'Statement (parent%'
@@ -16872,7 +16959,7 @@ BEGIN
 				  CASE WHEN is_mstvf = 1 THEN '', 60'' ELSE '''' END + 
 				  CASE WHEN is_mm_join = 1 THEN '', 61'' ELSE '''' END  + 
                   CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END
-				  , 2, 200000) AS opserver_warning , ' + @nl ;
+				  , 3, 200000) AS opserver_warning , ' + @nl ;
     END;
     
     SET @columns += N'        ExecutionCount AS [# Executions],
@@ -18938,7 +19025,9 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRROR_WORKER_QUEUE','Mirroring',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DBMIRRORING_CMD','Mirroring',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DIRTY_PAGE_POLL','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DIRTY_PAGE_TABLE_LOCK','Replication',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DISPATCHER_QUEUE_SEMAPHORE','Other',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DPT_ENTRY_LOCK','Replication',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC','Transaction',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_ABORT_REQUEST','Transaction',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('DTC_RESOLVE','Transaction',0);
@@ -19128,6 +19217,13 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_NL','Buffer Latch',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_SH','Buffer Latch',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PAGELATCH_UP','Buffer Latch',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_DRAIN_WORKER','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_FLOW_CONTROL','Replication',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_LOG_CACHE','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_TRAN_LIST','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_TRAN_TURN','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_WORKER_SYNC','Replication',1);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK','Replication',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('POOL_LOG_RATE_GOVERNOR','Log Rate Governor',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ABR','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPMEDIA','Preemptive',0);
@@ -20091,7 +20187,7 @@ BEGIN
 			AND cTotal.counter_name = N'Total Server Memory (KB)                                                                                                        '
 		WHERE cFree.object_name LIKE N'%Memory Manager%'
 			AND cFree.counter_name = N'Free Memory (KB)                                                                                                                '
-			AND CAST(cTotal.cntr_value AS BIGINT) > 20480000000
+			AND CAST(cFree.cntr_value AS BIGINT) > 20480000000
 			AND CAST(cTotal.cntr_value AS BIGINT) * .3 <= CAST(cFree.cntr_value AS BIGINT)
             AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
 
@@ -20158,18 +20254,44 @@ BEGIN
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
-        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
-            FROM (
-                SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
-                FROM (
-                    SELECT TOP 1 CONVERT(XML, record) AS record
-                    FROM sys.dm_os_ring_buffers
-                    WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
-                    AND record LIKE '%<SystemHealth>%'
-                    ORDER BY timestamp DESC) AS rb
-            ) AS y;
+		WITH y
+		    AS
+		     (
+		         SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+		                     CONVERT(VARCHAR(30), rb.event_date) AS event_date,
+		                     CONVERT(VARCHAR(8000), rb.record) AS record
+		         FROM
+		                     (   SELECT CONVERT(XML, dorb.record) AS record,
+		                                DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+		                         FROM   sys.dm_os_ring_buffers AS dorb
+		                         CROSS JOIN
+		                                ( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
+		                         WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+		                         AND    record LIKE '%<SystemHealth>%' ) AS rb
+		         CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+		     )
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
+		SELECT TOP 1 
+				23, 
+				250, 
+				'Server Info', 
+				'CPU Utilization', 
+				y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+				y.system_idle	, 
+				'http://www.BrentOzar.com/go/cpu',
+				STUFF(( SELECT TOP 2147483647
+						  CHAR(10) + CHAR(13)
+						+ y2.system_idle 
+						+ '% ON ' 
+						+ y2.event_date 
+						+ ' Ring buffer details:  '
+						+ y2.record
+		        FROM   y AS y2
+				ORDER BY y2.event_date DESC
+		        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
+		FROM   y
+		ORDER BY y.event_date DESC;
+
 		
 		/* Highlight if non SQL processes are using >25% CPU */
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
@@ -21737,7 +21859,7 @@ BEGIN
                 + '        SELECT ' + @LineFeed
                 + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
                 + '                [CheckDate]' + @LineFeed
-                + '        FROM [dbo].[BlitzFirst_WaitStats]' + @LineFeed
+                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
                 + '        GROUP BY [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
@@ -24381,7 +24503,20 @@ BEGIN;
                 SELECT  11 AS check_id, 
                         i.index_sanity_id,
                         10 AS Priority,
-                        N'Aggressive Indexes' AS findings_group,
+                        N'Aggressive ' 
+                            + CASE COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
+                                WHEN 0 THEN N'Under-Indexing'
+                                WHEN 1 THEN N'Under-Indexing'
+                                WHEN 2 THEN N'Under-Indexing'
+                                WHEN 3 THEN N'Under-Indexing'
+                                WHEN 4 THEN N'Indexes'
+                                WHEN 5 THEN N'Indexes'
+                                WHEN 6 THEN N'Indexes'
+                                WHEN 7 THEN N'Indexes'
+                                WHEN 8 THEN N'Indexes'
+                                WHEN 9 THEN N'Indexes'
+                                ELSE N'Over-Indexing'
+                                END AS findings_group,
                         N'Total lock wait time > 5 minutes (row + page) with long average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
@@ -24398,6 +24533,7 @@ BEGIN;
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) > 5000
 				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
+                ORDER BY 4, [database_name], 8
                 OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 12: Total lock wait time > 5 minutes (row + page) with short average waits', 0,1) WITH NOWAIT;
@@ -24406,7 +24542,20 @@ BEGIN;
                 SELECT  12 AS check_id, 
                         i.index_sanity_id,
                         10 AS Priority,
-                        N'Aggressive Indexes' AS findings_group,
+                        N'Aggressive ' 
+                            + CASE COALESCE((SELECT SUM(1) FROM #IndexSanity iMe INNER JOIN #IndexSanity iOthers ON iMe.database_id = iOthers.database_id AND iMe.object_id = iOthers.object_id AND iOthers.index_id > 1 WHERE i.index_sanity_id = iMe.index_sanity_id),0)
+                                WHEN 0 THEN N'Under-Indexing'
+                                WHEN 1 THEN N'Under-Indexing'
+                                WHEN 2 THEN N'Under-Indexing'
+                                WHEN 3 THEN N'Under-Indexing'
+                                WHEN 4 THEN N'Indexes'
+                                WHEN 5 THEN N'Indexes'
+                                WHEN 6 THEN N'Indexes'
+                                WHEN 7 THEN N'Indexes'
+                                WHEN 8 THEN N'Indexes'
+                                WHEN 9 THEN N'Indexes'
+                                ELSE N'Over-Indexing'
+                                END AS findings_group,
                         N'Total lock wait time > 5 minutes (row + page) with short average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
@@ -24423,6 +24572,7 @@ BEGIN;
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) < 5000
 				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
+                ORDER BY 4, [database_name], 8
                 OPTION    ( RECOMPILE );
 
         END;
@@ -26806,6 +26956,7 @@ SET @VersionDate = '20180501';
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
+                    ca.dp.value('@priority', 'SMALLINT') AS priority,
                     ca.dp.value('@logused', 'BIGINT') AS log_used,
                     ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
                     ca.dp.value('@waittime', 'BIGINT') AS wait_time,
@@ -26820,7 +26971,8 @@ SET @VersionDate = '20180501';
                     ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
                     ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
                     ca2.ib.query('.') AS input_buffer,
-                    ca.dp.query('.') AS process_xml
+                    ca.dp.query('.') AS process_xml,
+                    dd.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -27060,7 +27212,7 @@ SET @VersionDate = '20180501';
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
-			   ISNULL(dow.index_name, 'UNKNOWN') AS index_name,
+			   dow.index_name AS index_name,
 			   'Total index deadlocks' AS finding_group,
 			   'This index was involved in ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
@@ -27071,6 +27223,7 @@ SET @VersionDate = '20180501';
 		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+		AND dow.index_name IS NOT NULL
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
@@ -27405,6 +27558,7 @@ SET @VersionDate = '20180501';
 		            dp.id,
 					dp.victim_id,
 		            dp.database_id,
+		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource,
 		            CONVERT(
@@ -27448,7 +27602,8 @@ SET @VersionDate = '20180501';
 					NULL AS waiter_waiter_activity,
 					NULL AS waiter_merging,
 					NULL AS waiter_spilling,
-					NULL AS waiter_waiting_to_close
+					NULL AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
@@ -27459,6 +27614,7 @@ SET @VersionDate = '20180501';
 		            dp.id,
 					dp.victim_id,
 		            dp.database_id,
+		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource,
 		            CONVERT(XML, N'parallel_deadlock') AS object_names,
@@ -27491,7 +27647,8 @@ SET @VersionDate = '20180501';
 					caw.waiter_activity	AS waiter_waiter_activity,
 					caw.merging	AS waiter_merging,
 					caw.spilling AS waiter_spilling,
-					caw.waiting_to_close AS waiter_waiting_to_close
+					caw.waiting_to_close AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
@@ -27516,6 +27673,7 @@ SET @VersionDate = '20180501';
 		       d.host_name,
 		       d.client_app,
 		       d.wait_time,
+		       d.priority,
 			   d.log_used,
 		       d.last_tran_started,
 		       d.last_batch_started,
@@ -27535,7 +27693,8 @@ SET @VersionDate = '20180501';
 			   d.waiter_waiter_activity,
 			   d.waiter_merging,
 			   d.waiter_spilling,
-			   d.waiter_waiting_to_close
+			   d.waiter_waiting_to_close,
+			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
 		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
@@ -27719,7 +27878,6 @@ IF @Help = 1
 	 - This query will not run on SQL Server versions less than 2016.
 	 - This query will not run on Azure Databases with compatibility less than 130.
 	 - This query will not run on Azure Data Warehouse.
-     - Variables with unsafe XML characters will look funny in output. If you can fix this, I bow to you.
 
 	Unknown limitations of this version:
 	 - Could be tickling
@@ -28379,12 +28537,13 @@ CREATE TABLE #stored_proc_info
 	converted_column_name NVARCHAR(258),
     compile_time_value NVARCHAR(258),
     proc_name NVARCHAR(1000),
-    column_name NVARCHAR(258),
-    converted_to NVARCHAR(258)
+    column_name NVARCHAR(4000),
+    converted_to NVARCHAR(258),
+	set_options NVARCHAR(1000)
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #variable_info
+DROP TABLE IF EXISTS #variable_info;
 
 CREATE TABLE #variable_info
 (
@@ -28397,7 +28556,7 @@ CREATE TABLE #variable_info
 	INDEX vif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #conversion_info
+DROP TABLE IF EXISTS #conversion_info;
 
 CREATE TABLE #conversion_info
 (
@@ -28421,7 +28580,7 @@ CREATE TABLE #conversion_info
 /* These tables support the Missing Index details clickable*/
 
 
-DROP TABLE IF EXISTS #missing_index_xml
+DROP TABLE IF EXISTS #missing_index_xml;
 
 CREATE TABLE #missing_index_xml
 (
@@ -28431,7 +28590,7 @@ CREATE TABLE #missing_index_xml
     index_xml XML
 );
 
-DROP TABLE IF EXISTS #missing_index_schema
+DROP TABLE IF EXISTS #missing_index_schema;
 
 CREATE TABLE #missing_index_schema
 (
@@ -28445,7 +28604,7 @@ CREATE TABLE #missing_index_schema
 );
 
 
-DROP TABLE IF EXISTS #missing_index_usage
+DROP TABLE IF EXISTS #missing_index_usage;
 
 CREATE TABLE #missing_index_usage
 (
@@ -28459,7 +28618,7 @@ CREATE TABLE #missing_index_usage
     index_xml XML
 );
 
-DROP TABLE IF EXISTS #missing_index_detail
+DROP TABLE IF EXISTS #missing_index_detail;
 
 CREATE TABLE #missing_index_detail
 (
@@ -28474,7 +28633,7 @@ CREATE TABLE #missing_index_detail
 );
 
 
-DROP TABLE IF EXISTS #missing_index_pretty
+DROP TABLE IF EXISTS #missing_index_pretty;
 
 CREATE TABLE #missing_index_pretty
 (
@@ -28523,8 +28682,8 @@ CREATE TABLE #missing_index_pretty
 			   + N')' 
 			   + CHAR(10)
 			   + CASE WHEN include IS NOT NULL
-					  THEN N'INCLUDE (' + include + N')WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
-					  ELSE N'WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  THEN N'INCLUDE (' + include + N') WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
+					  ELSE N' WITH (FILLFACTOR=100, ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?);'
 				 END
 			   + CHAR(10)
 			   + N'GO'
@@ -28719,21 +28878,21 @@ SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flat_date,
          SUM((qsrs.avg_logical_io_writes* 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_logical_io_writes_mb,
          SUM(( qsrs.avg_query_max_used_memory * 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_query_max_used_memory_mb,
          SUM(qsrs.avg_rowcount) AS total_rowcount,
-         SUM(qsrs.count_executions) AS total_count_executions'
+         SUM(qsrs.count_executions) AS total_count_executions';
 		 IF @new_columns = 1
 			BEGIN
 				SET @sql_select += N',
 									 SUM((qsrs.avg_log_bytes_used) / 1048576.) / SUM(qsrs.count_executions) AS total_avg_log_bytes_mb,
 									 SUM(avg_tempdb_space_used) /  SUM(qsrs.count_executions) AS total_avg_tempdb_space 
-									 '
-			END
+									 ';
+			END;
 		IF @new_columns = 0
 			BEGIN
 				SET @sql_select += N',
 									NULL AS total_avg_log_bytes_mb, 
 									NULL AS total_avg_tempdb_space
-									'
-			END
+									';
+			END;
 
 
 SET @sql_select += N'FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
@@ -30164,7 +30323,8 @@ FROM   #working_warnings p
        ) AS x ON p.sql_handle = x.sql_handle
 OPTION (RECOMPILE);
 
-
+IF @ExpertMode > 0
+BEGIN
 RAISERROR(N'Checking for operator warnings', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , x AS (
@@ -30182,6 +30342,7 @@ SET	   b.warning_no_join_predicate = x.warning_no_join_predicate,
 FROM #working_warnings b
 JOIN x ON x.sql_handle = b.sql_handle
 OPTION (RECOMPILE);
+END; 
 
 
 RAISERROR(N'Checking for table variables', 0, 1) WITH NOWAIT;
@@ -30609,7 +30770,7 @@ FROM #working_warnings AS b
 JOIN aj
 ON b.sql_handle = aj.sql_handle
 OPTION (RECOMPILE);
-END 
+END; 
 
 
 IF @ExpertMode > 0
@@ -30763,11 +30924,6 @@ JOIN    #working_warnings AS b
     ON b.query_hash = d.query_hash
 OPTION ( RECOMPILE );
 
-IF EXISTS (   SELECT 1
-              FROM   #working_warnings AS ww
-              WHERE  ww.implicit_conversions = 1
-                     OR ww.proc_or_function_name <> N'Statement' )
-    BEGIN
 
         RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
@@ -30901,14 +31057,43 @@ IF EXISTS (   SELECT 1
 		FROM   #stored_proc_info AS s
 		OPTION (RECOMPILE);
 
+		
+		RAISERROR(N'Updating SET options', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+		UPDATE s
+		SET set_options = set_options.ansi_set_options
+		FROM #stored_proc_info AS s
+		JOIN (
+				SELECT  x.sql_handle,
+						N'SET ANSI_NULLS = ' + CASE WHEN [ANSI_NULLS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+						N'SET ANSI_PADDING = ' + CASE WHEN [ANSI_PADDING] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+						N'SET ANSI_WARNINGS = ' + CASE WHEN [ANSI_WARNINGS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+						N'SET ARITHABORT = ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N' OFF ' END + NCHAR(10) +
+						N'SET CONCAT_NULL_YIELDS_NULL = ' + CASE WHEN [CONCAT_NULL_YIELDS_NULL] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+						N'SET NUMERIC_ROUNDABORT = ' + CASE WHEN [NUMERIC_ROUNDABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+						N'SET QUOTED_IDENTIFIER = ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' + NCHAR(10) END AS [ansi_set_options]
+				FROM (
+					SELECT
+						s.sql_handle,
+						so.o.value('@ANSI_NULLS', 'NVARCHAR(20)') AS [ANSI_NULLS],
+						so.o.value('@ANSI_PADDING', 'NVARCHAR(20)') AS [ANSI_PADDING],
+						so.o.value('@ANSI_WARNINGS', 'NVARCHAR(20)') AS [ANSI_WARNINGS],
+						so.o.value('@ARITHABORT', 'NVARCHAR(20)') AS [ARITHABORT],
+						so.o.value('@CONCAT_NULL_YIELDS_NULL', 'NVARCHAR(20)') AS [CONCAT_NULL_YIELDS_NULL],
+						so.o.value('@NUMERIC_ROUNDABORT', 'NVARCHAR(20)') AS [NUMERIC_ROUNDABORT],
+						so.o.value('@QUOTED_IDENTIFIER', 'NVARCHAR(20)') AS [QUOTED_IDENTIFIER]
+					FROM #statements AS s
+					CROSS APPLY s.statement.nodes('//p:StatementSetOptions') AS so(o)
+				   ) AS x
+		) AS set_options ON set_options.sql_handle = s.sql_handle
+		OPTION(RECOMPILE);
+
+
 		RAISERROR(N'Updating conversion XML', 0, 1) WITH NOWAIT;
 		WITH precheck AS (
 		SELECT spi.sql_handle,
 			   spi.proc_name,
-					CONVERT(XML, 
-					N'<ClickMe><![CDATA['
-					+ @cr + @lf
-					+ CASE WHEN spi.proc_name <> 'Statement' 
+					(SELECT CASE WHEN spi.proc_name <> 'Statement' 
 						   THEN N'The stored procedure ' + spi.proc_name 
 						   ELSE N'This ad hoc statement' 
 					  END
@@ -30960,9 +31145,8 @@ IF EXISTS (   SELECT 1
 						FROM #stored_proc_info AS spi2
 						WHERE spi.sql_handle = spi2.sql_handle
 						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-					+ CHAR(10)
-					+ N']]></ClickMe>'
-					) AS implicit_conversion_info
+					AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+					AS implicit_conversion_info
 		FROM #stored_proc_info AS spi
 		GROUP BY spi.sql_handle, spi.proc_name
 		)
@@ -30973,12 +31157,12 @@ IF EXISTS (   SELECT 1
         ON pk.sql_handle = b.sql_handle
         OPTION (RECOMPILE);
 
-		RAISERROR(N'Updating cached parameter XML', 0, 1) WITH NOWAIT;
+		RAISERROR(N'Updating cached parameter XML for procs', 0, 1) WITH NOWAIT;
 		WITH precheck AS (
 		SELECT spi.sql_handle,
 			   spi.proc_name,
-		CONVERT(XML, 
-					N'<ClickMe><![CDATA['
+			   (SELECT set_options
+					+ @cr + @lf
 					+ @cr + @lf
 					+ N'EXEC ' 
 					+ spi.proc_name 
@@ -30999,31 +31183,73 @@ IF EXISTS (   SELECT 1
 						WHERE spi.sql_handle = spi2.sql_handle
 						AND spi2.proc_name <> N'Statement'
 						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-					+ @cr + @lf
-					+ N']]></ClickMe>'
-					) AS cached_execution_parameters
+					AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+					AS cached_execution_parameters
 		FROM #stored_proc_info AS spi
-		GROUP BY spi.sql_handle, spi.proc_name
+		GROUP BY spi.sql_handle, spi.proc_name, set_options
 		) 
 		UPDATE b
 		SET b.cached_execution_parameters = pk.cached_execution_parameters
         FROM   #working_warnings AS b
         JOIN   precheck AS pk
         ON pk.sql_handle = b.sql_handle
+		WHERE b.proc_or_function_name <> N'Statement'
         OPTION (RECOMPILE);
 
 
-    END; --End implicit conversion information gathering
+	RAISERROR(N'Updating cached parameter XML for statements', 0, 1) WITH NOWAIT;
+	WITH precheck AS (
+	SELECT spi.sql_handle,
+			   spi.proc_name,
+		   (SELECT 
+				set_options
+				+ @cr + @lf
+				+ @cr + @lf
+				+ N' See QueryText column for full query text'
+				+ @cr + @lf
+				+ @cr + @lf
+				+ STUFF((
+					SELECT DISTINCT N', ' 
+							+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'**idk_man**'
+									THEN spi2.variable_name + N' = '
+									ELSE + @cr + @lf + N' We could not find any cached parameter values for this stored proc. ' 
+							  END
+							+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
+								   THEN + @cr + @lf + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+								   WHEN spi2.compile_time_value = N'NULL' 
+								   THEN spi2.compile_time_value 
+								   ELSE RTRIM(spi2.compile_time_value)
+							  END
+					FROM #stored_proc_info AS spi2
+					WHERE spi.sql_handle = spi2.sql_handle
+					AND spi2.proc_name = N'Statement'
+					AND spi2.variable_name NOT LIKE N'%msparam%'
+					FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+				AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+				AS cached_execution_parameters
+	FROM #stored_proc_info AS spi
+	GROUP BY spi.sql_handle, spi.proc_name, spi.set_options
+	) 
+	UPDATE b
+	SET b.cached_execution_parameters = pk.cached_execution_parameters
+    FROM   #working_warnings AS b
+    JOIN   precheck AS pk
+    ON pk.sql_handle = b.sql_handle
+	WHERE b.proc_or_function_name = N'Statement'
+    OPTION (RECOMPILE);
+
 
 RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
 UPDATE b
-SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL THEN 
-											N'<?NoNeedToClickMe -- N/A --?>'
-                                         ELSE b.implicit_conversion_info
+SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
+									OR CONVERT(NVARCHAR(4000), b.implicit_conversion_info) = N''
+									THEN N'<?NoNeedToClickMe -- N/A --?>'
+                                    ELSE b.implicit_conversion_info
                                     END,
-       b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL THEN
-                                                N'<?NoNeedToClickMe -- N/A --?>'
-                                            ELSE b.cached_execution_parameters
+       b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
+									   OR CONVERT(NVARCHAR(4000), b.cached_execution_parameters) = N''
+									   THEN N'<?NoNeedToClickMe -- N/A --?>'
+                                       ELSE b.cached_execution_parameters
                                        END
 FROM   #working_warnings AS b
 OPTION (RECOMPILE);
@@ -31150,7 +31376,7 @@ IF EXISTS
 		OPTION (RECOMPILE);
 
 	
-	END
+	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
 	UPDATE ww
@@ -32322,7 +32548,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may be using',
-                     'link to blog post when published',
+                     'http://brentozar.com/go/sargable',
 					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
 					
         IF EXISTS (SELECT 1/0
