@@ -26,7 +26,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_foreachdb @Version and @VersionDate
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
-    * sp_BlitzFirst @VersionDate (no version) 
+    * sp_BlitzFirst @Version and @VersionDate 
     * sp_BlitzCache @Version and @VersionDate 
     * sp_Blitz @Version and @VersionDate
     * sp_DatabaseRestore @Version and @VersionDate
@@ -34,6 +34,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_BlitzQueryStore @Version and @VersionDate
     * sp_AllNightLog @Version and @VersionDate
     * sp_AllNightLog_Setup @Version and @VersionDate
+    * sp_BlitzInMemoryOLTP @Version and @VersionDate
 
 ## Push to Master
 
@@ -51,10 +52,10 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
 
 <h3>For Support</h3>
 
-<strong>You can <a href="https://www.brentozar.com/first-aid/">download the updated FirstResponderKit.zip here</a>.</strong>
-
 When you have questions about how the tools work, talk with the community in the <a href="https://sqlcommunity.slack.com/messages/firstresponderkit/" target="_blank" rel="noopener">#FirstResponderKit Slack channel</a>. If you need a free invite, hit <a href="http://SQLslack.com/" target="_blank" rel="noopener">SQLslack.com</a>. Be patient - it's staffed with volunteers who have day jobs, heh.
+
 When you find a bug or want something changed, read the <a href="https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/CONTRIBUTING.md" target="_blank" rel="noopener">contributing.md</a> file.
 
 When you have a question about what the scripts found, first make sure you read the "More Details" URL for any warning you find. We put a lot of work into documentation, and we wouldn't want someone to yell at you to go read the fine manual. After that, when you've still got questions about how something works in SQL Server, post a question at <a href="http://dba.stackexchange.com" target="_blank" rel="noopener">DBA.StackExchange.com</a> and the community (that includes us!) will help. Include exact errors and any applicable screenshots, your SQL Server version number (including the build #), and the version of the tool you're working with.
 
+<strong>You can <a href="https://www.brentozar.com/first-aid/">download the updated FirstResponderKit.zip here</a>.</strong>
