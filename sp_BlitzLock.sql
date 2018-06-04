@@ -26,8 +26,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.5';
-SET @VersionDate = '20180501';
+SET @Version = '1.6';
+SET @VersionDate = '20180601';
 
 
 	IF @Help = 1 PRINT '
@@ -189,6 +189,7 @@ SET @VersionDate = '20180501';
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
+                    ca.dp.value('@priority', 'SMALLINT') AS priority,
                     ca.dp.value('@logused', 'BIGINT') AS log_used,
                     ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
                     ca.dp.value('@waittime', 'BIGINT') AS wait_time,
@@ -203,7 +204,8 @@ SET @VersionDate = '20180501';
                     ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
                     ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
                     ca2.ib.query('.') AS input_buffer,
-                    ca.dp.query('.') AS process_xml
+                    ca.dp.query('.') AS process_xml,
+                    dd.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
         INTO        #deadlock_process
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -443,7 +445,7 @@ SET @VersionDate = '20180501';
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
-			   ISNULL(dow.index_name, 'UNKNOWN') AS index_name,
+			   dow.index_name AS index_name,
 			   'Total index deadlocks' AS finding_group,
 			   'This index was involved in ' 
 				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
@@ -454,6 +456,7 @@ SET @VersionDate = '20180501';
 		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+		AND dow.index_name IS NOT NULL
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
@@ -788,6 +791,7 @@ SET @VersionDate = '20180501';
 		            dp.id,
 					dp.victim_id,
 		            dp.database_id,
+		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource,
 		            CONVERT(
@@ -831,7 +835,8 @@ SET @VersionDate = '20180501';
 					NULL AS waiter_waiter_activity,
 					NULL AS waiter_merging,
 					NULL AS waiter_spilling,
-					NULL AS waiter_waiting_to_close
+					NULL AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
@@ -842,6 +847,7 @@ SET @VersionDate = '20180501';
 		            dp.id,
 					dp.victim_id,
 		            dp.database_id,
+		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource,
 		            CONVERT(XML, N'parallel_deadlock') AS object_names,
@@ -874,7 +880,8 @@ SET @VersionDate = '20180501';
 					caw.waiter_activity	AS waiter_waiter_activity,
 					caw.merging	AS waiter_merging,
 					caw.spilling AS waiter_spilling,
-					caw.waiting_to_close AS waiter_waiting_to_close
+					caw.waiting_to_close AS waiter_waiting_to_close,
+					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
@@ -899,6 +906,7 @@ SET @VersionDate = '20180501';
 		       d.host_name,
 		       d.client_app,
 		       d.wait_time,
+		       d.priority,
 			   d.log_used,
 		       d.last_tran_started,
 		       d.last_batch_started,
@@ -918,7 +926,8 @@ SET @VersionDate = '20180501';
 			   d.waiter_waiter_activity,
 			   d.waiter_merging,
 			   d.waiter_spilling,
-			   d.waiter_waiting_to_close
+			   d.waiter_waiting_to_close,
+			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
 		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 

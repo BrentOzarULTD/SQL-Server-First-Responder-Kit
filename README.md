@@ -7,18 +7,21 @@
 
 Navigation
  - [How to Get Support](#how-to-get-support)
- - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
-   - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
-     - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
-     - [Skipping Checks or Databases](#skipping-checks-or-databases)
- - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
-   - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
- - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
-   - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
- - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
- - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
- - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
- - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
+ - Common Scripts:
+   - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
+     - [Advanced sp_Blitz Parameters](#advanced-sp_blitz-parameters)
+       - [Writing sp_Blitz Output to a Table](#writing-sp_blitz-output-to-a-table)
+       - [Skipping Checks or Databases](#skipping-checks-or-databases)
+   - [sp_BlitzCache: Find the Most Resource-Intensive Queries](#sp_blitzcache-find-the-most-resource-intensive-queries)
+     - [Advanced sp_BlitzCache Parameters](#advanced-sp_blitzcache-parameters)
+   - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
+   - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
+     - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
+ - Performance Tuning:   
+   - [sp_BlitzInMemoryOLTP: Hekaton Analysis](#sp_blitzinmemoryoltp-hekaton-analysis) 
+   - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
+   - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+   - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
@@ -172,36 +175,6 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 [*Back to top*](#header1)
 
-
-## sp_BlitzIndex: Tune Your Indexes
-
-SQL Server tracks your indexes: how big they are, how often they change, whether they're used to make queries go faster, and which indexes you should consider adding. The results columns are fairly self-explanatory.
-
-By default, sp_BlitzIndex analyzes the indexes of the database you're in (your current context.)
-
-Common parameters include:
-
-* @DatabaseName - if you want to analyze a specific database
-* @SchemaName, @TableName - if you pass in these, sp_BlitzIndex does a deeper-dive analysis of just one table. You get several result sets back describing more information about the table's current indexes, foreign key relationships, missing indexes, and fields in the table.
-* @GetAllDatabases = 1 - slower, but lets you analyze all the databases at once, up to 50. If you want more than 50 databases, you also have to pass in @BringThePain = 1.
-* @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
-* @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
-
-
-[*Back to top*](#header1)
-
-### Advanced sp_BlitzIndex Parameters
-
-In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
-
-* @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
-* @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
-* @Filter = 0 (default) - 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB
-
-
-[*Back to top*](#header1)
-
-
 ## sp_BlitzFirst: Real-Time Performance Advice
 
 When performance emergencies strike, this should be the first stored proc in the kit you run.
@@ -255,14 +228,70 @@ Optionally, you can also pass in:
 
 [*Back to top*](#header1)
 
+## sp_BlitzIndex: Tune Your Indexes
 
-## sp_BlitzWho: What Queries are Running Now
+SQL Server tracks your indexes: how big they are, how often they change, whether they're used to make queries go faster, and which indexes you should consider adding. The results columns are fairly self-explanatory.
 
-This is like sp_who, except it goes into way, way, way more details.
+By default, sp_BlitzIndex analyzes the indexes of the database you're in (your current context.)
 
-It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+Common parameters include:
+
+* @DatabaseName - if you want to analyze a specific database
+* @SchemaName, @TableName - if you pass in these, sp_BlitzIndex does a deeper-dive analysis of just one table. You get several result sets back describing more information about the table's current indexes, foreign key relationships, missing indexes, and fields in the table.
+* @GetAllDatabases = 1 - slower, but lets you analyze all the databases at once, up to 50. If you want more than 50 databases, you also have to pass in @BringThePain = 1.
+* @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
+* @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
+
 
 [*Back to top*](#header1)
+
+### Advanced sp_BlitzIndex Parameters
+
+In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
+
+* @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
+* @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
+* @Filter = 0 (default) - 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB
+
+
+[*Back to top*](#header1)
+
+
+## sp_BlitzInMemoryOLTP: Hekaton Analysis
+
+Examines your usage of In-Memory OLTP tables. Parameters you can use:
+
+* @instanceLevelOnly BIT: This flag determines whether or not to simply report on the server-level environment (if applicable, i.e. there is no server-level environment for Azure SQL Database). With this parameter, memory-optimized databases are ignored. If you specify @instanceLevelOnly and a database name, the database name is ignored.
+* @dbName NVARCHAR(4000) = N'ALL' - If you don't specify a database name, then sp_BlitzInMemoryOLTP reports on all memory-optimized databases within the instance that it executes in, or in the case of Azure SQL Database, the database that you provisioned. This is because the default for the @dbName parameter is N'ALL'.
+* @tableName NVARCHAR(4000) = NULL
+* @debug BIT
+
+To interpret the output of this stored procedure, read [Ned Otter's sp_BlitzInMemoryOLTP documentation](http://nedotter.com/archive/2018/06/new-kid-on-the-block-sp_blitzinmemoryoltp/).
+
+
+[*Back to top*](#header1)
+
+
+
+## sp_BlitzLock: Deadlock Analysis
+
+Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
+
+Parameters you can use:
+* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
+* @DatabaseName: If you want to filter to a specific database
+* @StartDate: The date you want to start searching on.
+* @EndDate: The date you want to stop searching on.
+* @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
+* @StoredProcName: If you want to search for a single stored proc.
+* @AppName: If you want to filter to a specific application.
+* @HostName: If you want to filter to a specific host.
+* @LoginName: If you want to filter to a specific login.
+* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+
+
+[*Back to top*](#header1)
+
 
 ## sp_BlitzQueryStore: Query Store Sale
 
@@ -286,24 +315,15 @@ Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp
 
 [*Back to top*](#header1)
 
-## sp_BlitzLock: Deadlock Analysis
 
-Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
+## sp_BlitzWho: What Queries are Running Now
 
-Variables you can use:
-* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
-* @DatabaseName: If you want to filter to a specific database
-* @StartDate: The date you want to start searching on.
-* @EndDate: The date you want to stop searching on.
-* @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
-* @StoredProcName: If you want to search for a single stored proc.
-* @AppName: If you want to filter to a specific application.
-* @HostName: If you want to filter to a specific host.
-* @LoginName: If you want to filter to a specific login.
-* @EventSessionPath: If you want to point this at an XE session rather than the system health session.
+This is like sp_who, except it goes into way, way, way more details.
 
+It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
 
 [*Back to top*](#header1)
+
 
 ## sp_BlitzBackups: How Much Data Could You Lose
 
