@@ -79,8 +79,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 */
 AS 
-DECLARE @Version VARCHAR(30);
-SET @Version = '1.6';
+DECLARE @ScriptVersion VARCHAR(30);
+SET @ScriptVersion = '1.6';
 SET @VersionDate = '20180601';
 
 BEGIN TRY
@@ -2021,6 +2021,15 @@ BEGIN TRY
             FROM sys.event_notifications;
         END;
     END; -- @instanceLevelOnly = 1 AND @Version >= 12
+
+	SELECT
+		'Thanks for using sp_BlitzInMemoryOLTP!' AS [Thanks],
+		'From Your Community Volunteers' AS [From],
+		'http://FirstResponderKit.org' AS [At],
+		'We hope you found this tool useful. Current version: ' 
+			+ @ScriptVersion + ' released on ' + CONVERT(NVARCHAR(30), @VersionDate) + '.' AS [Version];
+	
+
 END TRY
 
 BEGIN CATCH
