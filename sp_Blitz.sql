@@ -7324,12 +7324,19 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
 
-								DECLARE @outval VARCHAR(36);							
+								DECLARE @outval VARCHAR(36);
+								/* Get power plan if set by group policy [Git Hub Issue #1620] */						
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
+														   @value_name = 'ActivePowerScheme',
+														   @value = @outval OUTPUT;
+
+								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 								                           @key = 'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
 								                           @value_name = 'ActivePowerScheme',
 								                           @value = @outval OUTPUT;
-
+														   
 								DECLARE @cpu_speed_mhz int,
 								        @cpu_speed_ghz decimal(18,2);
 								
