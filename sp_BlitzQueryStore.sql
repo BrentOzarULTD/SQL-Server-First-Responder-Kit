@@ -3491,12 +3491,12 @@ OPTION ( RECOMPILE );
 RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
 UPDATE b
 SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
-									OR CONVERT(NVARCHAR(4000), b.implicit_conversion_info) = N''
+									OR CONVERT(NVARCHAR(MAX), b.implicit_conversion_info) = N''
 									THEN N'<?NoNeedToClickMe -- N/A --?>'
                                     ELSE b.implicit_conversion_info
                                     END,
        b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
-									   OR CONVERT(NVARCHAR(4000), b.cached_execution_parameters) = N''
+									   OR CONVERT(NVARCHAR(MAX), b.cached_execution_parameters) = N''
 									   THEN N'<?NoNeedToClickMe -- N/A --?>'
                                        ELSE b.cached_execution_parameters
                                        END
