@@ -16,7 +16,7 @@ IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
 	)
 	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
 OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
-	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) <> 5
+	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
 	)
 BEGIN
@@ -167,7 +167,7 @@ IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
-		IF	(	(SELECT SERVERPROPERTY ('ENGINEEDITION')) <> 5
+		IF	(	(SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 			OR	(SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130 
 			)
 		BEGIN
@@ -5169,7 +5169,7 @@ EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilt
 --Look for a stored procedure name (that doesn't exist!)
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah'
 
---Look for a stored procedure name that does (at least On My Computer®)
+--Look for a stored procedure name that does (at least On My ComputerÂ®)
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended'
 
 --Look for failed queries
