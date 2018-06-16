@@ -1805,7 +1805,7 @@ SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl 
 
 IF @NoobSaibot = 1
 BEGIN
-	SET @body_where += N'       AND qp.query_plan.exist(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";//p:MissingIndex'') = 1'
+	SET @body_where += N'       AND qp.query_plan.exist(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";//p:StmtSimple//p:MissingIndex'') = 1' + @nl ;
 END
 
 SET @plans_triggers_select_list += N'

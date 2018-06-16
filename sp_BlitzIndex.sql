@@ -4395,7 +4395,7 @@ BEGIN;
 
 	BEGIN
 
-		EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @HideSummary = 1, @DatabaseName = @DatabaseName, @SkipAnalysis = 1, @BringThePain = 1
+		EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @DatabaseName = @DatabaseName, @BringThePain = 1, @QueryFilter = 'statement', @HideSummary = 1;
 	                              
 	END
 
