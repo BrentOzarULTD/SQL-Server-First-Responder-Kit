@@ -975,7 +975,16 @@ END;
 
 DECLARE @DurationFilter_i INT,
 		@MinMemoryPerQuery INT,
-        @msg NVARCHAR(4000) ;
+        @msg NVARCHAR(4000),
+		@NoobSaibot BIT = 0;
+
+IF @SortOrder = 'sp_BlitzIndex'
+BEGIN
+	RAISERROR(N'OUTSTANDING!', 0, 1) WITH NOWAIT;
+	SET @SortOrder = 'reads';
+	SET @NoobSaibot = 1;
+
+END
 
 
 IF @BringThePain = 1
@@ -1017,7 +1026,7 @@ RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
-					   'spills', 'avg spills', 'all', 'all avg')
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1743,6 +1752,7 @@ IF @MinutesBack IS NOT NULL
 	SET @body += N'       AND x.last_execution_time >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
+
 /* Apply the sort order here to only grab relevant plans.
    This should make it faster to process since we'll be pulling back fewer
    plans for processing.
@@ -1793,7 +1803,10 @@ SET @body += N') AS qs
 
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
 
-
+IF @NoobSaibot = 1
+BEGIN
+	SET @body_where += N'       AND qp.query_plan.exist(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";//p:MissingIndex'') = 1'
+END
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@Top)
