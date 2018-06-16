@@ -81,9 +81,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
+	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2018.
 
-	Copyright (c) 2017 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -2022,7 +2022,8 @@ AS
 										  + CAST(create_date AS VARCHAR(20))
 										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
 								FROM    master.sys.tables
-								WHERE   is_ms_shipped = 0;
+								WHERE   is_ms_shipped = 0
+                                  AND   name NOT IN ('CommandLog','SqlServerVersions');
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3437,6 +3438,25 @@ AS
 										'SQL 2017 is being used but not Cumulative Update 3. We''d recommend patching to take advantage of increased analytics when running BlitzCache.');
 								END;
 
+							END;		
+
+                        /* Cumulative Update Available */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 217 )
+                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
+                            AND EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SqlServerVersions' AND TABLE_TYPE = 'BASE TABLE')
+                            AND NOT EXISTS (SELECT * FROM #BlitzResults WHERE CheckID IN (128, 129, 157, 189, 216)) /* Other version checks */
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+								
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+                                    SELECT TOP 1 217, 100, 'Reliability', 'Cumulative Update Available', COALESCE(v.Url, 'https://SQLServerUpdates.com/'),
+										v.MinorVersionName + ' was released on ' + CAST(CONVERT(DATETIME, v.ReleaseDate, 112) AS VARCHAR(100))
+                                    FROM dbo.SqlServerVersions v
+                                    WHERE v.MajorVersionNumber = @ProductVersionMajor
+                                      AND v.MinorVersionNumber > @ProductVersionMinor
+                                    ORDER BY v.MinorVersionNumber DESC;
 							END;		
 
                         /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
