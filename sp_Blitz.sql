@@ -3444,11 +3444,11 @@ AS
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 217 )
-                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
+                            AND SERVERPROPERTY('EngineEdition') NOT IN (5,8) /* Azure Managed Instances and Azure SQL DB*/
                             AND EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SqlServerVersions' AND TABLE_TYPE = 'BASE TABLE')
                             AND NOT EXISTS (SELECT * FROM #BlitzResults WHERE CheckID IN (128, 129, 157, 189, 216)) /* Other version checks */
 							BEGIN
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 217) WITH NOWAIT;
 								
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
                                     SELECT TOP 1 217, 100, 'Reliability', 'Cumulative Update Available', COALESCE(v.Url, 'https://SQLServerUpdates.com/'),
