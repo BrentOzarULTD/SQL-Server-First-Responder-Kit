@@ -3300,6 +3300,42 @@ AS
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 125) WITH NOWAIT;
 							
+								DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
+								DECLARE @user_perm_gb_out DECIMAL(38,2);
+								
+								IF @ProductVersionMajor >= 11
+								
+								BEGIN
+								
+								SET @user_perm_sql += N'
+									SELECT @user_perm_gb = CASE WHEN SUM(pages_kb) >= (1048576 * 2)
+											THEN CONVERT(DECIMAL(38, 2), SUM(pages_kb))
+											ELSE NULL 
+										   END
+									FROM sys.dm_os_memory_cache_entries
+									WHERE type = ''USERSTORE_TOKENPERM''
+								';
+								
+								END
+								
+								IF @ProductVersionMajor < 11
+								
+								BEGIN
+								SET @user_perm_sql += N'
+									SELECT CASE WHEN SUM(pages_allocated_count) / 128.0 / 1024. >= (1048576 * 2)
+											THEN CONVERT(DECIMAL(38, 2), SUM(pages_allocated_count) / 128.0 / 1024.)
+											ELSE NULL 
+										   END
+									FROM sys.dm_os_memory_cache_entries
+									WHERE type = ''USERSTORE_TOKENPERM''
+								';
+								
+								END
+
+								EXEC sys.sp_executesql @user_perm_sql, 
+								                       N'@user_perm_gb DECIMAL(38,2) OUTPUT', 
+													   @user_perm_gb = @user_perm_gb_out OUTPUT
+
 							INSERT INTO #BlitzResults
 								(CheckID,
 								Priority,
@@ -3308,7 +3344,11 @@ AS
 								URL,
 								Details)
 							SELECT TOP 1 125, 10, 'Performance', 'Plan Cache Erased Recently', 'https://BrentOzar.com/askbrent/plan-cache-erased-recently/',
-								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) 
+								+ CASE WHEN @user_perm_gb_out IS NULL 
+								       THEN '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+									   ELSE '. You also have ' + CONVERT(NVARCHAR(20), @user_perm_gb_out) + ' GB of USERSTORE_TOKENPERM, which could indicate unusual memory consumption.'
+								  END
 							FROM sys.dm_exec_query_stats WITH (NOLOCK)
 							ORDER BY creation_time;	
 						END;
