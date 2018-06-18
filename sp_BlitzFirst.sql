@@ -1388,7 +1388,8 @@ BEGIN
     AND     request_mode = N'S'
     AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'RESTORE%';
+    WHERE r.command LIKE 'RESTORE%'
+    AND s.program_name <> 'SQL Server Log Shipping';
 
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
