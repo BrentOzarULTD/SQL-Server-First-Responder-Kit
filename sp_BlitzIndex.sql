@@ -1929,6 +1929,10 @@ BEGIN
             s.last_user_update,
             s.create_date,
             s.modify_date,
+			sz.page_latch_wait_count,
+			CONVERT(VARCHAR(10), (sz.page_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_latch_wait_in_ms / 1000), 0), 108) AS page_latch_wait_time,
+			sz.page_io_latch_wait_count,
+			CONVERT(VARCHAR(10), (sz.page_io_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_io_latch_wait_in_ms / 1000), 0), 108) AS page_io_latch_wait_time,
             ct.create_tsql,
             1 AS display_order
         FROM #IndexSanity s
@@ -1945,7 +1949,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -1966,6 +1970,10 @@ BEGIN
             last_user_update AS [Last User Write],
             create_date AS [Created],
             modify_date AS [Last Modified],
+			page_latch_wait_count AS [Page Latch Wait Count],
+			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
+			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
+			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
             create_tsql AS [Create TSQL]
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
