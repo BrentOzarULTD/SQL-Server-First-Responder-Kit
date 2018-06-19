@@ -322,6 +322,8 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (177);
 						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
 						INSERT INTO #SkipChecks (CheckID) VALUES (181);
+						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* xp_readerrorlog checking for IFI */
+						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
 			END; /* Amazon RDS skipped checks */
 
 		/* If the server is ExpressEdition, skip checks that it doesn't allow */
