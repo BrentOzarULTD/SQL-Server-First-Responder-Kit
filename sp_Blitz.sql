@@ -3308,12 +3308,13 @@ AS
 								BEGIN
 								
 								SET @user_perm_sql += N'
-									SELECT @user_perm_gb = CASE WHEN SUM(pages_kb) >= (1048576 * 2)
-											THEN CONVERT(DECIMAL(38, 2), SUM(pages_kb))
+									SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
+											THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
 											ELSE NULL 
 										   END
-									FROM sys.dm_os_memory_cache_entries
+									FROM sys.dm_os_memory_clerks
 									WHERE type = ''USERSTORE_TOKENPERM''
+									AND    name = ''TokenAndPermUserStore''
 								';
 								
 								END
@@ -3322,12 +3323,13 @@ AS
 								
 								BEGIN
 								SET @user_perm_sql += N'
-									SELECT CASE WHEN SUM(pages_allocated_count) / 128.0 / 1024. >= (1048576 * 2)
-											THEN CONVERT(DECIMAL(38, 2), SUM(pages_allocated_count) / 128.0 / 1024.)
+									SELECT @user_perm_gb = CASE WHEN (single_pages_kb / 128.0 / 1024.) >= 2.
+											THEN CONVERT(DECIMAL(38, 2), (single_pages_kb / 128.0 / 1024.))
 											ELSE NULL 
 										   END
-									FROM sys.dm_os_memory_cache_entries
+									FROM sys.dm_os_memory_clerks
 									WHERE type = ''USERSTORE_TOKENPERM''
+									AND    name = ''TokenAndPermUserStore''
 								';
 								
 								END
