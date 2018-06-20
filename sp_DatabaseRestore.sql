@@ -163,7 +163,7 @@ IF @Help = 1
 			@StopAt = ''20170508201501'',
 			@Debug = 1;
 
-		--This example will print the resetore commands and stop execution.
+		--This example NOT execute the restore.  Commands will be printed in a copy/paste ready format only
 		EXEC dbo.sp_DatabaseRestore 
 			@Database = ''DBA'', 
 			@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
@@ -175,7 +175,7 @@ IF @Help = 1
 			@TestRestore = 1,
 			@RunCheckDB = 1,
 			@Debug = 0,
-			@Execute = Y;
+			@Execute = ''N'';
 		';
 	
 	RETURN;
