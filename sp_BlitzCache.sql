@@ -975,7 +975,16 @@ END;
 
 DECLARE @DurationFilter_i INT,
 		@MinMemoryPerQuery INT,
-        @msg NVARCHAR(4000) ;
+        @msg NVARCHAR(4000),
+		@NoobSaibot BIT = 0;
+
+IF @SortOrder = 'sp_BlitzIndex'
+BEGIN
+	RAISERROR(N'OUTSTANDING!', 0, 1) WITH NOWAIT;
+	SET @SortOrder = 'reads';
+	SET @NoobSaibot = 1;
+
+END
 
 
 IF @BringThePain = 1
@@ -1017,7 +1026,7 @@ RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
-					   'spills', 'avg spills', 'all', 'all avg')
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1120,7 +1129,6 @@ IF OBJECT_ID('tempdb..#variable_info') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#conversion_info') IS NOT NULL
     DROP TABLE #conversion_info;
-
 
 IF OBJECT_ID('tempdb..#missing_index_xml') IS NOT NULL
     DROP TABLE #missing_index_xml;
@@ -1332,11 +1340,27 @@ CREATE TABLE #missing_index_pretty
 	equality NVARCHAR(MAX),
 	inequality NVARCHAR(MAX),
 	[include] NVARCHAR(MAX),
+	executions NVARCHAR(128),
+	query_cost NVARCHAR(128),
+	creation_hours NVARCHAR(128),
 	details AS N'/* '
 	           + CHAR(10) 
-			   + N'The Query Processor estimates that implementing the following index could improve the query cost by ' 
+			   + N'The Query Processor estimates that implementing the '
+			   + CHAR(10)
+			   + N'following index could improve query cost (' + query_cost + N')'
+			   + CHAR(10) 
+			   + N'by '
 			   + CONVERT(NVARCHAR(30), impact)
-			   + '%.'
+			   + N'% for ' + executions + N' executions'
+			   + N' over the last ' + 
+					CASE WHEN creation_hours < 24
+					     THEN creation_hours + N' hours.'
+						 WHEN creation_hours = 24
+						 THEN ' 1 day.'
+						 WHEN creation_hours > 24
+						 THEN (CONVERT(NVARCHAR(128), creation_hours / 24)) + N' days.'
+					     ELSE N''
+					END
 			   + CHAR(10)
 			   + N'*/'
 			   + CHAR(10) + CHAR(13) 
@@ -1743,6 +1767,7 @@ IF @MinutesBack IS NOT NULL
 	SET @body += N'       AND x.last_execution_time >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
+
 /* Apply the sort order here to only grab relevant plans.
    This should make it faster to process since we'll be pulling back fewer
    plans for processing.
@@ -1793,7 +1818,10 @@ SET @body += N') AS qs
 
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
 
-
+IF @NoobSaibot = 1
+BEGIN
+	SET @body_where += N'       AND qp.query_plan.exist(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";//p:StmtSimple//p:MissingIndex'') = 1' + @nl ;
+END
 
 SET @plans_triggers_select_list += N'
 SELECT TOP (@Top)
@@ -3760,7 +3788,6 @@ IF EXISTS
 		FROM   #query_plan AS qp
 		CROSS APPLY qp.query_plan.nodes('//p:MissingIndexes/p:MissingIndexGroup') AS c(mg)
 		WHERE  qp.QueryHash IS NOT NULL
-		AND c.mg.value('@Impact', 'FLOAT') > 70.0
 		OPTION(RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_schema', 0, 1) WITH NOWAIT;	
@@ -3801,7 +3828,8 @@ IF EXISTS
 		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_pretty', 0, 1) WITH NOWAIT;
-		INSERT #missing_index_pretty
+		INSERT #missing_index_pretty 
+		       ( QueryHash,   SqlHandle,   impact,   database_name,   schema_name,   table_name, equality, inequality, include, executions, query_cost, creation_hours )
 		SELECT m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name
 		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
 		                 FROM   #missing_index_detail AS m2
@@ -3832,9 +3860,14 @@ IF EXISTS
 						 AND m.database_name = m2.database_name
 						 AND m.schema_name = m2.schema_name
 						 AND m.table_name = m2.table_name
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include]
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include],
+		bbcp.ExecutionCount,
+		bbcp.QueryPlanCost,
+		bbcp.PlanCreationTimeHours
 		FROM #missing_index_detail AS m
-		GROUP BY m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name
+		JOIN ##bou_BlitzCacheProcs AS bbcp
+		ON m.SqlHandle = bbcp.SqlHandle
+		GROUP BY m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name, bbcp.ExecutionCount, bbcp.QueryPlanCost, bbcp.PlanCreationTimeHours
 		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Updating missing index information', 0, 1) WITH NOWAIT;
@@ -5756,7 +5789,27 @@ IF @Debug = 1
 		SELECT '#variable_info' AS table_name, *
 		FROM #variable_info AS vi
 		OPTION ( RECOMPILE );
-		
+
+		SELECT '#missing_index_xml' AS table_name, *
+		FROM #missing_index_xml AS mix
+		OPTION ( RECOMPILE );
+
+		SELECT '#missing_index_schema' AS table_name, *
+		FROM #missing_index_schema AS mis
+		OPTION ( RECOMPILE );
+
+		SELECT '#missing_index_usage' AS table_name, *
+		FROM #missing_index_usage AS miu
+		OPTION ( RECOMPILE );
+
+		SELECT '#missing_index_detail' AS table_name, *
+		FROM #missing_index_detail AS mid
+		OPTION ( RECOMPILE );
+
+		SELECT '#missing_index_pretty' AS table_name, *
+		FROM #missing_index_pretty AS mip
+		OPTION ( RECOMPILE );
+
 		SELECT '#plan_creation' AS table_name, *
 		FROM   #plan_creation
 		OPTION ( RECOMPILE );

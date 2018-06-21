@@ -4438,6 +4438,17 @@ BEGIN;
         ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 		OPTION (RECOMPILE);
 
+	IF  (@BringThePain = 1
+	AND @DatabaseName IS NOT NULL
+	AND @GetAllDatabases = 0)
+
+	BEGIN
+
+		EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @DatabaseName = @DatabaseName, @BringThePain = 1, @QueryFilter = 'statement', @HideSummary = 1;
+	                              
+	END
+
+
     END; /* End @Mode=3 (index detail)*/
 END;
 END TRY
