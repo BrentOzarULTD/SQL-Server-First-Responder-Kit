@@ -3788,7 +3788,6 @@ IF EXISTS
 		FROM   #query_plan AS qp
 		CROSS APPLY qp.query_plan.nodes('//p:MissingIndexes/p:MissingIndexGroup') AS c(mg)
 		WHERE  qp.QueryHash IS NOT NULL
-		AND c.mg.value('@Impact', 'FLOAT') > 10.0
 		OPTION(RECOMPILE);
 		
 		RAISERROR(N'Inserting to #missing_index_schema', 0, 1) WITH NOWAIT;	
