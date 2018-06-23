@@ -3874,6 +3874,7 @@ IF EXISTS
 		WITH missing AS (
 		SELECT mip.QueryHash,
 		       mip.SqlHandle, 
+			   mip.executions,
 			   CONVERT(XML,
 			   N'<MissingIndexes><![CDATA['
 			   + CHAR(10) + CHAR(13)
@@ -3881,6 +3882,7 @@ IF EXISTS
 		                   FROM   #missing_index_pretty AS mip2
 						   WHERE mip.QueryHash = mip2.QueryHash
 						   AND mip.SqlHandle = mip2.SqlHandle
+						   AND mip.executions = mip2.executions
 						   GROUP BY mip2.details
 		                   ORDER BY MAX(mip2.impact) DESC
 						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') 
@@ -3888,13 +3890,14 @@ IF EXISTS
 			   + N']]></MissingIndexes>' 
 			   ) AS full_details
 		FROM #missing_index_pretty AS mip
-		GROUP BY mip.QueryHash, mip.SqlHandle, mip.impact
+		GROUP BY mip.QueryHash, mip.SqlHandle, mip.impact, mip.executions
 						)
 		UPDATE bbcp
 			SET bbcp.missing_indexes = m.full_details
 		FROM ##bou_BlitzCacheProcs AS bbcp
 		JOIN missing AS m
 		ON m.SqlHandle = bbcp.SqlHandle
+		AND m.executions = bbcp.ExecutionCount
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
