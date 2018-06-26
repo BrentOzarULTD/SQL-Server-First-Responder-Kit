@@ -1783,7 +1783,7 @@ SELECT
 		 THEN N'-- EXEC sys.sp_rename @objname = N' + QUOTENAME(db_schema_object_name + N'.' + index_name, N'''') + NCHAR(10) + 
 		                          N', @newname = N' + QUOTENAME(LEFT(N'ix_' + [object_name] 
 								                      + REPLACE(REPLACE(REPLACE(REPLACE(key_column_names_with_sort_order_no_types, N' ', N'_'), N'[', N''), N']', N''), ',', '')
-													  + CASE WHEN count_included_columns > 0 THEN N'_Includes' ELSE N'' END, 128), '''') + 
+													  + CASE WHEN count_included_columns > 0 THEN N'_Includes' ELSE N'' END, 128), '''') + NCHAR(10) + 
 								  N', @objtype = N' + QUOTENAME(N'INDEX', '''')
     ELSE
         CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
