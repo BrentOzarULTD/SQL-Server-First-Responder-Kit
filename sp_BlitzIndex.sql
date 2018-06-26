@@ -805,7 +805,7 @@ BEGIN TRY
 
         IF ((@Mode <> 0 OR @TableName IS NOT NULL) AND @Filter <> 0)
         BEGIN
-            SET @msg=N'@Filter only appies when @Mode=0 and @TableName is not specified. Please try again.';
+            SET @msg=N'@Filter only applies when @Mode=0 and @TableName is not specified. Please try again.';
             RAISERROR(@msg,16,1);
         END;
 
