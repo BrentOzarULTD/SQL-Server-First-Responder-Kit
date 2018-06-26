@@ -4,9 +4,9 @@ GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	  @Database NVARCHAR(128) = NULL, 
 	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
-	  @BackupPathFull NVARCHAR(MAX) = NULL, 
-	  @BackupPathDiff NVARCHAR(MAX) = NULL, 
-	  @BackupPathLog NVARCHAR(MAX) = NULL,
+	  @BackupPathFull NVARCHAR(260) = NULL, 
+	  @BackupPathDiff NVARCHAR(260) = NULL, 
+	  @BackupPathLog NVARCHAR(260) = NULL,
 	  @MoveFiles BIT = 0, 
 	  @MoveDataDrive NVARCHAR(260) = NULL, 
 	  @MoveLogDrive NVARCHAR(260) = NULL, 
@@ -195,8 +195,7 @@ BEGIN
 END;
 
 
-DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
-        @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
+DECLARE @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
         @LastFullBackup NVARCHAR(500) = N'', --Last full backup name
         @LastDiffBackup NVARCHAR(500) = N'', --Last diff backup name
         @LastDiffBackupDateTime NVARCHAR(500) = N'', --Last diff backup date
@@ -214,11 +213,12 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
         @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
 
-DECLARE @FileList TABLE
-(
-    BackupFile NVARCHAR(255)
-);
 
+DECLARE @FileList TABLE (
+    BackupFile NVARCHAR(255)NOT NULL, 
+    depth int NOT NULL, 
+    [file] int NOT NULL
+);
 
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
 CREATE TABLE #FileListParameters
@@ -394,19 +394,15 @@ SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 
 IF @BackupPathFull IS NOT NULL
 BEGIN
+    -- Get list of files 
+    INSERT INTO @FileList (BackupFile, depth, [file])
+    EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1; 
 
--- Get list of files 
-SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
-
-			IF @Debug = 1
-			BEGIN
-				IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
-				PRINT @cmd;
-			END;  
-
-
-INSERT INTO @FileList (BackupFile)
-EXEC master.sys.xp_cmdshell @cmd; 
+	IF @Debug = 1
+	BEGIN
+		SELECT BackupFile, depth, [file]
+		FROM   @FileList;
+	END;
 
 /*Sanity check folders*/
 
@@ -475,13 +471,6 @@ WHERE BackupFile LIKE N'%.bak'
     BackupFile LIKE N'%' + @Database + N'%'
 	AND
 	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
-
-	IF @Debug = 1
-	BEGIN
-		SELECT *
-		FROM   @FileList;
-	END;
-
 
 
 SET @FileListParamSQL = 
@@ -681,27 +670,16 @@ END
 
 
 IF @BackupPathDiff IS NOT NULL
-
 BEGIN 
-
--- Get list of files 
-SET @cmd = N'DIR /b "'+ @BackupPathDiff + N'"';
-
-	IF @Debug = 1
-	BEGIN
-		IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff check';
-		PRINT @cmd;
-	END;  
+    -- Get list of files 
+    INSERT INTO @FileList (BackupFile, depth, [file])
+    EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1; 
 
 	IF @Debug = 1
 	BEGIN
-		SELECT *
+		SELECT BackupFile, depth, [file]
 		FROM   @FileList;
 	END;
-
-
-INSERT INTO @FileList (BackupFile)
-EXEC master.sys.xp_cmdshell @cmd; 
 
 /*Sanity check folders*/
 
@@ -805,29 +783,19 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 -- Clear out table variables for translogs
 DELETE FROM @FileList;
    
- END      
+END      
 
- IF @BackupPathLog IS NOT NULL
-
+IF @BackupPathLog IS NOT NULL
 BEGIN
+    -- Get list of files
+    INSERT INTO @FileList (BackupFile, depth, [file])
+    EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1; 
 
-SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
-
-		IF @Debug = 1
-		BEGIN
-			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog check';
-			PRINT @cmd;
-		END; 
-
-		IF @Debug = 1
-		BEGIN
-			SELECT *
-			FROM   @FileList;
-		END;
-
-
-INSERT INTO @FileList (BackupFile)
-EXEC master.sys.xp_cmdshell @cmd;
+    IF @Debug = 1
+    BEGIN
+	    SELECT BackupFile, depth, [file]
+	    FROM   @FileList;
+    END;
 
 /*Sanity check folders*/
 
@@ -1076,6 +1044,4 @@ IF @TestRestore = 1
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
 
 	END;
-
-
 GO
