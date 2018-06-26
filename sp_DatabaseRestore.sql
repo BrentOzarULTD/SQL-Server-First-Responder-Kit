@@ -568,7 +568,7 @@ BEGIN
 			    PRINT @sql;
 		    END;
 		    IF @Debug IN (0, 1) AND @Execute = 'Y'
-			    EXECUTE sp_executesql @sql;
+			    EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
         END
 
         IF @ExistingDBAction IN (2, 3)
@@ -590,7 +590,7 @@ BEGIN
 			    PRINT @sql;
 		    END;
             IF @Debug IN (0, 1) AND @Execute = 'Y'
-			    EXECUTE sp_executesql @sql;
+			    EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'KILL', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
         END
 
         IF @ExistingDBAction = 3
@@ -604,7 +604,7 @@ BEGIN
 			    PRINT @sql;
 		    END;
 		    IF @Debug IN (0, 1) AND @Execute = 'Y'
-			    EXECUTE sp_executesql @sql;
+			    EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
         END
 
     END
