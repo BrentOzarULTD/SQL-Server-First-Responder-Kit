@@ -37,8 +37,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.6';
-SET @VersionDate = '20180601';
+SET @Version = '6.7';
+SET @VersionDate = '20180701';
 
 
 IF @Help = 1 PRINT '
@@ -321,7 +321,11 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
               page_lock_wait_in_ms BIGINT NULL ,
               index_lock_promotion_attempt_count BIGINT NULL ,
               index_lock_promotion_count BIGINT NULL,
-              data_compression_desc NVARCHAR(60) NULL
+              data_compression_desc NVARCHAR(60) NULL,
+			  page_latch_wait_count BIGINT NULL,
+			  page_latch_wait_in_ms BIGINT NULL,
+			  page_io_latch_wait_count BIGINT NULL,
+			  page_io_latch_wait_in_ms BIGINT NULL
             );
 
         CREATE TABLE #IndexSanitySize
@@ -351,6 +355,10 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                total_index_lock_promotion_attempt_count BIGINT NULL ,
               total_index_lock_promotion_count BIGINT NULL ,
               data_compression_desc NVARCHAR(4000) NULL,
+			  page_latch_wait_count BIGINT NULL,
+			  page_latch_wait_in_ms BIGINT NULL,
+			  page_io_latch_wait_count BIGINT NULL,
+			  page_io_latch_wait_in_ms BIGINT NULL,
               index_size_summary AS ISNULL(
                 CASE WHEN partition_count > 1
                         THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
@@ -797,7 +805,7 @@ BEGIN TRY
 
         IF ((@Mode <> 0 OR @TableName IS NOT NULL) AND @Filter <> 0)
         BEGIN
-            SET @msg=N'@Filter only appies when @Mode=0 and @TableName is not specified. Please try again.';
+            SET @msg=N'@Filter only applies when @Mode=0 and @TableName is not specified. Please try again.';
             RAISERROR(@msg,16,1);
         END;
 
@@ -1080,6 +1088,10 @@ BEGIN TRY
                                 os.page_lock_wait_in_ms,
                                 os.index_lock_promotion_attempt_count, 
                                 os.index_lock_promotion_count, 
+								os.page_latch_wait_count,
+								os.page_latch_wait_in_ms,
+								os.page_io_latch_wait_count,								
+								os.page_io_latch_wait_in_ms,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
                     FROM    ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_partition_stats AS ps  
                     JOIN ' + QUOTENAME(@DatabaseName) + '.sys.partitions AS par on ps.partition_id=par.partition_id
@@ -1129,7 +1141,11 @@ BEGIN TRY
                                 os.page_lock_wait_count, 
                                 os.page_lock_wait_in_ms,
                                 os.index_lock_promotion_attempt_count, 
-                                os.index_lock_promotion_count, 
+                                os.index_lock_promotion_count,
+								os.page_latch_wait_count,
+								os.page_latch_wait_in_ms,
+								os.page_io_latch_wait_count,								
+								os.page_io_latch_wait_in_ms, 
                                 ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N'
                         FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions AS par on ps.partition_id=par.partition_id
@@ -1177,7 +1193,11 @@ BEGIN TRY
                                           page_lock_wait_count,
                                           page_lock_wait_in_ms, 
                                           index_lock_promotion_attempt_count,
-                                          index_lock_promotion_count, 
+                                          index_lock_promotion_count,
+								          page_latch_wait_count,
+								          page_latch_wait_in_ms,
+								          page_io_latch_wait_count,								
+								          page_io_latch_wait_in_ms,										   
                                           data_compression_desc )
                 EXEC sp_executesql @dsql;
         
@@ -1657,7 +1677,8 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                                 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
                                 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
                                 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
-                                total_index_lock_promotion_count, data_compression_desc )
+                                total_index_lock_promotion_count, data_compression_desc, 
+								page_latch_wait_count, page_latch_wait_in_ms, page_io_latch_wait_count, page_io_latch_wait_in_ms)
         SELECT    index_sanity_id, ipp.database_id, ipp.schema_name,						
 				COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
                 SUM(reserved_row_overflow_MB), 
@@ -1680,7 +1701,11 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                 ELSE 0 END AS avg_page_lock_wait_in_ms,           
                 SUM(index_lock_promotion_attempt_count),
                 SUM(index_lock_promotion_count),
-                LEFT(MAX(data_compression_info.data_compression_rollup),8000)
+                LEFT(MAX(data_compression_info.data_compression_rollup),8000),
+				SUM(page_latch_wait_count), 
+				SUM(page_latch_wait_in_ms), 
+				SUM(page_io_latch_wait_count), 
+				SUM(page_io_latch_wait_in_ms)
         FROM #IndexPartitionSanity ipp
         /* individual partitions can have distinct compression settings, just roll them into a list here*/
         OUTER APPLY (SELECT STUFF((
@@ -1752,8 +1777,14 @@ SELECT
     ISNULL (
     /* Script drops for disabled non-clustered indexes*/
     CASE WHEN is_disabled = 1 AND index_id <> 1
-        THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
-            + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) 
+         THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
+            + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
+		 WHEN index_name LIKE '[_]dta[_]index%'
+		 THEN N'-- EXEC sys.sp_rename @objname = N' + QUOTENAME(db_schema_object_name + N'.' + index_name, N'''') + NCHAR(10) + 
+		                          N', @newname = N' + QUOTENAME(LEFT(N'ix_' + [object_name] 
+								                      + REPLACE(REPLACE(REPLACE(REPLACE(key_column_names_with_sort_order_no_types, N' ', N'_'), N'[', N''), N']', N''), ',', '')
+													  + CASE WHEN count_included_columns > 0 THEN N'_Includes' ELSE N'' END, 128), '''') + NCHAR(10) + 
+								  N', @objtype = N' + QUOTENAME(N'INDEX', '''')
     ELSE
         CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
         ELSE 
@@ -1904,6 +1935,10 @@ BEGIN
             s.last_user_update,
             s.create_date,
             s.modify_date,
+			sz.page_latch_wait_count,
+			CONVERT(VARCHAR(10), (sz.page_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_latch_wait_in_ms / 1000), 0), 108) AS page_latch_wait_time,
+			sz.page_io_latch_wait_count,
+			CONVERT(VARCHAR(10), (sz.page_io_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_io_latch_wait_in_ms / 1000), 0), 108) AS page_io_latch_wait_time,
             ct.create_tsql,
             1 AS display_order
         FROM #IndexSanity s
@@ -1920,7 +1955,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -1941,6 +1976,10 @@ BEGIN
             last_user_update AS [Last User Write],
             create_date AS [Created],
             modify_date AS [Last Modified],
+			page_latch_wait_count AS [Page Latch Wait Count],
+			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
+			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
+			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
             create_tsql AS [Create TSQL]
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
@@ -4084,6 +4123,10 @@ BEGIN;
 											[total_index_lock_promotion_attempt_count] BIGINT, 
 											[total_index_lock_promotion_count] BIGINT, 
 											[data_compression_desc] NVARCHAR(4000), 
+						                    [page_latch_wait_count] BIGINT,
+								            [page_latch_wait_in_ms] BIGINT,
+								            [page_io_latch_wait_count] BIGINT,								
+								            [page_io_latch_wait_in_ms] BIGINT,
 											[create_date] DATETIME, 
 											[modify_date] DATETIME, 
 											[more_info] NVARCHAR(500),
@@ -4182,6 +4225,10 @@ BEGIN;
 											[total_index_lock_promotion_attempt_count], 
 											[total_index_lock_promotion_count], 
 											[data_compression_desc], 
+						                    [page_latch_wait_count],
+								            [page_latch_wait_in_ms],
+								            [page_io_latch_wait_count],								
+								            [page_io_latch_wait_in_ms],
 											[create_date], 
 											[modify_date], 
 											[more_info],
@@ -4246,6 +4293,10 @@ BEGIN;
 										sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
 										sz.total_index_lock_promotion_count AS [Lock Escalations],
 										sz.data_compression_desc AS [Data Compression],
+						                sz.page_latch_wait_count,
+								        sz.page_latch_wait_in_ms,
+								        sz.page_io_latch_wait_count,								
+								        sz.page_io_latch_wait_in_ms,
 										i.create_date AS [Create Date],
 										i.modify_date AS [Modify Date],
 										more_info AS [More Info],
@@ -4326,6 +4377,10 @@ BEGIN;
                 sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
                 sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
                 sz.total_index_lock_promotion_count AS [Lock Escalations],
+				sz.page_latch_wait_count AS [Page Latch Wait Count],
+				sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
+				sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
+				sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
                 sz.data_compression_desc AS [Data Compression],
                 i.create_date AS [Create Date],
                 i.modify_date AS [Modify Date],
@@ -4388,6 +4443,17 @@ BEGIN;
             NULL, 0 AS [Display Order], NULL AS is_low
         ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 		OPTION (RECOMPILE);
+
+	IF  (@BringThePain = 1
+	AND @DatabaseName IS NOT NULL
+	AND @GetAllDatabases = 0)
+
+	BEGIN
+
+		EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @DatabaseName = @DatabaseName, @BringThePain = 1, @QueryFilter = 'statement', @HideSummary = 1;
+	                              
+	END
+
 
     END; /* End @Mode=3 (index detail)*/
 END;

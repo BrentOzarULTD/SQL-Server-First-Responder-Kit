@@ -32,8 +32,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.6';
-	SET @VersionDate = '20180601';
+	SET @Version = '6.7';
+	SET @VersionDate = '20180701';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -81,9 +81,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
+	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2018.
 
-	Copyright (c) 2017 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -322,6 +322,9 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (177);
 						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
 						INSERT INTO #SkipChecks (CheckID) VALUES (181);
+						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* xp_readerrorlog checking for IFI */
+						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
+						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
 			END; /* Amazon RDS skipped checks */
 
 		/* If the server is ExpressEdition, skip checks that it doesn't allow */
@@ -2022,7 +2025,8 @@ AS
 										  + CAST(create_date AS VARCHAR(20))
 										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
 								FROM    master.sys.tables
-								WHERE   is_ms_shipped = 0;
+								WHERE   is_ms_shipped = 0
+                                  AND   name NOT IN ('CommandLog','SqlServerVersions');
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3299,6 +3303,44 @@ AS
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 125) WITH NOWAIT;
 							
+								DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
+								DECLARE @user_perm_gb_out DECIMAL(38,2);
+								
+								IF @ProductVersionMajor >= 11
+								
+								BEGIN
+								
+								SET @user_perm_sql += N'
+									SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
+											THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
+											ELSE NULL 
+										   END
+									FROM sys.dm_os_memory_clerks
+									WHERE type = ''USERSTORE_TOKENPERM''
+									AND    name = ''TokenAndPermUserStore''
+								';
+								
+								END
+								
+								IF @ProductVersionMajor < 11
+								
+								BEGIN
+								SET @user_perm_sql += N'
+									SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
+											THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
+											ELSE NULL 
+										   END
+									FROM sys.dm_os_memory_clerks
+									WHERE type = ''USERSTORE_TOKENPERM''
+									AND    name = ''TokenAndPermUserStore''
+								';
+								
+								END
+
+								EXEC sys.sp_executesql @user_perm_sql, 
+								                       N'@user_perm_gb DECIMAL(38,2) OUTPUT', 
+													   @user_perm_gb = @user_perm_gb_out OUTPUT
+
 							INSERT INTO #BlitzResults
 								(CheckID,
 								Priority,
@@ -3307,7 +3349,11 @@ AS
 								URL,
 								Details)
 							SELECT TOP 1 125, 10, 'Performance', 'Plan Cache Erased Recently', 'https://BrentOzar.com/askbrent/plan-cache-erased-recently/',
-								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) 
+								+ CASE WHEN @user_perm_gb_out IS NULL 
+								       THEN '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
+									   ELSE '. You also have ' + CONVERT(NVARCHAR(20), @user_perm_gb_out) + ' GB of USERSTORE_TOKENPERM, which could indicate unusual memory consumption.'
+								  END
 							FROM sys.dm_exec_query_stats WITH (NOLOCK)
 							ORDER BY creation_time;	
 						END;
@@ -3437,6 +3483,25 @@ AS
 										'SQL 2017 is being used but not Cumulative Update 3. We''d recommend patching to take advantage of increased analytics when running BlitzCache.');
 								END;
 
+							END;		
+
+                        /* Cumulative Update Available */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 217 )
+                            AND SERVERPROPERTY('EngineEdition') NOT IN (5,8) /* Azure Managed Instances and Azure SQL DB*/
+                            AND EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SqlServerVersions' AND TABLE_TYPE = 'BASE TABLE')
+                            AND NOT EXISTS (SELECT * FROM #BlitzResults WHERE CheckID IN (128, 129, 157, 189, 216)) /* Other version checks */
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 217) WITH NOWAIT;
+								
+								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
+                                    SELECT TOP 1 217, 100, 'Reliability', 'Cumulative Update Available', COALESCE(v.Url, 'https://SQLServerUpdates.com/'),
+										v.MinorVersionName + ' was released on ' + CAST(CONVERT(DATETIME, v.ReleaseDate, 112) AS VARCHAR(100))
+                                    FROM dbo.SqlServerVersions v
+                                    WHERE v.MajorVersionNumber = @ProductVersionMajor
+                                      AND v.MinorVersionNumber > @ProductVersionMinor
+                                    ORDER BY v.MinorVersionNumber DESC;
 							END;		
 
                         /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
@@ -7324,12 +7389,19 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
 
-								DECLARE @outval VARCHAR(36);							
+								DECLARE @outval VARCHAR(36);
+								/* Get power plan if set by group policy [Git Hub Issue #1620] */						
+								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
+														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
+														   @value_name = 'ActivePowerScheme',
+														   @value = @outval OUTPUT;
+
+								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 								                           @key = 'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
 								                           @value_name = 'ActivePowerScheme',
 								                           @value = @outval OUTPUT;
-
+														   
 								DECLARE @cpu_speed_mhz int,
 								        @cpu_speed_ghz decimal(18,2);
 								

@@ -1,4 +1,21 @@
-﻿
+﻿DECLARE @msg NVARCHAR(MAX) = N'';
+
+	-- Must be a compatible, on-prem version of SQL (2014+)
+IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 12
+	)
+	-- or Azure Database (not Azure Data Warehouse), running at database compat level 120+
+OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) = 5
+	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 120
+	)
+BEGIN
+	SELECT @msg = N'Sorry, sp_BlitzInMemoryOLTP doesn''t work on versions of SQL prior to 2014.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
+
+
 IF OBJECT_ID('dbo.sp_BlitzInMemoryOLTP', 'P') IS NULL
 EXECUTE ('CREATE PROCEDURE dbo.sp_BlitzInMemoryOLTP AS SELECT 1;');
 GO
@@ -62,9 +79,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 */
 AS 
-DECLARE @Version VARCHAR(30);
-SET @Version = '1.6';
-SET @VersionDate = '20180601';
+DECLARE @ScriptVersion VARCHAR(30);
+SET @ScriptVersion = '1.7';
+SET @VersionDate = '20180701';
 
 BEGIN TRY
 
@@ -80,12 +97,6 @@ BEGIN TRY
     DECLARE @Version INT = CONVERT(INT, SERVERPROPERTY('ProductMajorVersion'));
 
     IF @debug = 1 PRINT('--@Version = ' + CAST(@Version AS VARCHAR(30)));
-
-    IF @Version < 12
-    BEGIN
-        SET @errorMessage = CONCAT('In-Memory OLTP is not supported if SQL Server version is less than 2014. You are running SQL Server version: ', @Version);
-        THROW 55000, @errorMessage, 1;
-    END;
 
     /*
     ###################################################
@@ -296,7 +307,7 @@ BEGIN TRY
        ,end_time DATETIME
        ,xtp_storage_percent DECIMAL(5, 2)
 
-    )
+    );
     
     CREATE TABLE #resultsContainerDetails 
     (
@@ -306,7 +317,7 @@ BEGIN TRY
         ,container_id BIGINT
         ,sizeMB NVARCHAR(256)
         ,fileCount INT 
-    )
+    );
 
     CREATE TABLE #resultsContainerFileDetails 
     (
@@ -320,7 +331,7 @@ BEGIN TRY
         ,sizeGB NVARCHAR(256) 
         ,fileCount INT 
         ,fileGroupState NVARCHAR(256)
-    )
+    );
 
     CREATE TABLE #resultsContainerFileSummary 
     (
@@ -332,7 +343,8 @@ BEGIN TRY
         ,sizeMB NVARCHAR(256)
         ,fileCount INT 
         ,fileGroupState NVARCHAR(256)
-    )
+    );
+
     IF OBJECT_ID('tempdb..#inmemDatabases') IS NOT NULL DROP TABLE #inmemDatabases;
     
     /*
@@ -1605,7 +1617,8 @@ BEGIN TRY
             IF @RunningOnAzureSQLDB = 1
             BEGIN 
 
-                DELETE @resultsxtp_storage_percent
+                DELETE @resultsxtp_storage_percent;
+
                 INSERT @resultsxtp_storage_percent
                 (
                     databaseName
@@ -1616,7 +1629,7 @@ BEGIN TRY
                       ,end_time
                       ,xtp_storage_percent
                 FROM sys.dm_db_resource_stats
-                WHERE xtp_storage_percent > 0
+                WHERE xtp_storage_percent > 0;
 
                 IF EXISTS(SELECT 1 FROM @resultsxtp_storage_percent)
                 BEGIN 
@@ -1626,7 +1639,7 @@ BEGIN TRY
                           ,xtp_storage_percent
                     FROM @resultsxtp_storage_percent
                     ORDER BY end_time DESC;
-                END
+                END;
 
                 SELECT DB_NAME() AS databaseName
                       ,DBScopedConfig = 'XTP_PROCEDURE_EXECUTION_STATISTICS enabled:'
@@ -1806,12 +1819,12 @@ BEGIN TRY
                     WHEN @InstancecollectionStatus = 1 THEN 'YES' 
                     ELSE 'NO'
                 END AS [instance-level collection of execution statistics for Native Modules enabled];
-        END
+        END;
         ELSE
         BEGIN 
             -- repeating this from the database section if we are running @instanceLevelOnly = 1
 
-                DELETE @resultsxtp_storage_percent
+                DELETE @resultsxtp_storage_percent;
 
                 INSERT @resultsxtp_storage_percent
                 (
@@ -1823,7 +1836,7 @@ BEGIN TRY
                       ,end_time
                       ,xtp_storage_percent
                 FROM sys.dm_db_resource_stats
-                WHERE xtp_storage_percent > 0
+                WHERE xtp_storage_percent > 0;
 
                 IF EXISTS(SELECT 1 FROM @resultsxtp_storage_percent)
                 BEGIN 
@@ -1833,7 +1846,7 @@ BEGIN TRY
                           ,xtp_storage_percent
                     FROM @resultsxtp_storage_percent
                     ORDER BY end_time DESC;
-                END
+                END;
 
             SELECT DB_NAME() AS databaseName
                   ,DBScopedConfig = 'XTP_PROCEDURE_EXECUTION_STATISTICS enabled:'
@@ -2008,6 +2021,15 @@ BEGIN TRY
             FROM sys.event_notifications;
         END;
     END; -- @instanceLevelOnly = 1 AND @Version >= 12
+
+	SELECT
+		'Thanks for using sp_BlitzInMemoryOLTP!' AS [Thanks],
+		'From Your Community Volunteers' AS [From],
+		'http://FirstResponderKit.org' AS [At],
+		'We hope you found this tool useful. Current version: ' 
+			+ @ScriptVersion + ' released on ' + CONVERT(NVARCHAR(30), @VersionDate) + '.' AS [Version];
+	
+
 END TRY
 
 BEGIN CATCH
