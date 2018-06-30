@@ -1686,6 +1686,7 @@ END;
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
@@ -2181,6 +2182,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 SET @sql += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO #p (SqlHandle, TotalCPU, TotalReads, TotalDuration, TotalWrites, ExecutionCount)
 SELECT  SqlHandle,
         TotalCPU,
@@ -4395,10 +4397,11 @@ BEGIN
         END;
 
 
-    SET @insert_sql =N' IF EXISTS(SELECT * FROM '
+    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
           + @OutputDatabaseName
           + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
           + @OutputSchemaName + N''') '
+		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
           + 'INSERT '
           + @OutputDatabaseName + '.'
           + @OutputSchemaName + '.'
@@ -4476,6 +4479,7 @@ BEGIN
 	OPTION(RECOMPILE);
 
     SET @sql = N'
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
     SELECT  TOP (@Top)
             DatabaseName AS [Database Name],
             QueryPlanCost AS [Cost],
@@ -4765,6 +4769,7 @@ END;
 
 
 SET @sql = N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 SELECT  TOP (@Top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
 WHERE   SPID = @spid ' + @nl;
