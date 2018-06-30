@@ -5657,7 +5657,7 @@ IF @ProductVersionMajor >= 10
                                     URL = 'https://BrentOzar.com/go/recompile',
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
-                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
+                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
                                 DROP TABLE #Recompile;
                             END;
 
