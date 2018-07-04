@@ -475,7 +475,22 @@ WHERE BackupFile LIKE N'%.bak'
     BackupFile LIKE N'%' + @Database + N'%'
 	AND
 	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
+/*	To get all backups that belong to the same set we can do two things:
+		1.	RESTORE HEADERONLY of ALL backup files in the folder and look for BackupSetGUID.
+			Backups that belong to the same split will have the same BackupSetGUID.
+		2.	Olla Hallengren's solution appends file index at the end of the name:
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_1.bak
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_2.bak
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_N.bak
+			We can and find all related files with the same timestamp but different index.
+			This option is simpler and requires less changes to this procedure */
+SELECT BackupFile
+INTO #SplitBackups
+FROM @FileList
+WHERE LEFT(BackupFile,LEN(BackupFile)-PATINDEX('%[_]%',REVERSE(BackupFile))) = LEFT(@LastFullBackup,LEN(@LastFullBackup)-PATINDEX('%[_]%',REVERSE(@LastFullBackup)))
+AND PATINDEX('%[_]%',REVERSE(@LastFullBackup)) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Olla only supports up to 64 file split.
 
+-- File list can be obtained by running RESTORE FILELISTONLY of any file from the given BackupSet therefore we do not have to cater for split backups when building @FileListParamSQL
 
 SET @FileListParamSQL = 
   N'INSERT INTO #FileListParameters WITH (TABLOCK)
@@ -504,6 +519,7 @@ EXEC (@sql);
 	IF @Debug = 1
 		BEGIN
 			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
+			SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
 		END
 
 
@@ -621,7 +637,20 @@ IF @ContinueLogs = 0
 
 		IF @Execute = 'Y' RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+		/* now take split backups into account */
+		IF (SELECT COUNT(*) FROM #SplitBackups) > 0
+			BEGIN
+				RAISERROR('Split backups found', 0, 1) WITH NOWAIT
+				SELECT @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM ' + STUFF((
+					SELECT CHAR(10) + ',DISK=''' + @BackupPathFull + BackupFile + ''''
+					FROM #SplitBackups
+					ORDER BY BackupFile
+					FOR XML PATH('')),1,2,'') + N' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+			END
+		ELSE
+			BEGIN
+				SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+			END
 
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
