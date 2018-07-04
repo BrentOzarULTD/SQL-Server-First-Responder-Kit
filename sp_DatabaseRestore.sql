@@ -908,7 +908,9 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 IF (@StandbyMode = 1)
 	BEGIN
 		IF (@StandbyUndoPath IS NULL)
-			IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. Logs will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			BEGIN
+				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. Logs will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			END;
 		ELSE
 			SET @LogRecoveryOption = N'STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''';
 	END;
