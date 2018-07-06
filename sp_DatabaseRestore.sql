@@ -1,3 +1,5 @@
+USE _DBA
+GO
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -22,6 +24,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
       @ExistingDBAction tinyint = 0,
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
+      @SimpleFolderEnumeration BIT = 0,
 	  @Execute CHAR(1) = Y,
 	  @Debug INT = 0, 
 	  @Help BIT = 0,
@@ -31,8 +34,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.6';
+SET @VersionDate = '20180601';
 
 
 IF @Help = 1
@@ -199,7 +202,8 @@ BEGIN
 END;
 
 
-DECLARE @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
+DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
+        @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
         @LastFullBackup NVARCHAR(500) = N'', --Last full backup name
         @LastDiffBackup NVARCHAR(500) = N'', --Last diff backup name
         @LastDiffBackupDateTime NVARCHAR(500) = N'', --Last diff backup date
@@ -217,11 +221,14 @@ DECLARE @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
         @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
 
-
-DECLARE @FileList TABLE (
-    BackupFile NVARCHAR(255)NOT NULL, 
+DECLARE @FileListSimple TABLE (
+    BackupFile NVARCHAR(255) NOT NULL, 
     depth int NOT NULL, 
     [file] int NOT NULL
+);
+
+DECLARE @FileList TABLE (
+    BackupFile NVARCHAR(255) NULL
 );
 
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
@@ -250,7 +257,6 @@ CREATE TABLE #FileListParameters
     TDEThumbprint VARBINARY(32) NULL,
     SnapshotUrl NVARCHAR(360) NULL
 );
-
 
 IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
 CREATE TABLE #Headers
@@ -318,13 +324,10 @@ CREATE TABLE #Headers
 );
 
 /*
-
 Correct paths in case people forget a final "\" 
-
 */
 
 /*Full*/
-
 IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
@@ -395,77 +398,92 @@ END
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
 SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 
+--If xp_cmdshell is disabled, force use of xp_dirtree
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+    SET @SimpleFolderEnumeration = 1;
 
 IF @BackupPathFull IS NOT NULL
 BEGIN
-    -- Get list of files 
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1; 
-
-	IF @Debug = 1
-	BEGIN
-		SELECT BackupFile, depth, [file]
-		FROM   @FileList;
-	END;
-
-/*Sanity check folders*/
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
-
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
+    BEGIN
+        SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
+		IF @Debug = 1
 		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
+    END;
+    
+    IF @Debug = 1
+    BEGIN
+	    SELECT BackupFile FROM @FileList;
+    END;
 
-		END;
+    IF @SimpleFolderEnumeration = 1
+    BEGIN
+        /*Check what we can*/
+        IF NOT EXISTS (SELECT * FROM @FileList)
+	    BEGIN
+		    RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
+    END
+    ELSE
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    OR fl.BackupFile = 'File Not Found'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(FULL) No rows or bad value for path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(FULL) Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
 
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    ) = 1
+	        AND 
+            (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 							
+		    WHERE fl.BackupFile IS NULL
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(FULL) Empty directory %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+			    RETURN;
+		    END
 
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The user name or password is incorrect.'
-		) = 1
-	
-		BEGIN
-	
-			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-	
-		END;
-
-/*End folder sanity check*/
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(FULL) Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
@@ -506,7 +524,6 @@ EXEC (@sql);
 			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
 		END
 
-
 SET @HeadersSQL = 
 N'INSERT INTO #Headers WITH (TABLOCK)
   (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
@@ -520,13 +537,11 @@ N'INSERT INTO #Headers WITH (TABLOCK)
 IF @MajorVersion >= 11
   SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N', Containment';
 
-
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
   SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
 
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
-
 
 IF @MoveFiles = 1
 BEGIN
@@ -548,7 +563,6 @@ BEGIN
 	FROM Files;
 		
 	IF @Debug = 1 PRINT @MoveOption
-
 END;
 
 /*Process @ExistingDBAction flag */
@@ -667,71 +681,94 @@ ELSE
 	
 	END;
 
--- Clear out table variables for differential
-DELETE FROM @FileList;
-
 END
 
 
 IF @BackupPathDiff IS NOT NULL
 BEGIN 
-    -- Get list of files 
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1; 
+    DELETE FROM @FileList;
+    DELETE FROM @FileListSimple;
 
-	IF @Debug = 1
-	BEGIN
-		SELECT BackupFile, depth, [file]
-		FROM   @FileList;
-	END;
-
-/*Sanity check folders*/
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
-
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
+    BEGIN
+        SET @cmd = N'DIR /b "' + @BackupPathDiff + N'"';
+		IF @Debug = 1
 		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
+    END;
+    
+    IF @Debug = 1
+    BEGIN
+	    SELECT BackupFile FROM @FileList;
+    END;
 
-		END;
+    IF @SimpleFolderEnumeration = 1
+    BEGIN
+        /*Check what we can*/
+        IF NOT EXISTS (SELECT * FROM @FileList)
+	    BEGIN
+		    RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+            RETURN;
+	    END;
+    END
+    ELSE
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    OR fl.BackupFile = 'File Not Found'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(DIFF) No rows or bad value for path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(DIFF) Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+            RETURN;
+	    END;
 
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    ) = 1
+	        AND 
+            (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 							
+		    WHERE fl.BackupFile IS NULL
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(DIFF) Empty directory %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+			    RETURN;
+		    END
 
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-/*End folder sanity check*/
-
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(DIFF) Incorrect user name or password for %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
 -- Find latest diff backup 
 SELECT @LastDiffBackup = MAX(BackupFile)
@@ -783,73 +820,93 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		FROM #Headers 
 		WHERE BackupType = 5;                                                  
 	END;
-
--- Clear out table variables for translogs
-DELETE FROM @FileList;
-   
 END      
+
 
 IF @BackupPathLog IS NOT NULL
 BEGIN
-    -- Get list of files
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1; 
+    DELETE FROM @FileList;
+    DELETE FROM @FileListSimple;
 
-    IF @Debug = 1
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
     BEGIN
-	    SELECT BackupFile, depth, [file]
-	    FROM   @FileList;
+        SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
+		IF @Debug = 1
+		BEGIN
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
     END;
+    
+    IF @SimpleFolderEnumeration = 1
+    BEGIN
+        /*Check what we can*/
+        IF NOT EXISTS (SELECT * FROM @FileList)
+	    BEGIN
+		    RAISERROR('(LOG) No rows were returned for that database %s in path %s', 16, 1, @Database, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
+    END
+    ELSE
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    OR fl.BackupFile = 'File Not Found'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(LOG) No rows or bad value for path %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
 
-/*Sanity check folders*/
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(LOG) Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    ) = 1
+	        AND 
+            (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 							
+		    WHERE fl.BackupFile IS NULL
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(LOG) Empty directory %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+			    RETURN;
+		    END
 
-		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(LOG) Incorrect user name or password for %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-/*End folder sanity check*/
 
 IF (@OnlyLogsAfter IS NOT NULL)
-	BEGIN
+BEGIN
 	
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
 	
