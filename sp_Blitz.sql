@@ -7473,7 +7473,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    'Server Info' AS FindingsGroup ,
 									    'Instance Stacking' AS Finding ,
 									    'https://www.brentozar.com/go/babygotstacked/' AS URL ,
-									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server running. More than one is usually a bad idea. Read the URL for more info'
+									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server installed. More than one is usually a bad idea. Read the URL for more info.'
 							    END;
 	                        END;
 							
