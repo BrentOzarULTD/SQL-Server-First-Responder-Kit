@@ -2848,7 +2848,7 @@ BEGIN;
                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 43: Heaps with forwarded records', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -2859,19 +2859,59 @@ BEGIN;
                            GROUP BY    [object_id],
 								       [database_id],
 								       [schema_name]
-                           HAVING    SUM(forwarded_fetch_count) > 0
-                                    OR SUM(leaf_delete_count) > 0)
+                           HAVING    SUM(forwarded_fetch_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    43 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
-                                N'Heaps with forwarded records or deletes' AS finding, 
+                                N'Heaps with forwarded records' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-                                CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + N' forwarded fetches, '
-                                + CAST(h.leaf_delete_count AS NVARCHAR(256)) + N' deletes against heap:'
+                                CASE WHEN h.forwarded_fetch_count >= 922337203685477 THEN '>= 922,337,203,685,477'
+                                    WHEN @DaysUptime < 1 THEN CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + N' forwarded fetches against heap: ' + db_schema_object_indexid
+                                    ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
+                                    (h.forwarded_fetch_count /*/@DaysUptime */)
+                                     AS BIGINT) AS MONEY), 1), '.00', '') 
+                                    END + N' forwarded fetches per day against heap: '
+                                + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                i.secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
+							 AND i.[database_id] = h.[database_id]
+							 AND i.[schema_name] = h.[schema_name]
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                        AND h.forwarded_fetch_count / @DaysUptime > 1000
+                        AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 49: Heaps with deletes', 0,1) WITH NOWAIT;
+            WITH    heaps_cte
+                      AS ( SELECT   [object_id],
+								    [database_id],
+								    [schema_name],
+                                    SUM(leaf_delete_count) AS leaf_delete_count
+                           FROM        #IndexPartitionSanity
+                           GROUP BY    [object_id],
+								       [database_id],
+								       [schema_name]
+                           HAVING    SUM(forwarded_fetch_count) < 1000 * @DaysUptime /* Only alert about indexes with no forwarded fetches - we already alerted about those in check_id 43 */
+                                    AND SUM(leaf_delete_count) > 0)
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT    73 AS check_id, 
+                                i.index_sanity_id,
+                                200 AS Priority,
+                                N'Self Loathing Indexes' AS findings_group,
+                                N'Heaps with deletes' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/SelfLoathing' AS URL,
+                                CAST(h.leaf_delete_count AS NVARCHAR(256)) + N' deletes against heap:'
                                 + db_schema_object_indexid AS details, 
                                 i.index_definition, 
                                 i.secret_columns,
