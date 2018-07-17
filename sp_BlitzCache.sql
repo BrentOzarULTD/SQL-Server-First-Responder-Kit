@@ -5248,7 +5248,7 @@ BEGIN
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates.') ;
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinality estimates.') ;
 
 
         IF EXISTS (SELECT 1/0
