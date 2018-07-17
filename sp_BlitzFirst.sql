@@ -22,6 +22,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
+    @CheckServerInfo TINYINT = 1 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
@@ -2486,6 +2487,12 @@ BEGIN
                                         'http://FirstResponderKit.org/' AS URL ,
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details;
                     END;
+
+    IF @CheckServerInfo = 0 /* Github #1680 */
+        BEGIN
+        DELETE #BlitzFirstResults
+          WHERE FindingsGroup = 'Server Info';
+        END
 
     RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
 
