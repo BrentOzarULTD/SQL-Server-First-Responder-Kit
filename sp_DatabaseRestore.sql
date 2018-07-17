@@ -62,13 +62,7 @@ IF @Help = 1
 		
 		    MIT License
 			
-			Copyright for portions of sp_Blitz are held by Microsoft as part of project 
-			tigertoolbox and are provided under the MIT license:
-			https://github.com/Microsoft/tigertoolbox
-			   
-			All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
-		
-			Copyright (c) 2017 Brent Ozar Unlimited
+			Copyright (c) 2018 Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
