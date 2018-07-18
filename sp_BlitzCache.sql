@@ -2247,6 +2247,12 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
 END;
 
+IF @SkipAnalysis = 1
+    BEGIN
+	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
+	GOTO Results ;
+	END; 
+
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
@@ -3918,14 +3924,6 @@ IF EXISTS
 	OPTION (RECOMPILE);
 
 /*End Missing Index*/
-
-
-
-IF @SkipAnalysis = 1
-    BEGIN
-	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
-	GOTO Results ;
-	END; 
 
 
 /* Set configuration values */
