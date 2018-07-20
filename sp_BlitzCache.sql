@@ -300,7 +300,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2247,6 +2247,12 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
 END;
 
+IF @SkipAnalysis = 1
+    BEGIN
+	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
+	GOTO Results ;
+	END; 
+
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
  * This should get totals for all statements in a Stored Proc
@@ -3920,14 +3926,6 @@ IF EXISTS
 /*End Missing Index*/
 
 
-
-IF @SkipAnalysis = 1
-    BEGIN
-	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
-	GOTO Results ;
-	END; 
-
-
 /* Set configuration values */
 RAISERROR(N'Setting configuration values', 0, 1) WITH NOWAIT;
 DECLARE @execution_threshold INT = 1000 ,
@@ -5248,7 +5246,7 @@ BEGIN
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates.') ;
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinality estimates.') ;
 
 
         IF EXISTS (SELECT 1/0
