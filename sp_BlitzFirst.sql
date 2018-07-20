@@ -1655,6 +1655,43 @@ BEGIN
     FROM sys.databases
     WHERE database_id > 4;
 
+	/* Server Info - Memory Grants pending - CheckID 39 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 39 AS CheckID,
+        50 AS Priority,
+		'Server Performance' AS FindingGroup,
+        'Memory Grants Pending' AS Finding,
+		CAST(PendingGrants.Details AS NVARCHAR(50)) AS Details,
+		PendingGrants.DetailsInt,
+		'https://www.brentozar.com/blitz/memory-grants/' AS URL
+	FROM 
+	(
+		SELECT 
+		COUNT(1) AS Details,
+		COUNT(1) AS DetailsInt
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	WHERE queue_id IS NOT NULL
+	) AS PendingGrants
+	WHERE PendingGrants.Details > 0;
+
+	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
+	DECLARE @MaxWorkspace BIGINT
+	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 40 AS CheckID,
+        251 AS Priority,
+        'Server Info' AS FindingGroup,
+        'Memory Grant/Workspace info' AS Finding,
+		+ 'Total Granted(MB): ' + CAST(ISNULL(SUM(Grants.granted_memory_kb)/1024,0) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total WorkSpace(MB): '+ CAST(ISNULL(@MaxWorkspace,0) AS NVARCHAR(50))+ @LineFeed  
+		+ 'Granted workspace: '+ CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb)/1024 AS MONEY)/CAST(@MaxWorkspace AS MONEY))*100,0) AS NVARCHAR(50)) +'%'+ @LineFeed
+		+ 'Oldest Grant in seconds: '+ CAST(ISNULL(DATEDIFF(SECOND,MIN(Grants.request_time),GETDATE()),0) AS NVARCHAR(50)) + @LineFeed
+		+ 'Grants Outstanding: ' + CAST((SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS NVARCHAR(50)) AS Details,
+		ISNULL(DATEDIFF(SECOND,MIN(Grants.request_time),GETDATE()),0) AS DetailsInt,
+		'http://www.BrentOzar.com/askbrent/' AS URL
+	FROM sys.dm_exec_query_memory_grants AS Grants;
+
     /* Server Performance - High CPU Utilization CheckID 24 */
     IF @Seconds < 30
         BEGIN
