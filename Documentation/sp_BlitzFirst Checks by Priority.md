@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 38
-If you want to add a new check, start at 39
+CURRENT HIGH CHECKID: 40
+If you want to add a new check, start at 41
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -37,6 +37,7 @@ If you want to add a new check, start at 39
 | 50 | Server Performance | Slow Data File Reads | https://BrentOzar.com/go/slow | 11 |
 | 50 | Server Performance | Slow Log File Writes | https://BrentOzar.com/go/slow | 12 |
 | 50 | Server Performance | Too Much Free Memory | https://BrentOzar.com/go/freememory | 34 |
+| 50 | Server Performance | Memory Grants pending | https://www.brentozar.com/blitz/memory-grants | 39 |
 | 100 | In-Memory OLTP | Transactions aborted | https://BrentOzar.com/go/aborted | 32 |
 | 100 | Query Problems | Suboptimal Plans/Sec High | https://BrentOzar.com/go/suboptimal | 33 |
 | 200 | Wait Stats | (One per wait type) | https://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
@@ -49,3 +50,4 @@ If you want to add a new check, start at 39
 | 251 | Server Info | CPU Utilization |  | 23 |
 | 251 | Server Info | Database Count |  | 22 |
 | 251 | Server Info | Database Size, Total GB |  | 21 |
+| 251 | Server Info | Memory Grant/Workspace info |  | 40 |
