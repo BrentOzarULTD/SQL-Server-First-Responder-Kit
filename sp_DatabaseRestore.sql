@@ -714,26 +714,16 @@ BEGIN
 	    SELECT BackupFile FROM @FileList;
     END;
 
-    IF @SimpleFolderEnumeration = 1
-    BEGIN
-        /*Check what we can*/
-        IF NOT EXISTS (SELECT * FROM @FileList)
-	    BEGIN
-		    RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
-            RETURN;
-	    END;
-    END
-    ELSE
+    IF @SimpleFolderEnumeration = 0
     BEGIN
         /*Full Sanity check folders*/
         IF (
 		    SELECT COUNT(*) 
 		    FROM @FileList AS fl 
 		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		    OR fl.BackupFile = 'File Not Found'
 		    ) = 1
 	    BEGIN
-		    RAISERROR('(DIFF) No rows or bad value for path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+		    RAISERROR('(DIFF) Bad value for path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
             RETURN;
 	    END;
 
@@ -750,21 +740,6 @@ BEGIN
 	    IF (
 		    SELECT COUNT(*) 
 		    FROM @FileList AS fl 
-		    ) = 1
-	        AND 
-            (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 							
-		    WHERE fl.BackupFile IS NULL
-		    ) = 1
-		    BEGIN
-			    RAISERROR('(DIFF) Empty directory %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
-			    RETURN;
-		    END
-
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
 		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
 		    ) = 1
 		    BEGIN
@@ -774,33 +749,31 @@ BEGIN
     END;
     /*End folder sanity check*/
 
--- Find latest diff backup 
-SELECT @LastDiffBackup = MAX(BackupFile)
-FROM @FileList
-WHERE BackupFile LIKE N'%.bak'
-    AND
-    BackupFile LIKE N'%' + @Database + '%'
-	AND
-	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
-	
-	--set the @BackupDateTime so that it can be used for comparisons
-	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
+    -- Find latest diff backup 
+    SELECT @LastDiffBackup = MAX(BackupFile)
+    FROM @FileList
+    WHERE BackupFile LIKE N'%.bak'
+        AND
+        BackupFile LIKE N'%' + @Database + '%'
+	    AND
+	    (@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
+
+    --No file = no backup to restore
 	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
 
-
-IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
+    IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
 
-	IF (@StandbyMode = 1)
+	    IF (@StandbyMode = 1)
 		BEGIN
-		IF (@StandbyUndoPath IS NULL)
-			BEGIN
-				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
-			END
-		ELSE
-			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
-	END;
+		    IF (@StandbyUndoPath IS NULL)
+			    BEGIN
+				    IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			    END
+		    ELSE
+			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
+	    END;
 
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
