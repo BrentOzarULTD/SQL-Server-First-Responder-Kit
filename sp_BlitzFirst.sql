@@ -149,7 +149,14 @@ SELECT
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
 	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
-    @OurSessionID = @@SPID;
+    @OurSessionID = @@SPID,
+    @OutputType                     = UPPER(@OutputType);
+
+IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+BEGIN
+    RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
+    RETURN;
+END;
 
 IF @LogMessage IS NOT NULL
     BEGIN
@@ -3504,7 +3511,7 @@ BEGIN
                     Finding,
                     Details;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -3525,7 +3532,7 @@ BEGIN
                     Finding,
                     ID;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
