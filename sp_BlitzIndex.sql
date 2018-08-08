@@ -4116,7 +4116,7 @@ BEGIN;
 					END;
 			END;
 																										
-        IF (@ValidOutputLocation = 0 @OutputType = 'NONE')
+        IF (@ValidOutputLocation = 0 AND @OutputType = 'NONE')
         BEGIN
             RAISERROR('Invalid output location and no output asked',12,1);
             RETURN;
