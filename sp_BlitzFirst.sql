@@ -156,7 +156,7 @@ SELECT
                                               
 IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND @OutputTableName IS NULL)
 BEGIN
-    RAISERROR('This procedure should be called with a value for parameter @OutputTableName as no @OutputType is set to NONE',12,1);
+    RAISERROR('This procedure should be called with a value for parameter @OutputTableName as @OutputType is set to NONE',12,1);
     RETURN;
 END;
 
