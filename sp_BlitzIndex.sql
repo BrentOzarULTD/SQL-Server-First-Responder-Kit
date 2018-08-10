@@ -678,7 +678,7 @@ SET @NumDatabases = @@ROWCOUNT;
 /* Running on 50+ databases can take a reaaallly long time, so we want explicit permission to do so (and only after warning about it) */
 
 BEGIN TRY
-        IF @NumDatabases >= 50 AND @BringThePain != 1
+        IF @NumDatabases >= 50 AND @BringThePain != 1 AND @TableName IS NULL
         BEGIN
 
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -1028,7 +1028,7 @@ BEGIN TRY
 
 
         RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
-        IF @BringThePain = 0 AND @SkipPartitions = 0
+        IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
             BEGIN
                 /* Count the total number of partitions */
                 SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
