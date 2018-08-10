@@ -1,23 +1,35 @@
 
-IF EXISTS (SELECT NULL FROM sys.tables WHERE [name] = 'SqlServerVersions')
-    DROP TABLE dbo.SqlServerVersions;
+IF NOT EXISTS (SELECT NULL FROM sys.tables WHERE [name] = 'SqlServerVersions')
+BEGIN
 
-CREATE TABLE dbo.SqlServerVersions
-(
-    MajorVersionNumber tinyint not null,
-    MinorVersionNumber smallint not null,
-    Branch varchar(34) not null,
-    [Url] varchar(99) not null,
-    ReleaseDate date not null,
-    MainstreamSupportEndDate date not null,
-    ExtendedSupportEndDate date not null,
-    MajorVersionName varchar(19) not null,
-    MinorVersionName varchar(67) not null
-);
+    CREATE TABLE dbo.SqlServerVersions
+    (
+        MajorVersionNumber tinyint not null,
+        MinorVersionNumber smallint not null,
+        Branch varchar(34) not null,
+        [Url] varchar(99) not null,
+        ReleaseDate date not null,
+        MainstreamSupportEndDate date not null,
+        ExtendedSupportEndDate date not null,
+        MajorVersionName varchar(19) not null,
+        MinorVersionName varchar(67) not null,
 
-insert into dbo.SqlServerVersions
+        CONSTRAINT PK_SqlServerVersions PRIMARY KEY CLUSTERED
+        (
+            MajorVersionNumber ASC,
+            MinorVersionNumber ASC,
+            ReleaseDate ASC
+        )
+    );
+
+END;
+
+DELETE dbo.SqlServerVersions;
+
+INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
-values
+VALUES
+    (14, 3030, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4341265', '2018-07-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 9'),
     (14, 3029, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4338363', '2018-06-21', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 8'),
     (14, 3026, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
     (14, 3025, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4101464', '2018-04-17', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 6'),
@@ -27,8 +39,10 @@ values
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5153, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/4340355', '2018-07-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2'),
     (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
     (13, 5026, 'SP2 ', 'https://support.microsoft.com/en-us/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
+    (13, 4514, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/4341569', '2018-07-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10'),
     (13, 4502, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/4100997', '2018-05-30', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 9'),
     (13, 4474, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/4077064', '2018-03-19', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 8'),
     (13, 4466, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/4057119', '2018-01-04', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 7'),
