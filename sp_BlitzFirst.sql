@@ -104,10 +104,10 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @Parm1 NVARCHAR(4000),
     @OurSessionID INT,
     @LineFeed NVARCHAR(10),
-    @StockWarningHeader NVARCHAR(500),
-    @StockWarningFooter NVARCHAR(100),
-    @StockDetailsHeader NVARCHAR(100),
-    @StockDetailsFooter NVARCHAR(100),
+    @StockWarningHeader NVARCHAR(MAX) = N'',
+    @StockWarningFooter NVARCHAR(MAX) = N'',
+    @StockDetailsHeader NVARCHAR(MAX) = N'',
+    @StockDetailsFooter NVARCHAR(MAX) = N'',
     @StartSampleTime DATETIMEOFFSET,
     @FinishSampleTime DATETIMEOFFSET,
 	@FinishSampleTimeWaitFor DATETIME,
@@ -287,7 +287,7 @@ BEGIN
           FindingsGroup VARCHAR(50) NOT NULL,
           Finding VARCHAR(200) NOT NULL,
           URL VARCHAR(200) NULL,
-          Details NVARCHAR(4000) NULL,
+          Details NVARCHAR(MAX) NULL,
           HowToStopIt NVARCHAR(MAX) NULL,
           QueryPlan [XML] NULL,
           QueryText NVARCHAR(MAX) NULL,
@@ -973,9 +973,9 @@ BEGIN
         + 'It is not a substitute for database training and experience.' + @LineFeed
         + 'Now, having said that, here''s the details:' + @LineFeed + @LineFeed;
 
-    SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
-        @StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
-        @StockDetailsFooter = @LineFeed + ' -- ?>';
+    SELECT @StockWarningFooter = @StockWarningFooter + @LineFeed + @LineFeed + '-- ?>',
+           @StockDetailsHeader = @StockDetailsHeader + '<?ClickToSeeDetails -- ' + @LineFeed,
+           @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
     IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
