@@ -1684,6 +1684,12 @@ BEGIN
 	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
 	DECLARE @MaxWorkspace BIGINT
 	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+	
+	IF (@MaxWorkspace IS NULL
+	    OR @MaxWorkspace = 0)
+	BEGIN
+		SET @MaxWorkspace = 1
+	END
 
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 40 AS CheckID,
@@ -1691,10 +1697,11 @@ BEGIN
         'Server Info' AS FindingGroup,
         'Memory Grant/Workspace info' AS Finding,
 		+ 'Grants Outstanding: ' + CAST((SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS NVARCHAR(50)) + @LineFeed
-		+ 'Total Granted(MB): ' + CAST(ISNULL(SUM(Grants.granted_memory_kb)/1024,0) AS NVARCHAR(50)) + @LineFeed
-		+ 'Total WorkSpace(MB): '+ CAST(ISNULL(@MaxWorkspace,0) AS NVARCHAR(50))+ @LineFeed  
-		+ 'Granted workspace: '+ CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb)/1024 AS MONEY)/CAST(@MaxWorkspace AS MONEY))*100,0) AS NVARCHAR(50)) +'%'+ @LineFeed
-		+ 'Oldest Grant in seconds: '+ CAST(ISNULL(DATEDIFF(SECOND,MIN(Grants.request_time),GETDATE()),0) AS NVARCHAR(50)) AS Details,
+		+ 'Total Granted(MB): ' + CAST(ISNULL(SUM(Grants.granted_memory_kb) / 1024, 0) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
+		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
