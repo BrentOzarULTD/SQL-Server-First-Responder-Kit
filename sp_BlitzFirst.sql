@@ -1685,7 +1685,8 @@ BEGIN
 	DECLARE @MaxWorkspace BIGINT
 	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
 	
-	IF @MaxWorkspace IS NULL
+	IF (@MaxWorkspace IS NULL
+	    OR @MaxWorkspace = 0)
 	BEGIN
 		SET @MaxWorkspace = 1
 	END
