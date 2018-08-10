@@ -22,6 +22,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
+    @CheckServerInfo TINYINT = 1 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
@@ -39,8 +40,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
 
 
 IF @Help = 1 PRINT '
@@ -74,7 +75,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2017 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -103,10 +104,10 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @Parm1 NVARCHAR(4000),
     @OurSessionID INT,
     @LineFeed NVARCHAR(10),
-    @StockWarningHeader NVARCHAR(500),
-    @StockWarningFooter NVARCHAR(100),
-    @StockDetailsHeader NVARCHAR(100),
-    @StockDetailsFooter NVARCHAR(100),
+    @StockWarningHeader NVARCHAR(MAX) = N'',
+    @StockWarningFooter NVARCHAR(MAX) = N'',
+    @StockDetailsHeader NVARCHAR(MAX) = N'',
+    @StockDetailsFooter NVARCHAR(MAX) = N'',
     @StartSampleTime DATETIMEOFFSET,
     @FinishSampleTime DATETIMEOFFSET,
 	@FinishSampleTimeWaitFor DATETIME,
@@ -148,7 +149,14 @@ SELECT
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
 	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
-    @OurSessionID = @@SPID;
+    @OurSessionID = @@SPID,
+    @OutputType                     = UPPER(@OutputType);
+
+IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+BEGIN
+    RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
+    RETURN;
+END;
 
 IF @LogMessage IS NOT NULL
     BEGIN
@@ -286,7 +294,7 @@ BEGIN
           FindingsGroup VARCHAR(50) NOT NULL,
           Finding VARCHAR(200) NOT NULL,
           URL VARCHAR(200) NULL,
-          Details NVARCHAR(4000) NULL,
+          Details NVARCHAR(MAX) NULL,
           HowToStopIt NVARCHAR(MAX) NULL,
           QueryPlan [XML] NULL,
           QueryText NVARCHAR(MAX) NULL,
@@ -972,9 +980,9 @@ BEGIN
         + 'It is not a substitute for database training and experience.' + @LineFeed
         + 'Now, having said that, here''s the details:' + @LineFeed + @LineFeed;
 
-    SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
-        @StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
-        @StockDetailsFooter = @LineFeed + ' -- ?>';
+    SELECT @StockWarningFooter = @StockWarningFooter + @LineFeed + @LineFeed + '-- ?>',
+           @StockDetailsHeader = @StockDetailsHeader + '<?ClickToSeeDetails -- ' + @LineFeed,
+           @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
     IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
@@ -1653,6 +1661,50 @@ BEGIN
         'http://www.BrentOzar.com/askbrent/' AS URL
     FROM sys.databases
     WHERE database_id > 4;
+
+	/* Server Info - Memory Grants pending - CheckID 39 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 39 AS CheckID,
+        50 AS Priority,
+		'Server Performance' AS FindingGroup,
+        'Memory Grants Pending' AS Finding,
+		CAST(PendingGrants.Details AS NVARCHAR(50)) AS Details,
+		PendingGrants.DetailsInt,
+		'https://www.brentozar.com/blitz/memory-grants/' AS URL
+	FROM 
+	(
+		SELECT 
+		COUNT(1) AS Details,
+		COUNT(1) AS DetailsInt
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	WHERE queue_id IS NOT NULL
+	) AS PendingGrants
+	WHERE PendingGrants.Details > 0;
+
+	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
+	DECLARE @MaxWorkspace BIGINT
+	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+	
+	IF (@MaxWorkspace IS NULL
+	    OR @MaxWorkspace = 0)
+	BEGIN
+		SET @MaxWorkspace = 1
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 40 AS CheckID,
+        251 AS Priority,
+        'Server Info' AS FindingGroup,
+        'Memory Grant/Workspace info' AS Finding,
+		+ 'Grants Outstanding: ' + CAST((SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total Granted(MB): ' + CAST(ISNULL(SUM(Grants.granted_memory_kb) / 1024, 0) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
+		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
+		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
+		'http://www.BrentOzar.com/askbrent/' AS URL
+	FROM sys.dm_exec_query_memory_grants AS Grants;
 
     /* Server Performance - High CPU Utilization CheckID 24 */
     IF @Seconds < 30
@@ -2486,6 +2538,12 @@ BEGIN
                                         'http://FirstResponderKit.org/' AS URL ,
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details;
                     END;
+
+    IF @CheckServerInfo = 0 /* Github #1680 */
+        BEGIN
+        DELETE #BlitzFirstResults
+          WHERE FindingsGroup = 'Server Info';
+        END
 
     RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
 
@@ -3460,7 +3518,7 @@ BEGIN
                     Finding,
                     Details;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -3481,7 +3539,7 @@ BEGIN
                     Finding,
                     ID;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,

@@ -35,8 +35,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.5';
-SET @VersionDate = '20180501';;
+SET @Version = '2.8';
+SET @VersionDate = '20180801';;
 
 
 IF @Help = 1
@@ -111,7 +111,7 @@ BEGIN
 	
 	    MIT License
 		
-		Copyright (c) 2017 Brent Ozar Unlimited
+		Copyright (c) 2018 Brent Ozar Unlimited
 	
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal

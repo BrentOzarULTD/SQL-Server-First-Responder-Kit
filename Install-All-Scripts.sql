@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.5';
-SET @VersionDate = '20180501';
+SET @Version = '2.8';
+SET @VersionDate = '20180801';
 
 IF @Help = 1
 
@@ -76,7 +76,7 @@ BEGIN
 	
 	    MIT License
 		
-		Copyright (c) 2017 Brent Ozar Unlimited
+		Copyright (c) 2018 Brent Ozar Unlimited
 	
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -1513,8 +1513,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.5';
-SET @VersionDate = '20180501';;
+SET @Version = '2.8';
+SET @VersionDate = '20180801';;
 
 
 IF @Help = 1
@@ -1589,7 +1589,7 @@ BEGIN
 	
 	    MIT License
 		
-		Copyright (c) 2017 Brent Ozar Unlimited
+		Copyright (c) 2018 Brent Ozar Unlimited
 	
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -2829,8 +2829,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.7';
-	SET @VersionDate = '20180701';
+	SET @Version = '6.8';
+	SET @VersionDate = '20180801';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -5400,9 +5400,9 @@ AS
 										'Linked Server Configured' AS Finding ,
 										'https://BrentOzar.com/go/link' AS URL ,
 										+CASE WHEN l.remote_name = 'sa'
-											  THEN s.data_source
+											  THEN COALESCE(s.data_source, s.provider)
 												   + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'
-											  ELSE s.data_source
+											  ELSE COALESCE(s.data_source, s.provider)
 												   + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'
 										 END AS Details
 								FROM    sys.servers s
@@ -8454,7 +8454,7 @@ IF @ProductVersionMajor >= 10
                                     URL = 'https://BrentOzar.com/go/recompile',
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
-                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
+                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
                                 DROP TABLE #Recompile;
                             END;
 
@@ -8465,7 +8465,7 @@ IF @ProductVersionMajor >= 10
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 86) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
 							END;
 
 							/*Check for non-aligned indexes in partioned databases*/
@@ -10270,7 +10270,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    'Server Info' AS FindingsGroup ,
 									    'Instance Stacking' AS Finding ,
 									    'https://www.brentozar.com/go/babygotstacked/' AS URL ,
-									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server running. More than one is usually a bad idea. Read the URL for more info'
+									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server installed. More than one is usually a bad idea. Read the URL for more info.'
 							    END;
 	                        END;
 							
@@ -10867,8 +10867,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '2.7';
-	SET @VersionDate = '20180701';
+	SET @Version = '2.8';
+	SET @VersionDate = '20180801';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -10910,7 +10910,7 @@ AS
 
     MIT License
 	
-	Copyright (c) 2017 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -12632,8 +12632,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -12664,7 +12664,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -14050,6 +14050,7 @@ END;
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
@@ -14545,6 +14546,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 SET @sql += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO #p (SqlHandle, TotalCPU, TotalReads, TotalDuration, TotalWrites, ExecutionCount)
 SELECT  SqlHandle,
         TotalCPU,
@@ -14608,6 +14610,12 @@ BEGIN
 
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
 END;
+
+IF @SkipAnalysis = 1
+    BEGIN
+	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
+	GOTO Results ;
+	END; 
 
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
@@ -16282,14 +16290,6 @@ IF EXISTS
 /*End Missing Index*/
 
 
-
-IF @SkipAnalysis = 1
-    BEGIN
-	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
-	GOTO Results ;
-	END; 
-
-
 /* Set configuration values */
 RAISERROR(N'Setting configuration values', 0, 1) WITH NOWAIT;
 DECLARE @execution_threshold INT = 1000 ,
@@ -16759,10 +16759,11 @@ BEGIN
         END;
 
 
-    SET @insert_sql =N' IF EXISTS(SELECT * FROM '
+    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
           + @OutputDatabaseName
           + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
           + @OutputSchemaName + N''') '
+		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
           + 'INSERT '
           + @OutputDatabaseName + '.'
           + @OutputSchemaName + '.'
@@ -16840,6 +16841,7 @@ BEGIN
 	OPTION(RECOMPILE);
 
     SET @sql = N'
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
     SELECT  TOP (@Top)
             DatabaseName AS [Database Name],
             QueryPlanCost AS [Cost],
@@ -17129,6 +17131,7 @@ END;
 
 
 SET @sql = N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 SELECT  TOP (@Top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
 WHERE   SPID = @spid ' + @nl;
@@ -17607,7 +17610,7 @@ BEGIN
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates.') ;
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinality estimates.') ;
 
 
         IF EXISTS (SELECT 1/0
@@ -18698,6 +18701,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
+    @CheckServerInfo TINYINT = 1 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
@@ -18715,8 +18719,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
 
 
 IF @Help = 1 PRINT '
@@ -18750,7 +18754,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2017 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -18779,10 +18783,10 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @Parm1 NVARCHAR(4000),
     @OurSessionID INT,
     @LineFeed NVARCHAR(10),
-    @StockWarningHeader NVARCHAR(500),
-    @StockWarningFooter NVARCHAR(100),
-    @StockDetailsHeader NVARCHAR(100),
-    @StockDetailsFooter NVARCHAR(100),
+    @StockWarningHeader NVARCHAR(MAX) = N'',
+    @StockWarningFooter NVARCHAR(MAX) = N'',
+    @StockDetailsHeader NVARCHAR(MAX) = N'',
+    @StockDetailsFooter NVARCHAR(MAX) = N'',
     @StartSampleTime DATETIMEOFFSET,
     @FinishSampleTime DATETIMEOFFSET,
 	@FinishSampleTimeWaitFor DATETIME,
@@ -18824,7 +18828,14 @@ SELECT
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
 	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
-    @OurSessionID = @@SPID;
+    @OurSessionID = @@SPID,
+    @OutputType                     = UPPER(@OutputType);
+
+IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+BEGIN
+    RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
+    RETURN;
+END;
 
 IF @LogMessage IS NOT NULL
     BEGIN
@@ -18962,7 +18973,7 @@ BEGIN
           FindingsGroup VARCHAR(50) NOT NULL,
           Finding VARCHAR(200) NOT NULL,
           URL VARCHAR(200) NULL,
-          Details NVARCHAR(4000) NULL,
+          Details NVARCHAR(MAX) NULL,
           HowToStopIt NVARCHAR(MAX) NULL,
           QueryPlan [XML] NULL,
           QueryText NVARCHAR(MAX) NULL,
@@ -19648,9 +19659,9 @@ BEGIN
         + 'It is not a substitute for database training and experience.' + @LineFeed
         + 'Now, having said that, here''s the details:' + @LineFeed + @LineFeed;
 
-    SELECT @StockWarningFooter = @LineFeed + @LineFeed + '-- ?>',
-        @StockDetailsHeader = '<?ClickToSeeDetails -- ' + @LineFeed,
-        @StockDetailsFooter = @LineFeed + ' -- ?>';
+    SELECT @StockWarningFooter = @StockWarningFooter + @LineFeed + @LineFeed + '-- ?>',
+           @StockDetailsHeader = @StockDetailsHeader + '<?ClickToSeeDetails -- ' + @LineFeed,
+           @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
     IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
@@ -20329,6 +20340,50 @@ BEGIN
         'http://www.BrentOzar.com/askbrent/' AS URL
     FROM sys.databases
     WHERE database_id > 4;
+
+	/* Server Info - Memory Grants pending - CheckID 39 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 39 AS CheckID,
+        50 AS Priority,
+		'Server Performance' AS FindingGroup,
+        'Memory Grants Pending' AS Finding,
+		CAST(PendingGrants.Details AS NVARCHAR(50)) AS Details,
+		PendingGrants.DetailsInt,
+		'https://www.brentozar.com/blitz/memory-grants/' AS URL
+	FROM 
+	(
+		SELECT 
+		COUNT(1) AS Details,
+		COUNT(1) AS DetailsInt
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	WHERE queue_id IS NOT NULL
+	) AS PendingGrants
+	WHERE PendingGrants.Details > 0;
+
+	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
+	DECLARE @MaxWorkspace BIGINT
+	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+	
+	IF (@MaxWorkspace IS NULL
+	    OR @MaxWorkspace = 0)
+	BEGIN
+		SET @MaxWorkspace = 1
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT 40 AS CheckID,
+        251 AS Priority,
+        'Server Info' AS FindingGroup,
+        'Memory Grant/Workspace info' AS Finding,
+		+ 'Grants Outstanding: ' + CAST((SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total Granted(MB): ' + CAST(ISNULL(SUM(Grants.granted_memory_kb) / 1024, 0) AS NVARCHAR(50)) + @LineFeed
+		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
+		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
+		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
+		'http://www.BrentOzar.com/askbrent/' AS URL
+	FROM sys.dm_exec_query_memory_grants AS Grants;
 
     /* Server Performance - High CPU Utilization CheckID 24 */
     IF @Seconds < 30
@@ -21162,6 +21217,12 @@ BEGIN
                                         'http://FirstResponderKit.org/' AS URL ,
                                         'Some things get better with age, like fine wine and your T-SQL. However, sp_BlitzFirst is not one of those things - time to go download the current one.' AS Details;
                     END;
+
+    IF @CheckServerInfo = 0 /* Github #1680 */
+        BEGIN
+        DELETE #BlitzFirstResults
+          WHERE FindingsGroup = 'Server Info';
+        END
 
     RAISERROR('Analysis finished, outputting results',10,1) WITH NOWAIT;
 
@@ -22136,7 +22197,7 @@ BEGIN
                     Finding,
                     Details;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -22157,7 +22218,7 @@ BEGIN
                     Finding,
                     ID;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -22478,6 +22539,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
+	@OutputType         VARCHAR(20)     = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
@@ -22490,9 +22552,9 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
-
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
+SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
 /*
@@ -22530,7 +22592,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?clos
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22576,6 +22638,33 @@ SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
+																					
+IF(@OutputType NOT IN ('TABLE','NONE'))
+BEGIN
+    RAISERROR('Invalid value for parameter @OutputType. Expected: (TABLE;NONE)',12,1);
+    RETURN;
+END;
+                       
+IF(@OutputType = 'NONE')
+BEGIN
+    IF(@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL)
+    BEGIN
+        RAISERROR('This procedure should be called with a value for @Output* parameters, as @OutputType is set to NONE',12,1);
+        RETURN;
+    END;
+    IF(@BringThePain = 1)
+    BEGIN
+        RAISERROR('Incompatible Parameters: @BringThePain set to 1 and @OutputType set to NONE',12,1);
+        RETURN;
+    END;
+	/* Eventually limit by mode																			   
+    IF(@Mode not in (0,4)) 
+	BEGIN
+        RAISERROR('Incompatible Parameters: @Mode set to %d and @OutputType set to NONE',12,1,@Mode);
+        RETURN;
+	END;
+	*/
+END;
 
 IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
     DROP TABLE #IndexSanity;
@@ -23131,7 +23220,7 @@ SET @NumDatabases = @@ROWCOUNT;
 /* Running on 50+ databases can take a reaaallly long time, so we want explicit permission to do so (and only after warning about it) */
 
 BEGIN TRY
-        IF @NumDatabases >= 50 AND @BringThePain != 1
+        IF @NumDatabases >= 50 AND @BringThePain != 1 AND @TableName IS NULL
         BEGIN
 
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -23152,23 +23241,26 @@ BEGIN TRY
                    'http://FirstResponderKit.org', '', '', '', ''
                     );        
             
-		
-		SELECT bir.blitz_result_id,
-               bir.check_id,
-               bir.index_sanity_id,
-               bir.Priority,
-               bir.findings_group,
-               bir.finding,
-               bir.database_name,
-               bir.URL,
-               bir.details,
-               bir.index_definition,
-               bir.secret_columns,
-               bir.index_usage_summary,
-               bir.index_size_summary,
-               bir.create_tsql,
-               bir.more_info 
-			   FROM #BlitzIndexResults AS bir;
+			if(@OutputType <> 'NONE')
+			BEGIN
+				SELECT bir.blitz_result_id,
+					   bir.check_id,
+					   bir.index_sanity_id,
+					   bir.Priority,
+					   bir.findings_group,
+					   bir.finding,
+					   bir.database_name,
+					   bir.URL,
+					   bir.details,
+					   bir.index_definition,
+					   bir.secret_columns,
+					   bir.index_usage_summary,
+					   bir.index_size_summary,
+					   bir.create_tsql,
+					   bir.more_info 
+					   FROM #BlitzIndexResults AS bir;
+				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server',12,1);
+			END;
 
 		RETURN;
 
@@ -23481,7 +23573,7 @@ BEGIN TRY
 
 
         RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
-        IF @BringThePain = 0 AND @SkipPartitions = 0
+        IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
             BEGIN
                 /* Count the total number of partitions */
                 SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -25301,7 +25393,7 @@ BEGIN;
                     AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 43: Heaps with forwarded records or deletes', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 43: Heaps with forwarded records', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -25312,19 +25404,59 @@ BEGIN;
                            GROUP BY    [object_id],
 								       [database_id],
 								       [schema_name]
-                           HAVING    SUM(forwarded_fetch_count) > 0
-                                    OR SUM(leaf_delete_count) > 0)
+                           HAVING    SUM(forwarded_fetch_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT    43 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
-                                N'Heaps with forwarded records or deletes' AS finding, 
+                                N'Heaps with forwarded records' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-                                CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + N' forwarded fetches, '
-                                + CAST(h.leaf_delete_count AS NVARCHAR(256)) + N' deletes against heap:'
+                                CASE WHEN h.forwarded_fetch_count >= 922337203685477 THEN '>= 922,337,203,685,477'
+                                    WHEN @DaysUptime < 1 THEN CAST(h.forwarded_fetch_count AS NVARCHAR(256)) + N' forwarded fetches against heap: ' + db_schema_object_indexid
+                                    ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
+                                    (h.forwarded_fetch_count /*/@DaysUptime */)
+                                     AS BIGINT) AS MONEY), 1), '.00', '') 
+                                    END + N' forwarded fetches per day against heap: '
+                                + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                i.secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
+							 AND i.[database_id] = h.[database_id]
+							 AND i.[schema_name] = h.[schema_name]
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                        AND h.forwarded_fetch_count / @DaysUptime > 1000
+                        AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 49: Heaps with deletes', 0,1) WITH NOWAIT;
+            WITH    heaps_cte
+                      AS ( SELECT   [object_id],
+								    [database_id],
+								    [schema_name],
+                                    SUM(leaf_delete_count) AS leaf_delete_count
+                           FROM        #IndexPartitionSanity
+                           GROUP BY    [object_id],
+								       [database_id],
+								       [schema_name]
+                           HAVING    SUM(forwarded_fetch_count) < 1000 * @DaysUptime /* Only alert about indexes with no forwarded fetches - we already alerted about those in check_id 43 */
+                                    AND SUM(leaf_delete_count) > 0)
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT    73 AS check_id, 
+                                i.index_sanity_id,
+                                200 AS Priority,
+                                N'Self Loathing Indexes' AS findings_group,
+                                N'Heaps with deletes' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/SelfLoathing' AS URL,
+                                CAST(h.leaf_delete_count AS NVARCHAR(256)) + N' deletes against heap:'
                                 + db_schema_object_indexid AS details, 
                                 i.index_definition, 
                                 i.secret_columns,
@@ -26300,116 +26432,124 @@ BEGIN;
         /*Return results.*/
         IF (@Mode = 0)
         BEGIN
-
-            SELECT Priority, ISNULL(br.findings_group,N'') + 
-                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-                    + br.finding AS [Finding], 
-                br.[database_name] AS [Database Name],
-                br.details AS [Details: schema.table.index(indexid)], 
-                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-                ISNULL(br.secret_columns,'') AS [Secret Columns],          
-                br.index_usage_summary AS [Usage], 
-                br.index_size_summary AS [Size],
-                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-                br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
-            FROM #BlitzIndexResults br
-            LEFT JOIN #IndexSanity sn ON 
-                br.index_sanity_id=sn.index_sanity_id
-            LEFT JOIN #IndexCreateTsql ts ON 
-                br.index_sanity_id=ts.index_sanity_id
-            WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65, 72)
-            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
-			OPTION (RECOMPILE);
+			IF(@OutputType <> 'NONE')
+			BEGIN
+				SELECT Priority, ISNULL(br.findings_group,N'') + 
+						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+						+ br.finding AS [Finding], 
+					br.[database_name] AS [Database Name],
+					br.details AS [Details: schema.table.index(indexid)], 
+					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+					ISNULL(br.secret_columns,'') AS [Secret Columns],          
+					br.index_usage_summary AS [Usage], 
+					br.index_size_summary AS [Size],
+					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+					br.URL, 
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+				FROM #BlitzIndexResults br
+				LEFT JOIN #IndexSanity sn ON 
+					br.index_sanity_id=sn.index_sanity_id
+				LEFT JOIN #IndexCreateTsql ts ON 
+					br.index_sanity_id=ts.index_sanity_id
+				WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65, 72)
+				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+				OPTION (RECOMPILE);
+			 END;
 
         END;
         ELSE IF (@Mode = 4)
-            SELECT Priority, ISNULL(br.findings_group,N'') + 
-                    CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-                    + br.finding AS [Finding], 
-				br.[database_name] AS [Database Name],
-                br.details AS [Details: schema.table.index(indexid)], 
-                br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-                ISNULL(br.secret_columns,'') AS [Secret Columns],          
-                br.index_usage_summary AS [Usage], 
-                br.index_size_summary AS [Size],
-                COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-                br.URL, 
-                COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
-            FROM #BlitzIndexResults br
-            LEFT JOIN #IndexSanity sn ON 
-                br.index_sanity_id=sn.index_sanity_id
-            LEFT JOIN #IndexCreateTsql ts ON 
-                br.index_sanity_id=ts.index_sanity_id
-            ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
-			OPTION (RECOMPILE);
+			IF(@OutputType <> 'NONE')
+		 	BEGIN	
+				SELECT Priority, ISNULL(br.findings_group,N'') + 
+						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+						+ br.finding AS [Finding], 
+					br.[database_name] AS [Database Name],
+					br.details AS [Details: schema.table.index(indexid)], 
+					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+					ISNULL(br.secret_columns,'') AS [Secret Columns],          
+					br.index_usage_summary AS [Usage], 
+					br.index_size_summary AS [Size],
+					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+					br.URL, 
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+				FROM #BlitzIndexResults br
+				LEFT JOIN #IndexSanity sn ON 
+					br.index_sanity_id=sn.index_sanity_id
+				LEFT JOIN #IndexCreateTsql ts ON 
+					br.index_sanity_id=ts.index_sanity_id
+				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+				OPTION (RECOMPILE);
+			 END;
 
     END; /* End @Mode=0 or 4 (diagnose)*/
-    ELSE IF @Mode=1 /*Summarize*/
+    ELSE IF (@Mode=1) /*Summarize*/
     BEGIN
     --This mode is to give some overall stats on the database.
-        RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
+	 	IF(@OutputType <> 'NONE')
+	 	BEGIN
+			RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
-        SELECT DB_NAME(i.database_id) AS [Database Name],
-            CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
-            CAST(CAST(SUM(sz.total_reserved_MB)/
-                1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
-            CAST(CAST(SUM(sz.total_reserved_LOB_MB)/
-                1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [LOB GB],
-            CAST(CAST(SUM(sz.total_reserved_row_overflow_MB)/
-                1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [Row Overflow GB],
-            CAST(SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END)AS NVARCHAR(50)) AS [Clustered Tables],
-            CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
-                /1024. AS NUMERIC(29,1)) AS [Clustered Tables GB],
-            SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
-            CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
-                /1024. AS NUMERIC(29,1)) AS [NC Indexes GB],
-            CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)  > 0 THEN
-                CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
-                    / SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) 
-                ELSE 0 END AS [ratio table: NC Indexes],
-            SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
-            CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)
-                /1024. AS NUMERIC(29,1)) AS [Heaps GB],
-            SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
-            SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
-            CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS NUMERIC(29,1)) AS [Partitioned GB],
-            SUM(CASE WHEN filter_definition <> '' THEN 1 ELSE 0 END) AS [Filtered Indexes],
-            SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
-            MAX(total_rows) AS [Max Row Count],
-            CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
-                /1024. AS NUMERIC(29,1)) AS [Max Table GB],
-            CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
-                /1024. AS NUMERIC(29,1)) AS [Max NC Index GB],
-            SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
-            SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
-            SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],    
-            SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
-            SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
-            SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
-            MIN(create_date) AS [Oldest Create Date],
-            MAX(create_date) AS [Most Recent Create Date],
-            MAX(modify_date) AS [Most Recent Modify Date],
-            1 AS [Display Order]
-        FROM #IndexSanity AS i
-        --left join here so we don't lose disabled nc indexes
-        LEFT JOIN #IndexSanitySize AS sz 
-            ON i.index_sanity_id=sz.index_sanity_id
-		GROUP BY DB_NAME(i.database_id)	 
-        UNION ALL
-        SELECT  CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END,        
-                @ScriptVersionName,   
-                N'From Your Community Volunteers' ,   
-                N'http://FirstResponderKit.org' ,
-                N'',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-                NULL,NULL,0 AS display_order
-        ORDER BY [Display Order] ASC
-        OPTION (RECOMPILE);
+			SELECT DB_NAME(i.database_id) AS [Database Name],
+				CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
+				CAST(CAST(SUM(sz.total_reserved_MB)/
+					1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
+				CAST(CAST(SUM(sz.total_reserved_LOB_MB)/
+					1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [LOB GB],
+				CAST(CAST(SUM(sz.total_reserved_row_overflow_MB)/
+					1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [Row Overflow GB],
+				CAST(SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END)AS NVARCHAR(50)) AS [Clustered Tables],
+				CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
+					/1024. AS NUMERIC(29,1)) AS [Clustered Tables GB],
+				SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
+				CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+					/1024. AS NUMERIC(29,1)) AS [NC Indexes GB],
+				CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)  > 0 THEN
+					CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+						/ SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) 
+					ELSE 0 END AS [ratio table: NC Indexes],
+				SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
+				CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)
+					/1024. AS NUMERIC(29,1)) AS [Heaps GB],
+				SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
+				SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
+				CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS NUMERIC(29,1)) AS [Partitioned GB],
+				SUM(CASE WHEN filter_definition <> '' THEN 1 ELSE 0 END) AS [Filtered Indexes],
+				SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
+				MAX(total_rows) AS [Max Row Count],
+				CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+					/1024. AS NUMERIC(29,1)) AS [Max Table GB],
+				CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+					/1024. AS NUMERIC(29,1)) AS [Max NC Index GB],
+				SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
+				SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
+				SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],    
+				SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
+				SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
+				SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
+				MIN(create_date) AS [Oldest Create Date],
+				MAX(create_date) AS [Most Recent Create Date],
+				MAX(modify_date) AS [Most Recent Modify Date],
+				1 AS [Display Order]
+			FROM #IndexSanity AS i
+			--left join here so we don't lose disabled nc indexes
+			LEFT JOIN #IndexSanitySize AS sz 
+				ON i.index_sanity_id=sz.index_sanity_id
+			GROUP BY DB_NAME(i.database_id)	 
+			UNION ALL
+			SELECT  CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END,        
+					@ScriptVersionName,   
+					N'From Your Community Volunteers' ,   
+					N'http://FirstResponderKit.org' ,
+					N'',
+					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+					NULL,NULL,0 AS display_order
+			ORDER BY [Display Order] ASC
+			OPTION (RECOMPILE);
+	  	END;
            
     END; /* End @Mode=1 (summarize)*/
-    ELSE IF @Mode=2 /*Index Detail*/
+    ELSE IF (@Mode=2) /*Index Detail*/
     BEGIN
         --This mode just spits out all the detail without filters.
         --This supports slicing AND dicing in Excel
@@ -26489,7 +26629,13 @@ BEGIN;
 						SET @ValidOutputLocation = 0; 
 					END;
 			END;
-
+																										
+        IF (@ValidOutputLocation = 0 AND @OutputType = 'NONE')
+        BEGIN
+            RAISERROR('Invalid output location and no output asked',12,1);
+            RETURN;
+        END;
+																										
 		/* @OutputTableName lets us export the results to a permanent table */
 		DECLARE @RunID UNIQUEIDENTIFIER;
 		SET @RunID = NEWID();
@@ -26776,126 +26922,130 @@ BEGIN;
 			END; /* @ValidOutputLocation = 1 */
 		ELSE
 	
-
-        SELECT  i.[database_name] AS [Database Name], 
-                i.[schema_name] AS [Schema Name], 
-                i.[object_name] AS [Object Name], 
-                ISNULL(i.index_name, '') AS [Index Name], 
-                CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
-                db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
-                CASE    WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
-                    ELSE 'NonClustered'
-                    END AS [Object Type], 
-                index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
-                ISNULL(LTRIM(key_column_names_with_sort_order), '') AS [Key Column Names With Sort],
-                ISNULL(count_key_columns, 0) AS [Count Key Columns],
-                ISNULL(include_column_names, '') AS [Include Column Names], 
-                ISNULL(count_included_columns,0) AS [Count Included Columns],
-                ISNULL(secret_columns,'') AS [Secret Column Names], 
-                ISNULL(count_secret_columns,0) AS [Count Secret Columns],
-                ISNULL(partition_key_column_name, '') AS [Partition Key Column Name],
-                ISNULL(filter_definition, '') AS [Filter Definition], 
-                is_indexed_view AS [Is Indexed View], 
-                is_primary_key AS [Is Primary Key],
-                is_XML AS [Is XML],
-                is_spatial AS [Is Spatial],
-                is_NC_columnstore AS [Is NC Columnstore],
-                is_CX_columnstore AS [Is CX Columnstore],
-                is_disabled AS [Is Disabled], 
-                is_hypothetical AS [Is Hypothetical],
-                is_padded AS [Is Padded], 
-                fill_factor AS [Fill Factor], 
-                is_referenced_by_foreign_key AS [Is Reference by Foreign Key], 
-                last_user_seek AS [Last User Seek], 
-                last_user_scan AS [Last User Scan], 
-                last_user_lookup AS [Last User Lookup],
-                last_user_update AS [Last User Update], 
-                total_reads AS [Total Reads], 
-                user_updates AS [User Updates], 
-                reads_per_write AS [Reads Per Write], 
-                index_usage_summary AS [Index Usage], 
-                sz.partition_count AS [Partition Count],
-                sz.total_rows AS [Rows], 
-                sz.total_reserved_MB AS [Reserved MB], 
-                sz.total_reserved_LOB_MB AS [Reserved LOB MB], 
-                sz.total_reserved_row_overflow_MB AS [Reserved Row Overflow MB],
-                sz.index_size_summary AS [Index Size], 
-                sz.total_row_lock_count AS [Row Lock Count],
-                sz.total_row_lock_wait_count AS [Row Lock Wait Count],
-                sz.total_row_lock_wait_in_ms AS [Row Lock Wait ms],
-                sz.avg_row_lock_wait_in_ms AS [Avg Row Lock Wait ms],
-                sz.total_page_lock_count AS [Page Lock Count],
-                sz.total_page_lock_wait_count AS [Page Lock Wait Count],
-                sz.total_page_lock_wait_in_ms AS [Page Lock Wait ms],
-                sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
-                sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
-                sz.total_index_lock_promotion_count AS [Lock Escalations],
-				sz.page_latch_wait_count AS [Page Latch Wait Count],
-				sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
-				sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
-				sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
-                sz.data_compression_desc AS [Data Compression],
-                i.create_date AS [Create Date],
-                i.modify_date AS [Modify Date],
-                more_info AS [More Info],
-                1 AS [Display Order]
-        FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
-                LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-        ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
-        OPTION (RECOMPILE);
+		IF(@OutputType <> 'NONE')
+		BEGIN
+			SELECT  i.[database_name] AS [Database Name], 
+					i.[schema_name] AS [Schema Name], 
+					i.[object_name] AS [Object Name], 
+					ISNULL(i.index_name, '') AS [Index Name], 
+					CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
+					db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
+					CASE    WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
+						ELSE 'NonClustered'
+						END AS [Object Type], 
+					index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
+					ISNULL(LTRIM(key_column_names_with_sort_order), '') AS [Key Column Names With Sort],
+					ISNULL(count_key_columns, 0) AS [Count Key Columns],
+					ISNULL(include_column_names, '') AS [Include Column Names], 
+					ISNULL(count_included_columns,0) AS [Count Included Columns],
+					ISNULL(secret_columns,'') AS [Secret Column Names], 
+					ISNULL(count_secret_columns,0) AS [Count Secret Columns],
+					ISNULL(partition_key_column_name, '') AS [Partition Key Column Name],
+					ISNULL(filter_definition, '') AS [Filter Definition], 
+					is_indexed_view AS [Is Indexed View], 
+					is_primary_key AS [Is Primary Key],
+					is_XML AS [Is XML],
+					is_spatial AS [Is Spatial],
+					is_NC_columnstore AS [Is NC Columnstore],
+					is_CX_columnstore AS [Is CX Columnstore],
+					is_disabled AS [Is Disabled], 
+					is_hypothetical AS [Is Hypothetical],
+					is_padded AS [Is Padded], 
+					fill_factor AS [Fill Factor], 
+					is_referenced_by_foreign_key AS [Is Reference by Foreign Key], 
+					last_user_seek AS [Last User Seek], 
+					last_user_scan AS [Last User Scan], 
+					last_user_lookup AS [Last User Lookup],
+					last_user_update AS [Last User Update], 
+					total_reads AS [Total Reads], 
+					user_updates AS [User Updates], 
+					reads_per_write AS [Reads Per Write], 
+					index_usage_summary AS [Index Usage], 
+					sz.partition_count AS [Partition Count],
+					sz.total_rows AS [Rows], 
+					sz.total_reserved_MB AS [Reserved MB], 
+					sz.total_reserved_LOB_MB AS [Reserved LOB MB], 
+					sz.total_reserved_row_overflow_MB AS [Reserved Row Overflow MB],
+					sz.index_size_summary AS [Index Size], 
+					sz.total_row_lock_count AS [Row Lock Count],
+					sz.total_row_lock_wait_count AS [Row Lock Wait Count],
+					sz.total_row_lock_wait_in_ms AS [Row Lock Wait ms],
+					sz.avg_row_lock_wait_in_ms AS [Avg Row Lock Wait ms],
+					sz.total_page_lock_count AS [Page Lock Count],
+					sz.total_page_lock_wait_count AS [Page Lock Wait Count],
+					sz.total_page_lock_wait_in_ms AS [Page Lock Wait ms],
+					sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
+					sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
+					sz.total_index_lock_promotion_count AS [Lock Escalations],
+					sz.page_latch_wait_count AS [Page Latch Wait Count],
+					sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
+					sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
+					sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
+					sz.data_compression_desc AS [Data Compression],
+					i.create_date AS [Create Date],
+					i.modify_date AS [Modify Date],
+					more_info AS [More Info],
+					1 AS [Display Order]
+			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
+					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+			ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
+			OPTION (RECOMPILE);
+  		END;
 
 
 
     END; /* End @Mode=2 (index detail)*/
-    ELSE IF @Mode=3 /*Missing index Detail*/
+    ELSE IF (@Mode=3) /*Missing index Detail*/
     BEGIN
-
-	WITH create_date AS (
-					SELECT i.database_id,
-						   i.schema_name,
-						   i.[object_id], 
-						   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
-					FROM #IndexSanity AS i
-					GROUP BY i.database_id, i.schema_name, i.object_id
-					)
-        SELECT 
-            mi.database_name AS [Database Name], 
-            mi.[schema_name] AS [Schema], 
-            mi.table_name AS [Table], 
-            CAST((mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) AS BIGINT)
-                AS [Magic Benefit Number], 
-            mi.missing_index_details AS [Missing Index Details], 
-            mi.avg_total_user_cost AS [Avg Query Cost], 
-            mi.avg_user_impact AS [Est Index Improvement], 
-            mi.user_seeks AS [Seeks], 
-            mi.user_scans AS [Scans],
-            mi.unique_compiles AS [Compiles], 
-            mi.equality_columns AS [Equality Columns], 
-            mi.inequality_columns AS [Inequality Columns], 
-            mi.included_columns AS [Included Columns], 
-            mi.index_estimated_impact AS [Estimated Impact], 
-            mi.create_tsql AS [Create TSQL], 
-            mi.more_info AS [More Info],
-            1 AS [Display Order],
-			mi.is_low
-        FROM #MissingIndexes AS mi
-		LEFT JOIN create_date AS cd
-		ON mi.[object_id] =  cd.object_id 
-		AND mi.database_id = cd.database_id
-		AND mi.schema_name = cd.schema_name
-        /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-        WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
-        UNION ALL
-        SELECT                 
-            @ScriptVersionName,   
-            N'From Your Community Volunteers' ,   
-            N'http://FirstResponderKit.org' ,
-            100000000000,
-            N'',
-            NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-            NULL, 0 AS [Display Order], NULL AS is_low
-        ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
-		OPTION (RECOMPILE);
+		IF(@OutputType <> 'NONE')
+		BEGIN
+			WITH create_date AS (
+						SELECT i.database_id,
+							   i.schema_name,
+							   i.[object_id], 
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+						FROM #IndexSanity AS i
+						GROUP BY i.database_id, i.schema_name, i.object_id
+						)
+			SELECT 
+				mi.database_name AS [Database Name], 
+				mi.[schema_name] AS [Schema], 
+				mi.table_name AS [Table], 
+				CAST((mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) AS BIGINT)
+					AS [Magic Benefit Number], 
+				mi.missing_index_details AS [Missing Index Details], 
+				mi.avg_total_user_cost AS [Avg Query Cost], 
+				mi.avg_user_impact AS [Est Index Improvement], 
+				mi.user_seeks AS [Seeks], 
+				mi.user_scans AS [Scans],
+				mi.unique_compiles AS [Compiles], 
+				mi.equality_columns AS [Equality Columns], 
+				mi.inequality_columns AS [Inequality Columns], 
+				mi.included_columns AS [Included Columns], 
+				mi.index_estimated_impact AS [Estimated Impact], 
+				mi.create_tsql AS [Create TSQL], 
+				mi.more_info AS [More Info],
+				1 AS [Display Order],
+				mi.is_low
+			FROM #MissingIndexes AS mi
+			LEFT JOIN create_date AS cd
+			ON mi.[object_id] =  cd.object_id 
+			AND mi.database_id = cd.database_id
+			AND mi.schema_name = cd.schema_name
+			/* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+			WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
+			UNION ALL
+			SELECT                 
+				@ScriptVersionName,   
+				N'From Your Community Volunteers' ,   
+				N'http://FirstResponderKit.org' ,
+				100000000000,
+				N'',
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL, 0 AS [Display Order], NULL AS is_low
+			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
+			OPTION (RECOMPILE);
+	  	END;
 
 	IF  (@BringThePain = 1
 	AND @DatabaseName IS NOT NULL
@@ -26956,8 +27106,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.7';
-SET @VersionDate = '20180701';
+SET @Version = '1.8';
+SET @VersionDate = '20180801';
 
 
 	IF @Help = 1 PRINT '
@@ -27016,9 +27166,9 @@ SET @VersionDate = '20180701';
 
     MIT License
 	   
-	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2017.
+	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2018.
 
-	Copyright (c) 2017 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -27969,8 +28119,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.7';
-	SET @VersionDate = '20180701';
+	SET @Version = '2.8';
+	SET @VersionDate = '20180801';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -28052,7 +28202,7 @@ IF @Help = 1
 	
 	MIT License
 	
-	Copyright (c) 2016 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 	
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -33115,8 +33265,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.7';
-	SET @VersionDate = '20180701';
+	SET @Version = '6.8';
+	SET @VersionDate = '20180801';
 
 
 	IF @Help = 1
@@ -33134,7 +33284,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2017 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33706,6 +33856,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
       @ExistingDBAction tinyint = 0,
 	  @StopAt NVARCHAR(14) = NULL,
 	  @OnlyLogsAfter NVARCHAR(14) = NULL,
+      @SimpleFolderEnumeration BIT = 0,
 	  @Execute CHAR(1) = Y,
 	  @Debug INT = 0, 
 	  @Help BIT = 0,
@@ -33715,8 +33866,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
 
 
 IF @Help = 1
@@ -33745,13 +33896,7 @@ IF @Help = 1
 		
 		    MIT License
 			
-			Copyright for portions of sp_Blitz are held by Microsoft as part of project 
-			tigertoolbox and are provided under the MIT license:
-			https://github.com/Microsoft/tigertoolbox
-			   
-			All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2017.
-		
-			Copyright (c) 2017 Brent Ozar Unlimited
+			Copyright (c) 2018 Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
@@ -33883,7 +34028,8 @@ BEGIN
 END;
 
 
-DECLARE @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
+DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
+        @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
         @LastFullBackup NVARCHAR(500) = N'', --Last full backup name
         @LastDiffBackup NVARCHAR(500) = N'', --Last diff backup name
         @LastDiffBackupDateTime NVARCHAR(500) = N'', --Last diff backup date
@@ -33901,11 +34047,14 @@ DECLARE @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
         @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
 
-
-DECLARE @FileList TABLE (
-    BackupFile NVARCHAR(255)NOT NULL, 
+DECLARE @FileListSimple TABLE (
+    BackupFile NVARCHAR(255) NOT NULL, 
     depth int NOT NULL, 
     [file] int NOT NULL
+);
+
+DECLARE @FileList TABLE (
+    BackupFile NVARCHAR(255) NULL
 );
 
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
@@ -33934,7 +34083,6 @@ CREATE TABLE #FileListParameters
     TDEThumbprint VARBINARY(32) NULL,
     SnapshotUrl NVARCHAR(360) NULL
 );
-
 
 IF OBJECT_ID(N'tempdb..#Headers') IS NOT NULL DROP TABLE #Headers;
 CREATE TABLE #Headers
@@ -34002,13 +34150,10 @@ CREATE TABLE #Headers
 );
 
 /*
-
 Correct paths in case people forget a final "\" 
-
 */
 
 /*Full*/
-
 IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
 	BEGIN
 		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
@@ -34079,77 +34224,92 @@ END
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
 SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 
+--If xp_cmdshell is disabled, force use of xp_dirtree
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+    SET @SimpleFolderEnumeration = 1;
 
 IF @BackupPathFull IS NOT NULL
 BEGIN
-    -- Get list of files 
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1; 
-
-	IF @Debug = 1
-	BEGIN
-		SELECT BackupFile, depth, [file]
-		FROM   @FileList;
-	END;
-
-/*Sanity check folders*/
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
-
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
+    BEGIN
+        SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
+		IF @Debug = 1
 		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
+    END;
+    
+    IF @Debug = 1
+    BEGIN
+	    SELECT BackupFile FROM @FileList;
+    END;
 
-		END;
+    IF @SimpleFolderEnumeration = 1
+    BEGIN
+        /*Check what we can*/
+        IF NOT EXISTS (SELECT * FROM @FileList)
+	    BEGIN
+		    RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
+    END
+    ELSE
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    OR fl.BackupFile = 'File Not Found'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(FULL) No rows or bad value for path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(FULL) Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+            RETURN;
+	    END;
 
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    ) = 1
+	        AND 
+            (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 							
+		    WHERE fl.BackupFile IS NULL
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(FULL) Empty directory %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+			    RETURN;
+		    END
 
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The user name or password is incorrect.'
-		) = 1
-	
-		BEGIN
-	
-			RAISERROR('Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-	
-		END;
-
-/*End folder sanity check*/
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(FULL) Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
 -- Find latest full backup 
 SELECT @LastFullBackup = MAX(BackupFile)
@@ -34159,7 +34319,22 @@ WHERE BackupFile LIKE N'%.bak'
     BackupFile LIKE N'%' + @Database + N'%'
 	AND
 	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
+/*	To get all backups that belong to the same set we can do two things:
+		1.	RESTORE HEADERONLY of ALL backup files in the folder and look for BackupSetGUID.
+			Backups that belong to the same split will have the same BackupSetGUID.
+		2.	Olla Hallengren's solution appends file index at the end of the name:
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_1.bak
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_2.bak
+			SQLSERVER1_TEST_DB_FULL_20180703_213211_N.bak
+			We can and find all related files with the same timestamp but different index.
+			This option is simpler and requires less changes to this procedure */
+SELECT BackupFile
+INTO #SplitBackups
+FROM @FileList
+WHERE LEFT(BackupFile,LEN(BackupFile)-PATINDEX('%[_]%',REVERSE(BackupFile))) = LEFT(@LastFullBackup,LEN(@LastFullBackup)-PATINDEX('%[_]%',REVERSE(@LastFullBackup)))
+AND PATINDEX('%[_]%',REVERSE(@LastFullBackup)) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Olla only supports up to 64 file split.
 
+-- File list can be obtained by running RESTORE FILELISTONLY of any file from the given BackupSet therefore we do not have to cater for split backups when building @FileListParamSQL
 
 SET @FileListParamSQL = 
   N'INSERT INTO #FileListParameters WITH (TABLOCK)
@@ -34188,8 +34363,8 @@ EXEC (@sql);
 	IF @Debug = 1
 		BEGIN
 			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
+			SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
 		END
-
 
 SET @HeadersSQL = 
 N'INSERT INTO #Headers WITH (TABLOCK)
@@ -34204,13 +34379,11 @@ N'INSERT INTO #Headers WITH (TABLOCK)
 IF @MajorVersion >= 11
   SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N', Containment';
 
-
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
   SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
 
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
-
 
 IF @MoveFiles = 1
 BEGIN
@@ -34232,7 +34405,6 @@ BEGIN
 	FROM Files;
 		
 	IF @Debug = 1 PRINT @MoveOption
-
 END;
 
 /*Process @ExistingDBAction flag */
@@ -34305,7 +34477,32 @@ IF @ContinueLogs = 0
 
 		IF @Execute = 'Y' RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+		/* now take split backups into account */
+		IF (SELECT COUNT(*) FROM #SplitBackups) > 0
+			BEGIN
+				RAISERROR('Split backups found', 0, 1) WITH NOWAIT
+				SELECT @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM ' + STUFF((
+					SELECT CHAR(10) + ',DISK=''' + @BackupPathFull + BackupFile + ''''
+					FROM #SplitBackups
+					ORDER BY BackupFile
+					FOR XML PATH('')),1,2,'') + N' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+			END
+		ELSE
+			BEGIN
+				SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
+			END
+
+		IF (@StandbyMode = 1)
+		BEGIN
+			IF (@StandbyUndoPath IS NULL)
+			 BEGIN
+				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			 END
+		ELSE
+		BEGIN
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH  REPLACE' + @MoveOption + N' , STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
+		END
+	END;
 
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
@@ -34351,90 +34548,96 @@ ELSE
 	
 	END;
 
--- Clear out table variables for differential
-DELETE FROM @FileList;
-
 END
 
 
 IF @BackupPathDiff IS NOT NULL
 BEGIN 
-    -- Get list of files 
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1; 
+    DELETE FROM @FileList;
+    DELETE FROM @FileListSimple;
 
-	IF @Debug = 1
-	BEGIN
-		SELECT BackupFile, depth, [file]
-		FROM   @FileList;
-	END;
-
-/*Sanity check folders*/
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
-
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
+    BEGIN
+        SET @cmd = N'DIR /b "' + @BackupPathDiff + N'"';
+		IF @Debug = 1
 		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
+    END;
+    
+    IF @Debug = 1
+    BEGIN
+	    SELECT BackupFile FROM @FileList;
+    END;
 
-		END;
+    IF @SimpleFolderEnumeration = 0
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(DIFF) Bad value for path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(DIFF) Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+            RETURN;
+	    END;
 
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(DIFF) Incorrect user name or password for %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
-		END;
+    -- Find latest diff backup 
+    SELECT @LastDiffBackup = MAX(BackupFile)
+    FROM @FileList
+    WHERE BackupFile LIKE N'%.bak'
+        AND
+        BackupFile LIKE N'%' + @Database + '%'
+	    AND
+	    (@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-/*End folder sanity check*/
-
-
--- Find latest diff backup 
-SELECT @LastDiffBackup = MAX(BackupFile)
-FROM @FileList
-WHERE BackupFile LIKE N'%.bak'
-    AND
-    BackupFile LIKE N'%' + @Database + '%'
-	AND
-	(@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
-	
-	--set the @BackupDateTime so that it can be used for comparisons
-	SET @BackupDateTime = REPLACE(@BackupDateTime, '_', '');
+    --No file = no backup to restore
 	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
 
-
-IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
+    IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
-		
+
+	    IF (@StandbyMode = 1)
+		BEGIN
+		    IF (@StandbyUndoPath IS NULL)
+			    BEGIN
+				    IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			    END
+		    ELSE
+			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
+	    END;
+
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathDiff, @LastDiffBackup';
@@ -34467,73 +34670,93 @@ IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 		FROM #Headers 
 		WHERE BackupType = 5;                                                  
 	END;
-
--- Clear out table variables for translogs
-DELETE FROM @FileList;
-   
 END      
+
 
 IF @BackupPathLog IS NOT NULL
 BEGIN
-    -- Get list of files
-    INSERT INTO @FileList (BackupFile, depth, [file])
-    EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1; 
+    DELETE FROM @FileList;
+    DELETE FROM @FileListSimple;
 
-    IF @Debug = 1
+    IF @SimpleFolderEnumeration = 1
+    BEGIN    -- Get list of files 
+        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
+        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
+    END
+    ELSE
     BEGIN
-	    SELECT BackupFile, depth, [file]
-	    FROM   @FileList;
+        SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
+		IF @Debug = 1
+		BEGIN
+			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog';
+			PRINT @cmd;
+		END;  
+        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
     END;
+    
+    IF @SimpleFolderEnumeration = 1
+    BEGIN
+        /*Check what we can*/
+        IF NOT EXISTS (SELECT * FROM @FileList)
+	    BEGIN
+		    RAISERROR('(LOG) No rows were returned for that database %s in path %s', 16, 1, @Database, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
+    END
+    ELSE
+    BEGIN
+        /*Full Sanity check folders*/
+        IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
+		    OR fl.BackupFile = 'File Not Found'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(LOG) No rows or bad value for path %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
 
-/*Sanity check folders*/
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'Access is denied.'
+		    ) = 1
+	    BEGIN
+		    RAISERROR('(LOG) Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+            RETURN;
+	    END;
 
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		OR fl.BackupFile = 'File Not Found'
-		) = 1
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    ) = 1
+	        AND 
+            (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 							
+		    WHERE fl.BackupFile IS NULL
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(LOG) Empty directory %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+			    RETURN;
+		    END
 
-		BEGIN
-	
-			RAISERROR('No rows were returned for that database\path', 0, 1) WITH NOWAIT;
+	    IF (
+		    SELECT COUNT(*) 
+		    FROM @FileList AS fl 
+		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
+		    ) = 1
+		    BEGIN
+			    RAISERROR('(LOG) Incorrect user name or password for %s', 16, 1, @BackupPathLog) WITH NOWAIT;
+                RETURN;
+		    END;
+    END;
+    /*End folder sanity check*/
 
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		WHERE fl.BackupFile = 'Access is denied.'
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-
-		END;
-
-	IF (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 
-		) = 1
-	AND (
-		SELECT COUNT(*) 
-		FROM @FileList AS fl 							
-		WHERE fl.BackupFile IS NULL
-		) = 1
-
-		BEGIN
-	
-			RAISERROR('That directory appears to be empty', 0, 1) WITH NOWAIT;
-	
-			RETURN;
-	
-		END
-
-/*End folder sanity check*/
 
 IF (@OnlyLogsAfter IS NOT NULL)
-	BEGIN
+BEGIN
 	
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
 	
@@ -34592,7 +34815,9 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 IF (@StandbyMode = 1)
 	BEGIN
 		IF (@StandbyUndoPath IS NULL)
-			IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. Logs will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			BEGIN
+				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. Logs will not be restored in standby mode.', 0, 1) WITH NOWAIT;
+			END;
 		ELSE
 			SET @LogRecoveryOption = N'STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''';
 	END;
@@ -34770,8 +34995,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.7';
-		SET @VersionDate = '20180701';
+		SET @Version = '2.8';
+		SET @VersionDate = '20180801';
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )

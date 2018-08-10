@@ -26,8 +26,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.7';
-SET @VersionDate = '20180701';
+SET @Version = '1.8';
+SET @VersionDate = '20180801';
 
 
 	IF @Help = 1 PRINT '
@@ -86,9 +86,9 @@ SET @VersionDate = '20180701';
 
     MIT License
 	   
-	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2017.
+	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2018.
 
-	Copyright (c) 2017 Brent Ozar Unlimited
+	Copyright (c) 2018 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal

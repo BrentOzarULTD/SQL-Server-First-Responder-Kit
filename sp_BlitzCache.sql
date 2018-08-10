@@ -268,8 +268,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.7';
-SET @VersionDate = '20180701';
+SET @Version = '6.8';
+SET @VersionDate = '20180801';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -300,7 +300,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2016 Brent Ozar Unlimited
+Copyright (c) 2018 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1686,6 +1686,7 @@ END;
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO ##bou_BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
@@ -2181,6 +2182,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
 SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 SET @sql += N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO #p (SqlHandle, TotalCPU, TotalReads, TotalDuration, TotalWrites, ExecutionCount)
 SELECT  SqlHandle,
         TotalCPU,
@@ -2244,6 +2246,12 @@ BEGIN
 
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
 END;
+
+IF @SkipAnalysis = 1
+    BEGIN
+	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
+	GOTO Results ;
+	END; 
 
 
 /* Update ##bou_BlitzCacheProcs to get Stored Proc info 
@@ -3918,14 +3926,6 @@ IF EXISTS
 /*End Missing Index*/
 
 
-
-IF @SkipAnalysis = 1
-    BEGIN
-	RAISERROR(N'Skipping analysis, going to results', 0, 1) WITH NOWAIT; 
-	GOTO Results ;
-	END; 
-
-
 /* Set configuration values */
 RAISERROR(N'Setting configuration values', 0, 1) WITH NOWAIT;
 DECLARE @execution_threshold INT = 1000 ,
@@ -4395,10 +4395,11 @@ BEGIN
         END;
 
 
-    SET @insert_sql =N' IF EXISTS(SELECT * FROM '
+    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
           + @OutputDatabaseName
           + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
           + @OutputSchemaName + N''') '
+		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
           + 'INSERT '
           + @OutputDatabaseName + '.'
           + @OutputSchemaName + '.'
@@ -4476,6 +4477,7 @@ BEGIN
 	OPTION(RECOMPILE);
 
     SET @sql = N'
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
     SELECT  TOP (@Top)
             DatabaseName AS [Database Name],
             QueryPlanCost AS [Cost],
@@ -4765,6 +4767,7 @@ END;
 
 
 SET @sql = N'
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 SELECT  TOP (@Top) ' + @columns + @nl + N'
 FROM    ##bou_BlitzCacheProcs
 WHERE   SPID = @spid ' + @nl;
@@ -5243,7 +5246,7 @@ BEGIN
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates.') ;
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinality estimates.') ;
 
 
         IF EXISTS (SELECT 1/0

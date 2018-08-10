@@ -32,8 +32,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.7';
-	SET @VersionDate = '20180701';
+	SET @Version = '6.8';
+	SET @VersionDate = '20180801';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -2603,9 +2603,9 @@ AS
 										'Linked Server Configured' AS Finding ,
 										'https://BrentOzar.com/go/link' AS URL ,
 										+CASE WHEN l.remote_name = 'sa'
-											  THEN s.data_source
+											  THEN COALESCE(s.data_source, s.provider)
 												   + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'
-											  ELSE s.data_source
+											  ELSE COALESCE(s.data_source, s.provider)
 												   + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'
 										 END AS Details
 								FROM    sys.servers s
@@ -5657,7 +5657,7 @@ IF @ProductVersionMajor >= 10
                                     URL = 'https://BrentOzar.com/go/recompile',
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
-                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
+                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
                                 DROP TABLE #Recompile;
                             END;
 
@@ -5668,7 +5668,7 @@ IF @ProductVersionMajor >= 10
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 86) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM [?].dbo.sysmembers m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://BrentOzar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
 							END;
 
 							/*Check for non-aligned indexes in partioned databases*/
@@ -7473,7 +7473,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    'Server Info' AS FindingsGroup ,
 									    'Instance Stacking' AS Finding ,
 									    'https://www.brentozar.com/go/babygotstacked/' AS URL ,
-									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server running. More than one is usually a bad idea. Read the URL for more info'
+									    'Your Server has ' + @InstanceCount + ' Instances of SQL Server installed. More than one is usually a bad idea. Read the URL for more info.'
 							    END;
 	                        END;
 							

@@ -35,6 +35,8 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * sp_AllNightLog @Version and @VersionDate
     * sp_AllNightLog_Setup @Version and @VersionDate
     * sp_BlitzInMemoryOLTP @Version and @VersionDate
+* Update the SQL Server versions script from here: https://github.com/jadarnel27/SqlServerVersionScript
+    * Right now, you need to run it in Visual Studio, and paste the command window output into the script file
 
 ## Push to Master
 
