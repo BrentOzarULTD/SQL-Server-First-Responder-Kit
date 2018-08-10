@@ -4408,7 +4408,7 @@ BEGIN;
 			END; /* @ValidOutputLocation = 1 */
 		ELSE
 	
-		if(@OutputType <> 'NONE')
+		IF(@OutputType <> 'NONE')
 		BEGIN
 			SELECT  i.[database_name] AS [Database Name], 
 					i.[schema_name] AS [Schema Name], 
