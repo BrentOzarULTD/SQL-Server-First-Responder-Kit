@@ -2,55 +2,120 @@
 
 First of all, welcome! We're excited that you'd like to contribute. How would you like to help?
 
-* [I'd like to report a bug or request an enhancement](#how-to-report-bugs-or-request-enhancements)
-* [I'd like to write new T-SQL checks](#how-to-write-new-t-sql-checks)
-* [I'd like to fix bugs in T-SQL checks](#how-to-fix-bugs-in-existing-t-sql-checks)
-* [I'd like to test checks written by someone else](#how-to-test-checks-written-by-someone-else)
-* [I'd like to write or update documentation](#how-to-write-or-update-documentation)
-* [I don't know how to upload code to GitHub](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/)
+* [I'd like to report a bug](#how-to-report-bugs)
+* [I'd like someone else to build something](#how-to-request-features)
+* [I'd like to build a new feature myself](#how-to-build-features-yourself)
 
 Everyone here is expected to abide by the [Contributor Covenant Code of Conduct](#the-contributor-covenant-code-of-conduct).
 
 Wanna do something else, or have a question not answered here? Hop into Slack and ask us questions before you get started. [Get an invite to SQLCommunity.slack.com](https://sqlps.io/slack/), and we're in the [#FirstResponderKit channel](https://sqlcommunity.slack.com/messages/firstresponderkit/). We welcome newcomers, and there's always a way you can help.
 
-## How to Report Bugs or Request Enhancements
+## How to Report Bugs
 
-Check out the [Github issues list]. Search for what you're interested in - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+Check out the [Github issues list]. Search for what you're interested in - there may already be an issue for it. 
 
-If you can't find a similar issue, go ahead and open your own. Include as much detail as you can - what you're seeing now, and what you'd like to see.
+Make sure to search through [closed issues list], too, because we may have already fixed the bug in the development branch. To try the most recent version of the code that we haven't released to the public yet, [download the dev branch version].
 
-When requesting new checks, keep in mind that we want to focus on:
+If you can't find a similar issue, go ahead and open your own. Include as much detail as you can - what you're seeing now, and what you'd expect to see instead.
 
-* Actionable warnings - SQL Server folks are usually overwhelmed with data, and we only want to report on things they can actually do something about
-* Performance issues or reliability risks - if it's just a setting we don't agree with, let's set that aside
-* Things that end users or managers will notice - if we're going to have someone change a setting on their system, we want it to be worth their time
+## How to Request Features
 
-Now head on over to the [Github issues list] and get started.
+Open source is community-built software. Anyone is welcome to build things that would help make their job easier.
 
-## How to Write New T-SQL Checks
+Open source isn't free development, though. Working on these scripts is hard work: they have to work on case-sensitive instances, and on all supported versions of SQL Server (currently 2008 through 2017.) If you just waltz in and say, "Someone please bake me a cake," you're probably not going to get a cake.
 
-Before you code, check the [Github issues list] for what you're trying to do - there may already be an issue for it. Make sure to search through closed issues, too, because we often decline things that aren't a good fit for these tools.
+If you want something, you're going to either need to build it yourself, or convince someone else to devote their free time to your feature request. You can do that by sponsoring development (offering to hire a developer to build it for you), or getting people excited enough that they volunteer to build it for you.
 
-If you've got a new idea that isn't covered in an existing issue, open a Github issue for it. Outline what you'd like to do, and how you'd like to code it. This just helps make sure other users agree that it's a good idea to add to these tools.
+And good news! Lots of people have contributed their code over time. Here's how to get started.
 
-After a discussion, to start coding, [open a new Github branch.](https://www.brentozar.com/archive/2015/07/pull-request-101-for-dbas-using-github/) This lets you code in your own area without impacting anyone else. When your code is ready, test it on a case-sensitive instance of the oldest supported version of SQL Server (2008), and the newest version (2016).
+## How to Build Features Yourself
 
-When it's ready for review, make a pull request, and one of the core contributors can check your work.
+When you're ready to start coding, discuss it with the community. Check the [Github issues list] and the [closed issues list] because folks may have tried it in the past, or the community may have decided it's not a good fit for these tools. (Classic example - sp_Blitz isn't a security auditing tool.)
 
-## How to Fix Bugs in Existing T-SQL Checks
+If you can't find it in an existing issue, open a new Github issue for it. Outline what you'd like to do, why you'd like to do it, and optionally, how you'd think about coding it. This just helps make sure other users agree that it's a good idea to add to these tools. Other folks will respond to the idea, and if you get a warm reception, go for it!
 
-(stub)
+After your Github issue has gotten good responses from a couple of volunteers who are willing to test your work, get started by forking the project and working on your own server. The Github instructions are below - it isn't exactly easy, and we totally understand if you're not up for it. Thing is, we can't take code contributions via text requests - Github makes it way easier for us to compare your work versus the changes other people have made, and merge them all together.
 
-## How to Test Checks Written by Someone Else
+Note that if you're not ready to get started coding in the next week, or if you think you can't finish the feature in the next 30 days, you probably don't want to bother opening an issue. You're only going to feel guilty over not making progress, because we'll keep checking in with you to see how it's going. We don't want to have stale "someday I'll build that" issues in the list - we want to keep the open issues list easy to scan for folks who are trying to troubleshoot bugs and feature requests.
 
-(stub)
+### Code Requirements and Standards
 
-* Test only on case-sensitive instances. A surprising number of folks out there run on these.
-* Test on as many currently-supported versions of SQL Server as possible. At minimum, test on the oldest version (currently 2008), and the newest version (currently 2016).
+We're not picky at all about style, but a few things to know:
 
-## How to Write or Update Documentation
+Your code needs to compile & run on all currently supported versions of SQL Server. It's okay if functionality degrades, like if not all features are available, but at minimum the code has to compile and run.
 
-(stub)
+Your code must handle:
+
+* Case sensitive databases & servers
+* Unicode object names (databases, tables, indexes, etc.)
+* Different date formats - for guidance: https://xkcd.com/1179/
+
+We know that's a pain, but that's the kind of thing we find out in the wild. Of course you would never build a server like that, but...
+
+
+### Contributing Changes to Power BI
+
+Power BI files are binary files that don't work well with Git source control. Rather than sending someone your changed Power BI files, here's what you need to do:
+
+1. Make the changes on your side, test them, and make sure they work.
+2. In the Github issue you created above (in the How to Build Features section), add step-by-step instructions for someone else to make the same change to the master Power BI files.
+3. The First Responder Kit maintainers will review your changes and try to reproduce your results with the same steps. If they produce the right results, congratulations! They'll be saved permanently.
+
+Why not just email your file to the maintainers? Well, lots of folks may be working on slightly different changes at the same time, and we need to be able to fold everyone's changes together at different points in time.
+
+### Contributing T-SQL Code: Git Flow for Pull Requests
+<a name="git-flow"></a>
+
+1. [Fork] the project, clone your fork, and configure the remotes:
+
+   ```bash
+   # Clone your fork of the repo into the current directory
+   git clone git@github.com:<YOUR_USERNAME>/SQL-Server-First-Responder-Kit.git
+   # Navigate to the newly cloned directory
+   cd SQL-Server-First-Responder-Kit
+   # Assign the original repo to a remote called "upstream"
+   git remote add upstream https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+   ```
+
+2. If you cloned a while ago, get the latest changes from upstream:
+
+   ```bash
+   git checkout dev
+   git pull upstream dev
+   ```
+
+3. Create a new topic branch (off the main project development branch) to
+   contain your feature, change, or fix:
+
+   ```bash
+   git checkout -b <topic-branch-name>
+   ```
+
+4. Make changes.
+
+   Make changes to one or more of the files in the project.
+   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz%20Checks%20by%20Priority.md.
+   You should modify the file `Documentation\sp_Blitz Checks by Priority.md` in the project by yourself.
+
+5. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
+   or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
+   feature to tidy up your commits before making them public.
+
+6. Locally merge (or rebase) the upstream development branch into your topic branch:
+
+   ```bash
+   git pull [--rebase] upstream dev
+   ```
+
+7. Push your topic branch up to your fork:
+
+   ```bash
+   git push origin <topic-branch-name>
+   ```
+
+8. [Open a Pull Request] with a clear title and description.
+
+**IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
 
 ## The Contributor Covenant Code of Conduct
 
@@ -102,60 +167,14 @@ This Code of Conduct is adapted from the [Contributor Covenant][homepage], versi
 available at [http://contributor-covenant.org/version/1/4][version]
 
 
-## Git Flow for pull requests
-<a name="git-flow"></a>
-
-1. [Fork] the project, clone your fork, and configure the remotes:
-
-   ```bash
-   # Clone your fork of the repo into the current directory
-   git clone git@github.com:<YOUR_USERNAME>/SQL-Server-First-Responder-Kit.git
-   # Navigate to the newly cloned directory
-   cd SQL-Server-First-Responder-Kit
-   # Assign the original repo to a remote called "upstream"
-   git remote add upstream https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-   ```
-
-2. If you cloned a while ago, get the latest changes from upstream:
-
-   ```bash
-   git checkout master
-   git pull upstream master
-   ```
-
-3. Create a new topic branch (off the main project development branch) to
-   contain your feature, change, or fix:
-
-   ```bash
-   git checkout -b <topic-branch-name>
-   ```
-
-4. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
-   or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
-   feature to tidy up your commits before making them public.
-
-5. Locally merge (or rebase) the upstream development branch into your topic branch:
-
-   ```bash
-   git pull [--rebase] upstream master
-   ```
-
-6. Push your topic branch up to your fork:
-
-   ```bash
-   git push origin <topic-branch-name>
-   ```
-
-7. [Open a Pull Request] with a clear title and description.
-
-**IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
-
 
 [homepage]: http://contributor-covenant.org
 [version]: http://contributor-covenant.org/version/1/4/
 [Github issues list]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
+[closed issues list]: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues?q=is%3Aissue+is%3Aclosed
 [Fork]:https://help.github.com/articles/fork-a-repo/
 [git commit message guidelines]:http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
 [interactive rebase]:https://help.github.com/articles/about-git-rebase/
 [Open a Pull Request]:https://help.github.com/articles/about-pull-requests/
 [LICENSE]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md
+[download the dev branch version]: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/archive/dev.zip

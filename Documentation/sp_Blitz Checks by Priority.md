@@ -6,11 +6,16 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
+CURRENT HIGH CHECKID: 217
+If you want to add a new one, start at 218
+
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
+| 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 204 |
 | 1 | Backup | Backing Up to Same Drive Where Databases Reside | https://www.BrentOzar.com/go/backup | 93 |
 | 1 | Backup | Backups Not Performed Recently | https://www.BrentOzar.com/go/nobak | 1 |
+| 1 | Backup | Encryption Certificate Not Backed Up Recently | https://www.BrentOzar.com/go/tde | 202 |
 | 1 | Backup | Full Recovery Mode w/o Log Backups | https://www.BrentOzar.com/go/biglogs | 2 |
 | 1 | Backup | TDE Certificate Not Backed Up Recently | https://www.BrentOzar.com/go/tde | 119 |
 | 1 | Corruption | Database Corruption Detected | https://www.BrentOzar.com/go/repair | 34 |
@@ -25,12 +30,15 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 10 | Performance | 32-bit SQL Server Installed | https://www.BrentOzar.com/go/32bit | 154 |
 | 10 | Performance | Auto-Close Enabled | https://www.BrentOzar.com/go/autoclose | 12 |
 | 10 | Performance | Auto-Shrink Enabled | https://www.BrentOzar.com/go/autoshrink | 13 |
+| 10 | Performance | Auto-Shrink Ran Recently| https://www.BrentOzar.com/go/autoshrink | 206 |
 | 10 | Performance | CPU Schedulers Offline | https://www.BrentOzar.com/go/schedulers | 101 |
 | 10 | Performance | CPU w/Odd Number of Cores | https://www.BrentOzar.com/go/oddity | 198 |
+| 10 | Performance | DBCC DROPCLEANBUFFERS Ran Recently | | 207 |
+| 10 | Performance | DBCC FREEPROCCACHE Ran Recently | | 208 |
+| 10 | Performance | DBCC SHRINK% Ran Recently | | 210 |
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
-| 10 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 20 | Reliability | Dangerous Build of SQL Server (Corruption) | http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds | 129 |
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | https://www.BrentOzar.com/go/repair | 102 |
@@ -41,13 +49,16 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 20 | Reliability | Unsupported Build of SQL Server | https://www.BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | https://www.BrentOzar.com/go/cdrive | 26 |
 | 20 | Reliability | TempDB on C Drive | https://www.BrentOzar.com/go/cdrive | 25 |
-| 50 | Performance | Instant File Initialization Not Enabled | https://www.BrentOzar.com/go/instant | 192 |
+| 50 | DBCC Events | Overall Events | | 203 |
 | 50 | Performance | File Growths Slow | https://www.BrentOzar.com/go/filegrowth | 151 |
+| 50 | Performance | Instant File Initialization Not Enabled | https://www.BrentOzar.com/go/instant | 192 |
 | 50 | Performance | Poison Wait Detected | https://www.BrentOzar.com/go/poison | 107 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | https://www.BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: Serializable Locking | https://www.BrentOzar.com/go/serializable | 121 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
+| 50 | Performance | Wait Stats Cleared Recently| | 205 |
 | 50 | Reliability | Database Snapshot Online | https://www.BrentOzar.com/go/snapshot | 77 |
+| 50 | Reliability | DBCC WRITEPAGE Used Recently | | 209 |
 | 50 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |
@@ -55,8 +66,10 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 50 | Reliability | Remote Admin Connections Disabled | https://www.BrentOzar.com/go/dac | 100 |
 | 50 | Reliability | TempDB File Error | https://www.BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
+| 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | https://www.BrentOzar.com/go/hekaton | 147 |
-| 100 | Features | Missing Features | https://www.BrentOzar.com/ | 189 |
+| 100 | Features | Missing Features (2016 SP1) | https://www.BrentOzar.com/ | 189 |
+| 100 | Features | Missing Features (2017 CU3) | https://www.BrentOzar.com/ | 216 |
 | 100 | Performance | Change Tracking Enabled | https://www.BrentOzar.com/go/tracking | 112 |
 | 100 | Performance | Fill Factor Changed | https://www.BrentOzar.com/go/fillfactor | 60 |
 | 100 | Performance | High Number of Cached Plans | https://www.BrentOzar.com/go/planlimits | 161 |
@@ -73,6 +86,8 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 100 | Performance | Single-Use Plans in Procedure Cache | https://www.BrentOzar.com/go/single | 35 |
 | 100 | Performance | Stored Procedure WITH RECOMPILE | https://www.BrentOzar.com/go/recompile | 78 |
 | 100 | Performance | Unusual SQL Server Edition | https://www.BrentOzar.com/go/workgroup | 97 |
+| 100 | Performance | Implicit Transactions | https://www.brentozar.com/go/ImplicitTransactions/ | 215 |
+| 100 | Reliability | Cumulative Update Available | https://SQLServerUpdates.com | 217 |
 | 110 | Performance | Active Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 38 |
 | 110 | Performance | Auto-Create Stats Disabled | https://www.BrentOzar.com/go/acs | 15 |
 | 110 | Performance | Auto-Update Stats Disabled | https://www.BrentOzar.com/go/aus | 16 |
@@ -215,10 +230,11 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 200 | Performance | Buffer Pool Extensions Enabled | https://www.BrentOzar.com/go/bpe | 174 |
 | 200 | Performance | Default Parallelism Settings | https://www.BrentOzar.com/go/cxpacket | 188 |
 | 200 | Performance | In-Memory OLTP (Hekaton) In Use | https://www.BrentOzar.com/go/hekaton | 146 |
+| 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
+| 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
-| 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |
@@ -241,6 +257,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 210 | Non-Default Database Scoped Config | Query Optimizer Hotfixes | https://www.BrentOzar.com/go/dbscope | 197 |
 | 230 | Security | Control Server Permissions | https://www.BrentOzar.com/go/sa | 104 |
 | 230 | Security | Database Owner <> SA | https://www.BrentOzar.com/go/owndb | 55 |
+| 230 | Security | Database Owner is Unknown |  | 213 |
 | 230 | Security | Elevated Permissions on a Database | https://www.BrentOzar.com/go/elevated | 86 |
 | 230 | Security | Endpoints Owned by Users | https://www.BrentOzar.com/go/owners | 187 |
 | 230 | Security | Jobs Owned By Users | https://www.BrentOzar.com/go/owners | 6 |
@@ -255,6 +272,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Informational | SQL Server Agent is running under an NT Service account | https://www.BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | https://www.BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |
+| 250 | Server Info | Container | https://www.BrentOzar.com/go/virtual | 214 |
 | 250 | Server Info | Default Trace Contents | https://www.BrentOzar.com/go/trace | 106 |
 | 250 | Server Info | Drive Space |  | 92 |
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
@@ -269,4 +287,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 | 250 | Server Info | SQL Server Service |  | 85 |
 | 250 | Server Info | Virtual Server | https://www.BrentOzar.com/go/virtual | 103 |
 | 250 | Server Info | Windows Version |  | 172 |
+| 250 | Server Info | Power Plan |  | 211 |
+| 250 | Server Info | Stacked Instances | https://www.brentozar.com/go/babygotstacked/ | 212 |
 | 254 | Rundate | (Current Date) |  | 156 |
+| 255 | Thanks! | From Your Community Volunteers |  | -1 |
