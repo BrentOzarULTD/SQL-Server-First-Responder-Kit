@@ -106,13 +106,13 @@ If you want to add a new one, start at 219
 | 150 | Performance | Foreign Keys Not Trusted | https://www.BrentOzar.com/go/trust | 48 |
 | 150 | Performance | Inactive Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 39 |
 | 150 | Performance | Leftover Fake Indexes From Wizards | https://www.BrentOzar.com/go/hypo | 46 |
+| 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 150 | Performance | Queries Forcing Join Hints | https://www.BrentOzar.com/go/hints | 45 |
 | 150 | Performance | Queries Forcing Order Hints | https://www.BrentOzar.com/go/hints | 44 |
 | 150 | Performance | Slow Storage Reads on Drive <DRIVELETTER> | https://www.BrentOzar.com/go/slow | 36 |
 | 150 | Performance | Slow Storage Writes on Drive <DRIVELETTER> | https://www.BrentOzar.com/go/slow | 37 |
 | 150 | Performance | Stats Updated Asynchronously | https://www.BrentOzar.com/go/asyncstats | 17 |
 | 150 | Performance | Triggers on Tables | https://www.BrentOzar.com/go/trig | 32 |
-| 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 170 | File Configuration | File growth set to 1MB | https://www.BrentOzar.com/go/percentgrowth | 158 |
 | 170 | File Configuration | File growth set to percent | https://www.BrentOzar.com/go/percentgrowth | 82 |
 | 170 | File Configuration | High VLF Count | https://www.BrentOzar.com/go/vlf | 69 |
