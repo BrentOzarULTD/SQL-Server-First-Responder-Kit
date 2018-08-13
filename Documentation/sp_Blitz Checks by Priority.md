@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 217
-If you want to add a new one, start at 218
+CURRENT HIGH CHECKID: 218
+If you want to add a new one, start at 219
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -112,6 +112,7 @@ If you want to add a new one, start at 218
 | 150 | Performance | Slow Storage Writes on Drive <DRIVELETTER> | https://www.BrentOzar.com/go/slow | 37 |
 | 150 | Performance | Stats Updated Asynchronously | https://www.BrentOzar.com/go/asyncstats | 17 |
 | 150 | Performance | Triggers on Tables | https://www.BrentOzar.com/go/trig | 32 |
+| 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 170 | File Configuration | File growth set to 1MB | https://www.BrentOzar.com/go/percentgrowth | 158 |
 | 170 | File Configuration | File growth set to percent | https://www.BrentOzar.com/go/percentgrowth | 82 |
 | 170 | File Configuration | High VLF Count | https://www.BrentOzar.com/go/vlf | 69 |
