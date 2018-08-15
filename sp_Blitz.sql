@@ -1509,37 +1509,6 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 18 )
-					BEGIN
-						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 18) WITH NOWAIT;
-						
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  DatabaseName ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT  18 AS CheckID ,
-										[name] AS DatabaseName ,
-										150 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Forced Parameterization On' AS Finding ,
-										'https://BrentOzar.com/go/forced' AS URL ,
-										( 'Database [' + [name]
-										  + '] has forced parameterization enabled.  SQL Server will aggressively reuse query execution plans even if the applications do not parameterize their queries.  This can be a performance booster with some programming languages, or it may use universally bad execution plans when better alternatives are available for certain parameters.' ) AS Details
-								FROM    sys.databases
-								WHERE   is_parameterization_forced = 1
-										AND name NOT IN ( SELECT  DatabaseName
-														  FROM    #SkipChecks
-														  WHERE CheckID IS NULL OR CheckID = 18);
-					END;
-
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 20 )
 					BEGIN
 						
