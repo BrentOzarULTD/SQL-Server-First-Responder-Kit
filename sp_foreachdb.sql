@@ -55,12 +55,24 @@ AS
 
         IF @database_list > N''
             BEGIN
+			CREATE TABLE #Number (N INT CONSTRAINT Number_FO3OPK PRIMARY KEY CLUSTERED(N)
+              ); 
+ 
+      		 WITH
+              L0   AS(SELECT 1 AS C UNION ALL SELECT 1 AS O), -- 2 rows
+              L1   AS(SELECT 1 AS C FROM L0 AS A CROSS JOIN L0 AS B), -- 4 rows
+              L2   AS(SELECT 1 AS C FROM L1 AS A CROSS JOIN L1 AS B), -- 16 rows
+              L3   AS(SELECT 1 AS C FROM L2 AS A CROSS JOIN L2 AS B), -- 256 rows
+              L4   AS(SELECT 1 AS C FROM L3 AS A CROSS JOIN L3 AS B), -- 65,536 rows
+              L5   AS(SELECT 1 AS C FROM L4 AS A CROSS JOIN L4 AS B), -- 4,294,967,296 rows
+              Nums AS(SELECT ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) AS N FROM L5)
+ 
+  		INSERT INTO #Number SELECT TOP 500000 N FROM Nums ORDER BY N									   
        ;
                 WITH    n ( n )
-                          AS ( SELECT   ROW_NUMBER() OVER ( ORDER BY s1.name )
-                                        - 1
-                               FROM     sys.objects AS s1
-                                        CROSS JOIN sys.objects AS s2
+                          AS (            SELECT ROW_NUMBER() OVER (ORDER BY N) - 1
+            								FROM  #Number
+
                              )
                     SELECT  @dblist = REPLACE(REPLACE(REPLACE(x, '</x><x>',
                                                               ','), '</x>', ''),
