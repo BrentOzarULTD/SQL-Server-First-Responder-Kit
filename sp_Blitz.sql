@@ -25,7 +25,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
-	@Debug TINYINT  = 0,
+    @Debug TINYINT  = 0,
     @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
