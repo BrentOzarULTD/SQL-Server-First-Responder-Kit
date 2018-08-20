@@ -322,6 +322,7 @@ SELECT @EnhanceFlag =
 	    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
 		     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
 		     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
+			 WHEN @ProductVersionMajor > 13 THEN 1
 		     ELSE 0 
 	    END
 
