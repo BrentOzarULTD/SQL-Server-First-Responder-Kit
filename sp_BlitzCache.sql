@@ -1344,26 +1344,20 @@ CREATE TABLE #missing_index_pretty
 	[include] NVARCHAR(MAX),
 	executions NVARCHAR(128),
 	query_cost NVARCHAR(128),
-	rebinds NVARCHAR(128),
 	creation_hours NVARCHAR(128),
 	is_spool BIT,
 	details AS N'/* '
 	           + CHAR(10) 
 			   + CASE is_spool 
 			          WHEN 0 
-					      THEN N'The Query Processor estimates that implementing the '
-					  ELSE     N'We estimate that implementing the '
+					  THEN N'The Query Processor estimates that implementing the '
+					  ELSE N'We estimate that implementing the '
 				 END 
-			   + CHAR(10)
 			   + N'following index could improve query cost (' + query_cost + N')'
 			   + CHAR(10) 
 			   + N'by '
 			   + CONVERT(NVARCHAR(30), impact)
 			   + N'% for ' + executions + N' executions of the query'
-			   + CASE is_spool
-			          WHEN 1 THEN N' and ' + rebinds + N' rebinds of the spool per query execution'
-					  ELSE N''
-				 END
 			   + N' over the last ' + 
 					CASE WHEN creation_hours < 24
 					     THEN creation_hours + N' hours.'
@@ -1426,7 +1420,6 @@ CREATE TABLE #index_spool_ugly
 	inequality NVARCHAR(MAX),
 	[include] NVARCHAR(MAX),
 	executions NVARCHAR(128),
-	rebinds NVARCHAR(128),
 	query_cost NVARCHAR(128),
 	creation_hours NVARCHAR(128)
 );
@@ -3910,7 +3903,7 @@ OPTION (RECOMPILE);
 		RAISERROR(N'Inserting to #index_spool_ugly', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 		INSERT #index_spool_ugly 
-		        (QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, rebinds, creation_hours)
+		        (QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, creation_hours)
 		SELECT p.QueryHash, 
 		       p.SqlHandle,                                                                               
 		       (c.n.value('@EstimateIO', 'FLOAT') + (c.n.value('@EstimateCPU', 'FLOAT'))) 
@@ -3923,7 +3916,6 @@ OPTION (RECOMPILE);
 			   o.n.value('@Column', 'NVARCHAR(128)') AS output_column, 
 			   p.ExecutionCount, 
 			   p.QueryPlanCost, 
-			   c.n.value('@EstimateRebinds', 'FLOAT'),
 			   p.PlanCreationTimeHours
 		FROM #relop AS r
 		JOIN ##bou_BlitzCacheProcs p
@@ -3936,7 +3928,7 @@ OPTION (RECOMPILE);
 
 		RAISERROR(N'Inserting to spools to #missing_index_pretty', 0, 1) WITH NOWAIT;
 		INSERT #missing_index_pretty
-			(QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, rebinds, creation_hours, is_spool)
+			(QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, creation_hours, is_spool)
 		SELECT DISTINCT isu.QueryHash,
 		       isu.SqlHandle,
 		       isu.impact,
@@ -3975,7 +3967,6 @@ OPTION (RECOMPILE);
 			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS include,
 		       isu.executions,
 		       isu.query_cost,
-			   isu.rebinds, 
 		       isu.creation_hours,
 			   1
 		FROM #index_spool_ugly AS isu
