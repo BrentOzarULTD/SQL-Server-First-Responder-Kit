@@ -1145,6 +1145,8 @@ IF OBJECT_ID('tempdb..#missing_index_detail') IS NOT NULL
 IF OBJECT_ID('tempdb..#missing_index_pretty') IS NOT NULL
     DROP TABLE #missing_index_pretty;
 
+IF OBJECT_ID('tempdb..#index_spool_ugly') IS NOT NULL
+    DROP TABLE #index_spool_ugly;
 
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
@@ -1342,16 +1344,26 @@ CREATE TABLE #missing_index_pretty
 	[include] NVARCHAR(MAX),
 	executions NVARCHAR(128),
 	query_cost NVARCHAR(128),
+	rebinds NVARCHAR(128),
 	creation_hours NVARCHAR(128),
+	is_spool BIT,
 	details AS N'/* '
 	           + CHAR(10) 
-			   + N'The Query Processor estimates that implementing the '
+			   + CASE is_spool 
+			          WHEN 0 
+					      THEN N'The Query Processor estimates that implementing the '
+					  ELSE     N'We estimate that implementing the '
+				 END 
 			   + CHAR(10)
 			   + N'following index could improve query cost (' + query_cost + N')'
 			   + CHAR(10) 
 			   + N'by '
 			   + CONVERT(NVARCHAR(30), impact)
-			   + N'% for ' + executions + N' executions'
+			   + N'% for ' + executions + N' executions of the query'
+			   + CASE is_spool
+			          WHEN 1 THEN N' and ' + rebinds + N' rebinds of the spool per query execution'
+					  ELSE N''
+				 END
 			   + N' over the last ' + 
 					CASE WHEN creation_hours < 24
 					     THEN creation_hours + N' hours.'
@@ -1400,6 +1412,25 @@ CREATE TABLE #missing_index_pretty
 			   + CHAR(10)
 			   + N'*/'
 );
+
+
+CREATE TABLE #index_spool_ugly
+(
+    QueryHash BINARY(8),
+    SqlHandle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+	equality NVARCHAR(MAX),
+	inequality NVARCHAR(MAX),
+	[include] NVARCHAR(MAX),
+	executions NVARCHAR(128),
+	rebinds NVARCHAR(128),
+	query_cost NVARCHAR(128),
+	creation_hours NVARCHAR(128)
+);
+
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -3435,6 +3466,7 @@ JOIN    ##bou_BlitzCacheProcs AS b
 WHERE   b.SPID = @@SPID
 OPTION ( RECOMPILE );
 
+/*Begin implicit conversion and parameter info */
 
 RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
@@ -3765,8 +3797,7 @@ AND pk.SPID = b.SPID
 WHERE b.QueryType = N'Statement'
 OPTION (RECOMPILE);
 
-
-RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
+RAISERROR(N'Filling in implicit conversion and cached plan parameter info', 0, 1) WITH NOWAIT;
 UPDATE b
 SET b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
 									  OR CONVERT(NVARCHAR(MAX), b.implicit_conversion_info) = N''
@@ -3780,11 +3811,9 @@ FROM ##bou_BlitzCacheProcs AS b
 WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
-/*Begin Missing Index*/
+/*End implicit conversion and parameter info*/
 
-IF EXISTS 
-	(SELECT 1 FROM ##bou_BlitzCacheProcs AS bbcp WHERE bbcp.missing_index_count > 0 AND bbcp.SPID = @@SPID)
-	BEGIN;
+/*Begin Missing Index*/
 		
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3802,9 +3831,9 @@ IF EXISTS
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 		INSERT #missing_index_schema
 		SELECT mix.QueryHash, mix.SqlHandle, mix.impact,
-		       c.mi.value('@Database', 'NVARCHAR(128)') ,
-		       c.mi.value('@Schema', 'NVARCHAR(128)') ,
-		       c.mi.value('@Table', 'NVARCHAR(128)') ,
+		       c.mi.value('@Database', 'NVARCHAR(128)'),
+		       c.mi.value('@Schema', 'NVARCHAR(128)'),
+		       c.mi.value('@Table', 'NVARCHAR(128)'),
 			   c.mi.query('.')
 		FROM #missing_index_xml AS mix
 		CROSS APPLY mix.index_xml.nodes('//p:MissingIndex') AS c(mi)
@@ -3835,10 +3864,10 @@ IF EXISTS
 		CROSS APPLY miu.index_xml.nodes('//p:Column') AS c(c)
 		OPTION (RECOMPILE);
 		
-		RAISERROR(N'Inserting to #missing_index_pretty', 0, 1) WITH NOWAIT;
+		RAISERROR(N'Inserting to missing indexes to #missing_index_pretty', 0, 1) WITH NOWAIT;
 		INSERT #missing_index_pretty 
-		       ( QueryHash,   SqlHandle,   impact,   database_name,   schema_name,   table_name, equality, inequality, include, executions, query_cost, creation_hours )
-		SELECT m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name
+		       ( QueryHash,   SqlHandle,   impact,   database_name,   schema_name,   table_name, equality, inequality, include, executions, query_cost, creation_hours, is_spool )
+		SELECT DISTINCT m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name
 		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
 		                 FROM   #missing_index_detail AS m2
 		                 WHERE  m2.usage = 'EQUALITY'
@@ -3871,19 +3900,93 @@ IF EXISTS
 		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include],
 		bbcp.ExecutionCount,
 		bbcp.QueryPlanCost,
-		bbcp.PlanCreationTimeHours
+		bbcp.PlanCreationTimeHours,
+		0
 		FROM #missing_index_detail AS m
 		JOIN ##bou_BlitzCacheProcs AS bbcp
 		ON m.SqlHandle = bbcp.SqlHandle
-		GROUP BY m.QueryHash, m.SqlHandle, m.impact, m.database_name, m.schema_name, m.table_name, bbcp.ExecutionCount, bbcp.QueryPlanCost, bbcp.PlanCreationTimeHours
 		OPTION (RECOMPILE);
 		
+		RAISERROR(N'Inserting to #index_spool_ugly', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+		INSERT #index_spool_ugly 
+		        (QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, rebinds, creation_hours)
+		SELECT p.QueryHash, 
+		       p.SqlHandle,                                                                               
+		       (c.n.value('@EstimateIO', 'FLOAT') + (c.n.value('@EstimateCPU', 'FLOAT'))) 
+					/ ( 1 * NULLIF(p.QueryPlanCost, 0)) * 100 AS impact, 
+			   o.n.value('@Database', 'NVARCHAR(128)') AS output_database, 
+			   o.n.value('@Schema', 'NVARCHAR(128)') AS output_schema, 
+			   o.n.value('@Table', 'NVARCHAR(128)') AS output_table, 
+		       k.n.value('@Column', 'NVARCHAR(128)') AS range_column,
+			   e.n.value('@Column', 'NVARCHAR(128)') AS expression_column,
+			   o.n.value('@Column', 'NVARCHAR(128)') AS output_column, 
+			   p.ExecutionCount, 
+			   p.QueryPlanCost, 
+			   c.n.value('@EstimateRebinds', 'FLOAT'),
+			   p.PlanCreationTimeHours
+		FROM #relop AS r
+		JOIN ##bou_BlitzCacheProcs p
+		ON p.QueryHash = r.QueryHash
+		CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
+		CROSS APPLY r.relop.nodes('/p:RelOp/p:OutputList/p:ColumnReference') AS o(n)
+		OUTER APPLY r.relop.nodes('/p:RelOp/p:Spool/p:SeekPredicateNew/p:SeekKeys/p:Prefix/p:RangeColumns/p:ColumnReference') AS k(n)
+		OUTER APPLY r.relop.nodes('/p:RelOp/p:Spool/p:SeekPredicateNew/p:SeekKeys/p:Prefix/p:RangeExpressions/p:ColumnReference') AS e(n)
+		WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager Spool"]') = 1
+
+		RAISERROR(N'Inserting to spools to #missing_index_pretty', 0, 1) WITH NOWAIT;
+		INSERT #missing_index_pretty
+			(QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, rebinds, creation_hours, is_spool)
+		SELECT DISTINCT isu.QueryHash,
+		       isu.SqlHandle,
+		       isu.impact,
+		       isu.database_name,
+		       isu.schema_name,
+		       isu.table_name
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.equality, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.equality IS NOT NULL
+			   						 AND isu.QueryHash = isu2.QueryHash
+			   						 AND isu.SqlHandle = isu2.SqlHandle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS equality
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.inequality, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.inequality IS NOT NULL
+			   						 AND isu.QueryHash = isu2.QueryHash
+			   						 AND isu.SqlHandle = isu2.SqlHandle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS inequality
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.include, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.include IS NOT NULL
+			   						 AND isu.QueryHash = isu2.QueryHash
+			   						 AND isu.SqlHandle = isu2.SqlHandle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS include,
+		       isu.executions,
+		       isu.query_cost,
+			   isu.rebinds, 
+		       isu.creation_hours,
+			   1
+		FROM #index_spool_ugly AS isu
+
+
 		RAISERROR(N'Updating missing index information', 0, 1) WITH NOWAIT;
 		WITH missing AS (
-		SELECT mip.QueryHash,
+		SELECT DISTINCT
+		       mip.QueryHash,
 		       mip.SqlHandle, 
 			   mip.executions,
-			   CONVERT(XML,
 			   N'<MissingIndexes><![CDATA['
 			   + CHAR(10) + CHAR(13)
 			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
@@ -3896,9 +3999,8 @@ IF EXISTS
 						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') 
 			   + CHAR(10) + CHAR(13)
 			   + N']]></MissingIndexes>' 
-			   ) AS full_details
+			   AS full_details
 		FROM #missing_index_pretty AS mip
-		GROUP BY mip.QueryHash, mip.SqlHandle, mip.impact, mip.executions
 						)
 		UPDATE bbcp
 			SET bbcp.missing_indexes = m.full_details
@@ -3908,9 +4010,6 @@ IF EXISTS
 		AND m.executions = bbcp.ExecutionCount
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
-
-	
-	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
 	UPDATE b
