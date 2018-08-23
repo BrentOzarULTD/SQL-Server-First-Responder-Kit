@@ -2076,7 +2076,7 @@ AS
 								  Details
 								)
 								SELECT  29 AS CheckID ,
-								        'msdb' AS DatabaseName ,
+								        'model' AS DatabaseName ,
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'Tables in the Model Database' AS Finding ,
