@@ -1173,6 +1173,7 @@ IF @Restore = 1
 											  	AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
                                                 AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
 											  )
+										AND rw.ignore_database = 1
 										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
 	
 								
