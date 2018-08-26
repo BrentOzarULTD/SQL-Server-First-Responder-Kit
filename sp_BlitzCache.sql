@@ -3125,8 +3125,6 @@ OPTION (RECOMPILE);
 END; 
 
 
-IF @ExpertMode > 0
-BEGIN
 RAISERROR('Checking for wonky Index Spools', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3153,7 +3151,6 @@ FROM ##bou_BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
-END; 
 
 
 /* 2012+ only */
@@ -3482,6 +3479,7 @@ CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference
 WHERE  b.SPID = @@SPID
 OPTION (RECOMPILE);
 
+
 RAISERROR(N'Getting conversion info', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 INSERT #conversion_info ( SPID, QueryHash, SqlHandle, proc_name, expression )
@@ -3500,6 +3498,7 @@ WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
             AND b.implicit_conversions = 1
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
+
 
 RAISERROR(N'Parsing conversion info', 0, 1) WITH NOWAIT;
 INSERT #stored_proc_info ( SPID, SqlHandle, QueryHash, proc_name, variable_name, variable_datatype, converted_column_name, column_name, converted_to, compile_time_value )
@@ -3545,7 +3544,6 @@ SELECT @@SPID AS SPID,
        END AS compile_time_value
 FROM   #conversion_info AS ci
 OPTION (RECOMPILE);
-
 
 
 RAISERROR(N'Updating variables for inserted procs', 0, 1) WITH NOWAIT;
@@ -3808,7 +3806,14 @@ OPTION (RECOMPILE);
 /*End implicit conversion and parameter info*/
 
 /*Begin Missing Index*/
-		
+IF EXISTS ( SELECT 1/0 
+            FROM ##bou_BlitzCacheProcs AS bbcp 
+            WHERE bbcp.missing_index_count > 0
+		    OR bbcp.index_spool_cost > 0
+		    OR bbcp.index_spool_rows > 0
+		    AND bbcp.SPID = @@SPID )
+		   
+		BEGIN		
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 		INSERT 	#missing_index_xml
@@ -4004,6 +4009,8 @@ OPTION (RECOMPILE);
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
+	END;
+
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
 	UPDATE b
 	SET b.missing_indexes = 
@@ -4127,7 +4134,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END,
 	   long_running_low_cpu = CASE WHEN AverageDuration > AverageCPU * 4 AND AverageCPU < 500. THEN 1 END,
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost <= 10 AND AverageCPU > 5000. THEN 1 END,
-	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
+	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 5) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
 	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END,
 	   is_big_spills = CASE WHEN (AvgSpills / 128.) > 499. THEN 1 END
