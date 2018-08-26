@@ -5758,7 +5758,7 @@ BEGIN
                      100,
                      'High Compile Time',
                      'Queries taking >5 seconds to compile',
-                     'No URL yet.',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
 					 'This can be normal for large plans, but be careful if they compile frequently');	
 
         IF EXISTS (SELECT 1/0
@@ -5771,7 +5771,7 @@ BEGIN
                      50,
                      'High Compile CPU',
                      'Queries taking >5 seconds of CPU to compile',
-                     'No URL yet.',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
 					 'If CPU is high and plans like this compile frequently, they may be related');
 
         IF EXISTS (SELECT 1/0
@@ -5785,7 +5785,7 @@ BEGIN
                      50,
                      'High Compile Memory',
                      'Queries taking 10% of Max Compile Memory',
-                     'No URL yet.',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
 					 'If you see high RESOURCE_SEMAPHORE_QUERY_COMPILE waits, these may be related');
 
         IF EXISTS (SELECT 1/0
