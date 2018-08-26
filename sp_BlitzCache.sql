@@ -3894,7 +3894,7 @@ OPTION (RECOMPILE);
 		bbcp.ExecutionCount,
 		bbcp.QueryPlanCost,
 		bbcp.PlanCreationTimeHours,
-		0
+		0 as is_spool
 		FROM #missing_index_detail AS m
 		JOIN ##bou_BlitzCacheProcs AS bbcp
 		ON m.SqlHandle = bbcp.SqlHandle
@@ -3929,7 +3929,8 @@ OPTION (RECOMPILE);
 		RAISERROR(N'Inserting to spools to #missing_index_pretty', 0, 1) WITH NOWAIT;
 		INSERT #missing_index_pretty
 			(QueryHash, SqlHandle, impact, database_name, schema_name, table_name, equality, inequality, include, executions, query_cost, creation_hours, is_spool)
-		SELECT DISTINCT isu.QueryHash,
+		SELECT DISTINCT 
+		       isu.QueryHash,
 		       isu.SqlHandle,
 		       isu.impact,
 		       isu.database_name,
@@ -3968,7 +3969,7 @@ OPTION (RECOMPILE);
 		       isu.executions,
 		       isu.query_cost,
 		       isu.creation_hours,
-			   1
+			   1 AS is_spool
 		FROM #index_spool_ugly AS isu
 
 
