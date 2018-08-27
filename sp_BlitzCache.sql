@@ -5663,7 +5663,7 @@ BEGIN
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     998,
+                     57,
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
@@ -5774,7 +5774,7 @@ BEGIN
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     63,
+                     64,
                      50,
                      'High Compile CPU',
                      'Queries taking >5 seconds of CPU to compile',
@@ -5788,7 +5788,7 @@ BEGIN
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     63,
+                     65,
                      50,
                      'High Compile Memory',
                      'Queries taking 10% of Max Compile Memory',
