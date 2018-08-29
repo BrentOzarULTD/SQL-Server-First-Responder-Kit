@@ -2542,6 +2542,7 @@ SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingInd
 		MaxCompileMemory = query_plan.value('sum(//p:QueryPlan/p:OptimizerHardwareDependentProperties/@MaxCompileMemory)', 'float')
 FROM    #query_plan qp
 WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+AND     qp.SqlHandle = ##bou_BlitzCacheProcs.SqlHandle
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -4005,6 +4006,7 @@ IF EXISTS ( SELECT 1/0
 		FROM ##bou_BlitzCacheProcs AS bbcp
 		JOIN missing AS m
 		ON m.SqlHandle = bbcp.SqlHandle
+		AND m.QueryHash = bbcp.QueryHash
 		AND m.executions = bbcp.ExecutionCount
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
