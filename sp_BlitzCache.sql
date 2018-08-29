@@ -133,6 +133,7 @@ CREATE TABLE ##bou_BlitzCacheProcs (
         CompileTime FLOAT,
         CompileCPU FLOAT ,
         CompileMemory FLOAT ,
+		MaxCompileMemory FLOAT ,
         min_worker_time BIGINT,
         max_worker_time BIGINT,
         is_forced_plan BIT,
@@ -877,6 +878,7 @@ BEGIN
         CompileTime FLOAT,
         CompileCPU FLOAT ,
         CompileMemory FLOAT ,
+		MaxCompileMemory FLOAT ,
         min_worker_time BIGINT,
         max_worker_time BIGINT,
         is_forced_plan BIT,
@@ -2508,8 +2510,6 @@ FROM    #query_plan p
         CROSS APPLY p.query_plan.nodes('//p:RelOp') AS q(n) 
 OPTION (RECOMPILE) ;
 
-
-
 -- high level plan stuff
 RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
 UPDATE  ##bou_BlitzCacheProcs
@@ -2526,6 +2526,24 @@ FROM (
 ) AS x
 WHERE ##bou_BlitzCacheProcs.QueryHash = x.QueryHash
 OPTION (RECOMPILE) ;
+
+-- query level checks
+RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+UPDATE  ##bou_BlitzCacheProcs
+SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
+		unmatched_index_count = CASE WHEN is_trivial <> 1 THEN query_plan.value('count(//p:QueryPlan/p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') END ,
+        SerialDesiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
+        SerialRequiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
+        CachedPlanSize = query_plan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
+        CompileTime = query_plan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
+        CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
+        CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float'),
+		MaxCompileMemory = query_plan.value('sum(//p:QueryPlan/p:OptimizerHardwareDependentProperties/@MaxCompileMemory)', 'float')
+FROM    #query_plan qp
+WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
+AND SPID = @@SPID
+OPTION (RECOMPILE);
 
 -- statement level checks
 RAISERROR(N'Performing compile timeout checks', 0, 1) WITH NOWAIT;
@@ -3107,8 +3125,6 @@ OPTION (RECOMPILE);
 END; 
 
 
-IF @ExpertMode > 0
-BEGIN
 RAISERROR('Checking for wonky Index Spools', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3135,7 +3151,6 @@ FROM ##bou_BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
-END; 
 
 
 /* 2012+ only */
@@ -3279,23 +3294,6 @@ OPTION (RECOMPILE);
 END ;
 
 END;
-
--- query level checks
-RAISERROR(N'Performing query level checks', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE  ##bou_BlitzCacheProcs
-SET     missing_index_count = query_plan.value('count(//p:QueryPlan/p:MissingIndexes/p:MissingIndexGroup)', 'int') ,
-		unmatched_index_count = CASE WHEN is_trivial <> 1 THEN query_plan.value('count(//p:QueryPlan/p:UnmatchedIndexes/p:Parameterization/p:Object)', 'int') END ,
-        SerialDesiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialDesiredMemory)', 'float') ,
-        SerialRequiredMemory = query_plan.value('sum(//p:QueryPlan/p:MemoryGrantInfo/@SerialRequiredMemory)', 'float'),
-        CachedPlanSize = query_plan.value('sum(//p:QueryPlan/@CachedPlanSize)', 'float') ,
-        CompileTime = query_plan.value('sum(//p:QueryPlan/@CompileTime)', 'float') ,
-        CompileCPU = query_plan.value('sum(//p:QueryPlan/@CompileCPU)', 'float') ,
-        CompileMemory = query_plan.value('sum(//p:QueryPlan/@CompileMemory)', 'float')
-FROM    #query_plan qp
-WHERE   qp.QueryHash = ##bou_BlitzCacheProcs.QueryHash
-AND SPID = @@SPID
-OPTION (RECOMPILE);
 
 
 /* END Testing using XML nodes to speed up processing */
@@ -3481,6 +3479,7 @@ CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference
 WHERE  b.SPID = @@SPID
 OPTION (RECOMPILE);
 
+
 RAISERROR(N'Getting conversion info', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 INSERT #conversion_info ( SPID, QueryHash, SqlHandle, proc_name, expression )
@@ -3499,6 +3498,7 @@ WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
             AND b.implicit_conversions = 1
 AND b.SPID = @@SPID
 OPTION (RECOMPILE);
+
 
 RAISERROR(N'Parsing conversion info', 0, 1) WITH NOWAIT;
 INSERT #stored_proc_info ( SPID, SqlHandle, QueryHash, proc_name, variable_name, variable_datatype, converted_column_name, column_name, converted_to, compile_time_value )
@@ -3544,7 +3544,6 @@ SELECT @@SPID AS SPID,
        END AS compile_time_value
 FROM   #conversion_info AS ci
 OPTION (RECOMPILE);
-
 
 
 RAISERROR(N'Updating variables for inserted procs', 0, 1) WITH NOWAIT;
@@ -3807,7 +3806,14 @@ OPTION (RECOMPILE);
 /*End implicit conversion and parameter info*/
 
 /*Begin Missing Index*/
-		
+IF EXISTS ( SELECT 1/0 
+            FROM ##bou_BlitzCacheProcs AS bbcp 
+            WHERE bbcp.missing_index_count > 0
+		    OR bbcp.index_spool_cost > 0
+		    OR bbcp.index_spool_rows > 0
+		    AND bbcp.SPID = @@SPID )
+		   
+		BEGIN		
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 		INSERT 	#missing_index_xml
@@ -4003,6 +4009,8 @@ OPTION (RECOMPILE);
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
+	END;
+
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
 	UPDATE b
 	SET b.missing_indexes = 
@@ -4126,7 +4134,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   is_unused_grant = CASE WHEN PercentMemoryGrantUsed <= @memory_grant_warning_percent AND MinGrantKB > @MinMemoryPerQuery THEN 1 END,
 	   long_running_low_cpu = CASE WHEN AverageDuration > AverageCPU * 4 AND AverageCPU < 500. THEN 1 END,
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost <= 10 AND AverageCPU > 5000. THEN 1 END,
-	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 2) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
+	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 5) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
 	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END,
 	   is_big_spills = CASE WHEN (AvgSpills / 128.) > 499. THEN 1 END
@@ -4243,7 +4251,10 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 
 				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
 				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
-                  CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
+                  CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END + 
+				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
+				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
 				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
@@ -4318,7 +4329,10 @@ SELECT  DISTINCT
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 
 				  CASE WHEN is_mstvf = 1 THEN ', MSTVFs' ELSE '' END + 
 				  CASE WHEN is_mm_join = 1 THEN ', Many to Many Merge' ELSE '' END + 
-                  CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END
+                  CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END +
+				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
+				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
                   , 3, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4795,7 +4809,10 @@ BEGIN
                   CASE WHEN is_big_spills = 1 THEN '', 59'' ELSE '''' END +
 				  CASE WHEN is_mstvf = 1 THEN '', 60'' ELSE '''' END + 
 				  CASE WHEN is_mm_join = 1 THEN '', 61'' ELSE '''' END  + 
-                  CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END
+                  CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END + 
+				  CASE WHEN CompileTime > 5000 THEN '', 63 '' ELSE '''' END +
+				  CASE WHEN CompileCPU > 5000 THEN '', 64 '' ELSE '''' END +
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN '', 65 '' ELSE '''' END
 				  , 3, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5646,7 +5663,7 @@ BEGIN
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
-                     998,
+                     57,
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
@@ -5737,6 +5754,46 @@ BEGIN
                      'Queries may have non-SARGable predicates',
                      'http://brentozar.com/go/sargable',
 					 'Looks for intrinsic functions and expressions as predicates, and leading wildcard LIKE searches.');	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  CompileTime > 5000
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     63,
+                     100,
+                     'High Compile Time',
+                     'Queries taking >5 seconds to compile',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
+					 'This can be normal for large plans, but be careful if they compile frequently');	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  CompileCPU > 5000
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     64,
+                     50,
+                     'High Compile CPU',
+                     'Queries taking >5 seconds of CPU to compile',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
+					 'If CPU is high and plans like this compile frequently, they may be related');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##bou_BlitzCacheProcs p
+                    WHERE  CompileMemory > 1024 
+					AND    ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10.
+  					)
+             INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     65,
+                     50,
+                     'High Compile Memory',
+                     'Queries taking 10% of Max Compile Memory',
+                     'https://www.brentozar.com/blitzcache/high-compilers/',
+					 'If you see high RESOURCE_SEMAPHORE_QUERY_COMPILE waits, these may be related');
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
