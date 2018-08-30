@@ -2223,8 +2223,20 @@ FROM    (SELECT  SqlHandle,
                  TotalWrites,
                  ExecutionCount,
                  ROW_NUMBER() OVER (PARTITION BY SqlHandle ORDER BY #sortable# DESC) AS rn
-         FROM    ##bou_BlitzCacheProcs) AS x
+         FROM    ##bou_BlitzCacheProcs
+		 WHERE SPID = @@SPID) AS x
 WHERE x.rn = 1
+OPTION (RECOMPILE);
+
+WITH d AS (
+SELECT  SPID,
+        ROW_NUMBER() OVER (PARTITION BY SqlHandle, QueryHash ORDER BY #sortable# DESC) AS rn
+FROM    ##bou_BlitzCacheProcs
+WHERE SPID = @@SPID
+)
+DELETE d
+WHERE d.rn > 1
+AND SPID = @@SPID
 OPTION (RECOMPILE);
 ';
 
@@ -2330,18 +2342,18 @@ OPTION (RECOMPILE) ;
  * metric.
  */
 RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
-DECLARE @total_duration BIGINT,
-        @total_cpu BIGINT,
-        @total_reads BIGINT,
-        @total_writes BIGINT,
-        @total_execution_count BIGINT;
+DECLARE @total_duration MONEY,
+        @total_cpu MONEY,
+        @total_reads MONEY,
+        @total_writes MONEY,
+        @total_execution_count MONEY;
 
 SELECT  @total_cpu = SUM(TotalCPU),
         @total_duration = SUM(TotalDuration),
         @total_reads = SUM(TotalReads),
         @total_writes = SUM(TotalWrites),
         @total_execution_count = SUM(ExecutionCount)
-FROM    #p
+FROM    #p 
 OPTION (RECOMPILE) ;
 
 DECLARE @cr NVARCHAR(1) = NCHAR(13);
@@ -3138,7 +3150,7 @@ AS ( SELECT DISTINCT r.QueryHash,
 	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
        c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
        c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
-       c.n.value('@EstimateRewinds', 'FLOAT') AS estimated_rewinds
+       c.n.value('@EstimateRebinds', 'FLOAT') AS estimated_rebinds
 FROM   #relop AS r
 JOIN   selects AS s
 ON s.QueryHash = r.QueryHash
@@ -3147,7 +3159,7 @@ WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager S
 )
 UPDATE b
 		SET b.index_spool_rows = sp.estimated_rows,
-			b.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rewinds < 1 THEN 1 ELSE sp.estimated_rewinds END)
+			b.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rebinds < 1 THEN 1 ELSE sp.estimated_rebinds END)
 FROM ##bou_BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
