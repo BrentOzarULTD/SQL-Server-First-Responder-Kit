@@ -25,15 +25,15 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
-	@Debug TINYINT  = 0,
+    @Debug TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '6.9';
+	SET @VersionDate = '20180901';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -1509,37 +1509,6 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 18 )
-					BEGIN
-						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 18) WITH NOWAIT;
-						
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  DatabaseName ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT  18 AS CheckID ,
-										[name] AS DatabaseName ,
-										150 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Forced Parameterization On' AS Finding ,
-										'https://BrentOzar.com/go/forced' AS URL ,
-										( 'Database [' + [name]
-										  + '] has forced parameterization enabled.  SQL Server will aggressively reuse query execution plans even if the applications do not parameterize their queries.  This can be a performance booster with some programming languages, or it may use universally bad execution plans when better alternatives are available for certain parameters.' ) AS Details
-								FROM    sys.databases
-								WHERE   is_parameterization_forced = 1
-										AND name NOT IN ( SELECT  DatabaseName
-														  FROM    #SkipChecks
-														  WHERE CheckID IS NULL OR CheckID = 18);
-					END;
-
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 20 )
 					BEGIN
 						
@@ -2076,7 +2045,7 @@ AS
 								  Details
 								)
 								SELECT  29 AS CheckID ,
-								        'msdb' AS DatabaseName ,
+								        'model' AS DatabaseName ,
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
 										'Tables in the Model Database' AS Finding ,
@@ -5947,12 +5916,47 @@ IF @ProductVersionMajor >= 10
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
 									 OPTION (RECOMPILE);';
-					        END;
+			END;
 
-	
-					END; /* IF @CheckUserDatabaseObjects = 1 */
+			/* Check 218 - Show me the dodgy SET Options */
+			IF NOT EXISTS (
+					SELECT 1
+					FROM #SkipChecks
+					WHERE DatabaseName IS NULL
+						AND CheckID = 218
+					)
+			BEGIN
+				IF @Debug IN (1,2)
+				BEGIN
+					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
+				END
 
-				IF @CheckProcedureCache = 1
+				EXECUTE sp_MSforeachdb 'USE [?];
+					INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+					SELECT 218 AS CheckID
+						,''?'' AS DatabaseName
+						,150 AS Priority
+						,''Performance'' AS FindingsGroup
+						,''Objects created with dangerous SET Options'' AS Finding
+						,''https://BrentOzar.com/go/badset'' AS URL
+						,''The '' + QUOTENAME(DB_NAME())
+							+ '' database has '' + CONVERT(VARCHAR(20),COUNT(1))
+							+ '' objects that were created with dangerous ANSI_NULL or QUOTED_IDENTIFIER options.''
+							+ '' These objects can break when using filtered indexes, indexed views''
+							+ '' and other advanced SQL features.'' AS Details
+					FROM sys.sql_modules sm
+					JOIN sys.objects o ON o.[object_id] = sm.[object_id]
+						AND (
+							sm.uses_ansi_nulls <> 1
+							OR sm.uses_quoted_identifier <> 1
+							)
+						AND o.is_ms_shipped = 0
+					HAVING COUNT(1) > 0;';
+			END; --of Check 218.
+
+		END; /* IF @CheckUserDatabaseObjects = 1 */
+
+		IF @CheckProcedureCache = 1
 					
 					BEGIN
 

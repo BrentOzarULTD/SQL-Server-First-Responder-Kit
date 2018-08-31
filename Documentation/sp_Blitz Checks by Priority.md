@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 217
-If you want to add a new one, start at 218
+CURRENT HIGH CHECKID: 218.  
+If you want to add a new one, start at 219.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -106,6 +106,7 @@ If you want to add a new one, start at 218
 | 150 | Performance | Foreign Keys Not Trusted | https://www.BrentOzar.com/go/trust | 48 |
 | 150 | Performance | Inactive Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 39 |
 | 150 | Performance | Leftover Fake Indexes From Wizards | https://www.BrentOzar.com/go/hypo | 46 |
+| 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 150 | Performance | Queries Forcing Join Hints | https://www.BrentOzar.com/go/hints | 45 |
 | 150 | Performance | Queries Forcing Order Hints | https://www.BrentOzar.com/go/hints | 44 |
 | 150 | Performance | Slow Storage Reads on Drive <DRIVELETTER> | https://www.BrentOzar.com/go/slow | 36 |

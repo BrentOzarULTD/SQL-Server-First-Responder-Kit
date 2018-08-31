@@ -29,6 +29,7 @@ DELETE dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (14, 3037, 'RTM CU10', 'https://support.microsoft.com/en-us/help/4342123', '2018-08-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 10'),
     (14, 3030, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4341265', '2018-07-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 9'),
     (14, 3029, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4338363', '2018-06-21', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 8'),
     (14, 3026, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
@@ -39,6 +40,7 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5201, 'SP2 CU2 + Security Update', 'https://support.microsoft.com/en-us/help/4458621', '2018-08-21', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2 + Security Update'),
     (13, 5153, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/4340355', '2018-07-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2'),
     (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
     (13, 5026, 'SP2 ', 'https://support.microsoft.com/en-us/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
@@ -52,6 +54,7 @@ VALUES
     (13, 4435, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/4019916', '2017-05-15', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 3'),
     (13, 4422, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/4013106', '2017-03-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 2'),
     (13, 4411, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/3208177', '2017-01-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 1'),
+    (13, 4224, 'SP1 CU10 + Security Update', 'https://support.microsoft.com/en-us/help/4458842', '2018-08-22', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10 + Security Update'),
     (13, 4001, 'SP1 ', 'https://support.microsoft.com/en-us/help/3182545 ', '2016-11-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 '),
     (13, 2216, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4037357', '2017-11-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 9'),
     (13, 2213, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4024304', '2017-09-18', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 8'),
@@ -63,6 +66,7 @@ VALUES
     (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
     (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    (12, 5590, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4456287', '2018-08-27', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 13'),
     (12, 5589, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4130489', '2018-06-18', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 12'),
     (12, 5579, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4077063', '2018-03-19', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 11'),
     (12, 5571, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4052725', '2018-01-16', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 10'),

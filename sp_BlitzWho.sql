@@ -13,8 +13,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '6.9';
+	SET @VersionDate = '20180901';
 
 
 	IF @Help = 1
@@ -322,6 +322,7 @@ SELECT @EnhanceFlag =
 	    CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
 		     WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
 		     WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
+			 WHEN @ProductVersionMajor > 13 THEN 1
 		     ELSE 0 
 	    END
 

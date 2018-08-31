@@ -55,8 +55,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '2.9';
+	SET @VersionDate = '20180901';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -836,7 +836,8 @@ CREATE TABLE #missing_index_xml
     query_hash BINARY(8),
     sql_handle VARBINARY(64),
     impact FLOAT,
-    index_xml XML
+    index_xml XML,
+	INDEX mix_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 DROP TABLE IF EXISTS #missing_index_schema;
@@ -849,7 +850,8 @@ CREATE TABLE #missing_index_schema
     database_name NVARCHAR(128),
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
-    index_xml XML
+    index_xml XML,
+	INDEX mis_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 
@@ -864,7 +866,8 @@ CREATE TABLE #missing_index_usage
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
 	usage NVARCHAR(128),
-    index_xml XML
+    index_xml XML,
+	INDEX miu_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 DROP TABLE IF EXISTS #missing_index_detail;
@@ -878,7 +881,8 @@ CREATE TABLE #missing_index_detail
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
     usage NVARCHAR(128),
-    column_name NVARCHAR(128)
+    column_name NVARCHAR(128),
+	INDEX mid_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
 
@@ -895,9 +899,14 @@ CREATE TABLE #missing_index_pretty
 	equality NVARCHAR(MAX),
 	inequality NVARCHAR(MAX),
 	[include] NVARCHAR(MAX),
+	is_spool BIT,
 	details AS N'/* '
 	           + CHAR(10) 
-			   + N'The Query Processor estimates that implementing the following index could improve the query cost by ' 
+			   + CASE is_spool 
+			          WHEN 0 
+					  THEN N'The Query Processor estimates that implementing the '
+					  ELSE N'We estimate that implementing the '
+				 END  
 			   + CONVERT(NVARCHAR(30), impact)
 			   + '%.'
 			   + CHAR(10)
@@ -937,8 +946,26 @@ CREATE TABLE #missing_index_pretty
 			   + CHAR(10)
 			   + N'GO'
 			   + CHAR(10)
-			   + N'*/'
+			   + N'*/',
+	INDEX mip_ix_ids CLUSTERED (sql_handle, query_hash)
 );
+
+DROP TABLE IF EXISTS #index_spool_ugly;
+
+CREATE TABLE #index_spool_ugly
+(
+    query_hash BINARY(8),
+    sql_handle VARBINARY(64),
+    impact FLOAT,
+    database_name NVARCHAR(128),
+    schema_name NVARCHAR(128),
+    table_name NVARCHAR(128),
+	equality NVARCHAR(MAX),
+	inequality NVARCHAR(MAX),
+	[include] NVARCHAR(MAX),
+	INDEX isu_ix_ids CLUSTERED (sql_handle, query_hash)
+);
+
 
 /*Sets up WHERE clause that gets used quite a bit*/
 
@@ -3503,12 +3530,9 @@ SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL
 FROM   #working_warnings AS b
 OPTION (RECOMPILE);
 
-/*Begin Missing Index*/
+/*End implicit conversion and parameter info*/
 
-IF EXISTS 
-	(SELECT 1 FROM #working_warnings AS ww WHERE ww.missing_index_count > 0 )
-	
-	BEGIN
+/*Begin Missing Index*/
 	
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3527,9 +3551,9 @@ IF EXISTS
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 		INSERT #missing_index_schema
 		SELECT mix.query_hash, mix.sql_handle, mix.impact,
-		       c.mi.value('@Database', 'NVARCHAR(128)') ,
-		       c.mi.value('@Schema', 'NVARCHAR(128)') ,
-		       c.mi.value('@Table', 'NVARCHAR(128)') ,
+		       c.mi.value('@Database', 'NVARCHAR(128)'),
+		       c.mi.value('@Schema', 'NVARCHAR(128)'),
+		       c.mi.value('@Table', 'NVARCHAR(128)'),
 			   c.mi.query('.')
 		FROM #missing_index_xml AS mix
 		CROSS APPLY mix.index_xml.nodes('//p:MissingIndex') AS c(mi)
@@ -3562,7 +3586,7 @@ IF EXISTS
 		
 		RAISERROR(N'Inserting to #missing_index_pretty', 0, 1) WITH NOWAIT;
 		INSERT #missing_index_pretty
-		SELECT m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
+		SELECT DISTINCT m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
 		, STUFF((   SELECT DISTINCT N', ' + ISNULL(m2.column_name, '') AS column_name
 		                 FROM   #missing_index_detail AS m2
 		                 WHERE  m2.usage = 'EQUALITY'
@@ -3592,16 +3616,84 @@ IF EXISTS
 						 AND m.database_name = m2.database_name
 						 AND m.schema_name = m2.schema_name
 						 AND m.table_name = m2.table_name
-		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include]
+		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS [include],
+		0 AS is_spool
 		FROM #missing_index_detail AS m
 		GROUP BY m.query_hash, m.sql_handle, m.impact, m.database_name, m.schema_name, m.table_name
 		OPTION (RECOMPILE);
+
+		RAISERROR(N'Inserting to #index_spool_ugly', 0, 1) WITH NOWAIT;
+		WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+		INSERT #index_spool_ugly 
+		        (query_hash, sql_handle, impact, database_name, schema_name, table_name, equality, inequality, include)
+		SELECT r.query_hash, 
+		       r.sql_handle,                                                                               
+		       (c.n.value('@EstimateIO', 'FLOAT') + (c.n.value('@EstimateCPU', 'FLOAT'))) 
+					/ ( 1 * NULLIF(ww.query_cost, 0)) * 100 AS impact, 
+			   o.n.value('@Database', 'NVARCHAR(128)') AS output_database, 
+			   o.n.value('@Schema', 'NVARCHAR(128)') AS output_schema, 
+			   o.n.value('@Table', 'NVARCHAR(128)') AS output_table, 
+		       k.n.value('@Column', 'NVARCHAR(128)') AS range_column,
+			   e.n.value('@Column', 'NVARCHAR(128)') AS expression_column,
+			   o.n.value('@Column', 'NVARCHAR(128)') AS output_column
+		FROM #relop AS r
+		JOIN #working_warnings AS ww
+		ON ww.query_hash = r.query_hash
+		CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
+		CROSS APPLY r.relop.nodes('/p:RelOp/p:OutputList/p:ColumnReference') AS o(n)
+		OUTER APPLY r.relop.nodes('/p:RelOp/p:Spool/p:SeekPredicateNew/p:SeekKeys/p:Prefix/p:RangeColumns/p:ColumnReference') AS k(n)
+		OUTER APPLY r.relop.nodes('/p:RelOp/p:Spool/p:SeekPredicateNew/p:SeekKeys/p:Prefix/p:RangeExpressions/p:ColumnReference') AS e(n)
+		WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager Spool"]') = 1
 		
+		RAISERROR(N'Inserting to spools to #missing_index_pretty', 0, 1) WITH NOWAIT;
+		INSERT #missing_index_pretty
+			(query_hash, sql_handle, impact, database_name, schema_name, table_name, equality, inequality, include, is_spool)
+		SELECT DISTINCT 
+		       isu.query_hash,
+		       isu.sql_handle,
+		       isu.impact,
+		       isu.database_name,
+		       isu.schema_name,
+		       isu.table_name
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.equality, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.equality IS NOT NULL
+			   						 AND isu.query_hash = isu2.query_hash
+			   						 AND isu.sql_handle = isu2.sql_handle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS equality
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.inequality, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.inequality IS NOT NULL
+			   						 AND isu.query_hash = isu2.query_hash
+			   						 AND isu.sql_handle = isu2.sql_handle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS inequality
+			   , STUFF((   SELECT DISTINCT N', ' + ISNULL(isu2.include, '') AS column_name
+			   		                 FROM   #index_spool_ugly AS isu2
+			   		                 WHERE  isu2.include IS NOT NULL
+			   						 AND isu.query_hash = isu2.query_hash
+			   						 AND isu.sql_handle = isu2.sql_handle
+			   						 AND isu.impact = isu2.impact
+			   						 AND isu.database_name = isu2.database_name
+			   						 AND isu.schema_name = isu2.schema_name
+			   						 AND isu.table_name = isu2.table_name
+			   		                 FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') AS include,
+			   1 AS is_spool
+		FROM #index_spool_ugly AS isu
+
+
 		RAISERROR(N'Updating missing index information', 0, 1) WITH NOWAIT;
 		WITH missing AS (
-		SELECT mip.query_hash,
+		SELECT DISTINCT
+		       mip.query_hash,
 		       mip.sql_handle, 
-			   CONVERT(XML,
 			   N'<MissingIndexes><![CDATA['
 			   + CHAR(10) + CHAR(13)
 			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
@@ -3613,7 +3705,7 @@ IF EXISTS
 						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'') 
 			   + CHAR(10) + CHAR(13)
 			   + N']]></MissingIndexes>'  
-			   ) AS full_details
+			   AS full_details
 		FROM #missing_index_pretty AS mip
 		GROUP BY mip.query_hash, mip.sql_handle, mip.impact
 						)
@@ -3623,9 +3715,6 @@ IF EXISTS
 		JOIN missing AS m
 		ON m.sql_handle = ww.sql_handle
 		OPTION (RECOMPILE);
-
-	
-	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
 	UPDATE ww

@@ -40,8 +40,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.8';
-SET @VersionDate = '20180801';
+SET @Version = '6.9';
+SET @VersionDate = '20180901';
 
 
 IF @Help = 1 PRINT '
@@ -1206,50 +1206,12 @@ BEGIN
 		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
 		   FROM sys.dm_os_wait_stats os
 		) x
-		   WHERE x.wait_type NOT IN (
-                  'BROKER_EVENTHANDLER'
-                , 'BROKER_RECEIVE_WAITFOR'
-                , 'BROKER_TASK_STOP'
-                , 'BROKER_TO_FLUSH'
-                , 'BROKER_TRANSMITTER'
-                , 'CHECKPOINT_QUEUE'
-                , 'DBMIRROR_DBM_EVENT'
-                , 'DBMIRROR_DBM_MUTEX'
-                , 'DBMIRROR_EVENTS_QUEUE'
-                , 'DBMIRROR_WORKER_QUEUE'
-                , 'DBMIRRORING_CMD'
-                , 'DIRTY_PAGE_POLL'
-                , 'DISPATCHER_QUEUE_SEMAPHORE'
-                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
-                , 'FT_IFTSHC_MUTEX'
-                , 'HADR_CLUSAPI_CALL'
-                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
-                , 'HADR_LOGCAPTURE_WAIT'
-                , 'HADR_NOTIFICATION_DEQUEUE'
-                , 'HADR_TIMER_TASK'
-                , 'HADR_WORK_QUEUE'
-                , 'LAZYWRITER_SLEEP'
-                , 'LOGMGR_QUEUE'
-                , 'ONDEMAND_TASK_QUEUE'
-                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
-                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
-                , 'QDS_ASYNC_QUEUE'
-                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
-                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
-                , 'QDS_SHUTDOWN_QUEUE'
-                , 'REDO_THREAD_PENDING_WORK'
-                , 'REQUEST_FOR_DEADLOCK_SEARCH'
-                , 'SLEEP_SYSTEMTASK'
-                , 'SLEEP_TASK'
-                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
-                , 'SQLTRACE_BUFFER_FLUSH'
-                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
-                , 'UCS_SESSION_REGISTRATION'
-                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
-                , 'WAITFOR'
-                , 'XE_DISPATCHER_WAIT'
-                , 'XE_LIVE_TARGET_TVF'
-                , 'XE_TIMER_EVENT'
+		   WHERE EXISTS 
+		   (
+                SELECT 1/0
+				FROM ##WaitCategories AS wc
+				WHERE wc.WaitType = x.wait_type
+				AND wc.Ignorable = 0
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -1826,50 +1788,12 @@ BEGIN
 			   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
 		   FROM sys.dm_os_wait_stats os
 		) x
-		   WHERE x.wait_type NOT IN (
-                  'BROKER_EVENTHANDLER'
-                , 'BROKER_RECEIVE_WAITFOR'
-                , 'BROKER_TASK_STOP'
-                , 'BROKER_TO_FLUSH'
-                , 'BROKER_TRANSMITTER'
-                , 'CHECKPOINT_QUEUE'
-                , 'DBMIRROR_DBM_EVENT'
-                , 'DBMIRROR_DBM_MUTEX'
-                , 'DBMIRROR_EVENTS_QUEUE'
-                , 'DBMIRROR_WORKER_QUEUE'
-                , 'DBMIRRORING_CMD'
-                , 'DIRTY_PAGE_POLL'
-                , 'DISPATCHER_QUEUE_SEMAPHORE'
-                , 'FT_IFTS_SCHEDULER_IDLE_WAIT'
-                , 'FT_IFTSHC_MUTEX'
-                , 'HADR_CLUSAPI_CALL'
-                , 'HADR_FILESTREAM_IOMGR_IOCOMPLETION'
-                , 'HADR_LOGCAPTURE_WAIT'
-                , 'HADR_NOTIFICATION_DEQUEUE'
-                , 'HADR_TIMER_TASK'
-                , 'HADR_WORK_QUEUE'
-                , 'LAZYWRITER_SLEEP'
-                , 'LOGMGR_QUEUE'
-                , 'ONDEMAND_TASK_QUEUE'
-                , 'PREEMPTIVE_HADR_LEASE_MECHANISM'
-                , 'PREEMPTIVE_SP_SERVER_DIAGNOSTICS'
-                , 'QDS_ASYNC_QUEUE'
-                , 'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP'
-                , 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP'
-                , 'QDS_SHUTDOWN_QUEUE'
-                , 'REDO_THREAD_PENDING_WORK'
-                , 'REQUEST_FOR_DEADLOCK_SEARCH'
-                , 'SLEEP_SYSTEMTASK'
-                , 'SLEEP_TASK'
-                , 'SP_SERVER_DIAGNOSTICS_SLEEP'
-                , 'SQLTRACE_BUFFER_FLUSH'
-                , 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'
-                , 'UCS_SESSION_REGISTRATION'
-                , 'WAIT_XTP_OFFLINE_CKPT_NEW_LOG'
-                , 'WAITFOR'
-                , 'XE_DISPATCHER_WAIT'
-                , 'XE_LIVE_TARGET_TVF'
-                , 'XE_TIMER_EVENT'
+		   WHERE EXISTS 
+		   (
+                SELECT 1/0
+				FROM ##WaitCategories AS wc
+				WHERE wc.WaitType = x.wait_type
+				AND wc.Ignorable = 0
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -2156,7 +2080,8 @@ BEGIN
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
     LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
-    WHERE wNow.wait_type IN ('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL') AND wNow.wait_time_ms > wBase.wait_time_ms;
+    WHERE wNow.wait_type IN ('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL') 
+	  AND wNow.wait_time_ms > (wBase.wait_time_ms + 1000);
 
 
     /* Server Performance - Slow Data File Reads - CheckID 11 */
@@ -2461,7 +2386,7 @@ BEGIN
                     ORDER BY timestamp DESC) AS rb
             ) AS y;
 
-        END; /* IF @Seconds < 30 */
+        END; /* IF @Seconds >= 30 */
 
 
     /* If we didn't find anything, apologize. */
