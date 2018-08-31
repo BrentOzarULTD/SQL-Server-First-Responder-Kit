@@ -3272,14 +3272,15 @@ AS
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 125) WITH NOWAIT;
 							
-								DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
+								DECLARE @user_perm_sql NVARCHAR(MAX);
+								SET @user_perm_sql = N'';
 								DECLARE @user_perm_gb_out DECIMAL(38,2);
 								
 								IF @ProductVersionMajor >= 11
 								
 								BEGIN
 								
-								SET @user_perm_sql += N'
+								SET @user_perm_sql = @user_perm_sql + N'
 									SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
 											THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
 											ELSE NULL 
@@ -3294,7 +3295,7 @@ AS
 								IF @ProductVersionMajor < 11
 								
 								BEGIN
-								SET @user_perm_sql += N'
+								SET @user_perm_sql = @user_perm_sql + N'
 									SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
 											THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
 											ELSE NULL 
