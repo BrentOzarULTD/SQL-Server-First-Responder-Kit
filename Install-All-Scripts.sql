@@ -2830,8 +2830,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '6.9';
+	SET @VersionDate = '20180901';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -10849,6 +10849,8 @@ EXEC [dbo].[sp_Blitz]
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
 */
+
+
 IF OBJECT_ID('dbo.sp_BlitzBackups') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;');
 GO
