@@ -27,6 +27,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@FirstFullBackup BIT = 0,
 				@FirstDiffBackup BIT = 0,
 				@Help BIT = 0,
+				@CleanUpTime SMALLINT,
 				@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -163,7 +164,7 @@ DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when d
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
 DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
-DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
+DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1, @CleanUpTime = ' + CAST(@CleanUpTime AS NVARCHAR(4)) + ''''; --Command the Agent job will run
 
 /*Specifically for Restores*/
 DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; --Name of log backup job

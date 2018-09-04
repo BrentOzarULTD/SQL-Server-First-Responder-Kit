@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 								@Restore BIT = 0,
 								@Debug BIT = 0,
 								@Help BIT = 0,
+								@CleanUpTime SMALLINT,
 								@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -28,8 +29,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.8';
-SET @VersionDate = '20180801';
+SET @Version = '2.9';
+SET @VersionDate = '20180901';
 
 IF @Help = 1
 
@@ -912,7 +913,8 @@ LogShamer:
 																	       @LogToTable = 'Y', --We should do this for posterity
                                                                            @Encrypt = @encrypt,
                                                                            @EncryptionAlgorithm = @encryptionalgorithm,
-                                                                           @ServerCertificate = @servercertificate;
+                                                                           @ServerCertificate = @servercertificate,
+																		   @CleanUpTime = @cleanUpTime;
 
                                         ELSE
 									        EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
@@ -922,7 +924,8 @@ LogShamer:
 																	        @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
 																	        @CheckSum = 'Y', --These are a good idea
 																	        @Compress = 'Y', --This is usually a good idea
-																	        @LogToTable = 'Y'; --We should do this for posterity
+																	        @LogToTable = 'Y', --We should do this for posterity
+																			@CleanUpTime = @cleanuptime;
 	
 										
 										/*
@@ -1506,6 +1509,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@FirstFullBackup BIT = 0,
 				@FirstDiffBackup BIT = 0,
 				@Help BIT = 0,
+				@CleanUpTime SMALLINT,
 				@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -1642,7 +1646,7 @@ DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when d
 /*Specifically for Backups*/
 DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
 DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
-DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
+DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1, @CleanUpTime = ' + CAST(@CleanUpTime AS NVARCHAR(4)) + ''''; --Command the Agent job will run
 
 /*Specifically for Restores*/
 DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; --Name of log backup job
