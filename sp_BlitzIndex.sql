@@ -527,7 +527,7 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
                          ELSE N''
                     END + CASE WHEN inequality_columns IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns + N' '
                        ELSE N''
-                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
+                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDE: ' + included_columns + N' '
                         ELSE N''
                     END,
                 [create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
