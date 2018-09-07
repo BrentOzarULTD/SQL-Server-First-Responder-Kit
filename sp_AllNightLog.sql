@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 								@Restore BIT = 0,
 								@Debug BIT = 0,
 								@Help BIT = 0,
+								@CleanUpTime SMALLINT,
 								@VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
 AS
@@ -553,7 +554,6 @@ DiskPollster:
 						SELECT fl.BackupFile
 						FROM @FileList AS fl
 						WHERE fl.BackupFile IS NOT NULL
-						AND fl.BackupFile NOT IN (SELECT name from sys.databases where database_id < 5)
 						AND NOT EXISTS
 							(
 							SELECT 1
@@ -913,7 +913,8 @@ LogShamer:
 																	       @LogToTable = 'Y', --We should do this for posterity
                                                                            @Encrypt = @encrypt,
                                                                            @EncryptionAlgorithm = @encryptionalgorithm,
-                                                                           @ServerCertificate = @servercertificate;
+                                                                           @ServerCertificate = @servercertificate,
+																		   @CleanUpTime = @cleanUpTime;
 
                                         ELSE
 									        EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
@@ -923,7 +924,8 @@ LogShamer:
 																	        @ChangeBackupType = @changebackuptype, --If we need to switch to a FULL because one hasn't been taken
 																	        @CheckSum = 'Y', --These are a good idea
 																	        @Compress = 'Y', --This is usually a good idea
-																	        @LogToTable = 'Y'; --We should do this for posterity
+																	        @LogToTable = 'Y', --We should do this for posterity
+																			@CleanUpTime = @cleanuptime;
 	
 										
 										/*
