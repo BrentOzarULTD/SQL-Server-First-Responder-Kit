@@ -2206,7 +2206,7 @@ AS
 											200 AS Priority ,
 											'Monitoring' AS FindingsGroup ,
 											'Alerts Disabled' AS Finding ,
-											'https://www.BrentOzar.com/go/alerts/' AS URL ,
+											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'The following Alert is disabled, please review and enable if desired: '
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
@@ -2229,22 +2229,22 @@ AS
 
 			INSERT INTO #BlitzResults (
 				CheckID
-				,Priority
+				,[Priority]
 				,FindingsGroup
 				,Finding
-				,URL
+				,[URL]
 				,Details
 				)
 			SELECT 219 AS CheckID
-				,200 AS Priority
+				,200 AS [Priority]
 				,'Monitoring' AS FindingsGroup
 				,'Alerts Without Event Descriptions' AS Finding
-				,'https://www.BrentOzar.com/go/alerts/' AS URL
-				,('The following Alert is not including detailed event descriptions in its output messages: ' + name
-				+ '. You can fix this by checking the relevant boxes in its Properties -> Options page.') AS Details
+				,'https://BrentOzar.com/go/alert' AS [URL]
+				,('The following Alert is not including detailed event descriptions in its output messages: ' + QUOTENAME([name])
+				+ '. You can fix it by ticking the relevant boxes in its Properties --> Options page.') AS Details
 			FROM msdb.dbo.sysalerts
-			WHERE enabled = 1
-			  AND include_event_description_in = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
+			WHERE [enabled] = 1
+			  AND include_event_description = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
 			;
 		END;
 
