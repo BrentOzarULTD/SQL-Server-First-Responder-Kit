@@ -2206,7 +2206,7 @@ AS
 											200 AS Priority ,
 											'Monitoring' AS FindingsGroup ,
 											'Alerts Disabled' AS Finding ,
-											'https://BrentOzar.com/go/alert' AS URL ,
+											'https://www.BrentOzar.com/go/alerts/' AS URL ,
 											( 'The following Alert is disabled, please review and enable if desired: '
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
