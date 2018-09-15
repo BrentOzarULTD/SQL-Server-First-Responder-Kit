@@ -5965,7 +5965,7 @@ IF @ProductVersionMajor >= 10
 			BEGIN
 				IF @Debug IN (1,2)
 				BEGIN
-					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
+					RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
 				END
 
 				EXECUTE sp_MSforeachdb 'USE [?];
