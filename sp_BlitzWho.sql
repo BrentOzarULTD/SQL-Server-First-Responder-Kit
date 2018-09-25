@@ -11,6 +11,13 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@OutputSchemaName NVARCHAR(256) = NULL ,
 	@OutputTableName NVARCHAR(256) = NULL ,
 	@OutputTableRetentionDays TINYINT = 7 ,
+	@MinElapsedSeconds INT = 0 ,
+	@MinCPUTime INT = 0 ,
+	@MinLogicalReads INT = 0 ,
+	@MinPhysicalReads INT = 0 ,
+	@MinWrites INT = 0 ,
+	@MinTempdbMB INT = 0 ,
+	@MinRequestedMemoryKB INT = 0 ,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
 BEGIN
@@ -695,7 +702,7 @@ SELECT @StringToExecute = N' COALESCE(
 							 ELSE N''
 						END
 						+ 
-						'
+						N'
 						LEFT JOIN sys.dm_exec_query_memory_grants qmg
 						ON   r.session_id = qmg.session_id
 								AND r.request_id = qmg.request_id
@@ -726,7 +733,7 @@ SELECT @StringToExecute = N' COALESCE(
 						'
 						+ @QueryStatsXMLSQL
 						+ 
-						'
+						N'
 						WHERE s.session_id <> @@SPID 
 						AND s.host_name IS NOT NULL
 						'
@@ -734,10 +741,27 @@ SELECT @StringToExecute = N' COALESCE(
 								N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
 							  WHEN @ShowSleepingSPIDs = 1 THEN
 								N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
-							 ELSE N'' END
-						+
-						' ORDER BY 2 DESC;
-						'
+							 ELSE N'' END;
+
+
+					IF @MinElapsedSeconds > 0
+						SET @StringToExecute += N' AND ABS(COALESCE(r.total_elapsed_time,0)) / 1000 >= ' + CAST(@MinElapsedSeconds AS NVARCHAR(20));
+					IF @MinCPUTime > 0
+						SET @StringToExecute += N' AND COALESCE(r.cpu_time, s.cpu_time,0) / 1000 >= ' + CAST(@MinCPUTime AS NVARCHAR(20));
+					IF @MinLogicalReads > 0
+						SET @StringToExecute += N' AND COALESCE(r.logical_reads, s.logical_reads,0) >= ' + CAST(@MinLogicalReads AS NVARCHAR(20));
+					IF @MinPhysicalReads > 0
+						SET @StringToExecute += N' AND COALESCE(s.reads,0) >= ' + CAST(@MinPhysicalReads AS NVARCHAR(20));
+					IF @MinWrites > 0
+						SET @StringToExecute += N' AND COALESCE(r.writes, s.writes,0) >= ' + CAST(@MinWrites AS NVARCHAR(20));
+					IF @MinTempdbMB > 0
+						SET @StringToExecute += N' AND COALESCE(tempdb_allocations.tempdb_allocations_mb,0) >= ' + CAST(@MinTempdbMB AS NVARCHAR(20));
+					IF @MinRequestedMemoryKB > 0
+						SET @StringToExecute += N' AND COALESCE(qmg.requested_memory_kb,0) >= ' + CAST(@MinRequestedMemoryKB AS NVARCHAR(20));
+
+					SET @StringToExecute += 	
+						N' ORDER BY 2 DESC;
+						';
 
 END 
 
