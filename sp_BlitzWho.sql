@@ -18,6 +18,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinWrites INT = 0 ,
 	@MinTempdbMB INT = 0 ,
 	@MinRequestedMemoryKB INT = 0 ,
+	@MinBlockingSeconds INT = 0 ,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
 BEGIN
@@ -743,21 +744,29 @@ SELECT @StringToExecute = N' COALESCE(
 								N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
 							 ELSE N'' END;
 
-
-					IF @MinElapsedSeconds > 0
-						SET @StringToExecute += N' AND ABS(COALESCE(r.total_elapsed_time,0)) / 1000 >= ' + CAST(@MinElapsedSeconds AS NVARCHAR(20));
-					IF @MinCPUTime > 0
-						SET @StringToExecute += N' AND COALESCE(r.cpu_time, s.cpu_time,0) / 1000 >= ' + CAST(@MinCPUTime AS NVARCHAR(20));
-					IF @MinLogicalReads > 0
-						SET @StringToExecute += N' AND COALESCE(r.logical_reads, s.logical_reads,0) >= ' + CAST(@MinLogicalReads AS NVARCHAR(20));
-					IF @MinPhysicalReads > 0
-						SET @StringToExecute += N' AND COALESCE(s.reads,0) >= ' + CAST(@MinPhysicalReads AS NVARCHAR(20));
-					IF @MinWrites > 0
-						SET @StringToExecute += N' AND COALESCE(r.writes, s.writes,0) >= ' + CAST(@MinWrites AS NVARCHAR(20));
-					IF @MinTempdbMB > 0
-						SET @StringToExecute += N' AND COALESCE(tempdb_allocations.tempdb_allocations_mb,0) >= ' + CAST(@MinTempdbMB AS NVARCHAR(20));
-					IF @MinRequestedMemoryKB > 0
-						SET @StringToExecute += N' AND COALESCE(qmg.requested_memory_kb,0) >= ' + CAST(@MinRequestedMemoryKB AS NVARCHAR(20));
+					IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @MinWrites + @MinTempdbMB + @MinRequestedMemoryKB + @MinBlockingSeconds) > 0
+						BEGIN
+						/* They're filtering for something, so set up a where clause that will let any (not all combined) of the min triggers work: */
+						SET @StringToExecute += N' AND (1 = 0 ';
+						IF @MinElapsedSeconds > 0
+							SET @StringToExecute += N' OR ABS(COALESCE(r.total_elapsed_time,0)) / 1000 >= ' + CAST(@MinElapsedSeconds AS NVARCHAR(20));
+						IF @MinCPUTime > 0
+							SET @StringToExecute += N' OR COALESCE(r.cpu_time, s.cpu_time,0) / 1000 >= ' + CAST(@MinCPUTime AS NVARCHAR(20));
+						IF @MinLogicalReads > 0
+							SET @StringToExecute += N' OR COALESCE(r.logical_reads, s.logical_reads,0) >= ' + CAST(@MinLogicalReads AS NVARCHAR(20));
+						IF @MinPhysicalReads > 0
+							SET @StringToExecute += N' OR COALESCE(s.reads,0) >= ' + CAST(@MinPhysicalReads AS NVARCHAR(20));
+						IF @MinWrites > 0
+							SET @StringToExecute += N' OR COALESCE(r.writes, s.writes,0) >= ' + CAST(@MinWrites AS NVARCHAR(20));
+						IF @MinTempdbMB > 0
+							SET @StringToExecute += N' OR COALESCE(tempdb_allocations.tempdb_allocations_mb,0) >= ' + CAST(@MinTempdbMB AS NVARCHAR(20));
+						IF @MinRequestedMemoryKB > 0
+							SET @StringToExecute += N' OR COALESCE(qmg.requested_memory_kb,0) >= ' + CAST(@MinRequestedMemoryKB AS NVARCHAR(20));
+						/* Blocking is a little different - we're going to return ALL of the queries if we meet the blocking threshold. */
+						IF @MinBlockingSeconds > 0
+							SET @StringToExecute += N' OR (SELECT SUM(waittime / 1000) FROM @blocked) >= ' + CAST(@MinBlockingSeconds AS NVARCHAR(20));
+						SET @StringToExecute += N' ) ';
+						END
 
 					SET @StringToExecute += 	
 						N' ORDER BY 2 DESC;
