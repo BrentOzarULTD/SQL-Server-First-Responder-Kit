@@ -10,7 +10,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@OutputDatabaseName NVARCHAR(256) = NULL ,
 	@OutputSchemaName NVARCHAR(256) = NULL ,
 	@OutputTableName NVARCHAR(256) = NULL ,
-	@OutputTableRetentionDays TINYINT = 7 ,
+	@OutputTableRetentionDays TINYINT = 3 ,
 	@MinElapsedSeconds INT = 0 ,
 	@MinCPUTime INT = 0 ,
 	@MinLogicalReads INT = 0 ,
