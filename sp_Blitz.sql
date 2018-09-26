@@ -238,6 +238,7 @@ AS
 							FROM    #SkipChecks
 							WHERE   DatabaseName IS NULL AND CheckID = 106 )
 							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
+                            AND @TraceFileIssue = 0
 			BEGIN
 				-- Flag for Windows OS to help with Linux support
 				IF EXISTS ( SELECT  1
