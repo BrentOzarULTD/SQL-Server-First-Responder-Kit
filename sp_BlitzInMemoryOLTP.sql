@@ -80,8 +80,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 AS 
 DECLARE @ScriptVersion VARCHAR(30);
-SET @ScriptVersion = '1.9';
-SET @VersionDate = '20180901';
+SET @ScriptVersion = '1.10';
+SET @VersionDate = '20181001';
 
 BEGIN TRY
 

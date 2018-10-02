@@ -269,8 +269,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.9';
-SET @VersionDate = '20180901';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org

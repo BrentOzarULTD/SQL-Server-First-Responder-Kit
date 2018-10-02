@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.8';
-SET @VersionDate = '20180801';
+SET @Version = '2.10';
+SET @VersionDate = '20181001';
 
 IF @Help = 1
 
@@ -1514,8 +1514,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.8';
-SET @VersionDate = '20180801';;
+SET @Version = '2.10';
+SET @VersionDate = '20181001';;
 
 
 IF @Help = 1
@@ -2823,6 +2823,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
+    @UsualDBOwner sysname = NULL ,
     @Debug TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -2830,8 +2831,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.9';
-	SET @VersionDate = '20180901';
+	SET @Version = '6.10';
+	SET @VersionDate = '20181001';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -5009,15 +5010,48 @@ AS
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 0;
-					
-							END;
-					
-					END;
+			END;
+		END;
 
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 31 )
-					BEGIN
+		--check for alerts that do NOT include event descriptions in their outputs via email/pager/net-send
+		IF NOT EXISTS (
+				SELECT 1
+				FROM #SkipChecks
+				WHERE DatabaseName IS NULL
+					AND CheckID = 219
+				)
+		BEGIN;
+			IF @Debug IN (1, 2)
+			BEGIN;
+				RAISERROR ('Running CheckId [%d].', 0, 1, 219) WITH NOWAIT;
+			END;
+
+			INSERT INTO #BlitzResults (
+				CheckID
+				,[Priority]
+				,FindingsGroup
+				,Finding
+				,[URL]
+				,Details
+				)
+			SELECT 219 AS CheckID
+				,200 AS [Priority]
+				,'Monitoring' AS FindingsGroup
+				,'Alerts Without Event Descriptions' AS Finding
+				,'https://BrentOzar.com/go/alert' AS [URL]
+				,('The following Alert is not including detailed event descriptions in its output messages: ' + QUOTENAME([name])
+				+ '. You can fix it by ticking the relevant boxes in its Properties --> Options page.') AS Details
+			FROM msdb.dbo.sysalerts
+			WHERE [enabled] = 1
+			  AND include_event_description = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
+			;
+		END;
+
+		--check whether we have NO ENABLED operators!
+		IF NOT EXISTS ( SELECT  1
+						FROM    #SkipChecks
+						WHERE   DatabaseName IS NULL AND CheckID = 31 )
+		BEGIN;
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
 										WHERE   enabled = 1 )
@@ -5499,6 +5533,9 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 55) WITH NOWAIT;
 
+						IF @UsualDBOwner IS NULL
+							SET @UsualDBOwner = SUSER_SNAME(0x01);
+
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -5508,20 +5545,21 @@ AS
 								  URL ,
 								  Details
 								)
-								SELECT  55 AS CheckID ,
+								SELECT 55 AS CheckID ,
 										[name] AS DatabaseName ,
 										230 AS Priority ,
 										'Security' AS FindingsGroup ,
-										'Database Owner <> SA' AS Finding ,
+										'Database Owner <> ' + @UsualDBOwner AS Finding , 
 										'https://BrentOzar.com/go/owndb' AS URL ,
 										( 'Database name: ' + [name] + '   '
 										  + 'Owner name: ' + SUSER_SNAME(owner_sid) ) AS Details
 								FROM    sys.databases
-								WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)
-										AND name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-														  FROM    #SkipChecks
-														  WHERE CheckID IS NULL OR CheckID = 55);
+								WHERE (((SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)) AND (name IN (N'master', N'model', N'msdb', N'tempdb')))
+										OR ((SUSER_SNAME(owner_sid) <> @UsualDBOwner) AND (name NOT IN (N'master', N'model', N'msdb', N'tempdb')))
+									  )
+								AND name NOT IN ( SELECT DISTINCT DatabaseName
+												  FROM    #SkipChecks
+												  WHERE CheckID IS NULL OR CheckID = 55);
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -8752,6 +8790,41 @@ IF @ProductVersionMajor >= 10
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
+			--/* Check 220 - Statistics Without Histograms */
+			--IF NOT EXISTS (
+			--		SELECT 1
+			--		FROM #SkipChecks
+			--		WHERE DatabaseName IS NULL
+			--			AND CheckID = 220
+			--		)
+   --             AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
+			--BEGIN
+			--	IF @Debug IN (1,2)
+			--	BEGIN
+			--		RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
+			--	END
+
+			--	EXECUTE sp_MSforeachdb 'USE [?];
+			--		INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+			--		SELECT 220 AS CheckID
+			--			,DB_NAME() AS DatabaseName
+			--			,110 AS Priority
+			--			,''Performance'' AS FindingsGroup
+			--			,''Statistics Without Histograms'' AS Finding
+			--			,''https://BrentOzar.com/go/brokenstats'' AS URL
+			--			,CAST(COUNT(DISTINCT o.object_id) AS VARCHAR(100)) + '' tables have statistics that have not been updated since the database was restored or upgraded,''
+			--				+ '' and have no data in their histogram. See the More Info URL for a script to update them. '' AS Details
+   --                   FROM sys.all_objects o 
+   --                   INNER JOIN sys.stats s ON o.object_id = s.object_id AND s.has_filter = 0
+   --                   OUTER APPLY sys.dm_db_stats_histogram(o.object_id, s.stats_id) h
+   --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
+   --                     AND h.object_id IS NULL
+   --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
+   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
+   --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
+			--END; --of Check 220.
+
+
 		END; /* IF @CheckUserDatabaseObjects = 1 */
 
 		IF @CheckProcedureCache = 1
@@ -10284,6 +10357,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )
 											AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
                                 AND DATALENGTH( COALESCE( @base_tracefilename, '' ) ) > DATALENGTH('.TRC')
+                                AND @TraceFileIssue = 0
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 106) WITH NOWAIT;
@@ -10849,8 +10923,6 @@ EXEC [dbo].[sp_Blitz]
     @CheckProcedureCacheFilter = NULL,
     @CheckServerInfo = 1
 */
-
-
 IF OBJECT_ID('dbo.sp_BlitzBackups') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;');
 GO
@@ -10874,8 +10946,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '2.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '2.10';
+	SET @VersionDate = '20181001';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12640,8 +12712,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.8';
-SET @VersionDate = '20180801';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -16639,7 +16711,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END + 
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
 				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
@@ -16717,7 +16789,7 @@ SELECT  DISTINCT
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END +
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
                   , 3, 200000) 
 FROM ##bou_BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -17197,7 +17269,7 @@ BEGIN
                   CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END + 
 				  CASE WHEN CompileTime > 5000 THEN '', 63 '' ELSE '''' END +
 				  CASE WHEN CompileCPU > 5000 THEN '', 64 '' ELSE '''' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10. THEN '', 65 '' ELSE '''' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN '', 65 '' ELSE '''' END
 				  , 3, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -18169,7 +18241,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##bou_BlitzCacheProcs p
                     WHERE  CompileMemory > 1024 
-					AND    ((CompileMemory) / (1 * MaxCompileMemory) * 100.) >= 10.
+					AND    ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10.
   					)
              INSERT INTO ##bou_BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
@@ -18888,8 +18960,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.8';
-SET @VersionDate = '20180801';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 
 
 IF @Help = 1 PRINT '
@@ -21188,7 +21260,7 @@ BEGIN
         waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime),
         cores(cpu_count) AS (SELECT SUM(1) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1)
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
-        SELECT 19 AS CheckID,
+        SELECT 20 AS CheckID,
             250 AS Priority,
             'Server Info' AS FindingGroup,
             'Wait Time per Core per Sec' AS Finding,
@@ -22633,7 +22705,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
-	@OutputType         VARCHAR(20)     = 'TABLE' ,
+	@OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
@@ -22646,8 +22718,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.8';
-SET @VersionDate = '20180801';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
@@ -23393,7 +23465,11 @@ BEGIN CATCH
 DECLARE c1 CURSOR 
 LOCAL FAST_FORWARD 
 FOR 
-SELECT DatabaseName FROM #DatabaseList WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') <> 'NO' ORDER BY DatabaseName;
+SELECT DatabaseName 
+FROM #DatabaseList 
+WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') 
+<> 'NO' 
+ORDER BY DatabaseName;
 
 OPEN c1;
 FETCH NEXT FROM c1 INTO @DatabaseName;
@@ -24083,7 +24159,7 @@ BEGIN TRY
    					           cc.uses_database_collation,
    					           cc.is_persisted,
    					           cc.is_computed,
-   					   		   CASE WHEN cc.definition LIKE ''%.%'' THEN 1 ELSE 0 END AS is_function,
+   					   		   CASE WHEN cc.definition LIKE ''%|].|[%'' ESCAPE ''|'' THEN 1 ELSE 0 END AS is_function,
    					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
    					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition  + 
 							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' COLLATE DATABASE_DEFAULT AS [column_definition]
@@ -24376,10 +24452,11 @@ OPTION    ( RECOMPILE );
 
 RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
 UPDATE #MissingIndexes 
-SET is_low = CASE WHEN (user_seeks + user_scans) < 10000 
-					OR avg_user_impact < 70. THEN 1
-					ELSE 0 
-				END;
+SET is_low = CASE WHEN (user_seeks + user_scans) < 5000 
+					    OR unique_compiles = 1
+				  THEN 1
+				  ELSE 0 
+			  END;
 
 RAISERROR (N'Updating #IndexSanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
 UPDATE #IndexSanity
@@ -24753,11 +24830,23 @@ BEGIN;
         RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
                       AS ( SELECT  [object_id], key_column_names, database_id, [schema_name]
-                           FROM        #IndexSanity
+                           FROM        #IndexSanity AS ip
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
 								AND is_primary_key = 0
+								AND EXISTS (
+											SELECT 1/0
+											FROM #IndexSanitySize ips 
+											WHERE ip.index_sanity_id = ips.index_sanity_id 
+								            AND ip.database_id = ips.database_id
+											AND ip.schema_name = ips.schema_name
+								            AND ips.total_reserved_MB >= CASE 
+											                             WHEN (@GetAllDatabases = 1 OR @Mode = 0) 
+																		 THEN @ThresholdMB 
+																		 ELSE ips.total_reserved_MB 
+																		 END
+								            )
                            GROUP BY    [object_id], key_column_names, database_id, [schema_name]
                            HAVING    COUNT(*) > 1)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -24779,7 +24868,9 @@ BEGIN;
                                                          AND ip.database_id = di.database_id
 														 AND ip.[schema_name] = di.[schema_name]
                                                          AND di.key_column_names = ip.key_column_names
-                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id AND ip.database_id = ips.database_id
+                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id 
+								                          AND ip.database_id = ips.database_id
+														  AND ip.schema_name = ips.schema_name
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
 						AND ip.is_primary_key = 0
@@ -24820,10 +24911,7 @@ BEGIN;
                                 di.key_column_names <> ip.key_column_names AND
                                 di.number_dupes > 1    
                         )
-						AND ip.is_primary_key = 0
-                        /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
-                        AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
-                                                
+						AND ip.is_primary_key = 0                                          
                         ORDER BY ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
             OPTION    ( RECOMPILE );
 
@@ -24978,9 +25066,11 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         WHERE    index_id NOT IN ( 0, 1 )
-                        AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                         GROUP BY db_schema_object_name, [i].[database_name]
-                        HAVING    COUNT(*) >= 7
+                        HAVING    COUNT(*) >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) 
+						                           THEN 21
+												   ELSE 7
+											  END
                         ORDER BY i.db_schema_object_name DESC  
 						OPTION    ( RECOMPILE );
 
@@ -25331,6 +25421,7 @@ BEGIN;
 								/*Skipping tables created in the last week, or modified in past 2 days*/
 								AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
 								AND i.modify_date > DATEADD(dd,-2,GETDATE())
+								AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
 
@@ -25351,9 +25442,9 @@ BEGIN;
             FROM    #IndexSanity
 			WHERE is_hypothetical = 0
 			AND is_disabled = 0
+			AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 			GROUP BY database_name;
 
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  30 AS check_id, 
@@ -25369,10 +25460,10 @@ BEGIN;
                                 N'N/A' AS index_size_summary 
 						FROM #index_includes
 						WHERE number_indexes_with_includes = 0
+						AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  31 AS check_id,
@@ -25389,11 +25480,11 @@ BEGIN;
 					        N'N/A' AS index_size_summary
 					FROM #index_includes
 					WHERE number_indexes_with_includes > 0 AND percent_indexes_with_includes <= 3
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  DISTINCT
@@ -25418,6 +25509,7 @@ BEGIN;
 					       SELECT  database_name
 						   FROM    #IndexSanity
 						   WHERE   is_indexed_view = 1 )
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
         END;
 
@@ -25772,7 +25864,7 @@ BEGIN;
                         WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
 						OPTION    ( RECOMPILE );
 
-				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ration', 0,1) WITH NOWAIT;
+				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  48 AS check_id, 
@@ -25783,9 +25875,9 @@ BEGIN;
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
                                 N'Reads: '
-								+ CONVERT(NVARCHAR(10), i.total_reads)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.total_reads) AS MONEY), 1), N'.00', N'') 
 								+ N' Writes: ' 
-								+ CONVERT(NVARCHAR(10), i.user_updates)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.user_updates) AS MONEY), 1), N'.00', N'')
 								+ N' on: '
 								+ i.db_schema_object_indexid AS details, 
                                 i.index_definition, 
@@ -25796,6 +25888,7 @@ BEGIN;
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.total_reads > 0 /*Not totally unused*/
 								AND i.user_updates >= 10000 /*Decent write activity*/
+								AND i.total_reads < 10000
 								AND ((i.total_reads * 10) < i.user_updates) /*10x more writes than reads*/
                                 AND i.index_id NOT IN (0,1) /*NCs only*/
                                 AND i.is_unique = 0 
@@ -25906,6 +25999,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_XML = 1 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
@@ -25929,6 +26023,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                     OPTION    ( RECOMPILE );
 
 
@@ -25950,6 +26045,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_spatial = 1 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
@@ -25970,6 +26066,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
@@ -25990,6 +26087,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.partition_key_column_name IS NOT NULL 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
@@ -26410,6 +26508,7 @@ BEGIN;
 		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 7) 
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
@@ -26429,6 +26528,7 @@ BEGIN;
 		FROM #Statistics AS s
 		WHERE s.rows_sampled < 1.
 		AND s.rows >= 10000
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
@@ -26447,6 +26547,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
 		WHERE s.no_recompute = 1
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
@@ -26465,6 +26566,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
 		WHERE s.has_filter = 1
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
 		END; 
@@ -26511,6 +26613,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_persisted = 0
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         ----------------------------------------
@@ -26534,6 +26637,7 @@ BEGIN;
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #TemporalTables AS t
+		WHERE NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
 
@@ -26629,7 +26733,9 @@ BEGIN;
 					br.index_sanity_id=sn.index_sanity_id
 				LEFT JOIN #IndexCreateTsql ts ON 
 					br.index_sanity_id=ts.index_sanity_id
-				WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65, 72)
+				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
+				                      22, 43, 47, 48, 50, 
+				                      65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
 			 END;
@@ -26883,6 +26989,11 @@ BEGIN;
 											[user_updates] BIGINT, 
 											[reads_per_write] MONEY, 
 											[index_usage_summary] NVARCHAR(200), 
+											[total_singleton_lookup_count] BIGINT, 
+											[total_range_scan_count] BIGINT, 
+											[total_leaf_delete_count] BIGINT, 
+											[total_leaf_update_count] BIGINT, 
+											[index_op_stats] NVARCHAR(200), 
 											[partition_count] INT, 
 											[total_rows] BIGINT, 
 											[total_reserved_MB] NUMERIC(29,2), 
@@ -26985,6 +27096,11 @@ BEGIN;
 											[user_updates], 
 											[reads_per_write], 
 											[index_usage_summary], 
+											[total_singleton_lookup_count],
+											[total_range_scan_count],
+											[total_leaf_delete_count],
+											[total_leaf_update_count],
+											[index_op_stats],
 											[partition_count], 
 											[total_rows], 
 											[total_reserved_MB], 
@@ -27053,6 +27169,11 @@ BEGIN;
 										user_updates AS [User Updates], 
 										reads_per_write AS [Reads Per Write], 
 										index_usage_summary AS [Index Usage], 
+										sz.total_singleton_lookup_count AS [Singleton Lookups],
+										sz.total_range_scan_count AS [Range Scans],
+										sz.total_leaf_delete_count AS [Leaf Deletes],
+										sz.total_leaf_update_count AS [Leaf Updates],
+										sz.index_op_stats AS [Index Op Stats],
 										sz.partition_count AS [Partition Count],
 										sz.total_rows AS [Rows], 
 										sz.total_reserved_MB AS [Reserved MB], 
@@ -27139,6 +27260,11 @@ BEGIN;
 					user_updates AS [User Updates], 
 					reads_per_write AS [Reads Per Write], 
 					index_usage_summary AS [Index Usage], 
+					sz.total_singleton_lookup_count AS [Singleton Lookups],
+					sz.total_range_scan_count AS [Range Scans],
+					sz.total_leaf_delete_count AS [Leaf Deletes],
+					sz.total_leaf_update_count AS [Leaf Updates],
+					sz.index_op_stats AS [Index Op Stats],
 					sz.partition_count AS [Partition Count],
 					sz.total_rows AS [Rows], 
 					sz.total_reserved_MB AS [Reserved MB], 
@@ -27284,8 +27410,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.8';
-SET @VersionDate = '20180801';
+SET @Version = '1.10';
+SET @VersionDate = '20181001';
 
 
 	IF @Help = 1 PRINT '
@@ -28297,8 +28423,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '2.10';
+	SET @VersionDate = '20181001';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -33532,8 +33658,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.8';
-	SET @VersionDate = '20180801';
+	SET @Version = '6.10';
+	SET @VersionDate = '20181001';
 
 
 	IF @Help = 1
@@ -34134,8 +34260,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.8';
-SET @VersionDate = '20180801';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 
 
 IF @Help = 1
@@ -35263,8 +35389,8 @@ AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.8';
-		SET @VersionDate = '20180801';
+		SET @Version = '2.10';
+		SET @VersionDate = '20181001';
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
