@@ -131,3 +131,6 @@ test-results/*
 x64/
 ~$*
 ~*.*
+Power BI/sp_BlitzJobInfo.sql
+Power BI/FirstResponderKit Job Information_cs.pbix
+Power BI/FirstResponderKit Job Information.pbix
