@@ -3195,9 +3195,9 @@ BEGIN;
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
                                 N'Reads: '
-								+ CONVERT(NVARCHAR(10), i.total_reads)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.total_reads) AS MONEY), 1), N'.00', N'') 
 								+ N' Writes: ' 
-								+ CONVERT(NVARCHAR(10), i.user_updates)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.user_updates) AS MONEY), 1), N'.00', N'')
 								+ N' on: '
 								+ i.db_schema_object_indexid AS details, 
                                 i.index_definition, 
