@@ -25,6 +25,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
+    @UsualDBOwner sysname = NULL ,
     @Debug TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -2734,6 +2735,9 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 55) WITH NOWAIT;
 
+						IF @UsualDBOwner IS NULL
+							SET @UsualDBOwner = SUSER_SNAME(0x01);
+
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -2743,20 +2747,21 @@ AS
 								  URL ,
 								  Details
 								)
-								SELECT  55 AS CheckID ,
+								SELECT 55 AS CheckID ,
 										[name] AS DatabaseName ,
 										230 AS Priority ,
 										'Security' AS FindingsGroup ,
-										'Database Owner <> SA' AS Finding ,
+										'Database Owner <> ' + @UsualDBOwner AS Finding , 
 										'https://BrentOzar.com/go/owndb' AS URL ,
 										( 'Database name: ' + [name] + '   '
 										  + 'Owner name: ' + SUSER_SNAME(owner_sid) ) AS Details
 								FROM    sys.databases
-								WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)
-										AND name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-														  FROM    #SkipChecks
-														  WHERE CheckID IS NULL OR CheckID = 55);
+								WHERE (((SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)) AND (name IN (N'master', N'model', N'msdb', N'tempdb')))
+										OR ((SUSER_SNAME(owner_sid) <> @UsualDBOwner) AND (name NOT IN (N'master', N'model', N'msdb', N'tempdb')))
+									  )
+								AND name NOT IN ( SELECT DISTINCT DatabaseName
+												  FROM    #SkipChecks
+												  WHERE CheckID IS NULL OR CheckID = 55);
 					END;
 
 				IF NOT EXISTS ( SELECT  1
