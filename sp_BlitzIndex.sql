@@ -2150,11 +2150,23 @@ BEGIN;
         RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
                       AS ( SELECT  [object_id], key_column_names, database_id, [schema_name]
-                           FROM        #IndexSanity
+                           FROM        #IndexSanity AS ip
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
 								AND is_primary_key = 0
+								AND EXISTS (
+											SELECT 1/0
+											FROM #IndexSanitySize ips 
+											WHERE ip.index_sanity_id = ips.index_sanity_id 
+								            AND ip.database_id = ips.database_id
+											AND ip.schema_name = ips.schema_name
+								            AND ips.total_reserved_MB >= CASE 
+											                             WHEN (@GetAllDatabases = 1 OR @Mode = 0) 
+																		 THEN @ThresholdMB 
+																		 ELSE ips.total_reserved_MB 
+																		 END
+								            )
                            GROUP BY    [object_id], key_column_names, database_id, [schema_name]
                            HAVING    COUNT(*) > 1)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2176,7 +2188,9 @@ BEGIN;
                                                          AND ip.database_id = di.database_id
 														 AND ip.[schema_name] = di.[schema_name]
                                                          AND di.key_column_names = ip.key_column_names
-                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id AND ip.database_id = ips.database_id
+                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id 
+								                          AND ip.database_id = ips.database_id
+														  AND ip.schema_name = ips.schema_name
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
 						AND ip.is_primary_key = 0
