@@ -7559,6 +7559,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )
 											AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
                                 AND DATALENGTH( COALESCE( @base_tracefilename, '' ) ) > DATALENGTH('.TRC')
+                                AND @TraceFileIssue = 0
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 106) WITH NOWAIT;
@@ -7583,6 +7584,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												) as Details
 										FROM    ::fn_trace_gettable( @base_tracefilename, default )
 										WHERE EventClass BETWEEN 65500 and 65600;
+                                
 							END; /* CheckID 106 */
 
 							IF NOT EXISTS ( SELECT  1
