@@ -25,6 +25,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @EmailProfile sysname = NULL ,
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
+    @UsualDBOwner sysname = NULL ,
     @Debug TINYINT = 0 ,
     @VersionDate DATETIME = NULL OUTPUT
 WITH RECOMPILE
@@ -32,8 +33,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.9';
-	SET @VersionDate = '20180901';
+	SET @Version = '6.10';
+	SET @VersionDate = '20181001';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -2211,15 +2212,48 @@ AS
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 0;
-					
-							END;
-					
-					END;
+			END;
+		END;
 
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 31 )
-					BEGIN
+		--check for alerts that do NOT include event descriptions in their outputs via email/pager/net-send
+		IF NOT EXISTS (
+				SELECT 1
+				FROM #SkipChecks
+				WHERE DatabaseName IS NULL
+					AND CheckID = 219
+				)
+		BEGIN;
+			IF @Debug IN (1, 2)
+			BEGIN;
+				RAISERROR ('Running CheckId [%d].', 0, 1, 219) WITH NOWAIT;
+			END;
+
+			INSERT INTO #BlitzResults (
+				CheckID
+				,[Priority]
+				,FindingsGroup
+				,Finding
+				,[URL]
+				,Details
+				)
+			SELECT 219 AS CheckID
+				,200 AS [Priority]
+				,'Monitoring' AS FindingsGroup
+				,'Alerts Without Event Descriptions' AS Finding
+				,'https://BrentOzar.com/go/alert' AS [URL]
+				,('The following Alert is not including detailed event descriptions in its output messages: ' + QUOTENAME([name])
+				+ '. You can fix it by ticking the relevant boxes in its Properties --> Options page.') AS Details
+			FROM msdb.dbo.sysalerts
+			WHERE [enabled] = 1
+			  AND include_event_description = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
+			;
+		END;
+
+		--check whether we have NO ENABLED operators!
+		IF NOT EXISTS ( SELECT  1
+						FROM    #SkipChecks
+						WHERE   DatabaseName IS NULL AND CheckID = 31 )
+		BEGIN;
 						IF NOT EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
 										WHERE   enabled = 1 )
@@ -2701,6 +2735,9 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 55) WITH NOWAIT;
 
+						IF @UsualDBOwner IS NULL
+							SET @UsualDBOwner = SUSER_SNAME(0x01);
+
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  DatabaseName ,
@@ -2710,20 +2747,21 @@ AS
 								  URL ,
 								  Details
 								)
-								SELECT  55 AS CheckID ,
+								SELECT 55 AS CheckID ,
 										[name] AS DatabaseName ,
 										230 AS Priority ,
 										'Security' AS FindingsGroup ,
-										'Database Owner <> SA' AS Finding ,
+										'Database Owner <> ' + @UsualDBOwner AS Finding , 
 										'https://BrentOzar.com/go/owndb' AS URL ,
 										( 'Database name: ' + [name] + '   '
 										  + 'Owner name: ' + SUSER_SNAME(owner_sid) ) AS Details
 								FROM    sys.databases
-								WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)
-										AND name NOT IN ( SELECT DISTINCT
-																  DatabaseName
-														  FROM    #SkipChecks
-														  WHERE CheckID IS NULL OR CheckID = 55);
+								WHERE (((SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)) AND (name IN (N'master', N'model', N'msdb', N'tempdb')))
+										OR ((SUSER_SNAME(owner_sid) <> @UsualDBOwner) AND (name NOT IN (N'master', N'model', N'msdb', N'tempdb')))
+									  )
+								AND name NOT IN ( SELECT DISTINCT DatabaseName
+												  FROM    #SkipChecks
+												  WHERE CheckID IS NULL OR CheckID = 55);
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -5954,6 +5992,41 @@ IF @ProductVersionMajor >= 10
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
+			--/* Check 220 - Statistics Without Histograms */
+			--IF NOT EXISTS (
+			--		SELECT 1
+			--		FROM #SkipChecks
+			--		WHERE DatabaseName IS NULL
+			--			AND CheckID = 220
+			--		)
+   --             AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
+			--BEGIN
+			--	IF @Debug IN (1,2)
+			--	BEGIN
+			--		RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
+			--	END
+
+			--	EXECUTE sp_MSforeachdb 'USE [?];
+			--		INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+			--		SELECT 220 AS CheckID
+			--			,DB_NAME() AS DatabaseName
+			--			,110 AS Priority
+			--			,''Performance'' AS FindingsGroup
+			--			,''Statistics Without Histograms'' AS Finding
+			--			,''https://BrentOzar.com/go/brokenstats'' AS URL
+			--			,CAST(COUNT(DISTINCT o.object_id) AS VARCHAR(100)) + '' tables have statistics that have not been updated since the database was restored or upgraded,''
+			--				+ '' and have no data in their histogram. See the More Info URL for a script to update them. '' AS Details
+   --                   FROM sys.all_objects o 
+   --                   INNER JOIN sys.stats s ON o.object_id = s.object_id AND s.has_filter = 0
+   --                   OUTER APPLY sys.dm_db_stats_histogram(o.object_id, s.stats_id) h
+   --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
+   --                     AND h.object_id IS NULL
+   --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
+   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
+   --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
+			--END; --of Check 220.
+
+
 		END; /* IF @CheckUserDatabaseObjects = 1 */
 
 		IF @CheckProcedureCache = 1
@@ -7486,6 +7559,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											WHERE   DatabaseName IS NULL AND CheckID = 106 )
 											AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
                                 AND DATALENGTH( COALESCE( @base_tracefilename, '' ) ) > DATALENGTH('.TRC')
+                                AND @TraceFileIssue = 0
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 106) WITH NOWAIT;

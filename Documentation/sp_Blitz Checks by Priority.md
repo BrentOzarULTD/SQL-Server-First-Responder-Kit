@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 218.  
-If you want to add a new one, start at 219.
+CURRENT HIGH CHECKID: 220.  
+If you want to add a new one, start at 221.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -94,6 +94,7 @@ If you want to add a new one, start at 219.
 | 110 | Performance | Infinite merge replication metadata retention period | https://www.BrentOzar.com/go/merge | 99 |
 | 110 | Performance | Parallelism Rocket Surgery | https://www.BrentOzar.com/go/makeparallel | 115 |
 | 110 | Performance | Plan Guides Enabled | https://www.BrentOzar.com/go/guides | 95 |
+| 110 | Performance | Statistics Without Histograms | https://www.BrentOzar.com/go/brokenstats | 220 |
 | 120 | Query Plans | Cursor | https://www.BrentOzar.com/go/cursor | 66 |
 | 120 | Query Plans | Implicit Conversion | https://www.BrentOzar.com/go/implicit | 63 |
 | 120 | Query Plans | Implicit Conversion Affecting Cardinality | https://www.BrentOzar.com/go/implicit | 64 |
@@ -147,6 +148,7 @@ If you want to add a new one, start at 219.
 | 200 | Monitoring | Agent Jobs Without Failure Emails | https://www.BrentOzar.com/go/alerts | 94 |
 | 200 | Monitoring | Alerts Configured without Follow Up | https://www.BrentOzar.com/go/alert | 59 |
 | 200 | Monitoring | Alerts Disabled | https://www.BrentOzar.com/go/alerts/ | 98 |
+| 200 | Monitoring | Alerts Without Event Descriptions | https://BrentOzar.com/go/alert | 219 |
 | 200 | Monitoring | Extended Events Hyperextension | https://www.BrentOzar.com/go/xe | 176 |
 | 200 | Monitoring | No Alerts for Corruption | https://www.BrentOzar.com/go/alert | 96 |
 | 200 | Monitoring | No Alerts for Sev 19-25 | https://www.BrentOzar.com/go/alert | 61 |

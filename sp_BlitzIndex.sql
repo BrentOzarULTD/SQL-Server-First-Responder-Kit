@@ -25,7 +25,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
-	@OutputType         VARCHAR(20)     = 'TABLE' ,
+	@OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
@@ -38,8 +38,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.9';
-SET @VersionDate = '20180901';
+SET @Version = '6.10';
+SET @VersionDate = '20181001';
 SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
@@ -785,7 +785,11 @@ BEGIN CATCH
 DECLARE c1 CURSOR 
 LOCAL FAST_FORWARD 
 FOR 
-SELECT DatabaseName FROM #DatabaseList WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') <> 'NO' ORDER BY DatabaseName;
+SELECT DatabaseName 
+FROM #DatabaseList 
+WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') 
+<> 'NO' 
+ORDER BY DatabaseName;
 
 OPEN c1;
 FETCH NEXT FROM c1 INTO @DatabaseName;
@@ -1475,7 +1479,7 @@ BEGIN TRY
    					           cc.uses_database_collation,
    					           cc.is_persisted,
    					           cc.is_computed,
-   					   		   CASE WHEN cc.definition LIKE ''%.%'' THEN 1 ELSE 0 END AS is_function,
+   					   		   CASE WHEN cc.definition LIKE ''%|].|[%'' ESCAPE ''|'' THEN 1 ELSE 0 END AS is_function,
    					   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
    					   		   '' ADD '' + QUOTENAME(c.name) + '' AS '' + cc.definition  + 
 							   CASE WHEN is_persisted = 1 THEN '' PERSISTED'' ELSE '''' END + '';'' COLLATE DATABASE_DEFAULT AS [column_definition]
@@ -1768,10 +1772,11 @@ OPTION    ( RECOMPILE );
 
 RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
 UPDATE #MissingIndexes 
-SET is_low = CASE WHEN (user_seeks + user_scans) < 10000 
-					OR avg_user_impact < 70. THEN 1
-					ELSE 0 
-				END;
+SET is_low = CASE WHEN (user_seeks + user_scans) < 5000 
+					    OR unique_compiles = 1
+				  THEN 1
+				  ELSE 0 
+			  END;
 
 RAISERROR (N'Updating #IndexSanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
 UPDATE #IndexSanity
@@ -2145,11 +2150,23 @@ BEGIN;
         RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
                       AS ( SELECT  [object_id], key_column_names, database_id, [schema_name]
-                           FROM        #IndexSanity
+                           FROM        #IndexSanity AS ip
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
 								AND is_primary_key = 0
+								AND EXISTS (
+											SELECT 1/0
+											FROM #IndexSanitySize ips 
+											WHERE ip.index_sanity_id = ips.index_sanity_id 
+								            AND ip.database_id = ips.database_id
+											AND ip.schema_name = ips.schema_name
+								            AND ips.total_reserved_MB >= CASE 
+											                             WHEN (@GetAllDatabases = 1 OR @Mode = 0) 
+																		 THEN @ThresholdMB 
+																		 ELSE ips.total_reserved_MB 
+																		 END
+								            )
                            GROUP BY    [object_id], key_column_names, database_id, [schema_name]
                            HAVING    COUNT(*) > 1)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -2171,7 +2188,9 @@ BEGIN;
                                                          AND ip.database_id = di.database_id
 														 AND ip.[schema_name] = di.[schema_name]
                                                          AND di.key_column_names = ip.key_column_names
-                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id AND ip.database_id = ips.database_id
+                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id 
+								                          AND ip.database_id = ips.database_id
+														  AND ip.schema_name = ips.schema_name
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
 						AND ip.is_primary_key = 0
@@ -2212,10 +2231,7 @@ BEGIN;
                                 di.key_column_names <> ip.key_column_names AND
                                 di.number_dupes > 1    
                         )
-						AND ip.is_primary_key = 0
-                        /* WHERE clause skips near-duplicate indexes when getting all databases or using PainRelief mode */
-                        AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
-                                                
+						AND ip.is_primary_key = 0                                          
                         ORDER BY ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
             OPTION    ( RECOMPILE );
 
@@ -2370,9 +2386,11 @@ BEGIN;
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         WHERE    index_id NOT IN ( 0, 1 )
-                        AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                         GROUP BY db_schema_object_name, [i].[database_name]
-                        HAVING    COUNT(*) >= 7
+                        HAVING    COUNT(*) >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) 
+						                           THEN 21
+												   ELSE 7
+											  END
                         ORDER BY i.db_schema_object_name DESC  
 						OPTION    ( RECOMPILE );
 
@@ -2723,6 +2741,7 @@ BEGIN;
 								/*Skipping tables created in the last week, or modified in past 2 days*/
 								AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
 								AND i.modify_date > DATEADD(dd,-2,GETDATE())
+								AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
 
@@ -2743,9 +2762,9 @@ BEGIN;
             FROM    #IndexSanity
 			WHERE is_hypothetical = 0
 			AND is_disabled = 0
+			AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 			GROUP BY database_name;
 
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  30 AS check_id, 
@@ -2761,10 +2780,10 @@ BEGIN;
                                 N'N/A' AS index_size_summary 
 						FROM #index_includes
 						WHERE number_indexes_with_includes = 0
+						AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  31 AS check_id,
@@ -2781,11 +2800,11 @@ BEGIN;
 					        N'N/A' AS index_size_summary
 					FROM #index_includes
 					WHERE number_indexes_with_includes > 0 AND percent_indexes_with_includes <= 3
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 
-            IF NOT (@Mode = 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  DISTINCT
@@ -2810,6 +2829,7 @@ BEGIN;
 					       SELECT  database_name
 						   FROM    #IndexSanity
 						   WHERE   is_indexed_view = 1 )
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
         END;
 
@@ -3164,7 +3184,7 @@ BEGIN;
                         WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
 						OPTION    ( RECOMPILE );
 
-				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ration', 0,1) WITH NOWAIT;
+				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  48 AS check_id, 
@@ -3175,9 +3195,9 @@ BEGIN;
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
                                 N'Reads: '
-								+ CONVERT(NVARCHAR(10), i.total_reads)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.total_reads) AS MONEY), 1), N'.00', N'') 
 								+ N' Writes: ' 
-								+ CONVERT(NVARCHAR(10), i.user_updates)
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.user_updates) AS MONEY), 1), N'.00', N'')
 								+ N' on: '
 								+ i.db_schema_object_indexid AS details, 
                                 i.index_definition, 
@@ -3188,6 +3208,7 @@ BEGIN;
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.total_reads > 0 /*Not totally unused*/
 								AND i.user_updates >= 10000 /*Decent write activity*/
+								AND i.total_reads < 10000
 								AND ((i.total_reads * 10) < i.user_updates) /*10x more writes than reads*/
                                 AND i.index_id NOT IN (0,1) /*NCs only*/
                                 AND i.is_unique = 0 
@@ -3298,6 +3319,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_XML = 1 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
@@ -3321,6 +3343,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
                     OPTION    ( RECOMPILE );
 
 
@@ -3342,6 +3365,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_spatial = 1 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
@@ -3362,6 +3386,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
@@ -3382,6 +3407,7 @@ BEGIN;
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.partition_key_column_name IS NOT NULL 
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
@@ -3802,6 +3828,7 @@ BEGIN;
 		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 7) 
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
@@ -3821,6 +3848,7 @@ BEGIN;
 		FROM #Statistics AS s
 		WHERE s.rows_sampled < 1.
 		AND s.rows >= 10000
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
@@ -3839,6 +3867,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
 		WHERE s.no_recompute = 1
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
@@ -3857,6 +3886,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
 		WHERE s.has_filter = 1
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
 		END; 
@@ -3903,6 +3933,7 @@ BEGIN;
 				'N/A' AS index_size_summary
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_persisted = 0
+		AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
         ----------------------------------------
@@ -3926,6 +3957,7 @@ BEGIN;
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #TemporalTables AS t
+		WHERE NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
 
@@ -4021,7 +4053,9 @@ BEGIN;
 					br.index_sanity_id=sn.index_sanity_id
 				LEFT JOIN #IndexCreateTsql ts ON 
 					br.index_sanity_id=ts.index_sanity_id
-				WHERE br.check_id IN (0, 1, 11, 22, 43, 68, 50, 60, 61, 62, 63, 64, 65, 72)
+				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
+				                      22, 43, 47, 48, 50, 
+				                      65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
 			 END;
@@ -4275,6 +4309,11 @@ BEGIN;
 											[user_updates] BIGINT, 
 											[reads_per_write] MONEY, 
 											[index_usage_summary] NVARCHAR(200), 
+											[total_singleton_lookup_count] BIGINT, 
+											[total_range_scan_count] BIGINT, 
+											[total_leaf_delete_count] BIGINT, 
+											[total_leaf_update_count] BIGINT, 
+											[index_op_stats] NVARCHAR(200), 
 											[partition_count] INT, 
 											[total_rows] BIGINT, 
 											[total_reserved_MB] NUMERIC(29,2), 
@@ -4377,6 +4416,11 @@ BEGIN;
 											[user_updates], 
 											[reads_per_write], 
 											[index_usage_summary], 
+											[total_singleton_lookup_count],
+											[total_range_scan_count],
+											[total_leaf_delete_count],
+											[total_leaf_update_count],
+											[index_op_stats],
 											[partition_count], 
 											[total_rows], 
 											[total_reserved_MB], 
@@ -4445,6 +4489,11 @@ BEGIN;
 										user_updates AS [User Updates], 
 										reads_per_write AS [Reads Per Write], 
 										index_usage_summary AS [Index Usage], 
+										sz.total_singleton_lookup_count AS [Singleton Lookups],
+										sz.total_range_scan_count AS [Range Scans],
+										sz.total_leaf_delete_count AS [Leaf Deletes],
+										sz.total_leaf_update_count AS [Leaf Updates],
+										sz.index_op_stats AS [Index Op Stats],
 										sz.partition_count AS [Partition Count],
 										sz.total_rows AS [Rows], 
 										sz.total_reserved_MB AS [Reserved MB], 
@@ -4531,6 +4580,11 @@ BEGIN;
 					user_updates AS [User Updates], 
 					reads_per_write AS [Reads Per Write], 
 					index_usage_summary AS [Index Usage], 
+					sz.total_singleton_lookup_count AS [Singleton Lookups],
+					sz.total_range_scan_count AS [Range Scans],
+					sz.total_leaf_delete_count AS [Leaf Deletes],
+					sz.total_leaf_update_count AS [Leaf Updates],
+					sz.index_op_stats AS [Index Op Stats],
 					sz.partition_count AS [Partition Count],
 					sz.total_rows AS [Rows], 
 					sz.total_reserved_MB AS [Reserved MB], 
