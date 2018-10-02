@@ -5992,39 +5992,39 @@ IF @ProductVersionMajor >= 10
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
-			/* Check 220 - Statistics Without Histograms */
-			IF NOT EXISTS (
-					SELECT 1
-					FROM #SkipChecks
-					WHERE DatabaseName IS NULL
-						AND CheckID = 220
-					)
-                AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
-			BEGIN
-				IF @Debug IN (1,2)
-				BEGIN
-					RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
-				END
+			--/* Check 220 - Statistics Without Histograms */
+			--IF NOT EXISTS (
+			--		SELECT 1
+			--		FROM #SkipChecks
+			--		WHERE DatabaseName IS NULL
+			--			AND CheckID = 220
+			--		)
+   --             AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
+			--BEGIN
+			--	IF @Debug IN (1,2)
+			--	BEGIN
+			--		RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
+			--	END
 
-				EXECUTE sp_MSforeachdb 'USE [?];
-					INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
-					SELECT 220 AS CheckID
-						,DB_NAME() AS DatabaseName
-						,110 AS Priority
-						,''Performance'' AS FindingsGroup
-						,''Statistics Without Histograms'' AS Finding
-						,''https://BrentOzar.com/go/brokenstats'' AS URL
-						,CAST(COUNT(DISTINCT o.object_id) AS VARCHAR(100)) + '' tables have statistics that have not been updated since the database was restored or upgraded,''
-							+ '' and have no data in their histogram. See the More Info URL for a script to update them. '' AS Details
-                      FROM sys.all_objects o 
-                      INNER JOIN sys.stats s ON o.object_id = s.object_id AND s.has_filter = 0
-                      OUTER APPLY sys.dm_db_stats_histogram(o.object_id, s.stats_id) h
-                      WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
-                        AND h.object_id IS NULL
-                        AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
-                        AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
-                      HAVING COUNT(DISTINCT o.object_id) > 0;';
-			END; --of Check 220.
+			--	EXECUTE sp_MSforeachdb 'USE [?];
+			--		INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+			--		SELECT 220 AS CheckID
+			--			,DB_NAME() AS DatabaseName
+			--			,110 AS Priority
+			--			,''Performance'' AS FindingsGroup
+			--			,''Statistics Without Histograms'' AS Finding
+			--			,''https://BrentOzar.com/go/brokenstats'' AS URL
+			--			,CAST(COUNT(DISTINCT o.object_id) AS VARCHAR(100)) + '' tables have statistics that have not been updated since the database was restored or upgraded,''
+			--				+ '' and have no data in their histogram. See the More Info URL for a script to update them. '' AS Details
+   --                   FROM sys.all_objects o 
+   --                   INNER JOIN sys.stats s ON o.object_id = s.object_id AND s.has_filter = 0
+   --                   OUTER APPLY sys.dm_db_stats_histogram(o.object_id, s.stats_id) h
+   --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
+   --                     AND h.object_id IS NULL
+   --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
+   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
+   --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
+			--END; --of Check 220.
 
 
 		END; /* IF @CheckUserDatabaseObjects = 1 */
