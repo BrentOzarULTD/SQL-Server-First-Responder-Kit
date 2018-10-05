@@ -3197,12 +3197,14 @@ AS
 									Priority,
 									FindingsGroup,
 									Finding,
+									DatabaseName,
 									URL,
 									Details)
 							  SELECT 112 AS CheckID,
 							  100 AS Priority,
 							  ''Performance'' AS FindingsGroup,
 							  ''Change Tracking Enabled'' AS Finding,
+							  d.[name],
 							  ''https://BrentOzar.com/go/tracking'' AS URL,
 							  ( d.[name] + '' has change tracking enabled. This is not a default setting, and it has some performance overhead. It keeps track of changes to rows in tables that have change tracking turned on.'' ) AS Details FROM sys.change_tracking_databases AS ctd INNER JOIN sys.databases AS d ON ctd.database_id = d.database_id OPTION (RECOMPILE)';
 										
