@@ -5077,7 +5077,7 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 99) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];  IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://BrentOzar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
 					        END;
 				        /*
 				        Note that by using sp_MSforeachdb, we're running the query in all
@@ -5097,6 +5097,7 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 163) WITH NOWAIT;
 
 								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
 			                            DatabaseName,
@@ -5160,7 +5161,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 41) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'use [?];
-		                              INSERT INTO #BlitzResults
+		                              SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                      INSERT INTO #BlitzResults
 		                              (CheckID,
 		                              DatabaseName,
 		                              Priority,
@@ -5189,7 +5191,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 42) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'use [?];
-			                            INSERT INTO #BlitzResults
+			                            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                        INSERT INTO #BlitzResults
 			                            (CheckID,
 			                            DatabaseName,
 			                            Priority,
@@ -5218,7 +5221,8 @@ IF @ProductVersionMajor >= 10
 									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 82) WITH NOWAIT;
 
 						            EXEC sp_MSforeachdb 'use [?];
-		                                INSERT INTO #BlitzResults
+		                                SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                        INSERT INTO #BlitzResults
 		                                (CheckID,
 		                                DatabaseName,
 		                                Priority,
@@ -5245,7 +5249,8 @@ IF @ProductVersionMajor >= 10
 									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 158) WITH NOWAIT;
 
 						            EXEC sp_MSforeachdb 'use [?];
-		                                INSERT INTO #BlitzResults
+		                                SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                        INSERT INTO #BlitzResults
 		                                (CheckID,
 		                                DatabaseName,
 		                                Priority,
@@ -5273,7 +5278,8 @@ IF @ProductVersionMajor >= 10
 								
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 33) WITH NOWAIT;
 										
-										EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+										EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                            INSERT INTO #BlitzResults
 					                                (CheckID,
 					                                DatabaseName,
 					                                Priority,
@@ -5329,7 +5335,8 @@ IF @ProductVersionMajor >= 10
 										        OR is_distributor = 1;
 
 						        /* Method B: check subscribers for MSreplication_objects tables */
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                    INSERT INTO #BlitzResults
 										        (CheckID,
 										        DatabaseName,
 										        Priority,
@@ -5357,7 +5364,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 32) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-			INSERT INTO #BlitzResults
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
 			Priority,
@@ -5385,7 +5393,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 38) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-			INSERT INTO #BlitzResults
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
 			Priority,
@@ -5417,7 +5426,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 164) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-			INSERT INTO #BlitzResults
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
 			Priority,
@@ -5443,7 +5453,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 39) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-			INSERT INTO #BlitzResults
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
 			Priority,
@@ -5474,7 +5485,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 46) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5501,7 +5513,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 47) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5528,7 +5541,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 48) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5555,7 +5569,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 56) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5586,7 +5601,8 @@ IF @ProductVersionMajor >= 10
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 95) WITH NOWAIT;
 										
 										EXEC dbo.sp_MSforeachdb 'USE [?];
-			INSERT INTO #BlitzResults
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            INSERT INTO #BlitzResults
 				  (CheckID,
 				  DatabaseName,
 				  Priority,
@@ -5613,7 +5629,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 60) WITH NOWAIT;
 								
 								EXEC sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5641,6 +5658,7 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 78) WITH NOWAIT;
 								
 								EXECUTE master.sys.sp_MSforeachdb 'USE [?];
+                                    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                     INSERT INTO #Recompile
                                     SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
                                     FROM sys.sql_modules AS SM
@@ -5688,7 +5706,8 @@ IF @ProductVersionMajor >= 10
 												IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 72) WITH NOWAIT;
 												
 												EXEC dbo.sp_MSforeachdb 'USE [?];
-								insert into #partdb(dbname, objectname, type_desc)
+								SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                insert into #partdb(dbname, objectname, type_desc)
 								SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
 								FROM sys.objects AS o JOIN sys.indexes AS i ON o.object_id = i.object_id
 								JOIN sys.data_spaces ds on ds.data_space_id = i.data_space_id
@@ -5737,7 +5756,8 @@ IF @ProductVersionMajor >= 10
 							  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 113) WITH NOWAIT;
 							
 							  EXEC dbo.sp_MSforeachdb 'USE [?];
-							  INSERT INTO #BlitzResults
+							  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                              INSERT INTO #BlitzResults
 									(CheckID,
 									DatabaseName,
 									Priority,
@@ -5763,7 +5783,8 @@ IF @ProductVersionMajor >= 10
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 115) WITH NOWAIT;
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
-		  INSERT INTO #BlitzResults
+		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+          INSERT INTO #BlitzResults
 				(CheckID,
 				DatabaseName,
 				Priority,
@@ -5795,7 +5816,8 @@ IF @ProductVersionMajor >= 10
 									  WHERE c.name = 'is_temporary' AND o.name = 'stats')
 										
 										EXEC dbo.sp_MSforeachdb 'USE [?];
-												INSERT INTO #BlitzResults
+												SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                                INSERT INTO #BlitzResults
 													(CheckID,
 													DatabaseName,
 													Priority,
@@ -5815,7 +5837,8 @@ IF @ProductVersionMajor >= 10
 
 									ELSE
 										EXEC dbo.sp_MSforeachdb 'USE [?];
-												INSERT INTO #BlitzResults
+												SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                                INSERT INTO #BlitzResults
 													(CheckID,
 													DatabaseName,
 													Priority,
@@ -5848,7 +5871,8 @@ IF @ProductVersionMajor >= 10
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] (2012 version of Log Info).', 0, 1, 69) WITH NOWAIT;
 										
 										EXEC sp_MSforeachdb N'USE [?];
-		                                      INSERT INTO #LogInfo2012
+		                                      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                              INSERT INTO #LogInfo2012
 		                                      EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
 		                                      IF    @@ROWCOUNT > 999
 		                                      BEGIN
@@ -5880,7 +5904,8 @@ IF @ProductVersionMajor >= 10
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] (pre-2012 version of Log Info).', 0, 1, 69) WITH NOWAIT;
 										
 										EXEC sp_MSforeachdb N'USE [?];
-		                                      INSERT INTO #LogInfo
+		                                      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                                              INSERT INTO #LogInfo
 		                                      EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
 		                                      IF    @@ROWCOUNT > 999
 		                                      BEGIN
@@ -5915,7 +5940,7 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 80) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''https://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics''  OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''https://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics''  OPTION (RECOMPILE);';
 					        END;
 
 	
@@ -5928,7 +5953,7 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
 					        END;
 
@@ -5946,7 +5971,7 @@ IF @ProductVersionMajor >= 10
 									SELECT 3, 'PARAMETER_SNIFFING', 1, NULL, 196
 									UNION ALL
 									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', 0, NULL, 197;
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://BrentOzar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
 									FROM [?].sys.database_scoped_configurations dsc
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
@@ -5970,7 +5995,8 @@ IF @ProductVersionMajor >= 10
 				END
 
 				EXECUTE sp_MSforeachdb 'USE [?];
-					INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 					SELECT 218 AS CheckID
 						,''?'' AS DatabaseName
 						,150 AS Priority
@@ -6007,6 +6033,7 @@ IF @ProductVersionMajor >= 10
 			--	END
 
 			--	EXECUTE sp_MSforeachdb 'USE [?];
+            --      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			--		INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 			--		SELECT 220 AS CheckID
 			--			,DB_NAME() AS DatabaseName
@@ -6464,6 +6491,7 @@ IF @ProductVersionMajor >= 10
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
 						
 						EXEC sp_MSforeachdb N'USE [?];
+                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						INSERT #DBCCs
 							(ParentObject,
 							Object,
