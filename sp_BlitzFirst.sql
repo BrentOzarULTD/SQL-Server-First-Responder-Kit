@@ -2786,10 +2786,10 @@ BEGIN
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
                 + '                [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + '' + @LineFeed
-                + '        GROUP BY [CheckDate]' + @LineFeed
+                + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
@@ -2958,10 +2958,10 @@ BEGIN
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
                 + '                [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + '' + @LineFeed
-                + '        GROUP BY [CheckDate]' + @LineFeed
+                + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
@@ -3261,10 +3261,10 @@ BEGIN
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
                 + '                [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
-                + '        GROUP BY [CheckDate]' + @LineFeed
+                + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
