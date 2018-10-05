@@ -5942,9 +5942,22 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 80) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''https://BrentOzar.com/go/maxsize'', (''The ['' + DB_NAME() + ''] database file '' + name + '' has a max file size set to '' + CAST(CAST(max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') FROM sys.database_files WHERE max_size <> 268435456 AND max_size <> -1 AND type <> 2 AND name <> ''DWDiagnostics''  OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; 
+                                    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; 
+                                    INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) 
+                                    SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''https://BrentOzar.com/go/maxsize'', 
+                                    (''The ['' + DB_NAME() + ''] database file '' + df.name + '' has a max file size set to '' 
+                                        + CAST(CAST(df.max_size AS BIGINT) * 8 / 1024 AS VARCHAR(100)) 
+                                        + ''MB. If it runs out of space, the database will stop working even though there may be drive space available.'') 
+                                    FROM sys.database_files df
+                                    WHERE 0 = (SELECT is_read_only FROM sys.databases WHERE name = ''?'')
+                                      AND df.max_size <> 268435456 
+                                      AND df.max_size <> -1 
+                                      AND df.type <> 2 
+                                      AND df.growth > 0
+                                      AND df.name <> ''DWDiagnostics''  OPTION (RECOMPILE);';
 					        END;
-
+                            
 	
 						/* Check if columnstore indexes are in use - for Github issue #615 */
 				        IF NOT EXISTS ( SELECT  1
