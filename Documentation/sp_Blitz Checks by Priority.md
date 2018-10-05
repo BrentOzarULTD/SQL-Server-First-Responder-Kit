@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 220.  
-If you want to add a new one, start at 221.
+CURRENT HIGH CHECKID: 221.  
+If you want to add a new one, start at 222.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -39,6 +39,7 @@ If you want to add a new one, start at 221.
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
+| 10 | Reliability | Server restarted in last 24 hours | | 221 |
 | 20 | Reliability | Dangerous Build of SQL Server (Corruption) | http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds | 129 |
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
 | 20 | Reliability | Databases in Unusual States | https://www.BrentOzar.com/go/repair | 102 |

@@ -5018,7 +5018,7 @@ IF @ProductVersionMajor >= 10
 						
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 216 )
+								WHERE   DatabaseName IS NULL AND CheckID = 221 )
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
@@ -5041,9 +5041,9 @@ IF @ProductVersionMajor >= 10
 									  URL ,
 									  Details
 									)														
-							SELECT 216 AS CheckID,
+							SELECT 221 AS CheckID,
 							       10 AS Priority,
-							       'Recent Restart' AS FindingsGroup,
+							       'Reliability' AS FindingsGroup,
 							       'Server restarted in last 24 hours' AS Finding,
 							       '' AS URL,
 							       'Surprise! Your server was last restarted on: ' + CONVERT(VARCHAR(30), MAX(reboot_airhorn.create_date)) AS details
