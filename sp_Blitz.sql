@@ -326,6 +326,7 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* xp_readerrorlog checking for IFI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
+						INSERT INTO #SkipChecks (CheckID) VALUES (219);
 			END; /* Amazon RDS skipped checks */
 
 		/* If the server is ExpressEdition, skip checks that it doesn't allow */
