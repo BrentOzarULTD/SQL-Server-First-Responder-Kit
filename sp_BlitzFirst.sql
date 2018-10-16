@@ -1669,6 +1669,186 @@ BEGIN
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
+    IF @Seconds > 0
+    BEGIN
+
+    IF EXISTS ( SELECT 1/0
+                FROM sys.all_objects AS ao
+                WHERE ao.name = 'dm_exec_query_profiles' )
+    BEGIN
+
+        IF EXISTS( SELECT 1/0
+                   FROM sys.dm_exec_requests AS r
+                   JOIN sys.dm_exec_sessions AS s
+                       ON r.session_id = s.session_id
+                   WHERE s.host_name IS NOT NULL
+                   AND r.total_elapsed_time > 5000 )
+
+                   SET @StringToExecute = N'
+                   DECLARE @bad_estimate TABLE 
+                     ( 
+                       session_id INT, 
+                       request_id INT, 
+                       estimate_inaccuracy BIT 
+                     );
+                   
+                   INSERT @bad_estimate ( session_id, request_id, estimate_inaccuracy )
+                   SELECT x.session_id, 
+                          x.request_id, 
+                          x.estimate_inaccuracy
+                   FROM (
+                         SELECT deqp.session_id,
+                                deqp.request_id,
+                                CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
+                                     THEN 1
+                                     WHEN deqp.row_count < ( deqp.estimate_row_count * 10000 )
+                                     THEN 1
+                                     ELSE 0
+                                END AS estimate_inaccuracy
+                         FROM   sys.dm_exec_query_profiles AS deqp
+                   ) AS x
+                   WHERE x.estimate_inaccuracy = 1
+                   GROUP BY x.session_id, 
+                            x.request_id, 
+                            x.estimate_inaccuracy;
+                   
+                   DECLARE @parallelism_skew TABLE
+                     (
+                       session_id INT, 
+                       request_id INT, 
+                       parallelism_skew BIT     
+                     );
+                   
+                   INSERT @parallelism_skew ( session_id, request_id, parallelism_skew )
+                   SELECT y.session_id,
+                          y.request_id,
+                          y.parallelism_skew
+                   FROM (
+                         SELECT x.session_id, 
+                                x.request_id, 
+                                x.node_id, 
+                                x.thread_id, 
+                                x.row_count, 
+                                x.sum_node_rows, 
+                                x.node_dop,
+                                x.sum_node_rows / x.node_dop AS even_distribution,
+                                x.row_count / (1. * ISNULL(NULLIF(x.sum_node_rows / x.node_dop, 0), 1)) AS skew_percent,
+                                CASE 
+                                    WHEN x.row_count > 10000
+                                    AND x.row_count / (1. * ISNULL(NULLIF(x.sum_node_rows / x.node_dop, 0), 1)) > 2.
+                                    THEN 1
+                                    WHEN x.row_count > 10000
+                                    AND x.row_count / (1. * ISNULL(NULLIF(x.sum_node_rows / x.node_dop, 0), 1)) < 0.5
+                                    THEN 1
+                                    ELSE 0 
+                         	   END AS parallelism_skew
+                         FROM (
+                         	       SELECT deqp.session_id,
+                                              deqp.request_id,
+                                              deqp.node_id,
+                                              deqp.thread_id,
+                         	       	   deqp.row_count,
+                         	       	   SUM(deqp.row_count) 
+                         	       		OVER ( PARTITION BY deqp.session_id,
+                                                                   deqp.request_id,
+                         	       		                    deqp.node_id
+                         	       			   ORDER BY deqp.row_count
+                         	       			   ROWS BETWEEN UNBOUNDED PRECEDING 
+                         	       			   AND UNBOUNDED FOLLOWING ) 
+                         	       			   AS sum_node_rows,
+                         	       	   COUNT(*) 
+                         	       		OVER ( PARTITION BY deqp.session_id,
+                                                                   deqp.request_id,
+                         	       		                    deqp.node_id
+                         	       			   ORDER BY deqp.row_count
+                         	       			   ROWS BETWEEN UNBOUNDED PRECEDING 
+                         	       			   AND UNBOUNDED FOLLOWING ) 
+                         	       			   AS node_dop
+                         	       FROM sys.dm_exec_query_profiles AS deqp
+                         	       WHERE deqp.thread_id > 0
+                         	       AND EXISTS 
+                         	       	(
+                         	       		SELECT 1/0
+                         	       		FROM   sys.dm_exec_query_profiles AS deqp2
+                         	       		WHERE deqp.session_id = deqp2.session_id
+                         	       		AND   deqp.node_id = deqp2.node_id
+                         	       		AND   deqp2.thread_id > 0
+                         	       		GROUP BY deqp2.session_id, deqp2.node_id
+                         	       		HAVING COUNT(deqp2.node_id) > 1
+                         	       	)
+                         	   ) AS x
+                         ) AS y
+                   WHERE y.parallelism_skew = 1
+                   GROUP BY y.session_id, 
+                            y.request_id, 
+                            y.parallelism_skew;
+                   
+                   INSERT INTO #BlitzFirstResults 
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+                   SELECT 25 AS CheckID,
+                          100 AS Priority,
+                          ''Query Performance'' AS FindingsGroup,
+                          ''Queries with 10000x cardinality misestimations'' AS Findings,
+                          ''N/A'' AS URL,
+                          ''The query on SPID '' 
+                              + RTRIM(b.session_id) 
+                              + '' has been running for ''
+                              + RTRIM(r.total_elapsed_time / 1000)
+                              + '' seconds,  with a large cardinality misestimate'' AS Details,
+                          ''No quick fix here -- time to dig into the actual execution plan. '' AS HowToStopIt,
+                          r.start_time,
+                          s.login_name,
+                          s.nt_user_name,
+                          s.program_name,
+                          s.host_name,
+                          r.database_id,
+                          DB_NAME(r.database_id),
+                          dest.text,
+                          s.open_transaction_count
+                  FROM @bad_estimate AS b
+                  JOIN sys.dm_exec_requests AS r
+                  ON r.session_id = b.session_id
+                  AND r.request_id = b.request_id
+                  JOIN sys.dm_exec_sessions AS s
+                  ON s.session_id = b.session_id
+                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest;
+
+                   INSERT INTO #BlitzFirstResults 
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+                   SELECT 26 AS CheckID,
+                          100 AS Priority,
+                          ''Query Performance'' AS FindingsGroup,
+                          ''Queries with 10000x skewed parallelism'' AS Findings,
+                          ''N/A'' AS URL,
+                          ''The query on SPID '' 
+                              + RTRIM(p.session_id) 
+                              + '' has been running for ''
+                              + RTRIM(r.total_elapsed_time / 1000)
+                              + '' seconds,  with a parallel threads doing uneven work.'' AS Details,
+                          ''No quick fix here -- time to dig into the actual execution plan. '' AS HowToStopIt,
+                          r.start_time,
+                          s.login_name,
+                          s.nt_user_name,
+                          s.program_name,
+                          s.host_name,
+                          r.database_id,
+                          DB_NAME(r.database_id),
+                          dest.text,
+                          s.open_transaction_count
+                  FROM @parallelism_skew AS p
+                  JOIN sys.dm_exec_requests AS r
+                  ON r.session_id = p.session_id
+                  AND r.request_id = p.request_id
+                  JOIN sys.dm_exec_sessions AS s
+                  ON s.session_id = p.session_id
+                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest;
+                   ';
+                   
+           EXECUTE sp_executesql @StringToExecute;
+   
+        END
+    END
+
     /* Server Performance - High CPU Utilization CheckID 24 */
     IF @Seconds < 30
         BEGIN
