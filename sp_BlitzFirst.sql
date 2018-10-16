@@ -1783,6 +1783,9 @@ BEGIN
                             y.request_id, 
                             y.parallelism_skew;
                    
+                   /*
+                   CheckID 25: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
+                   */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
                    SELECT 25 AS CheckID,
@@ -1813,6 +1816,10 @@ BEGIN
                   ON s.session_id = b.session_id
                   CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest;
 
+
+                   /*
+                   CheckID 26: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
+                   */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
                    SELECT 26 AS CheckID,
