@@ -1382,7 +1382,7 @@ CREATE TABLE #missing_index_pretty
 			   + N'CREATE NONCLUSTERED INDEX ix_'
 			   + ISNULL(REPLACE(REPLACE(REPLACE(equality,'[', ''), ']', ''),   ', ', '_'), '')
 			   + ISNULL(REPLACE(REPLACE(REPLACE(inequality,'[', ''), ']', ''), ', ', '_'), '')
-			   + CASE WHEN [include] IS NOT NULL THEN + N'_Includes' ELSE N'' END
+			   + CASE WHEN [include] IS NOT NULL THEN + N'_Includes' ELSE N'' END 
 			   + CHAR(10)
 			   + N' ON '
 			   + schema_name
