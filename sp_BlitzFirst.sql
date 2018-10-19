@@ -620,6 +620,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X','Lock',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X_ABORT_BLOCKERS','Lock',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LCK_M_X_LOW_PRIORITY','Lock',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOG_RATE_GOVERNOR','Tran Log IO',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGBUFFER','Tran Log IO',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR','Tran Log IO',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('LOGMGR_FLUSH','Tran Log IO',0);
@@ -1584,22 +1585,23 @@ BEGIN
             AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
 
     /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-    SELECT 35 AS CheckID,
-        10 AS Priority,
-        'Server Performance' AS FindingGroup,
-        'Target Memory Lower Than Max' AS Finding,
-        'https://BrentOzar.com/go/target' AS URL,
-		N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
-            + N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
-        'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
-        FROM sys.configurations cMax
-        INNER JOIN sys.dm_os_performance_counters cTarget ON cTarget.object_name LIKE N'%Memory Manager%'
-	        AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
-        WHERE cMax.name = 'max server memory (MB)'
-            AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
-            AND CAST(cMax.value_in_use AS BIGINT) < 2147483647 /* Not set to default of unlimited */
-            AND CAST(cTarget.cntr_value AS BIGINT) < .8 * (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory); /* Target memory less than 80% of physical memory (in case they set max too high) */
+	IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+		SELECT 35 AS CheckID,
+			10 AS Priority,
+			'Server Performance' AS FindingGroup,
+			'Target Memory Lower Than Max' AS Finding,
+			'https://BrentOzar.com/go/target' AS URL,
+			N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
+				+ N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
+			'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
+			FROM sys.configurations cMax
+			INNER JOIN sys.dm_os_performance_counters cTarget ON cTarget.object_name LIKE N'%Memory Manager%'
+				AND cTarget.counter_name = N'Target Server Memory (KB)                                                                                                       '
+			WHERE cMax.name = 'max server memory (MB)'
+				AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
+				AND CAST(cMax.value_in_use AS BIGINT) < 2147483647 /* Not set to default of unlimited */
+				AND CAST(cTarget.cntr_value AS BIGINT) < .8 * (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory); /* Target memory less than 80% of physical memory (in case they set max too high) */
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
@@ -1690,43 +1692,44 @@ BEGIN
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
-		WITH y
-		    AS
-		     (
-		         SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
-		                     CONVERT(VARCHAR(30), rb.event_date) AS event_date,
-		                     CONVERT(VARCHAR(8000), rb.record) AS record
-		         FROM
-		                     (   SELECT CONVERT(XML, dorb.record) AS record,
-		                                DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
-		                         FROM   sys.dm_os_ring_buffers AS dorb
-		                         CROSS JOIN
-		                                ( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
-		                         WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
-		                         AND    record LIKE '%<SystemHealth>%' ) AS rb
-		         CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
-		     )
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
-		SELECT TOP 1 
-				23, 
-				250, 
-				'Server Info', 
-				'CPU Utilization', 
-				y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
-				y.system_idle	, 
-				'http://www.BrentOzar.com/go/cpu',
-				STUFF(( SELECT TOP 2147483647
-						  CHAR(10) + CHAR(13)
-						+ y2.system_idle 
-						+ '% ON ' 
-						+ y2.event_date 
-						+ ' Ring buffer details:  '
-						+ y2.record
-		        FROM   y AS y2
-				ORDER BY y2.event_date DESC
-		        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
-		FROM   y
-		ORDER BY y.event_date DESC;
+        IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			WITH y
+				AS
+				 (
+					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
+								 CONVERT(VARCHAR(8000), rb.record) AS record
+					 FROM
+								 (   SELECT CONVERT(XML, dorb.record) AS record,
+											DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+									 FROM   sys.dm_os_ring_buffers AS dorb
+									 CROSS JOIN
+											( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
+									 WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
+									 AND    record LIKE '%<SystemHealth>%' ) AS rb
+					 CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+				 )
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
+			SELECT TOP 1 
+					23, 
+					250, 
+					'Server Info', 
+					'CPU Utilization', 
+					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+					y.system_idle	, 
+					'http://www.BrentOzar.com/go/cpu',
+					STUFF(( SELECT TOP 2147483647
+							  CHAR(10) + CHAR(13)
+							+ y2.system_idle 
+							+ '% ON ' 
+							+ y2.event_date 
+							+ ' Ring buffer details:  '
+							+ y2.record
+					FROM   y AS y2
+					ORDER BY y2.event_date DESC
+					FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
+			FROM   y
+			ORDER BY y.event_date DESC;
 
 		
 		/* Highlight if non SQL processes are using >25% CPU */
@@ -2052,6 +2055,8 @@ BEGIN
 
 
 	RAISERROR('Analyzing changes between first and second passes of DMVs',10,1) WITH NOWAIT;
+
+	SELECT * FROM #WaitStats WHERE wait_type = 'LOG_RATE_GOVERNOR';
 
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
