@@ -211,12 +211,12 @@ IF @LogMessage IS NOT NULL
 IF @SinceStartup = 1
     SELECT @Seconds = 0, @ExpertMode = 1;
 
-IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
+IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
     SELECT @StartSampleTime = DATEADD(ms, AVG(-wait_time_ms), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.dm_os_wait_stats w
         WHERE wait_type IN ('BROKER_TASK_STOP','DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
                             'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_DISPATCHER_WAIT','XE_TIMER_EVENT');
-ELSE IF @Seconds = 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
+ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
     SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.databases
         WHERE database_id = 2;
@@ -941,7 +941,7 @@ BEGIN
         DROP TABLE #MasterFiles;
     CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
     /* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-    IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
+    IF SERVERPROPERTY('Edition') = 'SQL Azure'
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
     ELSE
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT database_id, file_id, type_desc, name, physical_name, size FROM sys.master_files;';
@@ -1392,7 +1392,7 @@ BEGIN
 
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-    IF @@VERSION NOT LIKE '%Azure%' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
+    IF SERVERPROPERTY('Edition') <> 'SQL Azure' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
             SELECT 5 AS CheckID,
@@ -2056,8 +2056,6 @@ BEGIN
 
 	RAISERROR('Analyzing changes between first and second passes of DMVs',10,1) WITH NOWAIT;
 
-	SELECT * FROM #WaitStats WHERE wait_type = 'LOG_RATE_GOVERNOR';
-
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
@@ -2286,7 +2284,27 @@ BEGIN
         AND ps.counter_name = 'Suboptimal plans/sec'
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
-
+    /* Azure Performance - Database is Maxed Out - CheckID 41 */
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 41 AS CheckID,
+        10 AS Priority,
+        'Azure Performance' AS FindingGroup,
+        'Database is Maxed Out' AS Finding,
+        'https://BrentOzar.com/go/maxedout' AS URL,
+        N'At ' + CONVERT(NVARCHAR(100), s.end_time ,121) + N', your database approached (or hit) your DTU limits:' + @LineFeed
+            + N'Average CPU percent: ' + CAST(avg_cpu_percent AS NVARCHAR(50)) + @LineFeed
+            + N'Average data IO percent: ' + CAST(avg_data_io_percent AS NVARCHAR(50)) + @LineFeed
+            + N'Average log write percent: ' + CAST(avg_log_write_percent AS NVARCHAR(50)) + @LineFeed
+            + N'Max worker percent: ' + CAST(max_worker_percent AS NVARCHAR(50)) + @LineFeed
+            + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
+        'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
+    FROM sys.dm_db_resource_stats s
+    WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
+      AND (avg_cpu_percent > 90
+           OR avg_data_io_percent >= 90
+           OR avg_log_write_percent >=90
+           OR max_worker_percent >= 90
+           OR max_session_percent >= 90);
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)

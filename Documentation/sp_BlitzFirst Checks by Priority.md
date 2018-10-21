@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 40
-If you want to add a new check, start at 41
+CURRENT HIGH CHECKID: 41
+If you want to add a new check, start at 42
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -23,6 +23,7 @@ If you want to add a new check, start at 41
 | 1 | SQL Server Internal Maintenance | Data File Growing | https://BrentOzar.com/go/instant | 4 |
 | 1 | SQL Server Internal Maintenance | Log File Growing | https://BrentOzar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | https://BrentOzar.com/go/logsize | 14 |
+| 10 | Azure Performance | Database is Maxed Out | https://BrentOzar.com/go/maxedout | 41 |
 | 10 | Server Performance | Poison Wait Detected | https://BrentOzar.com/go/poison | 30 |
 | 10 | Server Performance | Target Memory Lower Than Max | https://BrentOzar.com/go/target | 35 |
 | 40 | Table Problems | Forwarded Fetches/Sec High | https://BrentOzar.com/go/fetch | 29 |
