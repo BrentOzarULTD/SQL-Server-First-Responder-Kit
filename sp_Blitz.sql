@@ -3408,7 +3408,7 @@ AS
 							IF (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
 							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001) OR
 							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 5000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 6020) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 6518) OR
 							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
