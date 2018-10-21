@@ -683,6 +683,7 @@ CREATE TABLE #statements
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
 	statement XML,
+    is_cursor BIT
 	INDEX s_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
@@ -922,7 +923,7 @@ CREATE TABLE #missing_index_pretty
 			   + N'CREATE NONCLUSTERED INDEX ix_'
 			   + ISNULL(REPLACE(REPLACE(REPLACE(equality,'[', ''), ']', ''),   ', ', '_'), '')
 			   + ISNULL(REPLACE(REPLACE(REPLACE(inequality,'[', ''), ']', ''), ', ', '_'), '')
-			   + CASE WHEN [include] IS NOT NULL THEN + N'Includes' ELSE N'' END
+			   + CASE WHEN [include] IS NOT NULL THEN + N'_Includes' ELSE N'' END
 			   + CHAR(10)
 			   + N' ON '
 			   + schema_name
@@ -2093,7 +2094,8 @@ END;
 
 UPDATE #working_plan_text
 SET top_three_waits = CASE 
-						WHEN @waitstats = 0 THEN N'The query store waits stats DMV is not available'
+						WHEN @waitstats = 0 
+                        THEN N'The query store waits stats DMV is not available'
 						ELSE N'No Significant waits detected!'
 						END
 WHERE top_three_waits IS NULL
@@ -2133,7 +2135,7 @@ RAISERROR(N'Populate working warnings table with gathered plans', 0, 1) WITH NOW
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
-SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
+SELECT DISTINCT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
@@ -2214,12 +2216,14 @@ WHERE    1 = 1
 
 SET @sql_select += @sql_where;
 
-SET @sql_select += N'GROUP BY wp.query_id
-					HAVING COUNT(qsp.plan_id) > 1
-					) AS x
-					ON ww.query_id = x.query_id
-					OPTION (RECOMPILE);
-					';
+SET @sql_select += 
+N'GROUP BY wp.query_id
+  HAVING COUNT(qsp.plan_id) > 1
+) AS x
+    ON ww.query_id = x.query_id
+OPTION (RECOMPILE);
+';
+
 IF @Debug = 1
 	PRINT @sql_select;
 
@@ -2377,8 +2381,8 @@ RAISERROR(N'Begin XML nodes parsing', 0, 1) WITH NOWAIT;
 
 RAISERROR(N'Inserting #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )	
-	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement, is_cursor )	
+	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement, 0 AS is_cursor
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
 	ON ww.plan_id = wp.plan_id
@@ -2388,8 +2392,8 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Inserting parsed cursor XML to #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )
-	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement, is_cursor )
+	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement, 1 AS is_cursor
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
 	ON ww.plan_id = wp.plan_id
@@ -2713,6 +2717,17 @@ JOIN (
 ON  b.sql_handle = y.sql_handle
 OPTION (RECOMPILE);
 
+IF NOT EXISTS(SELECT 1/0 FROM #statements AS s WHERE s.is_cursor = 1)
+BEGIN
+
+RAISERROR(N'No cursor plans found, skipping', 0, 1) WITH NOWAIT;
+
+END
+
+IF EXISTS(SELECT 1/0 FROM #statements AS s WHERE s.is_cursor = 1)
+BEGIN
+
+RAISERROR(N'Cursor plans found, investigating', 0, 1) WITH NOWAIT;
 
 RAISERROR(N'Checking for Optimistic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2723,6 +2738,7 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2735,6 +2751,7 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2747,6 +2764,7 @@ JOIN #statements AS qs
 ON b.sql_handle = qs.sql_handle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2759,8 +2777,10 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="Dynamic"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
+END
 
 IF @ExpertMode > 0
 BEGIN
@@ -2964,7 +2984,7 @@ AS ( SELECT DISTINCT r.plan_id,
 	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
        c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
        c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
-       c.n.value('@EstimateRewinds', 'FLOAT') AS estimated_rewinds
+       c.n.value('@EstimateRebinds', 'FLOAT') AS estimated_rebinds
 FROM   #relop AS r
 JOIN   selects AS s
 ON s.plan_id = r.plan_id
@@ -2974,7 +2994,7 @@ WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager S
 )
 UPDATE ww
 		SET ww.index_spool_rows = sp.estimated_rows,
-			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rewinds < 1 THEN 1 ELSE sp.estimated_rewinds END)
+			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rebinds < 1 THEN 1 ELSE sp.estimated_rebinds END)
 
 FROM #working_warnings ww
 JOIN spools sp
@@ -2991,7 +3011,6 @@ OR ((PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) = 1
 BEGIN
 
 RAISERROR(N'Beginning 2017 and 2016 SP2 specfic checks', 0, 1) WITH NOWAIT;
-
 
 IF @ExpertMode > 0
 BEGIN
@@ -3259,7 +3278,7 @@ OPTION ( RECOMPILE );
 						 AND ci.convert_implicit_charindex = 0
 					THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
 					WHEN ci.at_charindex = 0
-		                 AND ci.equal_charindex > 0 
+		                 AND (ci.equal_charindex -1) > 0 
 						 AND ci.convert_implicit_charindex > 0
 					THEN SUBSTRING(ci.expression, 0, ci.equal_charindex -1)
 		            WHEN ci.at_charindex > 0
@@ -3309,25 +3328,26 @@ OPTION ( RECOMPILE );
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
-		SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
-		                                      LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+		SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' 
+                                          THEN LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
 										  ELSE s.variable_datatype
 		                             END,
-		       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
-		                                 LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+		       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' 
+                                     THEN LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
 		                             ELSE s.converted_to
 		                        END,
-			   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' THEN
-												SUBSTRING(s.compile_time_value, 
-															CHARINDEX('(', s.compile_time_value) + 1,
-															CHARINDEX(')', s.compile_time_value) - 1
-															- CHARINDEX('(', s.compile_time_value)
-															)
+			   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
+                                           THEN SUBSTRING(s.compile_time_value, 
+														  CHARINDEX('(', s.compile_time_value) + 1,
+														  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+														  )
 											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
 												AND s.variable_datatype NOT LIKE '%binary%' 
 												AND s.compile_time_value NOT LIKE 'N''%'''
-												AND s.compile_time_value NOT LIKE '''%''' THEN
-												QUOTENAME(compile_time_value, '''')
+												AND s.compile_time_value NOT LIKE '''%''' 
+                                                AND s.compile_time_value <> s.column_name
+                                                AND s.compile_time_value <> '**idk_man**'
+                                                THEN QUOTENAME(compile_time_value, '''')
 									ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
@@ -3533,6 +3553,13 @@ OPTION (RECOMPILE);
 /*End implicit conversion and parameter info*/
 
 /*Begin Missing Index*/
+IF EXISTS ( SELECT 1/0 
+            FROM #working_warnings AS ww 
+            WHERE ww.missing_index_count > 0
+		    OR ww.index_spool_cost > 0
+		    OR ww.index_spool_rows > 0 )
+		   
+		BEGIN	
 	
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3726,6 +3753,7 @@ OPTION (RECOMPILE);
 	FROM #working_warnings AS ww
 	OPTION (RECOMPILE);
 
+END
 /*End Missing Index*/
 
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
@@ -3859,7 +3887,7 @@ RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
 
 UPDATE b
 SET b.parameter_sniffing_symptoms = 
-CASE WHEN b.count_executions < 4 THEN 'Too few executions to compare (< 4).'
+CASE WHEN b.count_executions < 2 THEN 'Too few executions to compare (< 2).'
 	ELSE													
 	SUBSTRING(  
 				/*Duration*/
@@ -3898,10 +3926,9 @@ CASE WHEN b.count_executions < 4 THEN 'Too few executions to compare (< 4).'
 				CASE WHEN b.last_rowcount * 100 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
 				CASE WHEN b.last_rowcount > b.avg_rowcount * 100 THEN ', High row count last run' ELSE '' END +
 				/*DOP*/
-				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
-				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
-				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
-				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop THEN ', Serial sometimes' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
 				/*tempdb*/
 				CASE WHEN b.min_tempdb_space_used * 100 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
 				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb sometimes' ELSE '' END +
@@ -3946,7 +3973,6 @@ IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
-
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
