@@ -1794,13 +1794,13 @@ BEGIN
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x cardinality misestimations'' AS Findings,
-                          ''N/A'' AS URL,
+                          ''https://brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(b.session_id) 
                               + '' has been running for ''
                               + RTRIM(r.total_elapsed_time / 1000)
                               + '' seconds,  with a large cardinality misestimate'' AS Details,
-                          ''No quick fix here -- time to dig into the actual execution plan. '' AS HowToStopIt,
+                          ''No quick fix here: time to dig into the actual execution plan. '' AS HowToStopIt,
                           r.start_time,
                           s.login_name,
                           s.nt_user_name,
@@ -1828,13 +1828,13 @@ BEGIN
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x skewed parallelism'' AS Findings,
-                          ''N/A'' AS URL,
+                          ''https://brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(p.session_id) 
                               + '' has been running for ''
                               + RTRIM(r.total_elapsed_time / 1000)
                               + '' seconds,  with a parallel threads doing uneven work.'' AS Details,
-                          ''No quick fix here -- time to dig into the actual execution plan. '' AS HowToStopIt,
+                          ''No quick fix here: time to dig into the actual execution plan. '' AS HowToStopIt,
                           r.start_time,
                           s.login_name,
                           s.nt_user_name,

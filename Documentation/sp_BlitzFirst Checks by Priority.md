@@ -40,8 +40,8 @@ If you want to add a new check, start at 44
 | 50 | Server Performance | Memory Grants pending | https://www.brentozar.com/blitz/memory-grants | 39 |
 | 100 | In-Memory OLTP | Transactions aborted | https://BrentOzar.com/go/aborted | 32 |
 | 100 | Query Problems | Suboptimal Plans/Sec High | https://BrentOzar.com/go/suboptimal | 33 |
-| 100 | Query Problems | Bad Estimates | https://BrentOzar.com/go/suboptimal | 42 |
-| 100 | Query Problems | Skewed Parallelism | https://BrentOzar.com/go/suboptimal | 43 |
+| 100 | Query Problems | Bad Estimates | https://brentozar.com/go/skewedup | 42 |
+| 100 | Query Problems | Skewed Parallelism | https://brentozar.com/go/skewedup | 43 |
 | 200 | Wait Stats | (One per wait type) | https://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
 | 210 | Query Stats | Plan Cache Analysis Skipped | https://BrentOzar.com/go/topqueries | 18 |
 | 210 | Query Stats | Top Resource-Intensive Queries | https://BrentOzar.com/go/topqueries | 17 |
