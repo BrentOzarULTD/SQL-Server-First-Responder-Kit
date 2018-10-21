@@ -3536,7 +3536,7 @@ SELECT @@SPID AS SPID,
 				 AND ci.convert_implicit_charindex = 0
 			THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
 			WHEN ci.at_charindex = 0
-                 AND ci.equal_charindex > 0 
+                 AND (ci.equal_charindex -1) > 0 
 				 AND ci.convert_implicit_charindex > 0
 			THEN SUBSTRING(ci.expression, 0, ci.equal_charindex -1)
             WHEN ci.at_charindex > 0
@@ -3588,25 +3588,26 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 UPDATE s
-SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
-                                      LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' 
+                                  THEN LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
 								  ELSE s.variable_datatype
                              END,
-       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
-                                 LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' 
+                             THEN LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
                              ELSE s.converted_to
                         END,
-	   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' THEN
-										SUBSTRING(s.compile_time_value, 
-													CHARINDEX('(', s.compile_time_value) + 1,
-													CHARINDEX(')', s.compile_time_value) - 1
-													- CHARINDEX('(', s.compile_time_value)
-													)
+	   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
+                                   THEN SUBSTRING(s.compile_time_value, 
+												  CHARINDEX('(', s.compile_time_value) + 1,
+												  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+												  )
 									WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
-										AND s.variable_datatype NOT LIKE '%binary%' 
-										AND s.compile_time_value NOT LIKE 'N''%'''
-										AND s.compile_time_value NOT LIKE '''%''' THEN
-										QUOTENAME(compile_time_value, '''')
+									AND s.variable_datatype NOT LIKE '%binary%' 
+									AND s.compile_time_value NOT LIKE 'N''%'''
+									AND s.compile_time_value NOT LIKE '''%''' 
+									AND s.compile_time_value <> s.column_name
+                                    AND s.compile_time_value <> '**idk_man**'
+                                    THEN QUOTENAME(compile_time_value, '''')
 									ELSE s.compile_time_value 
 							  END
 FROM   #stored_proc_info AS s
@@ -3671,7 +3672,6 @@ SELECT spi.SPID,
 							   THEN spi2.variable_name
 							   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
 							   THEN spi2.compile_time_value
-
 							   ELSE spi2.column_name
 						  END 
 						+ N' has a data type of '
