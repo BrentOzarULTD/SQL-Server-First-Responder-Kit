@@ -474,6 +474,7 @@ CREATE TABLE #working_metrics
 	total_log_bytes_used AS avg_log_bytes_used * count_executions,
 	total_tempdb_space_used AS avg_tempdb_space_used * count_executions,
 	xpm AS NULLIF(count_executions, 0) / NULLIF(DATEDIFF(MINUTE, first_execution_time, last_execution_time), 0),
+    percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_query_max_used_memory * 1.00 ), 0) / NULLIF(min_query_max_used_memory, 0), 0) * 100.),
 	INDEX wm_ix_ids CLUSTERED (plan_id, query_id, query_hash)
 );
 
@@ -507,9 +508,6 @@ CREATE TABLE #working_plan_text
 	last_execution_time DATETIME2,
 	avg_compile_duration DECIMAL(38,2),
 	last_compile_duration BIGINT,
-	min_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
-	max_used_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
-	percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100.),
 	/*These are from query_store_query*/
 	query_sql_text NVARCHAR(MAX),
 	statement_sql_handle VARBINARY(64),
@@ -1939,29 +1937,6 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
-
-
-/*
-
-Some memory grant information isn't available in query store
-
-We have to go back to other DMVs to find it, when possible
-
-It may not be there for various reaons
-
-*/
-RAISERROR(N'Checking dm_exec_query_stats for memory grant info', 0, 1) WITH NOWAIT;
-WITH max_mem
-AS ( SELECT   deqs.sql_handle, MAX(deqs.min_grant_kb) AS min_grant_kb, MAX(deqs.max_used_grant_kb) AS max_used_grant_kb
-     FROM     sys.dm_exec_query_stats AS deqs
-     GROUP BY deqs.sql_handle )
-UPDATE wpt
-SET    wpt.min_grant_kb = deqs.min_grant_kb,
-       wpt.max_used_grant_kb = deqs.max_used_grant_kb
-FROM   #working_plan_text AS wpt
-JOIN   max_mem AS deqs
-ON wpt.statement_sql_handle = deqs.sql_handle
-OPTION (RECOMPILE);
 
 
 /*
@@ -3769,7 +3744,7 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.is_key_lookup_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_sort_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
-	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
+	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_query_max_used_memory > @min_memory_per_query THEN 1 END,
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 AND avg_cpu_time < 500. THEN 1 END,
 	   b.low_cost_high_cpu = CASE WHEN b.query_cost < 10 AND wm.avg_cpu_time > 5000. THEN 1 END,
 	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .1 THEN 1 END,
@@ -4957,18 +4932,6 @@ BEGIN
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   #working_plan_text AS p
-                   WHERE  p.min_grant_kb IS NULL
-				   )
-            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (
-                    1001,
-                    255,
-                    'Plans not in cache',
-                    'We checked sys.dm_exec_query_stats for memory grant info',
-                    '',
-                    'Plans in Query Store aren''t in other DMVs, which means we can''t get some information about them.') ;
 
 			/*
 			Return worsts
