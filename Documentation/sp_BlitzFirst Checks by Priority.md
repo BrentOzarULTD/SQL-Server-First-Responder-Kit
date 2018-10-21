@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 41
-If you want to add a new check, start at 42
+CURRENT HIGH CHECKID: 43
+If you want to add a new check, start at 44
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -23,7 +23,6 @@ If you want to add a new check, start at 42
 | 1 | SQL Server Internal Maintenance | Data File Growing | https://BrentOzar.com/go/instant | 4 |
 | 1 | SQL Server Internal Maintenance | Log File Growing | https://BrentOzar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | https://BrentOzar.com/go/logsize | 14 |
-| 10 | Azure Performance | Database is Maxed Out | https://BrentOzar.com/go/maxedout | 41 |
 | 10 | Server Performance | Poison Wait Detected | https://BrentOzar.com/go/poison | 30 |
 | 10 | Server Performance | Target Memory Lower Than Max | https://BrentOzar.com/go/target | 35 |
 | 40 | Table Problems | Forwarded Fetches/Sec High | https://BrentOzar.com/go/fetch | 29 |
@@ -41,6 +40,8 @@ If you want to add a new check, start at 42
 | 50 | Server Performance | Memory Grants pending | https://www.brentozar.com/blitz/memory-grants | 39 |
 | 100 | In-Memory OLTP | Transactions aborted | https://BrentOzar.com/go/aborted | 32 |
 | 100 | Query Problems | Suboptimal Plans/Sec High | https://BrentOzar.com/go/suboptimal | 33 |
+| 100 | Query Problems | Bad Estimates | https://BrentOzar.com/go/suboptimal | 42 |
+| 100 | Query Problems | Skewed Parallelism | https://BrentOzar.com/go/suboptimal | 43 |
 | 200 | Wait Stats | (One per wait type) | https://BrentOzar.com/sql/wait-stats/#(waittype) | 6 |
 | 210 | Query Stats | Plan Cache Analysis Skipped | https://BrentOzar.com/go/topqueries | 18 |
 | 210 | Query Stats | Top Resource-Intensive Queries | https://BrentOzar.com/go/topqueries | 17 |
