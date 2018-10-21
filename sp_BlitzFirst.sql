@@ -1784,11 +1784,11 @@ BEGIN
                             y.parallelism_skew;
                    
                    /*
-                   CheckID 25: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
+                   CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
                    */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-                   SELECT 25 AS CheckID,
+                   SELECT 42 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x cardinality misestimations'' AS Findings,
@@ -1818,11 +1818,11 @@ BEGIN
 
 
                    /*
-                   CheckID 26: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
+                   CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
                    */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-                   SELECT 26 AS CheckID,
+                   SELECT 43 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x skewed parallelism'' AS Findings,
