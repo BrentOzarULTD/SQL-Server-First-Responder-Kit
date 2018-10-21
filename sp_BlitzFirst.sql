@@ -2285,26 +2285,27 @@ BEGIN
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
     /* Azure Performance - Database is Maxed Out - CheckID 41 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-    SELECT 41 AS CheckID,
-        10 AS Priority,
-        'Azure Performance' AS FindingGroup,
-        'Database is Maxed Out' AS Finding,
-        'https://BrentOzar.com/go/maxedout' AS URL,
-        N'At ' + CONVERT(NVARCHAR(100), s.end_time ,121) + N', your database approached (or hit) your DTU limits:' + @LineFeed
-            + N'Average CPU percent: ' + CAST(avg_cpu_percent AS NVARCHAR(50)) + @LineFeed
-            + N'Average data IO percent: ' + CAST(avg_data_io_percent AS NVARCHAR(50)) + @LineFeed
-            + N'Average log write percent: ' + CAST(avg_log_write_percent AS NVARCHAR(50)) + @LineFeed
-            + N'Max worker percent: ' + CAST(max_worker_percent AS NVARCHAR(50)) + @LineFeed
-            + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
-        'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
-    FROM sys.dm_db_resource_stats s
-    WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
-      AND (avg_cpu_percent > 90
-           OR avg_data_io_percent >= 90
-           OR avg_log_write_percent >=90
-           OR max_worker_percent >= 90
-           OR max_session_percent >= 90);
+    IF SERVERPROPERTY('Edition') = 'SQL Azure'
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+        SELECT 41 AS CheckID,
+            10 AS Priority,
+            'Azure Performance' AS FindingGroup,
+            'Database is Maxed Out' AS Finding,
+            'https://BrentOzar.com/go/maxedout' AS URL,
+            N'At ' + CONVERT(NVARCHAR(100), s.end_time ,121) + N', your database approached (or hit) your DTU limits:' + @LineFeed
+                + N'Average CPU percent: ' + CAST(avg_cpu_percent AS NVARCHAR(50)) + @LineFeed
+                + N'Average data IO percent: ' + CAST(avg_data_io_percent AS NVARCHAR(50)) + @LineFeed
+                + N'Average log write percent: ' + CAST(avg_log_write_percent AS NVARCHAR(50)) + @LineFeed
+                + N'Max worker percent: ' + CAST(max_worker_percent AS NVARCHAR(50)) + @LineFeed
+                + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
+            'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
+        FROM sys.dm_db_resource_stats s
+        WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
+          AND (avg_cpu_percent > 90
+               OR avg_data_io_percent >= 90
+               OR avg_log_write_percent >=90
+               OR max_worker_percent >= 90
+               OR max_session_percent >= 90);
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
