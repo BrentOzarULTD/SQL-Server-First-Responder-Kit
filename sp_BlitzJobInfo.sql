@@ -44,7 +44,8 @@ SELECT 'job top 20 by frequency', 'Gets the list of the top 20 jobs by execution
 SELECT 'job top 20 by duration', 'Gets the list of the top 20 jobs by duration' UNION
 SELECT 'job top 20 by failures', 'Gets the list of the top 20 jobs by number of failures' UNION
 SELECT 'maintenance plans', 'Gets the list of the Maintenance plans of the Instance' UNION
-SELECT 'maintenance plans tasks', 'Gets the list of the Tasks for each maintenance plan'
+SELECT 'maintenance plans tasks', 'Gets the list of the Tasks for each maintenance plan' UNION
+SELECT 'maintenance plans jobs', 'Gets the list of jobs associated with each maintenance plan'
 
 SET @HelpText = '
 /*
@@ -250,6 +251,23 @@ END
 --Maintenance Plans
 IF (LOWER(@WhatToGet) LIKE 'maintenance%')
 BEGIN
+
+    IF LOWER(@WhatToGet) = 'maintenance plans jobs'
+    BEGIN
+
+        SELECT [smj].[plan_id],
+               [plan_name] AS [PlanName],
+               [smj].[job_id],
+               [sj].[name] AS [JobName]
+        FROM   msdb.dbo.sysdbmaintplan_jobs smj
+        JOIN msdb.dbo.sysjobs sj
+        ON sj.job_id = smj.job_id
+        JOIN msdb.dbo.sysdbmaintplans smp
+        ON smp.plan_id = smj.plan_id;
+
+    END
+
+
     /* Get maintenance plan steps if we're on 2008 or newer */
     CREATE TABLE #jobsteps (name NVARCHAR(128), maintenance_plan_xml XML);
 
@@ -363,7 +381,7 @@ BEGIN
                [h].[instance_id],
                [j].[name] AS 'JobName',
                [s].[step_id] AS 'Step',
-               [JobRunID],
+               [JobRunID] as [JobRunID],
                [s].[step_name] AS 'StepName',
                [msdb].[dbo].[agent_datetime]([run_date], [run_time]) AS 'RunDateTime',
                (([run_duration] / 10000 * 3600 + ([run_duration] / 100) % 100 * 60 + [run_duration] % 100)) AS 'RunDurationSeconds',
@@ -404,7 +422,10 @@ BEGIN
                [SC].[job_id],
                [S].[name] AS [JobName],
                [ss].[name] AS [ScheduleName],
-               IIF([next_run_date] = 0, NULL, [msdb].[dbo].[agent_datetime]([next_run_date], [next_run_time])) AS 'Next_RunDateTime'
+               CASE 
+                    WHEN [next_run_date] = 0 THEN NULL
+                    ELSE [msdb].[dbo].[agent_datetime]([next_run_date], [next_run_time])
+               END AS [Next_RunDateTime]
         FROM   [msdb].[dbo].[sysjobschedules] [SC]
                JOIN [msdb].[dbo].[sysjobs] [S] ON [S].[job_id] = [SC].[job_id]
                JOIN [msdb].[dbo].[sysschedules] [ss] ON [ss].[schedule_id] = [SC].[schedule_id]
@@ -607,7 +628,10 @@ BEGIN
               ELSE NULL
             END AS schedule_detail,
             ss.Name as schedule_name,
-            IIF(ss.enabled =1,'Yes','No') as schedule_enabled,
+            CASE
+                WHEN ss.[enabled] = 1 THEN 'Yes'
+                ELSE 'No'
+            END  as [schedule_enabled],
             sjs.schedule_id
         FROM
             msdb.dbo.sysjobschedules AS sjs
@@ -637,7 +661,7 @@ BEGIN
             COALESCE(j3.schedule, 'N/A') AS schedule ,
             COALESCE(j3.schedule_name, 'N/A') AS schedule_name ,
             COALESCE(j3.schedule_enabled, 'N/A') AS schedule_enabled ,
-            COALESCE(j3.schedule_id, 'N/A') AS schedule_id ,
+            COALESCE(CAST(j3.schedule_id as varchar(10)), 'N/A') AS schedule_id ,
             COALESCE(j3.schedule_detail, 'N/A') AS schedule_detail ,
             COALESCE(CAST(j2.job_success AS VARCHAR(10)), 'N/A') AS job_success ,
             COALESCE(CAST(j2.job_cancel AS VARCHAR(10)), 'N/A') AS job_cancel ,
