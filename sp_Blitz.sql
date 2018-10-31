@@ -235,28 +235,29 @@ AS
 				EXEC(@StringToExecute);
 			END;
 
+		-- Flag for Windows OS to help with Linux support
+		IF EXISTS ( SELECT  1
+						FROM    sys.all_objects
+						WHERE   name = 'dm_os_host_info' )
+			BEGIN
+				SELECT @IsWindowsOperatingSystem = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info ;
+			END;
+			ELSE
+			BEGIN
+				SELECT @IsWindowsOperatingSystem = 1 ;
+			END;
+
 		IF NOT EXISTS ( SELECT  1
 							FROM    #SkipChecks
 							WHERE   DatabaseName IS NULL AND CheckID = 106 )
 							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
 			BEGIN
-				-- Flag for Windows OS to help with Linux support
-				IF EXISTS ( SELECT  1
-								FROM    sys.all_objects
-								WHERE   name = 'dm_os_host_info' )
-					BEGIN
-						SELECT @IsWindowsOperatingSystem = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info ;
-					END;
-					ELSE
-					BEGIN
-						SELECT @IsWindowsOperatingSystem = 1 ;
-					END;
 
 					select @curr_tracefilename = [path] from sys.traces where is_default = 1 ;
 					set @curr_tracefilename = reverse(@curr_tracefilename);
 
 					-- Set the trace file path separator based on underlying OS
-					IF (@IsWindowsOperatingSystem = 1)
+					IF (@IsWindowsOperatingSystem = 1) AND @curr_tracefilename IS NOT NULL
 					BEGIN
 						select @indx = patindex('%\%', @curr_tracefilename) ;
 						set @curr_tracefilename = reverse(@curr_tracefilename) ;
