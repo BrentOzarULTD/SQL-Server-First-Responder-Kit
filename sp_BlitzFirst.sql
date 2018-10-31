@@ -212,10 +212,16 @@ IF @SinceStartup = 1
     SELECT @Seconds = 0, @ExpertMode = 1;
 
 IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
-    SELECT @StartSampleTime = DATEADD(ms, AVG(-wait_time_ms), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
-        FROM sys.dm_os_wait_stats w
-        WHERE wait_type IN ('BROKER_TASK_STOP','DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
-                            'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_DISPATCHER_WAIT','XE_TIMER_EVENT');
+	WITH WaitTimes AS (
+        SELECT wait_type, wait_time_ms,
+            NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
+            FROM sys.dm_os_wait_stats w
+            WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
+                                'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
+    )
+    SELECT StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), FinishSampleTime = SYSDATETIMEOFFSET()
+        FROM WaitTimes
+        WHERE grouper = 2;
 ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
     SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM sys.databases
