@@ -219,7 +219,7 @@ IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
             WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
                                 'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
     )
-    SELECT StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), FinishSampleTime = SYSDATETIMEOFFSET()
+    SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
         FROM WaitTimes
         WHERE grouper = 2;
 ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
