@@ -7721,6 +7721,37 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								END;
 							END; /* CheckID 152 */
 
+                        /* CheckID 222 - Server Info - Azure Managed Instance */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 222 )
+							AND 4 = ( SELECT COUNT(*)
+										 FROM   sys.all_objects o
+										 INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+										 WHERE  o.name = 'dm_os_job_object'
+                                	 		AND c.name IN ('cpu_rate', 'memory_limit_mb', 'process_memory_limit_mb', 'workingset_limit_mb' ))
+							BEGIN
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 114) WITH NOWAIT;
+								
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+										SELECT  222 AS CheckID ,
+												250 AS Priority ,
+												''Server Info'' AS FindingsGroup ,
+												''Azure Managed Instance'' AS Finding ,
+												''https://www.BrenOzar.com/go/azurevm'' AS URL ,
+												''cpu_rate: '' + CAST(COALESCE(cpu_rate, 0) AS VARCHAR(20)) + 
+												'', memory_limit_mb: '' + CAST(COALESCE(memory_limit_mb, 0) AS NVARCHAR(20)) + 
+												'', process_memory_limit_mb: '' + CAST(COALESCE(process_memory_limit_mb, 0) AS NVARCHAR(20)) + 
+												'', workingset_limit_mb: '' + CAST(COALESCE(workingset_limit_mb, 0) AS NVARCHAR(20))
+										FROM sys.dm_os_job_object OPTION (RECOMPILE);';
+								
+								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+								
+								EXECUTE(@StringToExecute);
+							END;
+
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 

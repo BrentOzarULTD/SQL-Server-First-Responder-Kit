@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 221.  
-If you want to add a new one, start at 222.
+CURRENT HIGH CHECKID: 222.  
+If you want to add a new one, start at 223.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -276,6 +276,7 @@ If you want to add a new one, start at 222.
 | 250 | Informational | SQL Server Agent is running under an NT Service account | https://www.BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | https://www.BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |
+| 250 | Server Info | Azure Managed Instance | https://www.BrenOzar.com/go/azurevm | 222 |
 | 250 | Server Info | Container | https://www.BrentOzar.com/go/virtual | 214 |
 | 250 | Server Info | Default Trace Contents | https://www.BrentOzar.com/go/trace | 106 |
 | 250 | Server Info | Drive Space |  | 92 |
