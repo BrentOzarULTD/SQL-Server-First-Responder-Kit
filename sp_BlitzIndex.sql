@@ -193,6 +193,9 @@ IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 	DROP TABLE #TemporalTables;
+
+IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
+	DROP TABLE #CheckConstraints;
 		
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -647,6 +650,23 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
             end_column_name NVARCHAR(128) NOT NULL,
             period_name NVARCHAR(128) NOT NULL
         );
+
+		CREATE TABLE #CheckConstraints
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NULL,
+		  database_id INT NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  constraint_name NVARCHAR(128) NULL,
+		  is_disabled BIT NULL,
+		  definition NVARCHAR(MAX) NULL,
+		  uses_database_collation BIT NOT NULL,
+		  is_not_trusted BIT NOT NULL,
+		  is_function INT NOT NULL,
+		  column_definition NVARCHAR(MAX) NULL
+		);
+
 
 /* Sanitize our inputs */
 SELECT
@@ -1546,6 +1566,30 @@ BEGIN TRY
 									 history_schema_name, start_column_name, end_column_name, period_name )
 					
 			EXEC sp_executesql @dsql;
+
+             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+             				   @i_DatabaseName AS database_name,
+             		   		   t.name AS table_name,
+             		           s.name AS schema_name,
+             		           cc.name AS constraint_name,
+             		           cc.is_disabled,
+             		           cc.definition,
+             		           cc.uses_database_collation,
+             		           cc.is_not_trusted,
+             		   		   CASE WHEN cc.definition LIKE ''%|].|[%'' ESCAPE ''|'' THEN 1 ELSE 0 END AS is_function,
+             		   		   ''ALTER TABLE '' + QUOTENAME(s.name) + ''.'' + QUOTENAME(t.name) + 
+             		   		   '' ADD CONSTRAINT '' + QUOTENAME(cc.name) + '' CHECK '' + cc.definition  + '';'' COLLATE DATABASE_DEFAULT AS [column_definition]
+             		   FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.check_constraints AS cc
+             		   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+             		   ON      t.object_id = cc.parent_object_id
+             		   JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+             		   ON      s.schema_id = t.schema_id
+             		   OPTION (RECOMPILE);';
+             
+             INSERT #CheckConstraints
+                     ( database_id, [database_name], table_name, schema_name, constraint_name, is_disabled, definition, 
+             		  uses_database_collation, is_not_trusted, is_function, column_definition )		
+             EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
     END;
 			
@@ -3954,7 +3998,28 @@ BEGIN;
 		WHERE NOT (@GetAllDatabases = 1 OR @Mode = 0)
 		OPTION    ( RECOMPILE );
 
+        ----------------------------------------
+        --Check Constraint Info: Check_id 120-129
+        ----------------------------------------
 
+	     RAISERROR(N'check_id 120: Check Constraints That Reference Functions', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  99 AS check_id, 
+				50 AS Priority,
+				'Obsessive Constraintive' AS findings_group,
+				'Serial Forcer' AS finding,
+				cc.database_name,
+				'' AS URL,
+				'The check constraint ' + QUOTENAME(cc.constraint_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is based on ' + cc.definition 
+				+ '. That indicates it may reference a scalar function, or a CLR function with data access, which can cause all queries and maintenance to run serially.' AS details,
+				cc.column_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #CheckConstraints AS cc
+		WHERE cc.is_function = 1
+		OPTION    ( RECOMPILE );
 
 	END; 
  
