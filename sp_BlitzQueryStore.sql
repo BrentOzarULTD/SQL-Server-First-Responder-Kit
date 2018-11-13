@@ -739,7 +739,7 @@ CREATE TABLE #stats_agg
 (
     sql_handle VARBINARY(64),
     last_update DATETIME2,
-    modification_count DECIMAL(38, 2),
+    modification_count BIGINT,
     sampling_percent DECIMAL(38, 2),
     [statistics] NVARCHAR(258),
     [table] NVARCHAR(258),
@@ -2995,7 +2995,7 @@ INSERT #stats_agg WITH (TABLOCK)
 	(sql_handle, last_update, modification_count, sampling_percent, [statistics], [table], [schema], [database])
 SELECT qp.sql_handle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
-	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
+	   x.c.value('@ModificationCount', 'BIGINT') AS ModificationCount,
 	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
 	   x.c.value('@Statistics', 'NVARCHAR(258)') AS [Statistics], 
 	   x.c.value('@Table', 'NVARCHAR(258)') AS [Table], 
