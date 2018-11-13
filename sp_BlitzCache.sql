@@ -1224,7 +1224,7 @@ CREATE TABLE #stats_agg
 (
     SqlHandle VARBINARY(64),
 	LastUpdate DATETIME2(7),
-    ModificationCount INT,
+    ModificationCount BIGINT,
     SamplingPercent FLOAT,
     [Statistics] NVARCHAR(258),
     [Table] NVARCHAR(258),
@@ -3261,7 +3261,7 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 INSERT INTO #stats_agg
 SELECT qp.SqlHandle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
-	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
+	   x.c.value('@ModificationCount', 'BIGINT') AS ModificationCount,
 	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
 	   x.c.value('@Statistics', 'NVARCHAR(258)') AS [Statistics], 
 	   x.c.value('@Table', 'NVARCHAR(258)') AS [Table], 
