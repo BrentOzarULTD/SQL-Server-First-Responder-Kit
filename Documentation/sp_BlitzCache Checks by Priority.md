@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 61
-If you want to add a new check, start at 62
+CURRENT HIGH CHECKID: 62
+If you want to add a new check, start at 63
 
 | Priority | FindingsGroup | Finding | URL | CheckID | Expert Mode | 
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|-------------|
@@ -72,7 +72,7 @@ If you want to add a new check, start at 62
 | 100 | tempdb Spills | This query spills >500mb to tempdb on average | https://www.brentozar.com/blitzcache/tempdb-spills/ | 59 | No |
 | 100 | MSTVFs | These have many of the same problems scalar UDFs have | http://brentozar.com/blitzcache/tvf-join/ | 60 | No |
 | 100 | Many to Many Merge | These use secret worktables that could be doing lots of reads | Blog not published yet | 61 | Yes |
-| 50 | Non-SARGable queries | Queries may have non-SARGable predicates |http://brentozar.com/go/sargable| http://brentozar.com/go/sargable | No |
+| 50 | Non-SARGable queries | Queries may have non-SARGable predicates |http://brentozar.com/go/sargable| 62 | No |
 | 254 | Plan Cache Information | Breaks cache down by creation date (24/4/1 hrs) | None | 999 | No |
 | 255 | Global Trace Flags Enabled | You have Global Trace Flags enabled on your server | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 1000 | No |
 | 255 | Need more help? | Paste your plan on the internet! | http://pastetheplan.com | 2147483646 | No |
