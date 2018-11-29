@@ -129,6 +129,19 @@ SET @VersionDate = '20181001';
                     1) WITH NOWAIT;
                 RETURN;
             END;
+        
+        IF ((SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+             AND 
+             LOWER(@EventSessionPath) NOT LIKE 'http%')
+            BEGIN
+                    RAISERROR(
+                    'The default storage path doesn''t work in Azure SQLDB/Managed instances.
+You need to use an Azure storage account, and the path has to look like this: https://StorageAccount.blob.core.windows.net/Container/FileName.xel',
+                    0,
+                    1) WITH NOWAIT;
+                RETURN;
+            END
+
 
 		IF @Top IS NULL
 			SET @Top = 2147483647;
