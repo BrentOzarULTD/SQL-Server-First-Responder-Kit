@@ -24,6 +24,7 @@ Well, useful is probably the wrong word. More like entertaining. Here we go.
     * Run _TestBed.sql: this has stored proc calls with common parameters. May have to add in new scenarios if new features are added. 
 * If it passes, bump all the version numbers inside the scripts and re-run the PowerShell commands so combined scripts reflect correct version and date.
     * sp_foreachdb @Version and @VersionDate
+    * sp_ineachdb @Version and @VersionDate
     * sp_BlitzWho @Version and @VersionDate
     * sp_BlitzIndex @Version and @VersionDate
     * sp_BlitzFirst @Version and @VersionDate 
@@ -63,3 +64,9 @@ When you have questions about how the tools work, talk with the community in the
 When you find a bug or want something changed, read the <a href="https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/CONTRIBUTING.md" target="_blank" rel="noopener">contributing.md</a> file.
 
 When you have a question about what the scripts found, first make sure you read the "More Details" URL for any warning you find. We put a lot of work into documentation, and we wouldn't want someone to yell at you to go read the fine manual. After that, when you've still got questions about how something works in SQL Server, post a question at <a href="http://dba.stackexchange.com" target="_blank" rel="noopener">DBA.StackExchange.com</a> and the community (that includes us!) will help. Include exact errors and any applicable screenshots, your SQL Server version number (including the build #), and the version of the tool you're working with.
+
+<strong>You can <a href="https://www.brentozar.com/first-aid/">download the updated FirstResponderKit.zip here</a>.</strong>
+
+## Update the Collector
+Because you're a spaz and you always forget to do it.
+

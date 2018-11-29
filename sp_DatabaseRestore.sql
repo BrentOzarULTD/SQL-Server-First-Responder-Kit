@@ -32,8 +32,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.10';
-SET @VersionDate = '20181001';
+SET @Version = '6.12';
+SET @VersionDate = '20181201';
 
 
 IF @Help = 1

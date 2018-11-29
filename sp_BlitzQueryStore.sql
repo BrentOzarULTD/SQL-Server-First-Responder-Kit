@@ -55,8 +55,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.10';
-	SET @VersionDate = '20181001';
+	SET @Version = '2.12';
+	SET @VersionDate = '20181201';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -92,18 +92,21 @@ FROM   sys.configurations AS c
 WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
-/*Grabs log size for datbase*/
-SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
-FROM sys.master_files AS mf
-WHERE mf.database_id = DB_ID(@DatabaseName)
-AND mf.type_desc = 'LOG';
-
-/*Grab avg tempdb file size*/
-SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
-FROM sys.master_files AS mf
-WHERE mf.database_id = DB_ID('tempdb')
-AND mf.type_desc = 'ROWS';
-
+/*Check if this is Azure first*/
+IF (SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
+    BEGIN 
+        /*Grabs log size for datbase*/
+        SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
+        FROM sys.master_files AS mf
+        WHERE mf.database_id = DB_ID(@DatabaseName)
+        AND mf.type_desc = 'LOG';
+        
+        /*Grab avg tempdb file size*/
+        SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
+        FROM sys.master_files AS mf
+        WHERE mf.database_id = DB_ID('tempdb')
+        AND mf.type_desc = 'ROWS';
+    END;
 
 /*Help section*/
 
@@ -474,6 +477,7 @@ CREATE TABLE #working_metrics
 	total_log_bytes_used AS avg_log_bytes_used * count_executions,
 	total_tempdb_space_used AS avg_tempdb_space_used * count_executions,
 	xpm AS NULLIF(count_executions, 0) / NULLIF(DATEDIFF(MINUTE, first_execution_time, last_execution_time), 0),
+    percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_query_max_used_memory * 1.00 ), 0) / NULLIF(min_query_max_used_memory, 0), 0) * 100.),
 	INDEX wm_ix_ids CLUSTERED (plan_id, query_id, query_hash)
 );
 
@@ -507,9 +511,6 @@ CREATE TABLE #working_plan_text
 	last_execution_time DATETIME2,
 	avg_compile_duration DECIMAL(38,2),
 	last_compile_duration BIGINT,
-	min_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
-	max_used_grant_kb DECIMAL(38,2), --This column is updated from dm_exec_query_stats when sql_handle for query exists there
-	percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100.),
 	/*These are from query_store_query*/
 	query_sql_text NVARCHAR(MAX),
 	statement_sql_handle VARBINARY(64),
@@ -683,6 +684,7 @@ CREATE TABLE #statements
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
 	statement XML,
+    is_cursor BIT
 	INDEX s_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
@@ -740,7 +742,7 @@ CREATE TABLE #stats_agg
 (
     sql_handle VARBINARY(64),
     last_update DATETIME2,
-    modification_count DECIMAL(38, 2),
+    modification_count BIGINT,
     sampling_percent DECIMAL(38, 2),
     [statistics] NVARCHAR(258),
     [table] NVARCHAR(258),
@@ -922,7 +924,7 @@ CREATE TABLE #missing_index_pretty
 			   + N'CREATE NONCLUSTERED INDEX ix_'
 			   + ISNULL(REPLACE(REPLACE(REPLACE(equality,'[', ''), ']', ''),   ', ', '_'), '')
 			   + ISNULL(REPLACE(REPLACE(REPLACE(inequality,'[', ''), ']', ''), ', ', '_'), '')
-			   + CASE WHEN [include] IS NOT NULL THEN + N'Includes' ELSE N'' END
+			   + CASE WHEN [include] IS NOT NULL THEN + N'_Includes' ELSE N'' END
 			   + CHAR(10)
 			   + N' ON '
 			   + schema_name
@@ -1941,29 +1943,6 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 /*
-
-Some memory grant information isn't available in query store
-
-We have to go back to other DMVs to find it, when possible
-
-It may not be there for various reaons
-
-*/
-RAISERROR(N'Checking dm_exec_query_stats for memory grant info', 0, 1) WITH NOWAIT;
-WITH max_mem
-AS ( SELECT   deqs.sql_handle, MAX(deqs.min_grant_kb) AS min_grant_kb, MAX(deqs.max_used_grant_kb) AS max_used_grant_kb
-     FROM     sys.dm_exec_query_stats AS deqs
-     GROUP BY deqs.sql_handle )
-UPDATE wpt
-SET    wpt.min_grant_kb = deqs.min_grant_kb,
-       wpt.max_used_grant_kb = deqs.max_used_grant_kb
-FROM   #working_plan_text AS wpt
-JOIN   max_mem AS deqs
-ON wpt.statement_sql_handle = deqs.sql_handle
-OPTION (RECOMPILE);
-
-
-/*
 This gets us context settings for our queries and adds it to the #working_plan_text table
 */
 
@@ -2093,7 +2072,8 @@ END;
 
 UPDATE #working_plan_text
 SET top_three_waits = CASE 
-						WHEN @waitstats = 0 THEN N'The query store waits stats DMV is not available'
+						WHEN @waitstats = 0 
+                        THEN N'The query store waits stats DMV is not available'
 						ELSE N'No Significant waits detected!'
 						END
 WHERE top_three_waits IS NULL
@@ -2133,7 +2113,7 @@ RAISERROR(N'Populate working warnings table with gathered plans', 0, 1) WITH NOW
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
-SELECT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
+SELECT DISTINCT wp.plan_id, wp.query_id, qsq.query_hash, qsqt.statement_sql_handle
 FROM   #working_plans AS wp
 JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 ON qsp.plan_id = wp.plan_id
@@ -2214,12 +2194,14 @@ WHERE    1 = 1
 
 SET @sql_select += @sql_where;
 
-SET @sql_select += N'GROUP BY wp.query_id
-					HAVING COUNT(qsp.plan_id) > 1
-					) AS x
-					ON ww.query_id = x.query_id
-					OPTION (RECOMPILE);
-					';
+SET @sql_select += 
+N'GROUP BY wp.query_id
+  HAVING COUNT(qsp.plan_id) > 1
+) AS x
+    ON ww.query_id = x.query_id
+OPTION (RECOMPILE);
+';
+
 IF @Debug = 1
 	PRINT @sql_select;
 
@@ -2377,8 +2359,8 @@ RAISERROR(N'Begin XML nodes parsing', 0, 1) WITH NOWAIT;
 
 RAISERROR(N'Inserting #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )	
-	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement, is_cursor )	
+	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement, 0 AS is_cursor
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
 	ON ww.plan_id = wp.plan_id
@@ -2388,8 +2370,8 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Inserting parsed cursor XML to #statements', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement )
-	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement
+INSERT #statements WITH (TABLOCK) ( plan_id, query_id, query_hash, sql_handle, statement, is_cursor )
+	SELECT ww.plan_id, ww.query_id, ww.query_hash, ww.sql_handle, q.n.query('.') AS statement, 1 AS is_cursor
 	FROM #working_warnings AS ww
 	JOIN #working_plan_text AS wp
 	ON ww.plan_id = wp.plan_id
@@ -2713,6 +2695,17 @@ JOIN (
 ON  b.sql_handle = y.sql_handle
 OPTION (RECOMPILE);
 
+IF NOT EXISTS(SELECT 1/0 FROM #statements AS s WHERE s.is_cursor = 1)
+BEGIN
+
+RAISERROR(N'No cursor plans found, skipping', 0, 1) WITH NOWAIT;
+
+END
+
+IF EXISTS(SELECT 1/0 FROM #statements AS s WHERE s.is_cursor = 1)
+BEGIN
+
+RAISERROR(N'Cursor plans found, investigating', 0, 1) WITH NOWAIT;
 
 RAISERROR(N'Checking for Optimistic cursors', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -2723,6 +2716,7 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorConcurrency[.="Optimistic"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2735,6 +2729,7 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@ForwardOnly[.="true"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2747,6 +2742,7 @@ JOIN #statements AS qs
 ON b.sql_handle = qs.sql_handle
 CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
 
@@ -2759,8 +2755,10 @@ JOIN #statements AS s
 ON b.sql_handle = s.sql_handle
 CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="Dynamic"]') = 1
+AND s.is_cursor = 1
 OPTION (RECOMPILE);
 
+END
 
 IF @ExpertMode > 0
 BEGIN
@@ -2964,7 +2962,7 @@ AS ( SELECT DISTINCT r.plan_id,
 	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
        c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
        c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
-       c.n.value('@EstimateRewinds', 'FLOAT') AS estimated_rewinds
+       c.n.value('@EstimateRebinds', 'FLOAT') AS estimated_rebinds
 FROM   #relop AS r
 JOIN   selects AS s
 ON s.plan_id = r.plan_id
@@ -2974,7 +2972,7 @@ WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Index Spool" and @LogicalOp="Eager S
 )
 UPDATE ww
 		SET ww.index_spool_rows = sp.estimated_rows,
-			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rewinds < 1 THEN 1 ELSE sp.estimated_rewinds END)
+			ww.index_spool_cost = ((sp.estimated_io * sp.estimated_cpu) * CASE WHEN sp.estimated_rebinds < 1 THEN 1 ELSE sp.estimated_rebinds END)
 
 FROM #working_warnings ww
 JOIN spools sp
@@ -2992,7 +2990,6 @@ BEGIN
 
 RAISERROR(N'Beginning 2017 and 2016 SP2 specfic checks', 0, 1) WITH NOWAIT;
 
-
 IF @ExpertMode > 0
 BEGIN
 RAISERROR('Gathering stats information', 0, 1) WITH NOWAIT;
@@ -3001,7 +2998,7 @@ INSERT #stats_agg WITH (TABLOCK)
 	(sql_handle, last_update, modification_count, sampling_percent, [statistics], [table], [schema], [database])
 SELECT qp.sql_handle,
 	   x.c.value('@LastUpdate', 'DATETIME2(7)') AS LastUpdate,
-	   x.c.value('@ModificationCount', 'INT') AS ModificationCount,
+	   x.c.value('@ModificationCount', 'BIGINT') AS ModificationCount,
 	   x.c.value('@SamplingPercent', 'FLOAT') AS SamplingPercent,
 	   x.c.value('@Statistics', 'NVARCHAR(258)') AS [Statistics], 
 	   x.c.value('@Table', 'NVARCHAR(258)') AS [Table], 
@@ -3259,7 +3256,7 @@ OPTION ( RECOMPILE );
 						 AND ci.convert_implicit_charindex = 0
 					THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
 					WHEN ci.at_charindex = 0
-		                 AND ci.equal_charindex > 0 
+		                 AND (ci.equal_charindex -1) > 0 
 						 AND ci.convert_implicit_charindex > 0
 					THEN SUBSTRING(ci.expression, 0, ci.equal_charindex -1)
 		            WHEN ci.at_charindex > 0
@@ -3309,25 +3306,26 @@ OPTION ( RECOMPILE );
 		
 		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
 		UPDATE s
-		SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' THEN
-		                                      LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+		SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' 
+                                          THEN LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
 										  ELSE s.variable_datatype
 		                             END,
-		       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' THEN
-		                                 LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+		       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' 
+                                     THEN LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
 		                             ELSE s.converted_to
 		                        END,
-			   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' THEN
-												SUBSTRING(s.compile_time_value, 
-															CHARINDEX('(', s.compile_time_value) + 1,
-															CHARINDEX(')', s.compile_time_value) - 1
-															- CHARINDEX('(', s.compile_time_value)
-															)
+			   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
+                                           THEN SUBSTRING(s.compile_time_value, 
+														  CHARINDEX('(', s.compile_time_value) + 1,
+														  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+														  )
 											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
 												AND s.variable_datatype NOT LIKE '%binary%' 
 												AND s.compile_time_value NOT LIKE 'N''%'''
-												AND s.compile_time_value NOT LIKE '''%''' THEN
-												QUOTENAME(compile_time_value, '''')
+												AND s.compile_time_value NOT LIKE '''%''' 
+                                                AND s.compile_time_value <> s.column_name
+                                                AND s.compile_time_value <> '**idk_man**'
+                                                THEN QUOTENAME(compile_time_value, '''')
 									ELSE s.compile_time_value 
 									  END
 		FROM   #stored_proc_info AS s
@@ -3533,6 +3531,13 @@ OPTION (RECOMPILE);
 /*End implicit conversion and parameter info*/
 
 /*Begin Missing Index*/
+IF EXISTS ( SELECT 1/0 
+            FROM #working_warnings AS ww 
+            WHERE ww.missing_index_count > 0
+		    OR ww.index_spool_cost > 0
+		    OR ww.index_spool_rows > 0 )
+		   
+		BEGIN	
 	
 		RAISERROR(N'Inserting to #missing_index_xml', 0, 1) WITH NOWAIT;
 		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3726,6 +3731,7 @@ OPTION (RECOMPILE);
 	FROM #working_warnings AS ww
 	OPTION (RECOMPILE);
 
+END
 /*End Missing Index*/
 
 RAISERROR(N'General query dispositions: frequent executions, long running, etc.', 0, 1) WITH NOWAIT;
@@ -3741,7 +3747,7 @@ SET    b.frequent_execution = CASE WHEN wm.xpm > @execution_threshold THEN 1 END
 	   b.is_key_lookup_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.key_lookup_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_sort_expensive = CASE WHEN b.query_cost >= (@ctp / 2) AND b.sort_cost >= b.query_cost * .5 THEN 1 END,
 	   b.is_remote_query_expensive = CASE WHEN b.remote_query_cost >= b.query_cost * .05 THEN 1 END,
-	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_grant_kb > @min_memory_per_query THEN 1 END,
+	   b.is_unused_grant = CASE WHEN percent_memory_grant_used <= @memory_grant_warning_percent AND min_query_max_used_memory > @min_memory_per_query THEN 1 END,
 	   b.long_running_low_cpu = CASE WHEN wm.avg_duration > wm.avg_cpu_time * 4 AND avg_cpu_time < 500. THEN 1 END,
 	   b.low_cost_high_cpu = CASE WHEN b.query_cost < 10 AND wm.avg_cpu_time > 5000. THEN 1 END,
 	   b.is_spool_expensive = CASE WHEN b.query_cost > (@ctp / 2) AND b.index_spool_cost >= b.query_cost * .1 THEN 1 END,
@@ -3859,7 +3865,7 @@ RAISERROR(N'Checking for parameter sniffing symptoms', 0, 1) WITH NOWAIT;
 
 UPDATE b
 SET b.parameter_sniffing_symptoms = 
-CASE WHEN b.count_executions < 4 THEN 'Too few executions to compare (< 4).'
+CASE WHEN b.count_executions < 2 THEN 'Too few executions to compare (< 2).'
 	ELSE													
 	SUBSTRING(  
 				/*Duration*/
@@ -3898,10 +3904,9 @@ CASE WHEN b.count_executions < 4 THEN 'Too few executions to compare (< 4).'
 				CASE WHEN b.last_rowcount * 100 < b.avg_rowcount  THEN ', Low row count run' ELSE '' END +
 				CASE WHEN b.last_rowcount > b.avg_rowcount * 100 THEN ', High row count last run' ELSE '' END +
 				/*DOP*/
-				CASE WHEN b.min_dop = 1 THEN ', Serial sometimes' ELSE '' END +
-				CASE WHEN b.max_dop > 1 THEN ', Parallel sometimes' ELSE '' END +
-				CASE WHEN b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
-				CASE WHEN b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop THEN ', Serial sometimes' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
+				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
 				/*tempdb*/
 				CASE WHEN b.min_tempdb_space_used * 100 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
 				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb sometimes' ELSE '' END +
@@ -3946,7 +3951,6 @@ IF (@Failed = 0 AND @ExportToExcel = 0 AND @SkipXML = 0)
 BEGIN
 
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
-
 
 WITH x AS (
 SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
@@ -4931,18 +4935,6 @@ BEGIN
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 
-        IF EXISTS (SELECT 1/0
-                   FROM   #working_plan_text AS p
-                   WHERE  p.min_grant_kb IS NULL
-				   )
-            INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (
-                    1001,
-                    255,
-                    'Plans not in cache',
-                    'We checked sys.dm_exec_query_stats for memory grant info',
-                    '',
-                    'Plans in Query Store aren''t in other DMVs, which means we can''t get some information about them.') ;
 
 			/*
 			Return worsts

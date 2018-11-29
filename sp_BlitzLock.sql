@@ -26,8 +26,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.10';
-SET @VersionDate = '20181001';
+SET @Version = '1.12';
+SET @VersionDate = '20181201';
 
 
 	IF @Help = 1 PRINT '
@@ -129,6 +129,19 @@ SET @VersionDate = '20181001';
                     1) WITH NOWAIT;
                 RETURN;
             END;
+        
+        IF ((SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+             AND 
+             LOWER(@EventSessionPath) NOT LIKE 'http%')
+            BEGIN
+                    RAISERROR(
+                    'The default storage path doesn''t work in Azure SQLDB/Managed instances.
+You need to use an Azure storage account, and the path has to look like this: https://StorageAccount.blob.core.windows.net/Container/FileName.xel',
+                    0,
+                    1) WITH NOWAIT;
+                RETURN;
+            END
+
 
 		IF @Top IS NULL
 			SET @Top = 2147483647;
@@ -913,14 +926,12 @@ SET @VersionDate = '20181001';
 		       d.last_batch_completed,
 		       d.transaction_name,
 			   /*These columns will be NULL for regular (non-parallel) deadlocks*/
-			   d.owner_mode,
 			   d.owner_waiter_type,
 			   d.owner_activity,
 			   d.owner_waiter_activity,
 			   d.owner_merging,
 			   d.owner_spilling,
 			   d.owner_waiting_to_close,
-			   d.waiter_mode,
 			   d.waiter_waiter_type,
 			   d.waiter_owner_activity,
 			   d.waiter_waiter_activity,
