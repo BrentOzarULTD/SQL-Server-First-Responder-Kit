@@ -3309,8 +3309,10 @@ AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END; 
 
-IF @v >= 14 OR	(@v = 13 AND @build >= 5026)
-   AND @ExpertMode > 0
+IF ((@v >= 14 
+       OR (@v = 13 AND @build >= 5026) 
+       OR (@v = 12 AND @build >= 6024))
+   AND @ExpertMode > 0)
 
 BEGIN;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
