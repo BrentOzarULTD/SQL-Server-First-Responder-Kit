@@ -92,18 +92,21 @@ FROM   sys.configurations AS c
 WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
-/*Grabs log size for datbase*/
-SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
-FROM sys.master_files AS mf
-WHERE mf.database_id = DB_ID(@DatabaseName)
-AND mf.type_desc = 'LOG';
-
-/*Grab avg tempdb file size*/
-SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
-FROM sys.master_files AS mf
-WHERE mf.database_id = DB_ID('tempdb')
-AND mf.type_desc = 'ROWS';
-
+/*Check if this is Azure first*/
+IF (SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
+    BEGIN 
+        /*Grabs log size for datbase*/
+        SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
+        FROM sys.master_files AS mf
+        WHERE mf.database_id = DB_ID(@DatabaseName)
+        AND mf.type_desc = 'LOG';
+        
+        /*Grab avg tempdb file size*/
+        SELECT @avg_tempdb_data_file = AVG(((mf.size * 8) / 1024.))
+        FROM sys.master_files AS mf
+        WHERE mf.database_id = DB_ID('tempdb')
+        AND mf.type_desc = 'ROWS';
+    END;
 
 /*Help section*/
 
