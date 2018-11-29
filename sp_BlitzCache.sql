@@ -1539,14 +1539,35 @@ IF @StoredProcName IS NOT NULL AND @StoredProcName <> N''
 
 BEGIN
 	RAISERROR(N'Setting up filter for stored procedure name', 0, 1) WITH NOWAIT;
-	INSERT #only_sql_handles
+	
+    DECLARE @function_search_sql NVARCHAR(MAX) = N''
+    
+    INSERT #only_sql_handles
 	        ( sql_handle )
 	SELECT  ISNULL(deps.sql_handle, CONVERT(VARBINARY(64),'0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'))
 	FROM sys.dm_exec_procedure_stats AS deps
 	WHERE OBJECT_NAME(deps.object_id, deps.database_id) = @StoredProcName
-	OPTION (RECOMPILE) ;
 
-		IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
+    UNION ALL
+    
+    SELECT  ISNULL(dets.sql_handle, CONVERT(VARBINARY(64),'0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'))
+	FROM sys.dm_exec_trigger_stats AS dets
+	WHERE OBJECT_NAME(dets.object_id, dets.database_id) = @StoredProcName
+	OPTION (RECOMPILE);
+
+    IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function_stats')
+        BEGIN
+         SET @function_search_sql = @function_search_sql + N'
+         SELECT  ISNULL(defs.sql_handle, CONVERT(VARBINARY(64),''0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000''))
+	     FROM sys.dm_exec_function_stats AS defs
+	     WHERE OBJECT_NAME(defs.object_id, defs.database_id) = @i_StoredProcName
+         OPTION (RECOMPILE);
+         '
+        INSERT #only_sql_handles ( sql_handle )
+        EXEC sys.sp_executesql @function_search_sql, N'@i_StoredProcName NVARCHAR(128)', @StoredProcName
+       END
+		
+        IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
 			BEGIN
 			RAISERROR(N'No information for that stored procedure was found.', 0, 1) WITH NOWAIT;
 			RETURN;
