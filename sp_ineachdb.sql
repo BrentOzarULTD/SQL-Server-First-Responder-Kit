@@ -26,11 +26,15 @@ ALTER PROCEDURE dbo.sp_ineachdb
   @is_auto_close_on    bit = NULL,
   @is_auto_shrink_on   bit = NULL,
   @is_broker_enabled   bit = NULL,
-  @user_access         nvarchar(128)  = NULL
+  @user_access         nvarchar(128)  = NULL, 
+  @VersionDate DATETIME = NULL OUTPUT
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
 AS
 BEGIN
   SET NOCOUNT ON;
+  DECLARE @Version VARCHAR(30);
+  SET @Version = '1.12';
+  SET @VersionDate = '20181201';
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
