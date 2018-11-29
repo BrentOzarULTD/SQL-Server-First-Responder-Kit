@@ -4780,6 +4780,7 @@ IF @ProductVersionMajor >= 10
 			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
 			AND d.application_name NOT LIKE '%Sentry%'
 			AND d.application_name NOT LIKE '%LiteSpeed%'
+            AND d.application_name NOT LIKE '%SQL Monitor - Monitoring%'
 			
 
 			HAVING COUNT(*) > 0;
