@@ -3385,6 +3385,26 @@ WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+RAISERROR(N'Attempting to get function name for individual statements', 0, 1) WITH NOWAIT;
+DECLARE @function_update_sql NVARCHAR(MAX) = N''
+IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function_stats')
+    BEGIN
+     SET @function_update_sql = @function_update_sql + N'
+     UPDATE  p
+     SET     QueryType = QueryType + '' (parent '' +
+                         + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
+                         + ''.''
+                         + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + '')''
+     FROM    ##bou_BlitzCacheProcs p
+             JOIN sys.dm_exec_function_stats s ON p.SqlHandle = s.sql_handle
+     WHERE   QueryType = ''Statement''
+     AND SPID = @@SPID
+     OPTION (RECOMPILE);
+     '
+    EXEC sys.sp_executesql @function_update_sql
+   END
+
+
 /* Trace Flag Checks 2012 SP3, 2014 SP2 and 2016 SP1 only)*/
 IF @v >= 11
 BEGIN
