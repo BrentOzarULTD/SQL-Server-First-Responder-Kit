@@ -181,58 +181,89 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
+        DECLARE @d VARCHAR(40);
 
 		/*Grab the initial set of XML to parse*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Grab the initial set of XML to parse at %s', 0, 1, @d) WITH NOWAIT;
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) xml.deadlock_xml
+        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml, IDENTITY(INT, 1 , 1) AS id
         INTO   #deadlock_data
         FROM   xml
         WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
-               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
-               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
-			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
-			   OPTION ( RECOMPILE );
-
-		
-
-		/*Parse process and input buffer XML*/
-        SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
-					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
-					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
-                    ca.dp.value('@currentdb', 'BIGINT') AS database_id,
-                    ca.dp.value('@priority', 'SMALLINT') AS priority,
-                    ca.dp.value('@logused', 'BIGINT') AS log_used,
-                    ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
-                    ca.dp.value('@waittime', 'BIGINT') AS wait_time,
-                    ca.dp.value('@transactionname', 'NVARCHAR(256)') AS transaction_name,
-                    ca.dp.value('@lasttranstarted', 'DATETIME2(7)') AS last_tran_started,
-                    ca.dp.value('@lastbatchstarted', 'DATETIME2(7)') AS last_batch_started,
-                    ca.dp.value('@lastbatchcompleted', 'DATETIME2(7)') AS last_batch_completed,
-                    ca.dp.value('@lockMode', 'NVARCHAR(256)') AS lock_mode,
-                    ca.dp.value('@trancount', 'BIGINT') AS transaction_count,
-                    ca.dp.value('@clientapp', 'NVARCHAR(256)') AS client_app,
-                    ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
-                    ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
-                    ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
-                    ca2.ib.query('.') AS input_buffer,
-                    ca.dp.query('.') AS process_xml,
-                    dd.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
-        INTO        #deadlock_process
-        FROM        #deadlock_data AS dd
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
-		WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL)
-		AND   (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL)
-		AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL)
-		AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL)
+        AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
+        AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
+		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
 		OPTION ( RECOMPILE );
 
 
+		/*Parse process and input buffer XML*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse process and input buffer XML %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      q.event_date,
+                    q.victim_id,
+                    q.deadlock_graph,
+                    q.id,
+                    q.database_id,
+                    q.priority,
+                    q.log_used,
+                    q.wait_resource,
+                    q.wait_time,
+                    q.transaction_name,
+                    q.last_tran_started,
+                    q.last_batch_started,
+                    q.last_batch_completed,
+                    q.lock_mode,
+                    q.transaction_count,
+                    q.client_app,
+                    q.host_name,
+                    q.login_name,
+                    q.isolation_level,
+                    q.process_xml,
+                    ca2.ib.query('.') AS input_buffer
+        INTO        #deadlock_process
+        FROM        (   SELECT      dd.deadlock_xml,
+                                    dd.event_date,
+                                    dd.victim_id,
+                                    dd.deadlock_graph,
+                                    ca.dp.value('@id', 'NVARCHAR(256)') AS id,
+                                    ca.dp.value('@currentdb', 'BIGINT') AS database_id,
+                                    ca.dp.value('@priority', 'SMALLINT') AS priority,
+                                    ca.dp.value('@logused', 'BIGINT') AS log_used,
+                                    ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
+                                    ca.dp.value('@waittime', 'BIGINT') AS wait_time,
+                                    ca.dp.value('@transactionname', 'NVARCHAR(256)') AS transaction_name,
+                                    ca.dp.value('@lasttranstarted', 'DATETIME2(7)') AS last_tran_started,
+                                    ca.dp.value('@lastbatchstarted', 'DATETIME2(7)') AS last_batch_started,
+                                    ca.dp.value('@lastbatchcompleted', 'DATETIME2(7)') AS last_batch_completed,
+                                    ca.dp.value('@lockMode', 'NVARCHAR(256)') AS lock_mode,
+                                    ca.dp.value('@trancount', 'BIGINT') AS transaction_count,
+                                    ca.dp.value('@clientapp', 'NVARCHAR(256)') AS client_app,
+                                    ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
+                                    ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
+                                    ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
+                                    ISNULL(ca.dp.query('.'), '') AS process_xml
+                        FROM        (   SELECT d1.deadlock_xml,
+                                               d1.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
+                                               d1.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
+                                               d1.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
+                                        FROM   #deadlock_data AS d1 ) AS dd
+                        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
+        WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL) 
+        AND (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL) 
+        AND (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
+        AND (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
+        ) AS q
+        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+
 
 		/*Parse execution stack XML*/
-        SELECT      dp.id,
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse execution stack XML %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      DISTINCT 
+		            dp.id,
 					dp.event_date,
                     ca.dp.value('@procname', 'NVARCHAR(1000)') AS proc_name,
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
@@ -245,130 +276,206 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Grab the full resource list*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
-					ca.dp.query('.') AS resource_xml
+					ISNULL(ca.dp.query('.'), '') AS resource_xml
         INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses object locks*/
-        SELECT      dr.event_date,
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
-                    ca.dr.value('@objectname', 'NVARCHAR(1000)') AS object_name,
-                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
-					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+		/*Parse object locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse object locks %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
                     o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
         INTO        #deadlock_owner_waiter
+		FROM (
+        SELECT      dr.event_date,
+					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
-		WHERE (ca.dr.value('@objectname', 'NVARCHAR(1000)') = @ObjectName OR @ObjectName IS NULL)
+		WHERE (ca.object_name = @ObjectName OR @ObjectName IS NULL)
 		OPTION ( RECOMPILE );
 
 
 
-		/*This parses page locks*/
+		/*Parse page locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse page locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses key locks*/
+		/*Parse key locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse key locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter
-        SELECT      dr.event_date,     
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
+        SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses rid locks*/
+		/*Parse RID locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse RID locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses row group locks*/
+		/*Parse row group locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse row group locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/rowgrouplock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
 		/*Parse parallel deadlocks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Parse parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        SELECT DISTINCT 
+ 	          ca.id,
+ 			  ca.event_date,
+			  ca.wait_type,
+ 			  ca.node_id,
+ 			  ca.waiter_type,
+ 			  ca.owner_activity,
+ 			  ca.waiter_activity,
+ 			  ca.merging,
+ 			  ca.spilling,
+ 			  ca.waiting_to_close,
+ 	   		  w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+               o.l.value('@id', 'NVARCHAR(256)') AS owner_id
+ 	   INTO #deadlock_resource_parallel
+ 	   FROM (
         SELECT		dr.event_date,
-					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
-                    ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
-                    ca.dr.value('@nodeId', 'BIGINT') AS node_id,
-					/* These columns are in 2017 CU5 ONLY */
-					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
-					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
-					ca.dr.value('@waiterActivity', 'NVARCHAR(256)') AS waiter_activity,
-					ca.dr.value('@merging', 'NVARCHAR(256)') AS merging,
-					ca.dr.value('@spilling', 'NVARCHAR(256)') AS spilling,
-					ca.dr.value('@waitingToClose', 'NVARCHAR(256)') AS waiting_to_close,
-                    /*                                    */
-					w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id
-        INTO #deadlock_resource_parallel
-		FROM        #deadlock_resource AS dr
-        CROSS APPLY dr.resource_xml.nodes('//resource-list/exchangeEvent') AS ca(dr)
-        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
-		OPTION ( RECOMPILE );
+ 					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
+                     ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
+                     ca.dr.value('@nodeId', 'BIGINT') AS node_id,
+ 					/* These columns are in 2017 CU5 ONLY */
+ 					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
+ 					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
+ 					ca.dr.value('@waiterActivity', 'NVARCHAR(256)') AS waiter_activity,
+ 					ca.dr.value('@merging', 'NVARCHAR(256)') AS merging,
+ 					ca.dr.value('@spilling', 'NVARCHAR(256)') AS spilling,
+ 					ca.dr.value('@waitingToClose', 'NVARCHAR(256)') AS waiting_to_close,
+                     /*                                    */      
+ 					ca.dr.query('.') AS dr
+ 		FROM        #deadlock_resource AS dr
+         CROSS APPLY dr.resource_xml.nodes('//resource-list/exchangeEvent') AS ca(dr)
+ 		) AS ca
+         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+ 		OPTION ( RECOMPILE );
+
 
 		/*Get rid of parallel noise*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Get rid of parallel noise %s', 0, 1, @d) WITH NOWAIT;
 		WITH c
 		    AS
 		     (
@@ -379,8 +486,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE c.rn > 1;
 
 
-
 		/*Get rid of nonsense*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Get rid of nonsense %s', 0, 1, @d) WITH NOWAIT;
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
 		WHERE dow.owner_id = dow.waiter_id
@@ -393,6 +501,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			is_victim AS CONVERT(BIT, CASE WHEN id = victim_id THEN 1 ELSE 0 END);
 
 		/*Update some nonsense*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Update some nonsense part 1 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.owner_mode = dow.owner_mode
 		FROM #deadlock_process AS dp
@@ -402,6 +512,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE dp.is_victim = 0
 		OPTION ( RECOMPILE );
 
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Update some nonsense part 2 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
 		FROM #deadlock_process AS dp
@@ -415,6 +527,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 1 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 1 AS check_id, 
 			   DB_NAME(dp.database_id) AS database_name, 
@@ -435,7 +549,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
-
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 2 objects %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
@@ -454,7 +569,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 continuation, number of locks per index*/
-
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 2 indexes %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
@@ -476,6 +592,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 3 looks for Serializable locking*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 3 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 3 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
@@ -498,6 +616,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 4 looks for Repeatable Read locking*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 4 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
@@ -520,6 +640,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 5 breaks down app, host, and login information*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 5 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
@@ -547,6 +669,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 6 breaks down the types of locks (object, page, key, etc.)*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
 		WITH lock_types AS (
 				SELECT DB_NAME(dp.database_id) AS database_name,
 					   dow.object_name, 
@@ -584,6 +708,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 7 part 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
 					ds.id,
@@ -630,7 +756,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 		IF @ProductVersionMajor >= 13
 		BEGIN
-		
+		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 7 part 2 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
 					ds.id,
@@ -668,6 +795,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 8 gives you stored proc deadlock counts*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 8 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding )
 		SELECT 8 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
@@ -697,6 +826,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 9 gives you more info queries for sp_BlitzIndex */
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
 		WITH bi AS (
 				SELECT  DISTINCT
 						dow.object_name,
@@ -725,6 +856,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 10 gets total deadlock wait time per object*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 10 %s', 0, 1, @d) WITH NOWAIT;
 		WITH chopsuey AS (
 				SELECT DISTINCT
 				PARSENAME(dow.object_name, 3) AS database_name,
@@ -759,6 +892,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				OPTION ( RECOMPILE );
 
 		/*Check 11 gets total deadlock wait time per database*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 11 %s', 0, 1, @d) WITH NOWAIT;
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
@@ -798,6 +933,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Results*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
 		AS ( SELECT N'Regular Deadlock' AS deadlock_type,
 					dp.event_date,
@@ -853,7 +990,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
-			 UNION ALL 
+			 UNION ALL
 			 
 			 SELECT N'Parallel Deadlock' AS deadlock_type,
 					dp.event_date,
@@ -953,11 +1090,15 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 
-
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
+
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Done %s', 0, 1, @d) WITH NOWAIT;
 
 
         IF @Debug = 1
