@@ -954,7 +954,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Results*/
         /*Break in case of emergency*/
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_process (event_date, id);
-        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (owner_id, event_date);
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (event_date, owner_id);
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
 
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
