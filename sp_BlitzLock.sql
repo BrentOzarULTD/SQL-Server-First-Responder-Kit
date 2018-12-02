@@ -183,20 +183,25 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
         DECLARE @d VARCHAR(40);
 
+        CREATE TABLE #t (id INT NOT NULL);
+        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Grab the initial set of XML to parse at %s', 0, 1, @d) WITH NOWAIT;
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml, IDENTITY(INT, 1 , 1) AS id
+        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml
         INTO   #deadlock_data
         FROM   xml
+        LEFT JOIN #t AS t
+        ON 1 = 1
         WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
         AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
         AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
-		OPTION ( RECOMPILE );
+		OPTION ( RECOMPILE, NO_PERFORMANCE_SPOOL );
 
 
 		/*Parse process and input buffer XML*/
@@ -222,7 +227,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     q.login_name,
                     q.isolation_level,
                     q.process_xml,
-                    ca2.ib.query('.') AS input_buffer
+                    ISNULL(ca2.ib.query('.'), '') AS input_buffer
         INTO        #deadlock_process
         FROM        (   SELECT      dd.deadlock_xml,
                                     dd.event_date,
@@ -252,9 +257,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                         FROM   #deadlock_data AS d1 ) AS dd
                         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
         WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL) 
-        AND (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL) 
-        AND (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
-        AND (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
+        AND   (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL) 
+        AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
+        AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
         ) AS q
         CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
 
@@ -947,6 +952,11 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Results*/
+        /*Break in case of emergency*/
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_process (event_date, id);
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (owner_id, event_date);
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
+
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
