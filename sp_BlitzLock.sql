@@ -321,7 +321,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Parse page locks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Parse page locks %s', 0, 1, @d) WITH NOWAIT;
-        INSERT #deadlock_owner_waiter
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
 		            ca.event_date,
 					ca.database_id,
@@ -350,7 +350,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Parse key locks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Parse key locks %s', 0, 1, @d) WITH NOWAIT;
-        INSERT #deadlock_owner_waiter
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX) 
         SELECT      DISTINCT 
 		            ca.event_date,
 					ca.database_id,
@@ -379,7 +379,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Parse RID locks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Parse RID locks %s', 0, 1, @d) WITH NOWAIT;
-        INSERT #deadlock_owner_waiter
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
 		            ca.event_date,
 					ca.database_id,
@@ -408,7 +408,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Parse row group locks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Parse row group locks %s', 0, 1, @d) WITH NOWAIT;
-        INSERT #deadlock_owner_waiter
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
 		            ca.event_date,
 					ca.database_id,
@@ -529,7 +529,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 1 is deadlocks by database*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 1 %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+        ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 1 AS check_id, 
 			   DB_NAME(dp.database_id) AS database_name, 
 			   '-' AS object_name,
@@ -551,7 +552,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 2 is deadlocks by object*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 2 objects %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
 			   ISNULL(dow.object_name, 'UNKNOWN') AS object_name,
@@ -571,7 +573,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 2 continuation, number of locks per index*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 2 indexes %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
 			   dow.index_name AS index_name,
@@ -594,7 +597,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 3 looks for Serializable locking*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 3 %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 3 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -618,7 +622,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 4 looks for Repeatable Read locking*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 4 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -642,7 +647,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 5 breaks down app, host, and login information*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 5 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -691,7 +697,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND dow.object_name IS NOT NULL
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 6 AS check_id,
 			   lt.database_name,
 			   lt.object_name,
@@ -731,7 +738,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                      ds.proc_name,
                      ds.event_date
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name,
 			   ds.proc_name AS object_name,
@@ -769,7 +777,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					PARSENAME(ds.proc_name, 1) AS proc_only_name
 			FROM #deadlock_stack AS ds	
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   DB_NAME(dow.database_id) AS database_name,
 			   ds.proc_name AS object_name,
@@ -797,7 +806,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Check 8 gives you stored proc deadlock counts*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
         RAISERROR('Check 8 %s', 0, 1, @d) WITH NOWAIT;
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding )
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding )
 		SELECT 8 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   ds.proc_name, 
@@ -842,7 +852,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 				AND dow.object_name IS NOT NULL
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
 				bi.database_name,
 				bi.schema_name + '.' + bi.table_name,
@@ -878,7 +889,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
-				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+				INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
@@ -907,7 +919,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 						AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 						GROUP BY DB_NAME(dp.database_id)
 						  )
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 11 AS check_id,
 				wt.database_name,
 				'-' AS object_name,
@@ -922,7 +935,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Thank you goodnight*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		VALUES ( -1, 
 				 N'sp_BlitzLock ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)), 
 				 N'SQL Server First Responder Kit', 
