@@ -528,6 +528,64 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE dp.is_victim = 1
 		OPTION ( RECOMPILE );
 
+		/*Get Agent Job and Step names*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Get Agent Job and Step names %s', 0, 1, @d) WITH NOWAIT;
+        SELECT *,
+               CONVERT(UNIQUEIDENTIFIER, 
+                           CONVERT(XML, '').value('xs:hexBinary(substring(sql:column("x.job_id"), 0) )', 'BINARY(16)')
+                      ) AS job_id_guid
+        INTO #agent_job
+        FROM (
+            SELECT dp.event_date,
+                   dp.victim_id,
+                   dp.id,
+                   dp.database_id,
+                   dp.client_app,
+                   SUBSTRING(dp.client_app, 
+                             CHARINDEX('0x', dp.client_app) + LEN('0x'), 
+                             32
+                             ) AS job_id,
+		    	   SUBSTRING(dp.client_app, 
+                             CHARINDEX(': Step ', dp.client_app) + LEN(': Step '), 
+                             CHARINDEX(')', dp.client_app, CHARINDEX(': Step ', dp.client_app)) 
+                                 - (CHARINDEX(': Step ', dp.client_app) 
+                                     + LEN(': Step '))
+                             ) AS step_id
+            FROM #deadlock_process AS dp
+            WHERE dp.client_app LIKE 'SQLAgent - %'
+        ) AS x
+
+
+        ALTER TABLE #agent_job ADD job_name NVARCHAR(1000),
+                                   step_name NVARCHAR(1000)
+
+        
+        UPDATE aj
+        SET  aj.job_name = j.name, 
+             aj.step_name = s.step_name
+		FROM msdb.dbo.sysjobs AS j
+		JOIN msdb.dbo.sysjobsteps AS s 
+            ON j.job_id = s.job_id
+        JOIN #agent_job AS aj
+            ON  aj.job_id_guid = j.job_id
+            AND aj.step_id = s.step_id
+
+
+        UPDATE dp
+           SET dp.client_app = 
+               CASE WHEN dp.client_app LIKE 'SQLAgent - %'
+                    THEN 'SQLAgent - Job: ' 
+                         + aj.job_name
+                         + ' Step: '
+                         + aj.step_name
+                    ELSE dp.client_app
+               END  
+        FROM #deadlock_process AS dp
+        JOIN #agent_job AS aj
+        ON dp.event_date = aj.event_date
+        AND dp.victim_id = aj.victim_id
+        AND dp.id = aj.id
 
 		/*Begin checks based on parsed values*/
 
@@ -938,6 +996,21 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		GROUP BY wt.database_name
 		OPTION ( RECOMPILE );
 
+		/*Check 12 gets total deadlock wait time for SQL Agent*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        RAISERROR('Check 12 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding )         
+        SELECT 12,
+               DB_NAME(aj.database_id),
+               'SQLAgent - Job: ' 
+                + aj.job_name
+                + ' Step: '
+                + aj.step_name,
+               'Agent Job Deadlocks',
+               RTRIM(COUNT(*)) + ' deadlocks from this Agent Job and Step'
+        FROM #agent_job AS aj
+        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings WITH (TABLOCKX) 
