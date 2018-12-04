@@ -140,7 +140,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     0,
                     1) WITH NOWAIT;
                 RETURN;
-            END
+            END;
 
 
 		IF @Top IS NULL
@@ -187,7 +187,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
 
 		/*Grab the initial set of XML to parse*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Grab the initial set of XML to parse at %s', 0, 1, @d) WITH NOWAIT;
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
@@ -205,7 +205,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse process and input buffer XML*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse process and input buffer XML %s', 0, 1, @d) WITH NOWAIT;
         SELECT      q.event_date,
                     q.victim_id,
@@ -265,7 +265,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse execution stack XML*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse execution stack XML %s', 0, 1, @d) WITH NOWAIT;
         SELECT      DISTINCT 
 		            dp.id,
@@ -281,7 +281,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Grab the full resource list*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
@@ -293,7 +293,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse object locks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse object locks %s', 0, 1, @d) WITH NOWAIT;
         SELECT      DISTINCT 
 		            ca.event_date,
@@ -324,7 +324,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse page locks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse page locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
@@ -353,7 +353,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse key locks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse key locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter WITH(TABLOCKX) 
         SELECT      DISTINCT 
@@ -382,7 +382,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse RID locks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse RID locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
@@ -411,7 +411,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse row group locks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse row group locks %s', 0, 1, @d) WITH NOWAIT;
         INSERT #deadlock_owner_waiter WITH(TABLOCKX)
         SELECT      DISTINCT 
@@ -440,7 +440,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Parse parallel deadlocks*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
         SELECT DISTINCT 
  	          ca.id,
@@ -479,7 +479,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Get rid of parallel noise*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Get rid of parallel noise %s', 0, 1, @d) WITH NOWAIT;
 		WITH c
 		    AS
@@ -492,7 +492,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Get rid of nonsense*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Get rid of nonsense %s', 0, 1, @d) WITH NOWAIT;
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
@@ -506,7 +506,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			is_victim AS CONVERT(BIT, CASE WHEN id = victim_id THEN 1 ELSE 0 END);
 
 		/*Update some nonsense*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Update some nonsense part 1 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.owner_mode = dow.owner_mode
@@ -517,7 +517,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE dp.is_victim = 0
 		OPTION ( RECOMPILE );
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Update some nonsense part 2 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
@@ -529,7 +529,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Get Agent Job and Step names*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Get Agent Job and Step names %s', 0, 1, @d) WITH NOWAIT;
         SELECT *,
                CONVERT(UNIQUEIDENTIFIER, 
@@ -554,11 +554,11 @@ You need to use an Azure storage account, and the path has to look like this: ht
                              ) AS step_id
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE 'SQLAgent - %'
-        ) AS x
+        ) AS x;
 
 
-        ALTER TABLE #agent_job ADD job_name NVARCHAR(1000),
-                                   step_name NVARCHAR(1000)
+        ALTER TABLE #agent_job ADD job_name NVARCHAR(256),
+                                   step_name NVARCHAR(256);
 
         
         UPDATE aj
@@ -569,15 +569,15 @@ You need to use an Azure storage account, and the path has to look like this: ht
             ON j.job_id = s.job_id
         JOIN #agent_job AS aj
             ON  aj.job_id_guid = j.job_id
-            AND aj.step_id = s.step_id
+            AND aj.step_id = s.step_id;
 
 
         UPDATE dp
            SET dp.client_app = 
-               CASE WHEN dp.client_app LIKE 'SQLAgent - %'
-                    THEN 'SQLAgent - Job: ' 
+               CASE WHEN dp.client_app LIKE N'SQLAgent - %'
+                    THEN N'SQLAgent - Job: ' 
                          + aj.job_name
-                         + ' Step: '
+                         + N' Step: '
                          + aj.step_name
                     ELSE dp.client_app
                END  
@@ -585,12 +585,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
         JOIN #agent_job AS aj
         ON dp.event_date = aj.event_date
         AND dp.victim_id = aj.victim_id
-        AND dp.id = aj.id
+        AND dp.id = aj.id;
 
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 1 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
         ( check_id, database_name, object_name, finding_group, finding ) 	
@@ -613,7 +613,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 2 objects %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 	
@@ -634,7 +634,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 continuation, number of locks per index*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 2 indexes %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 	
@@ -658,7 +658,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 3 looks for Serializable locking*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 3 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
@@ -683,7 +683,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 4 looks for Repeatable Read locking*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
@@ -708,7 +708,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 5 breaks down app, host, and login information*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
@@ -738,7 +738,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 6 breaks down the types of locks (object, page, key, etc.)*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
 		WITH lock_types AS (
 				SELECT DB_NAME(dp.database_id) AS database_name,
@@ -778,7 +778,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 7 part 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
@@ -809,7 +809,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   'More Info - Query' AS finding_group,
 			   'EXEC sp_BlitzCache ' +
 					CASE WHEN ds.proc_name = 'adhoc'
-						 THEN ' @OnlySqlHandles = ' + sql_handle_csv
+						 THEN ' @OnlySqlHandles = ' + ds.sql_handle_csv
 						 ELSE '@StoredProcName = ' + 
 						       QUOTENAME(ds.proc_only_name, '''')
 					END +
@@ -827,7 +827,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 		IF @ProductVersionMajor >= 13
 		BEGIN
-		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 7 part 2 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
@@ -867,7 +867,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 8 gives you stored proc deadlock counts*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 8 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding )
@@ -899,7 +899,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 9 gives you more info queries for sp_BlitzIndex */
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
 		WITH bi AS (
 				SELECT  DISTINCT
@@ -930,7 +930,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 10 gets total deadlock wait time per object*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 10 %s', 0, 1, @d) WITH NOWAIT;
 		WITH chopsuey AS (
 				SELECT DISTINCT
@@ -967,7 +967,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				OPTION ( RECOMPILE );
 
 		/*Check 11 gets total deadlock wait time per database*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 11 %s', 0, 1, @d) WITH NOWAIT;
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
@@ -997,7 +997,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 12 gets total deadlock wait time for SQL Agent*/
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Check 12 %s', 0, 1, @d) WITH NOWAIT;
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding )         
@@ -1010,7 +1010,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                'Agent Job Deadlocks',
                RTRIM(COUNT(*)) + ' deadlocks from this Agent Job and Step'
         FROM #agent_job AS aj
-        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name
+        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name;
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings WITH (TABLOCKX) 
@@ -1030,7 +1030,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (event_date, owner_id);
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
 		AS ( SELECT N'Regular Deadlock' AS deadlock_type,
@@ -1175,7 +1175,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
+		AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (d.event_date < @EndDate OR @EndDate IS NULL)
@@ -1187,14 +1187,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109)
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Done %s', 0, 1, @d) WITH NOWAIT;
 
 
