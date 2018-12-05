@@ -5831,7 +5831,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may have non-SARGable predicates',
-                     'http://brentozar.com/go/sargable',
+                     'https://www.brentozar.com/blitzcache/non-sargable-predicates/',
 					 'Looks for intrinsic functions and expressions as predicates, and leading wildcard LIKE searches.');	
 
         IF EXISTS (SELECT 1/0
