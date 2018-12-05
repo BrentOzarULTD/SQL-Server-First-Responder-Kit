@@ -230,7 +230,7 @@ BEGIN
 
 	/*Is it online?*/
 	RAISERROR('Making sure [%s] is online', 0, 1, @DatabaseName) WITH NOWAIT;
-	IF (DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+	IF (DATABASEPROPERTYEX(@DatabaseName, 'Collation')) IS NULL
 	BEGIN
 		RAISERROR('The @DatabaseName you specified ([%s]) is not readable. Please check the name and try again. Better yet, check your server.', 0, 1, @DatabaseName);
 		RETURN;
