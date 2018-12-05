@@ -6671,14 +6671,14 @@ IF @ProductVersionMajor >= 10
 								SELECT  73 AS CheckID ,
 										200 AS Priority ,
 										'Monitoring' AS FindingsGroup ,
-										'No failsafe operator configured' AS Finding ,
+										'No Failsafe Operator Configured' AS Finding ,
 										'https://BrentOzar.com/go/failsafe' AS URL ,
 										( 'No failsafe operator is configured on this server.  This is a good idea just in-case there are issues with the [msdb] database that prevents alerting.' ) AS Details
 								FROM    @AlertInfo
 								WHERE   FailSafeOperator IS NULL;
 					END;
 
-/*Identify globally enabled trace flags*/
+                   /*Identify globally enabled trace flags*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 74 )
