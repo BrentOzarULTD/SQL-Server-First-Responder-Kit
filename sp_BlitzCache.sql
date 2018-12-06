@@ -1009,7 +1009,7 @@ BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
 END;
-IF (SELECT DATABASEPROPERTYEX(@DatabaseName, 'Collation')) IS NULL
+IF (SELECT DATABASEPROPERTYEX(ISNULL(@DatabaseName, 'master'), 'Collation')) IS NULL
 BEGIN
    RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 16, 1);
    RETURN;
