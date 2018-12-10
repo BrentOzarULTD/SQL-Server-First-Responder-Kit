@@ -87,6 +87,7 @@ IF @Help = 1
 		
 		*/
 		';
+		RETURN -1;
 	END
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
