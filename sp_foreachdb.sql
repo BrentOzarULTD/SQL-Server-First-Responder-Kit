@@ -47,7 +47,7 @@ IF @Help = 1
 		/*
 			sp_foreachdb from http://FirstResponderKit.org
 			
-			This script will restore a database from a given file path.
+			This script will execute a given command against all, or user-specified, available databases on an instance.
 		
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on
