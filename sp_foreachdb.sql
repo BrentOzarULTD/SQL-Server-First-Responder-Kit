@@ -270,4 +270,5 @@ IF @Help = 1
         CLOSE c;
         DEALLOCATE c;
     END
+END
 GO
