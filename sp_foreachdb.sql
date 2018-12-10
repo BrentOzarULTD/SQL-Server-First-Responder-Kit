@@ -87,6 +87,7 @@ IF @Help = 1
 		
 		*/
 		';
+	END
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
@@ -270,5 +271,4 @@ IF @Help = 1
         CLOSE c;
         DEALLOCATE c;
     END
-END
 GO
