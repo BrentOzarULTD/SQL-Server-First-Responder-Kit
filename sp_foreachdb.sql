@@ -85,6 +85,13 @@ IF @Help = 1
 			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 			SOFTWARE.
+			
+			Example for basic execution of the stored procedure:
+			
+			exec dbo.sp_foreachdb
+				@command = ''select [name] sys.tables''
+				,@database_list = ''Database1,Database2''
+				,@exclude_list = ''Database5,OldDatabase'';
 		
 		*/
 		';
