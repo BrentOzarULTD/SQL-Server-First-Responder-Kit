@@ -201,7 +201,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
         AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
-		OPTION ( RECOMPILE, NO_PERFORMANCE_SPOOL );
+		OPTION ( RECOMPILE );
 
 
 		/*Parse process and input buffer XML*/
