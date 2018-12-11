@@ -3347,26 +3347,6 @@ BEGIN;
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
 
-				            RAISERROR(N'check_id 47: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               secret_columns, index_usage_summary, index_size_summary )
-                        SELECT  47 AS check_id, 
-                                i.index_sanity_id,
-                                100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
-                                N'Heap with a Nonclustered Primary Key' AS finding, 
-                                [database_name] AS [Database Name],
-                                N'http://BrentOzar.com/go/SelfLoathing' AS URL,
-								db_schema_object_indexid + N' is a HEAP with a Nonclustered Primary Key' AS details, 
-                                i.index_definition, 
-                                i.secret_columns,
-                                i.index_usage_summary,
-                                sz.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                        WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
-						OPTION    ( RECOMPILE );
-
             END;
         ----------------------------------------
         --Indexaphobia
