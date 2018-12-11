@@ -2,31 +2,31 @@ IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
-	  @Database NVARCHAR(128) = NULL, 
-	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
-	  @BackupPathFull NVARCHAR(260) = NULL, 
-	  @BackupPathDiff NVARCHAR(260) = NULL, 
-	  @BackupPathLog NVARCHAR(260) = NULL,
-	  @MoveFiles BIT = 0, 
-	  @MoveDataDrive NVARCHAR(260) = NULL, 
-	  @MoveLogDrive NVARCHAR(260) = NULL, 
-	  @MoveFilestreamDrive NVARCHAR(260) = NULL,
-	  @TestRestore BIT = 0, 
-	  @RunCheckDB BIT = 0, 
-	  @RestoreDiff BIT = 0,
-	  @ContinueLogs BIT = 0, 
-	  @StandbyMode BIT = 0,
-	  @StandbyUndoPath NVARCHAR(MAX) = NULL,
-	  @RunRecovery BIT = 0, 
-	  @ForceSimpleRecovery BIT = 0,
-      @ExistingDBAction tinyint = 0,
-	  @StopAt NVARCHAR(14) = NULL,
-	  @OnlyLogsAfter NVARCHAR(14) = NULL,
-      @SimpleFolderEnumeration BIT = 0,
-	  @Execute CHAR(1) = Y,
-	  @Debug INT = 0, 
-	  @Help BIT = 0,
-	  @VersionDate DATETIME = NULL OUTPUT
+    @Database NVARCHAR(128) = NULL, 
+    @RestoreDatabaseName NVARCHAR(128) = NULL, 
+    @BackupPathFull NVARCHAR(260) = NULL, 
+    @BackupPathDiff NVARCHAR(260) = NULL, 
+    @BackupPathLog NVARCHAR(260) = NULL,
+    @MoveFiles BIT = 1, 
+    @MoveDataDrive NVARCHAR(260) = NULL, 
+    @MoveLogDrive NVARCHAR(260) = NULL, 
+    @MoveFilestreamDrive NVARCHAR(260) = NULL,
+    @TestRestore BIT = 0, 
+    @RunCheckDB BIT = 0, 
+    @RestoreDiff BIT = 0,
+    @ContinueLogs BIT = 0, 
+    @StandbyMode BIT = 0,
+    @StandbyUndoPath NVARCHAR(MAX) = NULL,
+    @RunRecovery BIT = 0, 
+    @ForceSimpleRecovery BIT = 0,
+    @ExistingDBAction tinyint = 0,
+    @StopAt NVARCHAR(14) = NULL,
+    @OnlyLogsAfter NVARCHAR(14) = NULL,
+    @SimpleFolderEnumeration BIT = 0,
+    @Execute CHAR(1) = Y,
+    @Debug INT = 0, 
+    @Help BIT = 0,
+    @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
 
@@ -1124,3 +1124,4 @@ IF @TestRestore = 1
 
 	END;
 GO
+
