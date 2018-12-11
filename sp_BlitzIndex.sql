@@ -3219,7 +3219,15 @@ BEGIN;
                                 sz.index_size_summary
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                        WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
+                        WHERE    i.index_type = 2 AND i.is_primary_key = 1
+                        AND EXISTS 
+                            (
+                              SELECT 1/0 
+                              FROM #IndexSanity AS isa
+                              WHERE i.database_id = isa.database_id
+                              AND   i.object_id = isa.object_id
+                              AND   isa.index_id = 0
+                            )
 						OPTION    ( RECOMPILE );
 
 				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
