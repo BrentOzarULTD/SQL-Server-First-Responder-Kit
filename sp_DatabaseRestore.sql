@@ -554,22 +554,25 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 IF @MoveFiles = 1
 BEGIN
 	IF @Execute = 'Y' RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
-	
+
 	WITH Files
 	AS (
-		SELECT N', MOVE ''' + LogicalName + N''' TO ''' +
+		SELECT
 			CASE
 				WHEN Type = 'D' THEN @MoveDataDrive
 				WHEN Type = 'L' THEN @MoveLogDrive
 				WHEN Type = 'S' THEN @MoveFilestreamDrive
-			END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
-					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
-					END AS logicalcmds
+			END + CASE 
+                    WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
+					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
+					END AS TargetPhysicalName,
+                PhysicalName,
+                LogicalName
 		FROM #FileListParameters)
-	
-	SELECT @MoveOption = @MoveOption + Files.logicalcmds
-	FROM Files;
-		
+	SELECT @MoveOption = @MoveOption + N', MOVE ''' + Files.LogicalName + N''' TO ''' + Files.TargetPhysicalName + ''''
+	FROM Files
+    WHERE Files.TargetPhysicalName <> Files.PhysicalName;
+
 	IF @Debug = 1 PRINT @MoveOption
 END;
 
