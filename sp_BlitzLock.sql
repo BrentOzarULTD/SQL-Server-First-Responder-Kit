@@ -1040,13 +1040,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
-		            dp.wait_resource,
+		            dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 		            CONVERT(
 		                XML,
 		                STUFF((   SELECT DISTINCT NCHAR(10) 
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
-										+ N'</object> ' AS object_name
+										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 		                        FROM   #deadlock_owner_waiter AS c
 		                        WHERE  (dp.id = c.owner_id
 								OR		dp.victim_id = c.waiter_id)
@@ -1096,8 +1096,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
-		            dp.wait_resource,
-		            CONVERT(XML, N'parallel_deadlock') AS object_names,
+		            dp.wait_resource COLLATE DATABASE_DEFAULT,
+		            CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
