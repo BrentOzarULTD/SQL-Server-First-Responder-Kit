@@ -947,7 +947,8 @@ BEGIN
         DROP TABLE #MasterFiles;
     CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
     /* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-    IF SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
+         AND (OBJECT_ID('sys.master_files') IS NULL))
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
     ELSE
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT database_id, file_id, type_desc, name, physical_name, size FROM sys.master_files;';
