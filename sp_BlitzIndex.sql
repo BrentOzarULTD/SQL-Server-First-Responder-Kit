@@ -116,6 +116,7 @@ DECLARE @FilterMB INT;
 DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
+DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -847,6 +848,8 @@ FROM    sys.databases
 WHERE   database_id = 2;
 
 IF @DaysUptime = 0 SET @DaysUptime = .01;
+
+SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -2105,7 +2108,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -4131,7 +4134,7 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://FirstResponderKit.org/', 
                    'Fine wine gets better with age, but this ' + @ScriptVersionName + ' is more like bad cheese. Time to get a new one.',
-                    N'',N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
 
@@ -4143,8 +4146,7 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
         ELSE IF @Mode = 0 OR (@GetAllDatabases = 1 AND @Mode <> 4)
@@ -4155,15 +4157,17 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Major Problems Found',
-                   'Nice Work!',
-                   'http://FirstResponderKit.org', 'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 'The new default Mode 0 only looks for very serious index issues.', '', ''
+		           N'No Major Problems Found',
+                   N'Nice Work!',
+                   N'http://FirstResponderKit.org', 
+                   N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
+                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   @DaysUptimeInsertValue, N''
                     );
 
         END;
@@ -4175,15 +4179,15 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Problems Found',
-                   'Nice job! Or more likely, you have a nearly empty database.',
-                   'http://FirstResponderKit.org', 'Time to go read some blog posts.', '', '', ''
+		           N'No Problems Found',
+                   N'Nice job! Or more likely, you have a nearly empty database.',
+                   N'http://FirstResponderKit.org', 'Time to go read some blog posts.', 
+                   @DaysUptimeInsertValue, N'', N''
                     );
 
         END;
@@ -4303,7 +4307,7 @@ BEGIN;
 					@ScriptVersionName,   
 					N'From Your Community Volunteers' ,   
 					N'http://FirstResponderKit.org' ,
-					N'',
+					@DaysUptimeInsertValue,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,0 AS display_order
@@ -4823,7 +4827,7 @@ BEGIN;
 				N'From Your Community Volunteers' ,   
 				N'http://FirstResponderKit.org' ,
 				100000000000,
-				N'',
+				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
