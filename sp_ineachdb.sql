@@ -263,5 +263,5 @@ IF @Help = 1
   CLOSE dbs; 
   DEALLOCATE dbs;
 END
+END
 GO
-EXEC sys.sp_MS_marksystemobject N'dbo.sp_ineachdb';
