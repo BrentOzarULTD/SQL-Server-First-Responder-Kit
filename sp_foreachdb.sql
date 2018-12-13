@@ -47,7 +47,8 @@ IF @Help = 1
 		/*
 			sp_foreachdb from http://FirstResponderKit.org
 			
-			This script will restore a database from a given file path.
+			This script will execute a given command against all, or user-specified,
+			online, readable databases on an instance.
 		
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on
@@ -84,9 +85,18 @@ IF @Help = 1
 			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 			SOFTWARE.
+			
+			Example for basic execution of the stored procedure:
+			
+			exec dbo.sp_foreachdb
+				@command = ''select [name] sys.tables''
+				,@database_list = ''Database1,Database2''
+				,@exclude_list = ''Database5,OldDatabase'';
 		
 		*/
 		';
+		RETURN -1;
+	END
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
