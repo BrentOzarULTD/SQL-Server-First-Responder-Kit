@@ -1,5 +1,5 @@
 
-IF NOT EXISTS (SELECT NULL FROM sys.tables WHERE [name] = 'SqlServerVersions')
+IF (OBJECT_ID('dbo.SqlServerVersions') IS NULL)
 BEGIN
 
     CREATE TABLE dbo.SqlServerVersions
@@ -23,6 +23,8 @@ BEGIN
     );
 
 END;
+
+GO
 
 DELETE dbo.SqlServerVersions;
 
