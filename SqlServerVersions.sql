@@ -313,4 +313,7 @@ VALUES
     (10, 1787, 'RTM CU3', 'https://support.microsoft.com/en-us/help/960484', '2009-01-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 3'),
     (10, 1779, 'RTM CU2', 'https://support.microsoft.com/en-us/help/958186', '2008-11-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 2'),
     (10, 1763, 'RTM CU1', 'https://support.microsoft.com/en-us/help/956717', '2008-09-22', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 1'),
-    (10, 1600, 'RTM ', '', '2008-08-06', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM ');
+    (10, 1600, 'RTM ', '', '2008-08-06', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM ')
+;
+GO
+
