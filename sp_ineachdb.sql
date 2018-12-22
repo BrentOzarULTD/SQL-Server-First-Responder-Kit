@@ -1,6 +1,3 @@
-USE [master];
-GO
-
 IF OBJECT_ID('dbo.sp_ineachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0');
 GO
