@@ -28,8 +28,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.12';
-SET @VersionDate = '20181201';
+SET @Version = '3.1';
+SET @VersionDate = '20190101';
 
 IF @Help = 1
 
@@ -1514,8 +1514,8 @@ SET NOCOUNT ON;
 BEGIN;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.12';
-SET @VersionDate = '20181201';;
+SET @Version = '3.1';
+SET @VersionDate = '20190101';;
 
 
 IF @Help = 1
@@ -2831,8 +2831,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.12';
-	SET @VersionDate = '20181201';
+	SET @Version = '7.1';
+	SET @VersionDate = '20190101';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -9469,14 +9469,14 @@ IF @ProductVersionMajor >= 10
 								SELECT  73 AS CheckID ,
 										200 AS Priority ,
 										'Monitoring' AS FindingsGroup ,
-										'No failsafe operator configured' AS Finding ,
+										'No Failsafe Operator Configured' AS Finding ,
 										'https://BrentOzar.com/go/failsafe' AS URL ,
 										( 'No failsafe operator is configured on this server.  This is a good idea just in-case there are issues with the [msdb] database that prevents alerting.' ) AS Details
 								FROM    @AlertInfo
 								WHERE   FailSafeOperator IS NULL;
 					END;
 
-/*Identify globally enabled trace flags*/
+                   /*Identify globally enabled trace flags*/
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 74 )
@@ -11039,8 +11039,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '2.12';
-	SET @VersionDate = '20181201';
+	SET @Version = '3.1';
+	SET @VersionDate = '20190101';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12805,8 +12805,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -13545,7 +13545,7 @@ BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
 END;
-IF (SELECT DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+IF (SELECT DATABASEPROPERTYEX(ISNULL(@DatabaseName, 'master'), 'Collation')) IS NULL
 BEGIN
    RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 16, 1);
    RETURN;
@@ -15920,6 +15920,26 @@ FROM    ##bou_BlitzCacheProcs p
 WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
+
+RAISERROR(N'Attempting to get function name for individual statements', 0, 1) WITH NOWAIT;
+DECLARE @function_update_sql NVARCHAR(MAX) = N''
+IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function_stats')
+    BEGIN
+     SET @function_update_sql = @function_update_sql + N'
+     UPDATE  p
+     SET     QueryType = QueryType + '' (parent '' +
+                         + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
+                         + ''.''
+                         + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + '')''
+     FROM    ##bou_BlitzCacheProcs p
+             JOIN sys.dm_exec_function_stats s ON p.SqlHandle = s.sql_handle
+     WHERE   QueryType = ''Statement''
+     AND SPID = @@SPID
+     OPTION (RECOMPILE);
+     '
+    EXEC sys.sp_executesql @function_update_sql
+   END
+
 
 /* Trace Flag Checks 2012 SP3, 2014 SP2 and 2016 SP1 only)*/
 IF @v >= 11
@@ -18347,7 +18367,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may have non-SARGable predicates',
-                     'http://brentozar.com/go/sargable',
+                     'https://www.brentozar.com/blitzcache/non-sargable-predicates/',
 					 'Looks for intrinsic functions and expressions as predicates, and leading wildcard LIKE searches.');	
 
         IF EXISTS (SELECT 1/0
@@ -19098,8 +19118,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 
 
 IF @Help = 1 PRINT '
@@ -19908,7 +19928,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CALLBACKEXECUTE','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CX_FILE_OPEN','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_CX_HTTP_CALL','Preemptive',0);
-			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_DISPATCHER','Preemptive',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_DISPATCHER','Preemptive',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_ENGINEINIT','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_GETTARGETSTATE','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_XE_SESSIONCOMMIT','Preemptive',0);
@@ -20005,7 +20025,8 @@ BEGIN
         DROP TABLE #MasterFiles;
     CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
     /* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-    IF SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
+         AND (OBJECT_ID('sys.master_files') IS NULL))
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
     ELSE
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT database_id, file_id, type_desc, name, physical_name, size FROM sys.master_files;';
@@ -23074,8 +23095,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
@@ -23152,6 +23173,7 @@ DECLARE @FilterMB INT;
 DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
+DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -23232,6 +23254,9 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 	DROP TABLE #CheckConstraints;
+
+IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
+	DROP TABLE #FilteredIndexes;
 		
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -23297,6 +23322,7 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
               count_secret_columns INT NULL,
               create_date DATETIME NOT NULL,
               modify_date DATETIME NOT NULL,
+              filter_columns_not_in_index NVARCHAR(MAX),
             [db_schema_object_name] AS [schema_name] + N'.' + [object_name]  ,
             [db_schema_object_indexid] AS [schema_name] + N'.' + [object_name]
                 + CASE WHEN [index_name] IS NOT NULL THEN N'.' + index_name
@@ -23703,6 +23729,16 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 		  column_definition NVARCHAR(MAX) NULL
 		);
 
+		CREATE TABLE #FilteredIndexes
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NULL,
+		  database_id INT NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  index_name NVARCHAR(128) NULL,
+		  column_name NVARCHAR(128) NULL
+		);
 
 /* Sanitize our inputs */
 SELECT
@@ -23869,6 +23905,8 @@ FROM    sys.databases
 WHERE   database_id = 2;
 
 IF @DaysUptime = 0 SET @DaysUptime = .01;
+
+SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -24627,6 +24665,38 @@ BEGIN TRY
              		  uses_database_collation, is_not_trusted, is_function, column_definition )		
              EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
+
+            SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+             				   @i_DatabaseName AS database_name,
+                               s.name AS missing_schema_name,
+                               t.name AS missing_table_name,
+                               i.name AS missing_index_name,
+                               c.name AS missing_column_name
+                        FROM   ' + QUOTENAME(@DatabaseName) + N'.sys.sql_expression_dependencies AS sed
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+                            ON t.object_id = sed.referenced_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+                            ON t.schema_id = s.schema_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                            ON i.object_id = sed.referenced_id
+                            AND i.index_id = sed.referencing_minor_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+                            ON c.object_id = sed.referenced_id
+                            AND c.column_id = sed.referenced_minor_id
+                        WHERE  sed.referencing_class = 7
+                        AND    sed.referenced_class = 1
+                        AND    i.has_filter = 1
+                        AND    NOT EXISTS (   SELECT 1/0
+                                              FROM   ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                              WHERE  ic.index_id = sed.referencing_minor_id
+                                              AND    ic.column_id = sed.referenced_minor_id
+                                              AND    ic.object_id = sed.referenced_id )
+                        OPTION(RECOMPILE);'
+
+                INSERT #FilteredIndexes ( database_id, database_name, schema_name, table_name, index_name, column_name )
+                EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+
+
     END;
 			
 END;                    
@@ -25001,6 +25071,20 @@ FROM #IndexSanitySize sz
 JOIN #PartitionCompressionInfo AS pci
 ON pci.index_sanity_id = sz.index_sanity_id;
 
+RAISERROR (N'Update #IndexSanity for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
+UPDATE    #IndexSanity
+SET        filter_columns_not_in_index = D1.filter_columns_not_in_index
+FROM    #IndexSanity si
+        CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name AS col_definition
+                            FROM    #FilteredIndexes AS c
+                            WHERE    c.database_id= si.database_id
+									AND c.schema_name = si.schema_name
+                                    AND c.table_name = si.object_name
+                                    AND c.index_name = si.index_name   
+                                    ORDER BY c.index_sanity_id
+                    FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
+                                ( filter_columns_not_in_index );
+
 
 /*This is for debugging*/ 
 --SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
@@ -25015,7 +25099,9 @@ ON pci.index_sanity_id = sz.index_sanity_id;
 --SELECT '#Statistics' AS table_name, * FROM  #Statistics;
 --SELECT '#PartitionCompressionInfo' AS table_name, * FROM  #PartitionCompressionInfo;
 --SELECT '#ComputedColumns' AS table_name, * FROM  #ComputedColumns;
---SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;                   
+--SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;   
+--SELECT '#CheckConstraints' AS table_name, * FROM  #CheckConstraints;   
+--SELECT '#FilteredIndexes' AS table_name, * FROM  #FilteredIndexes;                   
 /*End debug*/	
 
 
@@ -25079,7 +25165,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -25936,7 +26022,38 @@ BEGIN;
 					    OR column_name LIKE '%flag%')
 					    AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
-        
+
+		RAISERROR(N'check_id 34: Filtered index definition columns not in index definition', 0,1) WITH NOWAIT;
+                 
+                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  34 AS check_id, 
+                                i.index_sanity_id,
+                                80 AS Priority,
+                                N'Forgetful Indexes' AS findings_group,
+                                N'Filter Columns Not In Index Definition' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/IndexFeatures' AS URL,
+                                N'The index '
+                                + QUOTENAME(i.index_name)
+                                + N' on ['
+                                + i.db_schema_object_name
+                                + N'] has a filter on ['
+                                + i.filter_definition
+                                + N'] but is missing ['
+                                + LTRIM(i.filter_columns_not_in_index)
+                                + N'] from the index definition.'
+                                AS details, 
+                                i.index_definition, 
+                                i.secret_columns, 
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE   i.filter_columns_not_in_index IS NOT NULL
+                        ORDER BY i.db_schema_object_indexid
+                        OPTION    ( RECOMPILE );
+                                
          ----------------------------------------
         --Self Loathing Indexes : Check_id 40-49
         ----------------------------------------
@@ -26097,7 +26214,7 @@ BEGIN;
                                     AND SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT  73 AS check_id, 
+                        SELECT  49 AS check_id, 
                                 i.index_sanity_id,
                                 200 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
@@ -26255,7 +26372,15 @@ BEGIN;
                                 sz.index_size_summary
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                        WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
+                        WHERE    i.index_type = 2 AND i.is_primary_key = 1
+                        AND EXISTS 
+                            (
+                              SELECT 1/0 
+                              FROM #IndexSanity AS isa
+                              WHERE i.database_id = isa.database_id
+                              AND   i.object_id = isa.object_id
+                              AND   isa.index_id = 0
+                            )
 						OPTION    ( RECOMPILE );
 
 				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
@@ -26289,7 +26414,6 @@ BEGIN;
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
-
 
             END;
         ----------------------------------------
@@ -27067,7 +27191,7 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://FirstResponderKit.org/', 
                    'Fine wine gets better with age, but this ' + @ScriptVersionName + ' is more like bad cheese. Time to get a new one.',
-                    N'',N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
 
@@ -27079,8 +27203,7 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
         ELSE IF @Mode = 0 OR (@GetAllDatabases = 1 AND @Mode <> 4)
@@ -27091,15 +27214,17 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Major Problems Found',
-                   'Nice Work!',
-                   'http://FirstResponderKit.org', 'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 'The new default Mode 0 only looks for very serious index issues.', '', ''
+		           N'No Major Problems Found',
+                   N'Nice Work!',
+                   N'http://FirstResponderKit.org', 
+                   N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
+                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   @DaysUptimeInsertValue, N''
                     );
 
         END;
@@ -27111,15 +27236,15 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Problems Found',
-                   'Nice job! Or more likely, you have a nearly empty database.',
-                   'http://FirstResponderKit.org', 'Time to go read some blog posts.', '', '', ''
+		           N'No Problems Found',
+                   N'Nice job! Or more likely, you have a nearly empty database.',
+                   N'http://FirstResponderKit.org', 'Time to go read some blog posts.', 
+                   @DaysUptimeInsertValue, N'', N''
                     );
 
         END;
@@ -27149,8 +27274,8 @@ BEGIN;
 				LEFT JOIN #IndexCreateTsql ts ON 
 					br.index_sanity_id=ts.index_sanity_id
 				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
-				                      22, 43, 47, 48, 50, 
-				                      65, 68, 73, 99 )
+				                      22, 34, 43, 47, 48, 
+				                      50, 65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
 			 END;
@@ -27239,7 +27364,7 @@ BEGIN;
 					@ScriptVersionName,   
 					N'From Your Community Volunteers' ,   
 					N'http://FirstResponderKit.org' ,
-					N'',
+					@DaysUptimeInsertValue,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,0 AS display_order
@@ -27759,7 +27884,7 @@ BEGIN;
 				N'From Your Community Volunteers' ,   
 				N'http://FirstResponderKit.org' ,
 				100000000000,
-				N'',
+				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
@@ -27825,8 +27950,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '1.12';
-SET @VersionDate = '20181201';
+SET @Version = '2.1';
+SET @VersionDate = '20190101';
 
 
 	IF @Help = 1 PRINT '
@@ -27939,7 +28064,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     0,
                     1) WITH NOWAIT;
                 RETURN;
-            END
+            END;
 
 
 		IF @Top IS NULL
@@ -27980,58 +28105,94 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
+        DECLARE @d VARCHAR(40);
+
+        CREATE TABLE #t (id INT NOT NULL);
+        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
 
 		/*Grab the initial set of XML to parse*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Grab the initial set of XML to parse at %s', 0, 1, @d) WITH NOWAIT;
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) xml.deadlock_xml
+        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml
         INTO   #deadlock_data
         FROM   xml
+        LEFT JOIN #t AS t
+        ON 1 = 1
         WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
-               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
-               AND xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
-			   ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime')
-			   OPTION ( RECOMPILE );
-
-		
-
-		/*Parse process and input buffer XML*/
-        SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
-					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
-					ca.dp.value('@id', 'NVARCHAR(256)') AS id,
-                    ca.dp.value('@currentdb', 'BIGINT') AS database_id,
-                    ca.dp.value('@priority', 'SMALLINT') AS priority,
-                    ca.dp.value('@logused', 'BIGINT') AS log_used,
-                    ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
-                    ca.dp.value('@waittime', 'BIGINT') AS wait_time,
-                    ca.dp.value('@transactionname', 'NVARCHAR(256)') AS transaction_name,
-                    ca.dp.value('@lasttranstarted', 'DATETIME2(7)') AS last_tran_started,
-                    ca.dp.value('@lastbatchstarted', 'DATETIME2(7)') AS last_batch_started,
-                    ca.dp.value('@lastbatchcompleted', 'DATETIME2(7)') AS last_batch_completed,
-                    ca.dp.value('@lockMode', 'NVARCHAR(256)') AS lock_mode,
-                    ca.dp.value('@trancount', 'BIGINT') AS transaction_count,
-                    ca.dp.value('@clientapp', 'NVARCHAR(256)') AS client_app,
-                    ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
-                    ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
-                    ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
-                    ca2.ib.query('.') AS input_buffer,
-                    ca.dp.query('.') AS process_xml,
-                    dd.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
-        INTO        #deadlock_process
-        FROM        #deadlock_data AS dd
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
-        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
-		WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL)
-		AND   (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL)
-		AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL)
-		AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL)
+        AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') >= @StartDate
+        AND    xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') < @EndDate
+		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
 		OPTION ( RECOMPILE );
 
 
+		/*Parse process and input buffer XML*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse process and input buffer XML %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      q.event_date,
+                    q.victim_id,
+                    q.deadlock_graph,
+                    q.id,
+                    q.database_id,
+                    q.priority,
+                    q.log_used,
+                    q.wait_resource,
+                    q.wait_time,
+                    q.transaction_name,
+                    q.last_tran_started,
+                    q.last_batch_started,
+                    q.last_batch_completed,
+                    q.lock_mode,
+                    q.transaction_count,
+                    q.client_app,
+                    q.host_name,
+                    q.login_name,
+                    q.isolation_level,
+                    q.process_xml,
+                    ISNULL(ca2.ib.query('.'), '') AS input_buffer
+        INTO        #deadlock_process
+        FROM        (   SELECT      dd.deadlock_xml,
+                                    dd.event_date,
+                                    dd.victim_id,
+                                    dd.deadlock_graph,
+                                    ca.dp.value('@id', 'NVARCHAR(256)') AS id,
+                                    ca.dp.value('@currentdb', 'BIGINT') AS database_id,
+                                    ca.dp.value('@priority', 'SMALLINT') AS priority,
+                                    ca.dp.value('@logused', 'BIGINT') AS log_used,
+                                    ca.dp.value('@waitresource', 'NVARCHAR(256)') AS wait_resource,
+                                    ca.dp.value('@waittime', 'BIGINT') AS wait_time,
+                                    ca.dp.value('@transactionname', 'NVARCHAR(256)') AS transaction_name,
+                                    ca.dp.value('@lasttranstarted', 'DATETIME2(7)') AS last_tran_started,
+                                    ca.dp.value('@lastbatchstarted', 'DATETIME2(7)') AS last_batch_started,
+                                    ca.dp.value('@lastbatchcompleted', 'DATETIME2(7)') AS last_batch_completed,
+                                    ca.dp.value('@lockMode', 'NVARCHAR(256)') AS lock_mode,
+                                    ca.dp.value('@trancount', 'BIGINT') AS transaction_count,
+                                    ca.dp.value('@clientapp', 'NVARCHAR(256)') AS client_app,
+                                    ca.dp.value('@hostname', 'NVARCHAR(256)') AS host_name,
+                                    ca.dp.value('@loginname', 'NVARCHAR(256)') AS login_name,
+                                    ca.dp.value('@isolationlevel', 'NVARCHAR(256)') AS isolation_level,
+                                    ISNULL(ca.dp.query('.'), '') AS process_xml
+                        FROM        (   SELECT d1.deadlock_xml,
+                                               d1.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
+                                               d1.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
+                                               d1.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
+                                        FROM   #deadlock_data AS d1 ) AS dd
+                        CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
+        WHERE (ca.dp.value('@currentdb', 'BIGINT') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL) 
+        AND   (ca.dp.value('@clientapp', 'NVARCHAR(256)') = @AppName OR @AppName IS NULL) 
+        AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
+        AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
+        ) AS q
+        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+
 
 		/*Parse execution stack XML*/
-        SELECT      dp.id,
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse execution stack XML %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      DISTINCT 
+		            dp.id,
 					dp.event_date,
                     ca.dp.value('@procname', 'NVARCHAR(1000)') AS proc_name,
                     ca.dp.value('@sqlhandle', 'NVARCHAR(128)') AS sql_handle
@@ -28044,130 +28205,206 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Grab the full resource list*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
-					ca.dp.query('.') AS resource_xml
+					ISNULL(ca.dp.query('.'), '') AS resource_xml
         INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses object locks*/
-        SELECT      dr.event_date,
-					ca.dr.value('@dbid', 'BIGINT') AS database_id,
-                    ca.dr.value('@objectname', 'NVARCHAR(1000)') AS object_name,
-                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
-					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+		/*Parse object locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse object locks %s', 0, 1, @d) WITH NOWAIT;
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
                     o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
         INTO        #deadlock_owner_waiter
+		FROM (
+        SELECT      dr.event_date,
+					ca.dr.value('@dbid', 'BIGINT') AS database_id,
+                    ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
+                    ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
+					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
-		WHERE (ca.dr.value('@objectname', 'NVARCHAR(1000)') = @ObjectName OR @ObjectName IS NULL)
+		WHERE (ca.object_name = @ObjectName OR @ObjectName IS NULL)
 		OPTION ( RECOMPILE );
 
 
 
-		/*This parses page locks*/
-        INSERT #deadlock_owner_waiter
+		/*Parse page locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse page locks %s', 0, 1, @d) WITH NOWAIT;
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses key locks*/
-        INSERT #deadlock_owner_waiter
-        SELECT      dr.event_date,     
+		/*Parse key locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse key locks %s', 0, 1, @d) WITH NOWAIT;
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX) 
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
+        SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses rid locks*/
-        INSERT #deadlock_owner_waiter
+		/*Parse RID locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse RID locks %s', 0, 1, @d) WITH NOWAIT;
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
-		/*This parses row group locks*/
-        INSERT #deadlock_owner_waiter
+		/*Parse row group locks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse row group locks %s', 0, 1, @d) WITH NOWAIT;
+        INSERT #deadlock_owner_waiter WITH(TABLOCKX)
+        SELECT      DISTINCT 
+		            ca.event_date,
+					ca.database_id,
+					ca.object_name,
+					ca.lock_mode,
+					ca.index_name,
+				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
+                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
-                    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/rowgrouplock') AS ca(dr)
+		) AS ca
         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
 
 		/*Parse parallel deadlocks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Parse parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        SELECT DISTINCT 
+ 	          ca.id,
+ 			  ca.event_date,
+			  ca.wait_type,
+ 			  ca.node_id,
+ 			  ca.waiter_type,
+ 			  ca.owner_activity,
+ 			  ca.waiter_activity,
+ 			  ca.merging,
+ 			  ca.spilling,
+ 			  ca.waiting_to_close,
+ 	   		  w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
+               o.l.value('@id', 'NVARCHAR(256)') AS owner_id
+ 	   INTO #deadlock_resource_parallel
+ 	   FROM (
         SELECT		dr.event_date,
-					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
-                    ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
-                    ca.dr.value('@nodeId', 'BIGINT') AS node_id,
-					/* These columns are in 2017 CU5 ONLY */
-					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
-					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
-					ca.dr.value('@waiterActivity', 'NVARCHAR(256)') AS waiter_activity,
-					ca.dr.value('@merging', 'NVARCHAR(256)') AS merging,
-					ca.dr.value('@spilling', 'NVARCHAR(256)') AS spilling,
-					ca.dr.value('@waitingToClose', 'NVARCHAR(256)') AS waiting_to_close,
-                    /*                                    */
-					w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-                    o.l.value('@id', 'NVARCHAR(256)') AS owner_id
-        INTO #deadlock_resource_parallel
-		FROM        #deadlock_resource AS dr
-        CROSS APPLY dr.resource_xml.nodes('//resource-list/exchangeEvent') AS ca(dr)
-        CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
-        CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
-		OPTION ( RECOMPILE );
+ 					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
+                     ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
+                     ca.dr.value('@nodeId', 'BIGINT') AS node_id,
+ 					/* These columns are in 2017 CU5 ONLY */
+ 					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
+ 					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
+ 					ca.dr.value('@waiterActivity', 'NVARCHAR(256)') AS waiter_activity,
+ 					ca.dr.value('@merging', 'NVARCHAR(256)') AS merging,
+ 					ca.dr.value('@spilling', 'NVARCHAR(256)') AS spilling,
+ 					ca.dr.value('@waitingToClose', 'NVARCHAR(256)') AS waiting_to_close,
+                     /*                                    */      
+ 					ca.dr.query('.') AS dr
+ 		FROM        #deadlock_resource AS dr
+         CROSS APPLY dr.resource_xml.nodes('//resource-list/exchangeEvent') AS ca(dr)
+ 		) AS ca
+         CROSS APPLY ca.dr.nodes('//waiter-list/waiter') AS w(l)
+         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
+ 		OPTION ( RECOMPILE );
+
 
 		/*Get rid of parallel noise*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Get rid of parallel noise %s', 0, 1, @d) WITH NOWAIT;
 		WITH c
 		    AS
 		     (
@@ -28178,8 +28415,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE c.rn > 1;
 
 
-
 		/*Get rid of nonsense*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Get rid of nonsense %s', 0, 1, @d) WITH NOWAIT;
 		DELETE dow
 		FROM #deadlock_owner_waiter AS dow
 		WHERE dow.owner_id = dow.waiter_id
@@ -28192,6 +28430,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			is_victim AS CONVERT(BIT, CASE WHEN id = victim_id THEN 1 ELSE 0 END);
 
 		/*Update some nonsense*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Update some nonsense part 1 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.owner_mode = dow.owner_mode
 		FROM #deadlock_process AS dp
@@ -28201,6 +28441,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE dp.is_victim = 0
 		OPTION ( RECOMPILE );
 
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Update some nonsense part 2 %s', 0, 1, @d) WITH NOWAIT;
 		UPDATE dp
 		SET dp.waiter_mode = dow.waiter_mode
 		FROM #deadlock_process AS dp
@@ -28210,11 +28452,72 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		WHERE dp.is_victim = 1
 		OPTION ( RECOMPILE );
 
+		/*Get Agent Job and Step names*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Get Agent Job and Step names %s', 0, 1, @d) WITH NOWAIT;
+        SELECT *,
+               CONVERT(UNIQUEIDENTIFIER, 
+                           CONVERT(XML, '').value('xs:hexBinary(substring(sql:column("x.job_id"), 0) )', 'BINARY(16)')
+                      ) AS job_id_guid
+        INTO #agent_job
+        FROM (
+            SELECT dp.event_date,
+                   dp.victim_id,
+                   dp.id,
+                   dp.database_id,
+                   dp.client_app,
+                   SUBSTRING(dp.client_app, 
+                             CHARINDEX('0x', dp.client_app) + LEN('0x'), 
+                             32
+                             ) AS job_id,
+		    	   SUBSTRING(dp.client_app, 
+                             CHARINDEX(': Step ', dp.client_app) + LEN(': Step '), 
+                             CHARINDEX(')', dp.client_app, CHARINDEX(': Step ', dp.client_app)) 
+                                 - (CHARINDEX(': Step ', dp.client_app) 
+                                     + LEN(': Step '))
+                             ) AS step_id
+            FROM #deadlock_process AS dp
+            WHERE dp.client_app LIKE 'SQLAgent - %'
+        ) AS x;
+
+
+        ALTER TABLE #agent_job ADD job_name NVARCHAR(256),
+                                   step_name NVARCHAR(256);
+
+        
+        UPDATE aj
+        SET  aj.job_name = j.name, 
+             aj.step_name = s.step_name
+		FROM msdb.dbo.sysjobs AS j
+		JOIN msdb.dbo.sysjobsteps AS s 
+            ON j.job_id = s.job_id
+        JOIN #agent_job AS aj
+            ON  aj.job_id_guid = j.job_id
+            AND aj.step_id = s.step_id;
+
+
+        UPDATE dp
+           SET dp.client_app = 
+               CASE WHEN dp.client_app LIKE N'SQLAgent - %'
+                    THEN N'SQLAgent - Job: ' 
+                         + aj.job_name
+                         + N' Step: '
+                         + aj.step_name
+                    ELSE dp.client_app
+               END  
+        FROM #deadlock_process AS dp
+        JOIN #agent_job AS aj
+        ON dp.event_date = aj.event_date
+        AND dp.victim_id = aj.victim_id
+        AND dp.id = aj.id;
 
 		/*Begin checks based on parsed values*/
 
 		/*Check 1 is deadlocks by database*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 1 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+        ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 1 AS check_id, 
 			   DB_NAME(dp.database_id) AS database_name, 
 			   '-' AS object_name,
@@ -28234,8 +28537,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 is deadlocks by object*/
-
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 2 objects %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
 			   ISNULL(dow.object_name, 'UNKNOWN') AS object_name,
@@ -28253,8 +28558,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 2 continuation, number of locks per index*/
-
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 	
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 2 indexes %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 	
 		SELECT 2 AS check_id, 
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
 			   dow.index_name AS index_name,
@@ -28275,7 +28582,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 3 looks for Serializable locking*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 3 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 3 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -28297,7 +28607,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 4 looks for Repeatable Read locking*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 4 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -28319,7 +28632,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 5 breaks down app, host, and login information*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 5 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   '-' AS object_name,
@@ -28346,6 +28662,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 6 breaks down the types of locks (object, page, key, etc.)*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
 		WITH lock_types AS (
 				SELECT DB_NAME(dp.database_id) AS database_name,
 					   dow.object_name, 
@@ -28366,7 +28684,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND dow.object_name IS NOT NULL
 				GROUP BY DB_NAME(dp.database_id), SUBSTRING(dp.wait_resource, 1, CHARINDEX(':', dp.wait_resource) - 1), dow.object_name
 							)	
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 6 AS check_id,
 			   lt.database_name,
 			   lt.object_name,
@@ -28383,6 +28702,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 7 part 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
 					ds.id,
@@ -28404,14 +28725,15 @@ You need to use an Azure storage account, and the path has to look like this: ht
                      ds.proc_name,
                      ds.event_date
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name,
 			   ds.proc_name AS object_name,
 			   'More Info - Query' AS finding_group,
 			   'EXEC sp_BlitzCache ' +
 					CASE WHEN ds.proc_name = 'adhoc'
-						 THEN ' @OnlySqlHandles = ' + sql_handle_csv
+						 THEN ' @OnlySqlHandles = ' + ds.sql_handle_csv
 						 ELSE '@StoredProcName = ' + 
 						       QUOTENAME(ds.proc_only_name, '''')
 					END +
@@ -28429,7 +28751,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 		IF @ProductVersionMajor >= 13
 		BEGIN
-		
+		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 7 part 2 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlock_stack AS (
 			SELECT  DISTINCT
 					ds.id,
@@ -28441,7 +28764,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					PARSENAME(ds.proc_name, 1) AS proc_only_name
 			FROM #deadlock_stack AS ds	
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT DISTINCT 7 AS check_id,
 			   DB_NAME(dow.database_id) AS database_name,
 			   ds.proc_name AS object_name,
@@ -28467,7 +28791,10 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 
 		/*Check 8 gives you stored proc deadlock counts*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding )
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 8 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding )
 		SELECT 8 AS check_id,
 			   DB_NAME(dp.database_id) AS database_name,
 			   ds.proc_name, 
@@ -28496,6 +28823,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Check 9 gives you more info queries for sp_BlitzIndex */
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
 		WITH bi AS (
 				SELECT  DISTINCT
 						dow.object_name,
@@ -28510,7 +28839,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 				AND dow.object_name IS NOT NULL
 					)
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
 				bi.database_name,
 				bi.schema_name + '.' + bi.table_name,
@@ -28524,6 +28854,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 		/*Check 10 gets total deadlock wait time per object*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 10 %s', 0, 1, @d) WITH NOWAIT;
 		WITH chopsuey AS (
 				SELECT DISTINCT
 				PARSENAME(dow.object_name, 3) AS database_name,
@@ -28544,7 +28876,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
-				INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+				INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
@@ -28558,6 +28891,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				OPTION ( RECOMPILE );
 
 		/*Check 11 gets total deadlock wait time per database*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 11 %s', 0, 1, @d) WITH NOWAIT;
 		WITH wait_time AS (
 						SELECT DB_NAME(dp.database_id) AS database_name,
 							   SUM(CONVERT(BIGINT, dp.wait_time)) AS total_wait_time_ms
@@ -28571,7 +28906,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 						AND (dp.login_name = @LoginName OR @LoginName IS NULL)
 						GROUP BY DB_NAME(dp.database_id)
 						  )
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 11 AS check_id,
 				wt.database_name,
 				'-' AS object_name,
@@ -28584,9 +28920,25 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		GROUP BY wt.database_name
 		OPTION ( RECOMPILE );
 
+		/*Check 12 gets total deadlock wait time for SQL Agent*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 12 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding )         
+        SELECT 12,
+               DB_NAME(aj.database_id),
+               'SQLAgent - Job: ' 
+                + aj.job_name
+                + ' Step: '
+                + aj.step_name,
+               'Agent Job Deadlocks',
+               RTRIM(COUNT(*)) + ' deadlocks from this Agent Job and Step'
+        FROM #agent_job AS aj
+        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name;
 
 		/*Thank you goodnight*/
-		INSERT #deadlock_findings ( check_id, database_name, object_name, finding_group, finding ) 
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 
 		VALUES ( -1, 
 				 N'sp_BlitzLock ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)), 
 				 N'SQL Server First Responder Kit', 
@@ -28597,6 +28949,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 
 		/*Results*/
+        /*Break in case of emergency*/
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_process (event_date, id);
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (event_date, owner_id);
+        --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
+
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
 		AS ( SELECT N'Regular Deadlock' AS deadlock_type,
 					dp.event_date,
@@ -28605,13 +28964,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
-		            dp.wait_resource,
+		            dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 		            CONVERT(
 		                XML,
 		                STUFF((   SELECT DISTINCT NCHAR(10) 
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
-										+ N'</object> ' AS object_name
+										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 		                        FROM   #deadlock_owner_waiter AS c
 		                        WHERE  (dp.id = c.owner_id
 								OR		dp.victim_id = c.waiter_id)
@@ -28652,7 +29011,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
 			 
-			 UNION ALL 
+			 UNION ALL
 			 
 			 SELECT N'Parallel Deadlock' AS deadlock_type,
 					dp.event_date,
@@ -28661,8 +29020,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
-		            dp.wait_resource,
-		            CONVERT(XML, N'parallel_deadlock') AS object_names,
+		            dp.wait_resource COLLATE DATABASE_DEFAULT,
+		            CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
@@ -28740,7 +29099,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
-		AND en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
+		AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (d.event_date < @EndDate OR @EndDate IS NULL)
@@ -28752,11 +29111,15 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		OPTION ( RECOMPILE );
 
 
-
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
 		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
+
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Done %s', 0, 1, @d) WITH NOWAIT;
 
 
         IF @Debug = 1
@@ -28849,8 +29212,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '2.12';
-	SET @VersionDate = '20181201';
+	SET @Version = '3.1';
+	SET @VersionDate = '20190101';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -29024,7 +29387,7 @@ BEGIN
 
 	/*Is it online?*/
 	RAISERROR('Making sure [%s] is online', 0, 1, @DatabaseName) WITH NOWAIT;
-	IF (DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+	IF (DATABASEPROPERTYEX(@DatabaseName, 'Collation')) IS NULL
 	BEGIN
 		RAISERROR('The @DatabaseName you specified ([%s]) is not readable. Please check the name and try again. Better yet, check your server.', 0, 1, @DatabaseName);
 		RETURN;
@@ -29151,6 +29514,14 @@ CREATE TABLE #grouped_interval
     total_count_executions BIGINT NULL,
 	total_avg_log_bytes_mb DECIMAL(38, 2) NULL,
 	total_avg_tempdb_space DECIMAL(38, 2) NULL,
+    total_max_duration_ms DECIMAL(38, 2) NULL,
+    total_max_cpu_time_ms DECIMAL(38, 2) NULL,
+    total_max_logical_io_reads_mb DECIMAL(38, 2) NULL,
+    total_max_physical_io_reads_mb DECIMAL(38, 2) NULL,
+    total_max_logical_io_writes_mb DECIMAL(38, 2) NULL,
+    total_max_query_max_used_memory_mb DECIMAL(38, 2) NULL,
+	total_max_log_bytes_mb DECIMAL(38, 2) NULL,
+	total_max_tempdb_space DECIMAL(38, 2) NULL,
 	INDEX gi_ix_dates CLUSTERED (start_range, end_range)
 );
 
@@ -29179,6 +29550,7 @@ CREATE TABLE #working_metrics
     database_name NVARCHAR(258),
 	plan_id BIGINT,
     query_id BIGINT,
+    query_id_all_plan_ids VARCHAR(8000),
 	/*these columns are from query_store_query*/
 	proc_or_function_name NVARCHAR(258),
 	batch_sql_handle VARBINARY(64),
@@ -29948,21 +30320,31 @@ SELECT   CONVERT(DATE, qsrs.last_execution_time) AS flat_date,
          SUM((qsrs.avg_logical_io_reads * 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_logical_io_reads_mb,
          SUM((qsrs.avg_physical_io_reads* 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_physical_io_reads_mb,
          SUM((qsrs.avg_logical_io_writes* 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_logical_io_writes_mb,
-         SUM(( qsrs.avg_query_max_used_memory * 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_query_max_used_memory_mb,
+         SUM((qsrs.avg_query_max_used_memory * 8 ) / 1024.) / SUM(qsrs.count_executions) AS total_avg_query_max_used_memory_mb,
          SUM(qsrs.avg_rowcount) AS total_rowcount,
-         SUM(qsrs.count_executions) AS total_count_executions';
+         SUM(qsrs.count_executions) AS total_count_executions,
+         SUM(qsrs.max_duration / 1000.) AS total_max_duration_ms,
+         SUM(qsrs.max_cpu_time / 1000.) AS total_max_cpu_time_ms,
+         SUM((qsrs.max_logical_io_reads * 8 ) / 1024.) AS total_max_logical_io_reads_mb,
+         SUM((qsrs.max_physical_io_reads* 8 ) / 1024.) AS total_max_physical_io_reads_mb,
+         SUM((qsrs.max_logical_io_writes* 8 ) / 1024.) AS total_max_logical_io_writes_mb,
+         SUM((qsrs.max_query_max_used_memory * 8 ) / 1024.)  AS total_max_query_max_used_memory_mb         ';
 		 IF @new_columns = 1
 			BEGIN
 				SET @sql_select += N',
 									 SUM((qsrs.avg_log_bytes_used) / 1048576.) / SUM(qsrs.count_executions) AS total_avg_log_bytes_mb,
-									 SUM(avg_tempdb_space_used) /  SUM(qsrs.count_executions) AS total_avg_tempdb_space 
+									 SUM(qsrs.avg_tempdb_space_used) /  SUM(qsrs.count_executions) AS total_avg_tempdb_space,
+                                     SUM((qsrs.max_log_bytes_used) / 1048576.) AS total_max_log_bytes_mb,
+		                             SUM(qsrs.max_tempdb_space_used) AS total_max_tempdb_space
 									 ';
 			END;
 		IF @new_columns = 0
 			BEGIN
 				SET @sql_select += N',
 									NULL AS total_avg_log_bytes_mb, 
-									NULL AS total_avg_tempdb_space
+									NULL AS total_avg_tempdb_space,
+                                    NULL AS total_max_log_bytes_mb,
+                                    NULL AS total_max_tempdb_space
 									';
 			END;
 
@@ -29998,7 +30380,9 @@ INSERT #grouped_interval WITH (TABLOCK)
 		( flat_date, start_range, end_range, total_avg_duration_ms, 
 		  total_avg_cpu_time_ms, total_avg_logical_io_reads_mb, total_avg_physical_io_reads_mb, 
 		  total_avg_logical_io_writes_mb, total_avg_query_max_used_memory_mb, total_rowcount, 
-		  total_count_executions, total_avg_log_bytes_mb, total_avg_tempdb_space )
+		  total_count_executions, total_max_duration_ms, total_max_cpu_time_ms, total_max_logical_io_reads_mb,
+          total_max_physical_io_reads_mb, total_max_logical_io_writes_mb, total_max_query_max_used_memory_mb,
+          total_avg_log_bytes_mb, total_avg_tempdb_space, total_max_log_bytes_mb, total_max_tempdb_space )                      
 
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
@@ -30030,7 +30414,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-         qsp.plan_id, qsp.query_id, ''duration''
+         qsp.plan_id, qsp.query_id, ''avg duration''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     duration_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30066,6 +30450,52 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH duration_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_duration_ms DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+         qsp.plan_id, qsp.query_id, ''max duration''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     duration_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+	AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_duration DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 /*Get longest cpu plans*/
 
@@ -30082,7 +30512,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top )
-		 qsp.plan_id, qsp.query_id, ''cpu''
+		 qsp.plan_id, qsp.query_id, ''avg cpu''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     cpu_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30118,6 +30548,52 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH cpu_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_cpu_time_ms DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top )
+		 qsp.plan_id, qsp.query_id, ''max cpu''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     cpu_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_cpu_time DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 /*Get highest logical read plans*/
 
@@ -30134,7 +30610,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''logical reads''
+		 qsp.plan_id, qsp.query_id, ''avg logical reads''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     logical_reads_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30170,6 +30646,52 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH logical_reads_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_logical_io_reads_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max logical reads''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     logical_reads_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_logical_io_reads DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 /*Get highest physical read plans*/
 
@@ -30186,7 +30708,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''physical reads''
+		 qsp.plan_id, qsp.query_id, ''avg physical reads''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     physical_read_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30222,6 +30744,52 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH physical_read_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_physical_io_reads_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max physical reads''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     physical_read_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_physical_io_reads DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 /*Get highest logical write plans*/
 
@@ -30238,7 +30806,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''writes''
+		 qsp.plan_id, qsp.query_id, ''avg writes''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     logical_writes_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30274,6 +30842,52 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH logical_writes_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_logical_io_writes_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max writes''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     logical_writes_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_logical_io_writes DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 /*Get highest memory use plans*/
 
@@ -30290,7 +30904,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''memory''
+		 qsp.plan_id, qsp.query_id, ''avg memory''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     memory_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30325,6 +30939,51 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH memory_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_query_max_used_memory_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max memory''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     memory_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_query_max_used_memory DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
 
 /*Get highest row count plans*/
@@ -30342,7 +31001,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''rows''
+		 qsp.plan_id, qsp.query_id, ''avg rows''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     rowcount_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30398,7 +31057,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''log bytes''
+		 qsp.plan_id, qsp.query_id, ''avg log bytes''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     rowcount_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30433,9 +31092,58 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
-/*Get highest row count plans*/
+RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
 
-RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH rowcount_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_log_bytes_mb DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max log bytes''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     rowcount_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_log_bytes_used DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
+
+/*Get highest tempdb use plans*/
+
+RAISERROR(N'Gathering highest tempdb use plans', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
@@ -30448,7 +31156,7 @@ AS ( SELECT   TOP 1
 INSERT #working_plans WITH (TABLOCK) 
 		( plan_id, query_id, pattern )
 SELECT   TOP ( @sp_Top ) 
-		 qsp.plan_id, qsp.query_id, ''tempdb space''
+		 qsp.plan_id, qsp.query_id, ''avg tempdb space''
 FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
 JOIN     rowcount_max AS dm
 ON qsp.last_execution_time >= dm.start_range
@@ -30482,6 +31190,53 @@ IF @sql_select IS NULL
 EXEC sys.sp_executesql  @stmt = @sql_select, 
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+WITH rowcount_max
+AS ( SELECT   TOP 1 
+              gi.start_range,
+              gi.end_range
+     FROM     #grouped_interval AS gi
+     ORDER BY gi.total_max_tempdb_space DESC )
+INSERT #working_plans WITH (TABLOCK) 
+		( plan_id, query_id, pattern )
+SELECT   TOP ( @sp_Top ) 
+		 qsp.plan_id, qsp.query_id, ''max tempdb space''
+FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+JOIN     rowcount_max AS dm
+ON qsp.last_execution_time >= dm.start_range
+   AND qsp.last_execution_time < dm.end_range
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_runtime_stats AS qsrs
+ON qsrs.plan_id = qsp.plan_id
+JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+ON qsq.query_id = qsp.query_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_text AS qsqt
+ON qsqt.query_text_id = qsq.query_text_id
+WHERE    1 = 1
+    AND qsq.is_internal_query = 0
+	AND qsp.query_plan IS NOT NULL
+	';
+
+SET @sql_select += @sql_where;
+
+SET @sql_select +=  N'ORDER BY qsrs.max_tempdb_space_used DESC
+					OPTION (RECOMPILE);
+					';
+
+IF @Debug = 1
+	PRINT @sql_select;
+
+IF @sql_select IS NULL
+    BEGIN
+        RAISERROR(N'@sql_select is NULL', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+EXEC sys.sp_executesql  @stmt = @sql_select, 
+						@params = @sp_params,
+						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
+
 
 END;
 
@@ -30677,6 +31432,24 @@ SET proc_or_function_name = N'Statement'
 WHERE proc_or_function_name IS NULL
 OPTION(RECOMPILE);
 
+SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
+SET @sql_select += N'
+    WITH patterns AS (
+         SELECT query_id, planid_path = STUFF((SELECT DISTINCT N'', '' + RTRIM(qsp2.plan_id)
+             									FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp2
+             									WHERE qsp.query_id = qsp2.query_id
+             									FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 2, N'''')
+         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_plan AS qsp
+    )
+    UPDATE wm
+    SET wm.query_id_all_plan_ids = patterns.planid_path
+    FROM #working_metrics AS wm
+    JOIN patterns
+    ON  wm.query_id = patterns.query_id
+    OPTION (RECOMPILE);
+'
+
+EXEC sys.sp_executesql  @stmt = @sql_select;
 
 /*
 This gathers data for the #working_plan_text table
@@ -32747,7 +33520,7 @@ BEGIN
 RAISERROR(N'Returning regular results', 0, 1) WITH NOWAIT;
 
 WITH x AS (
-SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
+SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wm.query_id_all_plan_ids, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, ww.missing_indexes, ww.implicit_conversion_info, ww.cached_execution_parameters, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
@@ -32776,7 +33549,7 @@ BEGIN
 RAISERROR(N'Returning results for failed queries', 0, 1) WITH NOWAIT;
 
 WITH x AS (
-SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
+SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wm.query_id_all_plan_ids, wpt.query_sql_text, wm.proc_or_function_name, wpt.query_plan_xml, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, ww.missing_indexes, ww.implicit_conversion_info, ww.cached_execution_parameters, 
 	   wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
@@ -32810,7 +33583,7 @@ SET query_sql_text = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(query_sql_tex
 OPTION (RECOMPILE);
 
 WITH x AS (
-SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
+SELECT wpt.database_name, ww.query_cost, wm.plan_id, wm.query_id, wm.query_id_all_plan_ids, wpt.query_sql_text, wm.proc_or_function_name, ww.warnings, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.last_force_failure_reason_desc, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
@@ -32839,7 +33612,7 @@ BEGIN
 RAISERROR(N'Returning results for skipped XML', 0, 1) WITH NOWAIT;
 
 WITH x AS (
-SELECT wpt.database_name, wm.plan_id, wm.query_id, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
+SELECT wpt.database_name, wm.plan_id, wm.query_id, wm.query_id_all_plan_ids, wpt.query_sql_text, wpt.query_plan_xml, wpt.pattern, 
 	   wm.parameter_sniffing_symptoms, wpt.top_three_waits, wm.count_executions, wm.count_compiles, wm.total_cpu_time, wm.avg_cpu_time,
 	   wm.total_duration, wm.avg_duration, wm.total_logical_io_reads, wm.avg_logical_io_reads,
 	   wm.total_physical_io_reads, wm.avg_physical_io_reads, wm.total_logical_io_writes, wm.avg_logical_io_writes, wm.total_rowcount, wm.avg_rowcount,
@@ -33684,7 +34457,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may be using',
-                     'http://brentozar.com/go/sargable',
+                     'https://www.brentozar.com/blitzcache/non-sargable-predicates/',
 					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
 					
         IF EXISTS (SELECT 1/0
@@ -33746,6 +34519,14 @@ BEGIN
 			       gi.total_rowcount,
 				   gi.total_avg_log_bytes_mb,
 				   gi.total_avg_tempdb_space,
+                   gi.total_max_duration_ms, 
+                   gi.total_max_cpu_time_ms, 
+                   gi.total_max_logical_io_reads_mb,
+                   gi.total_max_physical_io_reads_mb, 
+                   gi.total_max_logical_io_writes_mb, 
+                   gi.total_max_query_max_used_memory_mb,
+                   gi.total_max_log_bytes_mb, 
+                   gi.total_max_tempdb_space,
 				   CONVERT(NVARCHAR(20), gi.flat_date) AS worst_date,
 				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN ' midnight '
 						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am '
@@ -33756,79 +34537,145 @@ BEGIN
 						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm '
 						END AS worst_end_time
 			FROM   #grouped_interval AS gi
-			), 
+			), /*averages*/
 				duration_worst AS (
-			SELECT TOP 1 'Your worst duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_duration_ms DESC
 				), 
 				cpu_worst AS (
-			SELECT TOP 1 'Your worst cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_cpu_time_ms DESC
 				), 
 				logical_reads_worst AS (
-			SELECT TOP 1 'Your worst logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_logical_io_reads_mb DESC
 				), 
 				physical_reads_worst AS (
-			SELECT TOP 1 'Your worst physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_physical_io_reads_mb DESC
 				), 
 				logical_writes_worst AS (
-			SELECT TOP 1 'Your worst logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_logical_io_writes_mb DESC
 				), 
 				memory_worst AS (
-			SELECT TOP 1 'Your worst memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_query_max_used_memory_mb DESC
 				), 
 				rowcount_worst AS (
-			SELECT TOP 1 'Your worst row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_rowcount DESC
 				), 
 				logbytes_worst AS (
-			SELECT TOP 1 'Your worst log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_log_bytes_mb DESC
 				), 
 				tempdb_worst AS (
-			SELECT TOP 1 'Your worst tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP 1 'Your worst avg tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_tempdb_space DESC
+				)/*maxes*/, 
+				max_duration_worst AS (
+			SELECT TOP 1 'Your worst max duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_duration_ms DESC
+				), 
+				max_cpu_worst AS (
+			SELECT TOP 1 'Your worst max cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_cpu_time_ms DESC
+				), 
+				max_logical_reads_worst AS (
+			SELECT TOP 1 'Your worst max logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_logical_io_reads_mb DESC
+				), 
+				max_physical_reads_worst AS (
+			SELECT TOP 1 'Your worst max physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_physical_io_reads_mb DESC
+				), 
+				max_logical_writes_worst AS (
+			SELECT TOP 1 'Your worst max logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_logical_io_writes_mb DESC
+				), 
+				max_memory_worst AS (
+			SELECT TOP 1 'Your worst max memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_query_max_used_memory_mb DESC
+				), 
+				max_logbytes_worst AS (
+			SELECT TOP 1 'Your worst max log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_log_bytes_mb DESC
+				), 
+				max_tempdb_worst AS (
+			SELECT TOP 1 'Your worst max tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			FROM worsts
+			ORDER BY worsts.total_max_tempdb_space DESC
 				)
 			INSERT #warning_results ( CheckID, Priority, FindingsGroup, Finding, URL, Details )
-			SELECT 1002, 255, 'Worsts', 'Worst Duration', 'N/A', duration_worst.msg
+			/*averages*/
+            SELECT 1002, 255, 'Worsts', 'Worst Avg Duration', 'N/A', duration_worst.msg
 			FROM duration_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst CPU', 'N/A', cpu_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg CPU', 'N/A', cpu_worst.msg
 			FROM cpu_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Logical Reads', 'N/A', logical_reads_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg Logical Reads', 'N/A', logical_reads_worst.msg
 			FROM logical_reads_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Physical Reads', 'N/A', physical_reads_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg Physical Reads', 'N/A', physical_reads_worst.msg
 			FROM physical_reads_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Logical Writes', 'N/A', logical_writes_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg Logical Writes', 'N/A', logical_writes_worst.msg
 			FROM logical_writes_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Memory', 'N/A', memory_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg Memory', 'N/A', memory_worst.msg
 			FROM memory_worst
 			UNION ALL
 			SELECT 1002, 255, 'Worsts', 'Worst Row Counts', 'N/A', rowcount_worst.msg
 			FROM rowcount_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst Log Bytes', 'N/A', logbytes_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg Log Bytes', 'N/A', logbytes_worst.msg
 			FROM logbytes_worst
 			UNION ALL
-			SELECT 1002, 255, 'Worsts', 'Worst tempdb', 'N/A', tempdb_worst.msg
+			SELECT 1002, 255, 'Worsts', 'Worst Avg tempdb', 'N/A', tempdb_worst.msg
 			FROM tempdb_worst
+            UNION ALL
+            /*maxes*/
+            SELECT 1002, 255, 'Worsts', 'Worst Max Duration', 'N/A', max_duration_worst.msg
+			FROM max_duration_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max CPU', 'N/A', max_cpu_worst.msg
+			FROM max_cpu_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max Logical Reads', 'N/A', max_logical_reads_worst.msg
+			FROM max_logical_reads_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max Physical Reads', 'N/A', max_physical_reads_worst.msg
+			FROM max_physical_reads_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max Logical Writes', 'N/A', max_logical_writes_worst.msg
+			FROM max_logical_writes_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max Memory', 'N/A', max_memory_worst.msg
+			FROM max_memory_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max Log Bytes', 'N/A', max_logbytes_worst.msg
+			FROM max_logbytes_worst
+			UNION ALL
+			SELECT 1002, 255, 'Worsts', 'Worst Max tempdb', 'N/A', max_tempdb_worst.msg
+			FROM max_tempdb_worst
 			OPTION (RECOMPILE);
 
 
@@ -34088,8 +34935,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '6.12';
-	SET @VersionDate = '20181201';
+	SET @Version = '7.1';
+	SET @VersionDate = '20190101';
 
 
 	IF @Help = 1
@@ -34937,38 +35784,38 @@ IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
-	  @Database NVARCHAR(128) = NULL, 
-	  @RestoreDatabaseName NVARCHAR(128) = NULL, 
-	  @BackupPathFull NVARCHAR(260) = NULL, 
-	  @BackupPathDiff NVARCHAR(260) = NULL, 
-	  @BackupPathLog NVARCHAR(260) = NULL,
-	  @MoveFiles BIT = 0, 
-	  @MoveDataDrive NVARCHAR(260) = NULL, 
-	  @MoveLogDrive NVARCHAR(260) = NULL, 
-	  @MoveFilestreamDrive NVARCHAR(260) = NULL,
-	  @TestRestore BIT = 0, 
-	  @RunCheckDB BIT = 0, 
-	  @RestoreDiff BIT = 0,
-	  @ContinueLogs BIT = 0, 
-	  @StandbyMode BIT = 0,
-	  @StandbyUndoPath NVARCHAR(MAX) = NULL,
-	  @RunRecovery BIT = 0, 
-	  @ForceSimpleRecovery BIT = 0,
-      @ExistingDBAction tinyint = 0,
-	  @StopAt NVARCHAR(14) = NULL,
-	  @OnlyLogsAfter NVARCHAR(14) = NULL,
-      @SimpleFolderEnumeration BIT = 0,
-	  @Execute CHAR(1) = Y,
-	  @Debug INT = 0, 
-	  @Help BIT = 0,
-	  @VersionDate DATETIME = NULL OUTPUT
+    @Database NVARCHAR(128) = NULL, 
+    @RestoreDatabaseName NVARCHAR(128) = NULL, 
+    @BackupPathFull NVARCHAR(260) = NULL, 
+    @BackupPathDiff NVARCHAR(260) = NULL, 
+    @BackupPathLog NVARCHAR(260) = NULL,
+    @MoveFiles BIT = 1, 
+    @MoveDataDrive NVARCHAR(260) = NULL, 
+    @MoveLogDrive NVARCHAR(260) = NULL, 
+    @MoveFilestreamDrive NVARCHAR(260) = NULL,
+    @TestRestore BIT = 0, 
+    @RunCheckDB BIT = 0, 
+    @RestoreDiff BIT = 0,
+    @ContinueLogs BIT = 0, 
+    @StandbyMode BIT = 0,
+    @StandbyUndoPath NVARCHAR(MAX) = NULL,
+    @RunRecovery BIT = 0, 
+    @ForceSimpleRecovery BIT = 0,
+    @ExistingDBAction tinyint = 0,
+    @StopAt NVARCHAR(14) = NULL,
+    @OnlyLogsAfter NVARCHAR(14) = NULL,
+    @SimpleFolderEnumeration BIT = 0,
+    @Execute CHAR(1) = Y,
+    @Debug INT = 0, 
+    @Help BIT = 0,
+    @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
 
 /*Versioning details*/
 DECLARE @Version NVARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 
 
 IF @Help = 1
@@ -35489,22 +36336,25 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 IF @MoveFiles = 1
 BEGIN
 	IF @Execute = 'Y' RAISERROR('@MoveFiles = 1, adjusting paths', 0, 1) WITH NOWAIT;
-	
+
 	WITH Files
 	AS (
-		SELECT N', MOVE ''' + LogicalName + N''' TO ''' +
+		SELECT
 			CASE
 				WHEN Type = 'D' THEN @MoveDataDrive
 				WHEN Type = 'L' THEN @MoveLogDrive
 				WHEN Type = 'S' THEN @MoveFilestreamDrive
-			END + CASE WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)) + '''' 
-					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2)) + '''' 
-					END AS logicalcmds
+			END + CASE 
+                    WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
+					ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
+					END AS TargetPhysicalName,
+                PhysicalName,
+                LogicalName
 		FROM #FileListParameters)
-	
-	SELECT @MoveOption = @MoveOption + Files.logicalcmds
-	FROM Files;
-		
+	SELECT @MoveOption = @MoveOption + N', MOVE ''' + Files.LogicalName + N''' TO ''' + Files.TargetPhysicalName + ''''
+	FROM Files
+    WHERE Files.TargetPhysicalName <> Files.PhysicalName;
+
 	IF @Debug = 1 PRINT @MoveOption
 END;
 
@@ -36059,8 +36909,6 @@ IF @TestRestore = 1
 
 	END;
 GO
-USE [master];
-GO
 
 IF OBJECT_ID('dbo.sp_foreachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_foreachdb AS RETURN 0');
@@ -36091,13 +36939,73 @@ ALTER PROCEDURE dbo.sp_foreachdb
     @is_auto_close_on BIT = NULL ,
     @is_auto_shrink_on BIT = NULL ,
     @is_broker_enabled BIT = NULL , 
+    @Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.12';
-		SET @VersionDate = '20181201';
+		SET @Version = '3.1';
+		SET @VersionDate = '20190101';
+
+IF @Help = 1
+
+	BEGIN
+	
+		PRINT '
+		/*
+			sp_foreachdb from http://FirstResponderKit.org
+			
+			This script will execute a given command against all, or user-specified,
+			online, readable databases on an instance.
+		
+			To learn more, visit http://FirstResponderKit.org where you can download new
+			versions for free, watch training videos on how it works, get more info on
+			the findings, contribute your own code, and more.
+		
+			Known limitations of this version:
+			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+			 - Tastes awful with marmite.
+             		
+			Unknown limitations of this version:
+			 - None.  (If we knew them, they would be known. Duh.)
+		
+		     Changes - for the full list of improvements and fixes in this version, see:
+		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		
+		    MIT License
+			
+			Copyright (c) 2018 Brent Ozar Unlimited
+		
+			Permission is hereby granted, free of charge, to any person obtaining a copy
+			of this software and associated documentation files (the "Software"), to deal
+			in the Software without restriction, including without limitation the rights
+			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+			copies of the Software, and to permit persons to whom the Software is
+			furnished to do so, subject to the following conditions:
+		
+			The above copyright notice and this permission notice shall be included in all
+			copies or substantial portions of the Software.
+		
+			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+			AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+			SOFTWARE.
+			
+			Example for basic execution of the stored procedure:
+			
+			exec dbo.sp_foreachdb
+				@command = ''select [name] sys.tables''
+				,@database_list = ''Database1,Database2''
+				,@exclude_list = ''Database5,OldDatabase'';
+		
+		*/
+		';
+		RETURN -1;
+	END
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )
@@ -36282,9 +37190,6 @@ AS
         DEALLOCATE c;
     END
 GO
-USE [master];
-GO
-
 IF OBJECT_ID('dbo.sp_ineachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0');
 GO
@@ -36311,14 +37216,64 @@ ALTER PROCEDURE dbo.sp_ineachdb
   @is_auto_shrink_on   bit = NULL,
   @is_broker_enabled   bit = NULL,
   @user_access         nvarchar(128)  = NULL, 
+  @Help                BIT = 0,
   @VersionDate DATETIME = NULL OUTPUT
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
 AS
 BEGIN
   SET NOCOUNT ON;
   DECLARE @Version VARCHAR(30);
-  SET @Version = '1.12';
-  SET @VersionDate = '20181201';
+  SET @Version = '2.1';
+  SET @VersionDate = '20190101';
+
+IF @Help = 1
+
+	BEGIN
+	
+		PRINT '
+		/*
+			sp_ineachdb from http://FirstResponderKit.org
+			
+			This script will restore a database from a given file path.
+		
+			To learn more, visit http://FirstResponderKit.org where you can download new
+			versions for free, watch training videos on how it works, get more info on
+			the findings, contribute your own code, and more.
+		
+			Known limitations of this version:
+			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+			 - Tastes awful with marmite.
+		
+			Unknown limitations of this version:
+			 - None.  (If we knew them, they would be known. Duh.)
+		
+		     Changes - for the full list of improvements and fixes in this version, see:
+		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		
+		    MIT License
+			
+			Copyright (c) 2018 Brent Ozar Unlimited
+		
+			Permission is hereby granted, free of charge, to any person obtaining a copy
+			of this software and associated documentation files (the "Software"), to deal
+			in the Software without restriction, including without limitation the rights
+			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+			copies of the Software, and to permit persons to whom the Software is
+			furnished to do so, subject to the following conditions:
+		
+			The above copyright notice and this permission notice shall be included in all
+			copies or substantial portions of the Software.
+		
+			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+			AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+			SOFTWARE.
+		
+		*/
+		';
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
@@ -36497,5 +37452,5 @@ BEGIN
   CLOSE dbs; 
   DEALLOCATE dbs;
 END
+END
 GO
-EXEC sys.sp_MS_marksystemobject N'dbo.sp_ineachdb';
