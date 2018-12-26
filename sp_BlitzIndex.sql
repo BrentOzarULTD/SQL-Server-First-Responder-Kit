@@ -38,8 +38,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
@@ -116,6 +116,7 @@ DECLARE @FilterMB INT;
 DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
+DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -196,6 +197,9 @@ IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 	DROP TABLE #CheckConstraints;
+
+IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
+	DROP TABLE #FilteredIndexes;
 		
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -261,6 +265,7 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
               count_secret_columns INT NULL,
               create_date DATETIME NOT NULL,
               modify_date DATETIME NOT NULL,
+              filter_columns_not_in_index NVARCHAR(MAX),
             [db_schema_object_name] AS [schema_name] + N'.' + [object_name]  ,
             [db_schema_object_indexid] AS [schema_name] + N'.' + [object_name]
                 + CASE WHEN [index_name] IS NOT NULL THEN N'.' + index_name
@@ -667,6 +672,16 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 		  column_definition NVARCHAR(MAX) NULL
 		);
 
+		CREATE TABLE #FilteredIndexes
+		(
+		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  database_name NVARCHAR(128) NULL,
+		  database_id INT NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+		  index_name NVARCHAR(128) NULL,
+		  column_name NVARCHAR(128) NULL
+		);
 
 /* Sanitize our inputs */
 SELECT
@@ -833,6 +848,8 @@ FROM    sys.databases
 WHERE   database_id = 2;
 
 IF @DaysUptime = 0 SET @DaysUptime = .01;
+
+SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -1591,6 +1608,38 @@ BEGIN TRY
              		  uses_database_collation, is_not_trusted, is_function, column_definition )		
              EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
+
+            SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+             				   @i_DatabaseName AS database_name,
+                               s.name AS missing_schema_name,
+                               t.name AS missing_table_name,
+                               i.name AS missing_index_name,
+                               c.name AS missing_column_name
+                        FROM   ' + QUOTENAME(@DatabaseName) + N'.sys.sql_expression_dependencies AS sed
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+                            ON t.object_id = sed.referenced_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+                            ON t.schema_id = s.schema_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                            ON i.object_id = sed.referenced_id
+                            AND i.index_id = sed.referencing_minor_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+                            ON c.object_id = sed.referenced_id
+                            AND c.column_id = sed.referenced_minor_id
+                        WHERE  sed.referencing_class = 7
+                        AND    sed.referenced_class = 1
+                        AND    i.has_filter = 1
+                        AND    NOT EXISTS (   SELECT 1/0
+                                              FROM   ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                              WHERE  ic.index_id = sed.referencing_minor_id
+                                              AND    ic.column_id = sed.referenced_minor_id
+                                              AND    ic.object_id = sed.referenced_id )
+                        OPTION(RECOMPILE);'
+
+                INSERT #FilteredIndexes ( database_id, database_name, schema_name, table_name, index_name, column_name )
+                EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+
+
     END;
 			
 END;                    
@@ -1965,6 +2014,20 @@ FROM #IndexSanitySize sz
 JOIN #PartitionCompressionInfo AS pci
 ON pci.index_sanity_id = sz.index_sanity_id;
 
+RAISERROR (N'Update #IndexSanity for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
+UPDATE    #IndexSanity
+SET        filter_columns_not_in_index = D1.filter_columns_not_in_index
+FROM    #IndexSanity si
+        CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name AS col_definition
+                            FROM    #FilteredIndexes AS c
+                            WHERE    c.database_id= si.database_id
+									AND c.schema_name = si.schema_name
+                                    AND c.table_name = si.object_name
+                                    AND c.index_name = si.index_name   
+                                    ORDER BY c.index_sanity_id
+                    FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
+                                ( filter_columns_not_in_index );
+
 
 /*This is for debugging*/ 
 --SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
@@ -1979,7 +2042,9 @@ ON pci.index_sanity_id = sz.index_sanity_id;
 --SELECT '#Statistics' AS table_name, * FROM  #Statistics;
 --SELECT '#PartitionCompressionInfo' AS table_name, * FROM  #PartitionCompressionInfo;
 --SELECT '#ComputedColumns' AS table_name, * FROM  #ComputedColumns;
---SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;                   
+--SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;   
+--SELECT '#CheckConstraints' AS table_name, * FROM  #CheckConstraints;   
+--SELECT '#FilteredIndexes' AS table_name, * FROM  #FilteredIndexes;                   
 /*End debug*/	
 
 
@@ -2043,7 +2108,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -2900,7 +2965,38 @@ BEGIN;
 					    OR column_name LIKE '%flag%')
 					    AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 					OPTION    ( RECOMPILE );
-        
+
+		RAISERROR(N'check_id 34: Filtered index definition columns not in index definition', 0,1) WITH NOWAIT;
+                 
+                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  34 AS check_id, 
+                                i.index_sanity_id,
+                                80 AS Priority,
+                                N'Forgetful Indexes' AS findings_group,
+                                N'Filter Columns Not In Index Definition' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'http://BrentOzar.com/go/IndexFeatures' AS URL,
+                                N'The index '
+                                + QUOTENAME(i.index_name)
+                                + N' on ['
+                                + i.db_schema_object_name
+                                + N'] has a filter on ['
+                                + i.filter_definition
+                                + N'] but is missing ['
+                                + LTRIM(i.filter_columns_not_in_index)
+                                + N'] from the index definition.'
+                                AS details, 
+                                i.index_definition, 
+                                i.secret_columns, 
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE   i.filter_columns_not_in_index IS NOT NULL
+                        ORDER BY i.db_schema_object_indexid
+                        OPTION    ( RECOMPILE );
+                                
          ----------------------------------------
         --Self Loathing Indexes : Check_id 40-49
         ----------------------------------------
@@ -3061,7 +3157,7 @@ BEGIN;
                                     AND SUM(leaf_delete_count) > 0)
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
-                        SELECT  73 AS check_id, 
+                        SELECT  49 AS check_id, 
                                 i.index_sanity_id,
                                 200 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
@@ -3219,7 +3315,15 @@ BEGIN;
                                 sz.index_size_summary
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                        WHERE    i.index_type = 2 AND i.is_primary_key = 1 AND i.secret_columns LIKE '%RID%'
+                        WHERE    i.index_type = 2 AND i.is_primary_key = 1
+                        AND EXISTS 
+                            (
+                              SELECT 1/0 
+                              FROM #IndexSanity AS isa
+                              WHERE i.database_id = isa.database_id
+                              AND   i.object_id = isa.object_id
+                              AND   isa.index_id = 0
+                            )
 						OPTION    ( RECOMPILE );
 
 				            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
@@ -3253,7 +3357,6 @@ BEGIN;
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
-
 
             END;
         ----------------------------------------
@@ -4031,7 +4134,7 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		           'Outdated sp_BlitzIndex', 'sp_BlitzIndex is Over 6 Months Old', 'http://FirstResponderKit.org/', 
                    'Fine wine gets better with age, but this ' + @ScriptVersionName + ' is more like bad cheese. Time to get a new one.',
-                    N'',N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
 
@@ -4043,8 +4146,7 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue,N'',N''
                     );
         END;
         ELSE IF @Mode = 0 OR (@GetAllDatabases = 1 AND @Mode <> 4)
@@ -4055,15 +4157,17 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Major Problems Found',
-                   'Nice Work!',
-                   'http://FirstResponderKit.org', 'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 'The new default Mode 0 only looks for very serious index issues.', '', ''
+		           N'No Major Problems Found',
+                   N'Nice Work!',
+                   N'http://FirstResponderKit.org', 
+                   N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
+                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   @DaysUptimeInsertValue, N''
                     );
 
         END;
@@ -4075,15 +4179,15 @@ BEGIN;
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
                     N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
-                    N''
-                    , N'',N''
+                    @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           'No Problems Found',
-                   'Nice job! Or more likely, you have a nearly empty database.',
-                   'http://FirstResponderKit.org', 'Time to go read some blog posts.', '', '', ''
+		           N'No Problems Found',
+                   N'Nice job! Or more likely, you have a nearly empty database.',
+                   N'http://FirstResponderKit.org', 'Time to go read some blog posts.', 
+                   @DaysUptimeInsertValue, N'', N''
                     );
 
         END;
@@ -4113,8 +4217,8 @@ BEGIN;
 				LEFT JOIN #IndexCreateTsql ts ON 
 					br.index_sanity_id=ts.index_sanity_id
 				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
-				                      22, 43, 47, 48, 50, 
-				                      65, 68, 73, 99 )
+				                      22, 34, 43, 47, 48, 
+				                      50, 65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
 			 END;
@@ -4203,7 +4307,7 @@ BEGIN;
 					@ScriptVersionName,   
 					N'From Your Community Volunteers' ,   
 					N'http://FirstResponderKit.org' ,
-					N'',
+					@DaysUptimeInsertValue,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 					NULL,NULL,0 AS display_order
@@ -4723,7 +4827,7 @@ BEGIN;
 				N'From Your Community Volunteers' ,   
 				N'http://FirstResponderKit.org' ,
 				100000000000,
-				N'',
+				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC

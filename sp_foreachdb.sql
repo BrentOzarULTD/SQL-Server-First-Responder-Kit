@@ -1,6 +1,3 @@
-USE [master];
-GO
-
 IF OBJECT_ID('dbo.sp_foreachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_foreachdb AS RETURN 0');
 GO
@@ -30,13 +27,73 @@ ALTER PROCEDURE dbo.sp_foreachdb
     @is_auto_close_on BIT = NULL ,
     @is_auto_shrink_on BIT = NULL ,
     @is_broker_enabled BIT = NULL , 
+    @Help BIT = 0,
 	@VersionDate DATETIME = NULL OUTPUT
 AS
     BEGIN
         SET NOCOUNT ON;
 		DECLARE @Version VARCHAR(30);
-		SET @Version = '2.12';
-		SET @VersionDate = '20181201';
+		SET @Version = '3.1';
+		SET @VersionDate = '20190101';
+
+IF @Help = 1
+
+	BEGIN
+	
+		PRINT '
+		/*
+			sp_foreachdb from http://FirstResponderKit.org
+			
+			This script will execute a given command against all, or user-specified,
+			online, readable databases on an instance.
+		
+			To learn more, visit http://FirstResponderKit.org where you can download new
+			versions for free, watch training videos on how it works, get more info on
+			the findings, contribute your own code, and more.
+		
+			Known limitations of this version:
+			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+			 - Tastes awful with marmite.
+             		
+			Unknown limitations of this version:
+			 - None.  (If we knew them, they would be known. Duh.)
+		
+		     Changes - for the full list of improvements and fixes in this version, see:
+		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		
+		    MIT License
+			
+			Copyright (c) 2018 Brent Ozar Unlimited
+		
+			Permission is hereby granted, free of charge, to any person obtaining a copy
+			of this software and associated documentation files (the "Software"), to deal
+			in the Software without restriction, including without limitation the rights
+			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+			copies of the Software, and to permit persons to whom the Software is
+			furnished to do so, subject to the following conditions:
+		
+			The above copyright notice and this permission notice shall be included in all
+			copies or substantial portions of the Software.
+		
+			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+			AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+			SOFTWARE.
+			
+			Example for basic execution of the stored procedure:
+			
+			exec dbo.sp_foreachdb
+				@command = ''select [name] sys.tables''
+				,@database_list = ''Database1,Database2''
+				,@exclude_list = ''Database5,OldDatabase'';
+		
+		*/
+		';
+		RETURN -1;
+	END
 
         IF ( (@command1 IS NOT NULL AND @command IS NOT NULL)
             OR (@command1 IS NULL AND @command IS NULL) )

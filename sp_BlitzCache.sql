@@ -269,8 +269,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '6.12';
-SET @VersionDate = '20181201';
+SET @Version = '7.1';
+SET @VersionDate = '20190101';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -1009,7 +1009,7 @@ BEGIN
    RAISERROR('The database you specified does not exist. Please check the name and try again.', 16, 1);
    RETURN;
 END;
-IF (SELECT DATABASEPROPERTYEX(@DatabaseName, 'Status')) <> 'ONLINE'
+IF (SELECT DATABASEPROPERTYEX(ISNULL(@DatabaseName, 'master'), 'Collation')) IS NULL
 BEGIN
    RAISERROR('The database you specified is not readable. Please check the name and try again. Better yet, check your server.', 16, 1);
    RETURN;
@@ -3384,6 +3384,26 @@ FROM    ##bou_BlitzCacheProcs p
 WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
+
+RAISERROR(N'Attempting to get function name for individual statements', 0, 1) WITH NOWAIT;
+DECLARE @function_update_sql NVARCHAR(MAX) = N''
+IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function_stats')
+    BEGIN
+     SET @function_update_sql = @function_update_sql + N'
+     UPDATE  p
+     SET     QueryType = QueryType + '' (parent '' +
+                         + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
+                         + ''.''
+                         + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + '')''
+     FROM    ##bou_BlitzCacheProcs p
+             JOIN sys.dm_exec_function_stats s ON p.SqlHandle = s.sql_handle
+     WHERE   QueryType = ''Statement''
+     AND SPID = @@SPID
+     OPTION (RECOMPILE);
+     '
+    EXEC sys.sp_executesql @function_update_sql
+   END
+
 
 /* Trace Flag Checks 2012 SP3, 2014 SP2 and 2016 SP1 only)*/
 IF @v >= 11
@@ -5811,7 +5831,7 @@ BEGIN
                      50,
                      'Non-SARGable queries',
                      'Queries may have non-SARGable predicates',
-                     'http://brentozar.com/go/sargable',
+                     'https://www.brentozar.com/blitzcache/non-sargable-predicates/',
 					 'Looks for intrinsic functions and expressions as predicates, and leading wildcard LIKE searches.');	
 
         IF EXISTS (SELECT 1/0
