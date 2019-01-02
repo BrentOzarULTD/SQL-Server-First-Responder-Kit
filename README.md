@@ -397,6 +397,7 @@ Parameters include:
 * @RestoreDiff - default 0. When set to 1, we restore the ncessary full, differential, and log backups (instead of just full and log) to get to the most recent point in time.
 * @ContinueLogs - default 0. When set to 1, we don't restore a full or differential backup - we only restore the transaction log backups. Good for continuous log restores with tools like sp_AllNightLog.
 * @RunRecovery - default 0. When set to 1, we run RESTORE WITH RECOVERY, putting the database into writable mode, and no additional log backups can be restored.
+* @ExistingDBAction - if the database already exists when we try to restore it, 1 sets the database to single user mode, 2 kills the connections, and 3 kills the connections and then drops the database.
 * @Debug - default 0. When 1, we print out messages of what we're doing in the messages tab of SSMS.
 * @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'.
 
