@@ -36,6 +36,7 @@ SET @Version = '7.1';
 SET @VersionDate = '20190101';
 
 
+ 
 IF @Help = 1
 
 	BEGIN
@@ -63,6 +64,7 @@ IF @Help = 1
 		    MIT License
 			
 			Copyright (c) 2019 Brent Ozar Unlimited
+			Copyright (c) 2018 Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
@@ -223,6 +225,9 @@ DECLARE @FileList TABLE (
     BackupFile NVARCHAR(255) NULL
 );
 
+DECLARE @FileList TABLE (
+    BackupFile NVARCHAR(255) NULL
+);
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
 CREATE TABLE #FileListParameters
 (
@@ -394,6 +399,9 @@ SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
     SET @SimpleFolderEnumeration = 1;
 
+--If xp_cmdshell is disabled, force use of xp_dirtree
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+    SET @SimpleFolderEnumeration = 1;
 IF @BackupPathFull IS NOT NULL
 BEGIN
     IF @SimpleFolderEnumeration = 1
@@ -531,6 +539,18 @@ EXEC (@sql);
 			SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
 			SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
 		END
+IF @Debug = 1
+BEGIN
+	IF @sql IS NULL PRINT '@sql is NULL for INSERT to #FileListParameters: @BackupPathFull + @LastFullBackup';
+	PRINT @sql;
+END;
+
+EXEC (@sql);
+IF @Debug = 1
+BEGIN
+	SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
+	SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
+END
 
 SET @HeadersSQL = 
 N'INSERT INTO #Headers WITH (TABLOCK)
@@ -550,6 +570,19 @@ IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
 
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
+
+--get the backup completed data so we can apply tlogs from that point forwards                                                   
+SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+IF @Debug = 1
+BEGIN
+	IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
+	PRINT @sql;
+END;
+EXECUTE (@sql);
+IF @Debug = 1
+BEGIN
+	SELECT '#Headers' AS table_name, @LastFullBackup AS FullBackupFile, * FROM #Headers
+END
 
 IF @MoveFiles = 1
 BEGIN
@@ -573,6 +606,7 @@ BEGIN
 	FROM Files
     WHERE Files.TargetPhysicalName <> Files.PhysicalName;
 
+		
 	IF @Debug = 1 PRINT @MoveOption
 END;
 
@@ -586,6 +620,9 @@ BEGIN
         BEGIN
             RAISERROR('Setting single user', 0, 1) WITH NOWAIT;
 
+        IF @ExistingDBAction = 1
+        BEGIN
+            RAISERROR('Setting single user', 0, 1) WITH NOWAIT;
             SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + ' SET SINGLE_USER WITH ROLLBACK IMMEDIATE; ' + NCHAR(13);
             IF @Debug = 1 OR @Execute = 'N'
 		    BEGIN
@@ -600,6 +637,9 @@ BEGIN
         BEGIN
             RAISERROR('Killing connections', 0, 1) WITH NOWAIT;
 
+        IF @ExistingDBAction IN (2, 3)
+        BEGIN
+            RAISERROR('Killing connections', 0, 1) WITH NOWAIT;
             SET @sql = N'/* Kill connections */' + NCHAR(13);
             SELECT 
                 @sql = @sql + N'KILL ' + CAST(spid as nvarchar(5)) + N';' + NCHAR(13)
@@ -644,6 +684,8 @@ ELSE
 IF @ContinueLogs = 0
 	BEGIN
 
+IF @ContinueLogs = 0
+	BEGIN
 		IF @Execute = 'Y' RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
 		/* now take split backups into account */
@@ -708,6 +750,21 @@ IF @ContinueLogs = 0
 
 ELSE
 
+
+    -- We already loaded #Headers above
+
+	    --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
+		SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
+	    
+		SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
+		IF @Debug = 1
+		BEGIN
+			IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
+			PRINT @BackupDateTime;
+		END;                                            
+	    
+	END;
+ELSE
 	BEGIN
 		
 		SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
@@ -720,6 +777,7 @@ ELSE
 END
 
 
+END
 IF @BackupPathDiff IS NOT NULL
 BEGIN 
     DELETE FROM @FileList;
@@ -797,6 +855,11 @@ BEGIN
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
 
+    --No file = no backup to restore
+	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
+    IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
+	BEGIN
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + NCHAR(13);
 	    IF (@StandbyMode = 1)
 		BEGIN
 		    IF (@StandbyUndoPath IS NULL)
@@ -831,6 +894,10 @@ BEGIN
 				BEGIN
 					SELECT '#Headers' AS table_name, * FROM #Headers AS h
 				END
+		IF @Debug = 1
+		BEGIN
+			SELECT '#Headers' AS table_name, @LastDiffBackup AS DiffbackupFile, * FROM #Headers AS h
+		END
 		
 		--set the @BackupDateTime to the date time on the most recent differential	
 		SET @BackupDateTime = @LastDiffBackupDateTime;
