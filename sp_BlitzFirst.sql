@@ -409,6 +409,17 @@ BEGIN
 			);
 		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
 
+	IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
+		DROP TABLE #checkversion;
+	CREATE TABLE #checkversion (
+		version NVARCHAR(128),
+		common_version AS SUBSTRING(version, 1, CHARINDEX('.', version) + 1 ),
+		major AS PARSENAME(CONVERT(VARCHAR(32), version), 4),
+		minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
+		build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
+		revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
+	);
+
 	IF 504 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
 		    TRUNCATE TABLE ##WaitCategories;
