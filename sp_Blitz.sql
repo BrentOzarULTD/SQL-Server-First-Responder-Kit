@@ -4778,6 +4778,7 @@ IF @ProductVersionMajor >= 10
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
 			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
+			AND d.application_name NOT LIKE 'SQL Server Checkup%'
 			AND d.application_name NOT LIKE '%Sentry%'
 			AND d.application_name NOT LIKE '%LiteSpeed%'
             AND d.application_name NOT LIKE '%SQL Monitor - Monitoring%'
