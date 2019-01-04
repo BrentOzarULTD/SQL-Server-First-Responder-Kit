@@ -409,6 +409,17 @@ BEGIN
 			);
 		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
 
+	IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
+		DROP TABLE #checkversion;
+	CREATE TABLE #checkversion (
+		version NVARCHAR(128),
+		common_version AS SUBSTRING(version, 1, CHARINDEX('.', version) + 1 ),
+		major AS PARSENAME(CONVERT(VARCHAR(32), version), 4),
+		minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
+		build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
+		revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
+	);
+
 	IF 504 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
 		    TRUNCATE TABLE ##WaitCategories;
@@ -2700,7 +2711,29 @@ BEGIN
                      FROM   sys.databases
                      WHERE  QUOTENAME([name]) = @OutputDatabaseName)
     BEGIN
-    	RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
+    	DECLARE	@v DECIMAL(6,2),
+			@build INT,
+			@memGrantSortSupported BIT = 1;
+
+		RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
+
+		INSERT INTO #checkversion (version)
+		SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
+		OPTION (RECOMPILE);
+
+
+		SELECT @v = common_version ,
+			   @build = build
+		FROM   #checkversion
+		OPTION (RECOMPILE);
+
+		IF (@v < 11)
+		OR (@v = 11 AND @build < 6020) 
+		OR (@v = 12 AND @build < 5000) 
+		OR (@v = 13 AND @build < 1601)
+			SET @memGrantSortSupported = 0;
+
+		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
         /* Set the sp_BlitzCache sort order based on their top wait type */
 
@@ -2708,8 +2741,8 @@ BEGIN
         IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
             BEGIN
             SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' AND @memGrantSortSupported = 1 THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' AND @memGrantSortSupported = 1 THEN 'memory grant'
                                                 WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
                                                 WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
                                                 WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
@@ -2724,7 +2757,7 @@ BEGIN
             END;
 
         /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34)
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34) AND @memGrantSortSupported = 1
             SET @BlitzCacheSortOrder = 'memory grant';
 
         /* Next, Compilations/Sec High - CheckID 15 and 16 */
