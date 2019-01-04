@@ -756,7 +756,7 @@ BEGIN TRY
 		              @ScriptVersionName,
                       CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16), GETDATE(), 121) END, 
                       N'From Your Community Volunteers',   
-					  N'http://www.BrentOzar.com/BlitzIndex',
+					  N'http://FirstResponderKit.org',
                       N'',
                       N'',
 					  N''
@@ -4198,7 +4198,7 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
-                    N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+                    N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
                     @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
