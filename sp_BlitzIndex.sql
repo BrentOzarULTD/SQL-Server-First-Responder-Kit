@@ -1118,7 +1118,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
-                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',16,1) WITH NOWAIT;
+                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
                         SET @SkipPartitions = 1;
                         INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                                         index_usage_summary, index_size_summary )
