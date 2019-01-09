@@ -909,11 +909,11 @@ BEGIN
 	
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
 	
-		DELETE fl
-		FROM @FileList AS fl
-		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%' 
-		AND REPLACE(LEFT(RIGHT(fl.BackupFile, 19), 15),'_','') < @OnlyLogsAfter
+    DELETE fl
+	FROM @FileList AS fl
+	WHERE BackupFile LIKE N'%.trn'
+	AND BackupFile LIKE N'%' + @Database + N'%' 
+	AND REPLACE(LEFT(RIGHT(fl.BackupFile, 19), 15),'_','') < @OnlyLogsAfter
 	
 END
 
