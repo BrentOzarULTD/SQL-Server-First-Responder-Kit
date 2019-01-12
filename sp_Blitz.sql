@@ -345,7 +345,11 @@ AS
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (1);  /* Full backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2);  /* Log backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (6);  /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Informational - Database Encrypted per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (24);  /* File Configuration - System Database on C Drive per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (50);  /* Max Server Memory Set Too High - because they max it out */
+						INSERT INTO #SkipChecks (CheckID) VALUES (55);  /* Security - Database Owner <> sa per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);  /* TraceFlag On - because Azure Managed Instances go wild and crazy with the trace flags */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);  /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100);  /* Remote DAC disabled - but it's working anyway, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
@@ -3960,7 +3964,9 @@ AS
 						  FROM sys.all_columns
 						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
-						  SELECT 'is_read_committed_snapshot_on', 0, 133, 210, 'Read Committed Snapshot Isolation Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
+						  SELECT 'is_read_committed_snapshot_on', 
+                            CASE WHEN SERVERPROPERTY('EngineEdition') = 8 THEN 1 ELSE 0 END,  /* RCSI is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+                            133, 210, 'Read Committed Snapshot Isolation Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
@@ -4008,7 +4014,8 @@ AS
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_memory_optimized_elevate_to_snapshot_on', 0, 144, 210, 'Memory Optimized Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
-						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases')
+                            AND SERVERPROPERTY('EngineEdition') <> 8; /* Hekaton is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 
 						DECLARE DatabaseDefaultsLoop CURSOR FOR
 						  SELECT name, DefaultValue, CheckID, Priority, Finding, URL, Details
