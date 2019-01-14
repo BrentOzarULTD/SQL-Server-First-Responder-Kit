@@ -3967,8 +3967,8 @@ AS
 						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_read_committed_snapshot_on', 
-                            CASE WHEN SERVERPROPERTY('EngineEdition') = 8 THEN 1 ELSE 0 END,  /* RCSI is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
-                            133, 210, 'Read Committed Snapshot Isolation Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
+                            CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END,  /* RCSI is always enabled in Azure SQL DB per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+                            133, 210, CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 'Read Committed Snapshot Isolation Disabled' ELSE 'Read Committed Snapshot Isolation Enabled' END, 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
