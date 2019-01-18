@@ -301,6 +301,8 @@ AS
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+		   AND db_id('rdsadmin') IS NOT NULL
+		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (6);
 						INSERT INTO #SkipChecks (CheckID) VALUES (29);
@@ -328,6 +330,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (219);
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://aws.amazon.com/rds/sqlserver/' AS URL ,
+					            'Amazon RDS detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
 			END; /* Amazon RDS skipped checks */
 
 		/* If the server is ExpressEdition, skip checks that it doesn't allow */
@@ -338,6 +354,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (61); /* Agent alerts 19-25 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* Failsafe operator */
 						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://stackoverflow.com/questions/1169634/limitations-of-sql-server-express' AS URL ,
+					            'Express Edition detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
 			END; /* Express Edition skipped checks */
 
 		/* If the server is an Azure Managed Instance, skip checks that it doesn't allow */
@@ -360,6 +390,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'tempdb');  /* Max file size set */
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://docs.microsoft.com/en-us/azure/sql-database/sql-database-managed-instance-index' AS URL ,
+					            'Managed Instance detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
             END; /* Azure Managed Instance skipped checks */
 
 		/*
