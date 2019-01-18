@@ -697,6 +697,7 @@ IF @GetAllDatabases = 1
         AND state_desc = 'ONLINE'
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
+        AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
 
