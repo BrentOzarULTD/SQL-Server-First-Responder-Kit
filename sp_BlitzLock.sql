@@ -26,8 +26,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.1';
-SET @VersionDate = '20190101';
+SET @Version = '2.2';
+SET @VersionDate = '20190128';
 
 
 	IF @Help = 1 PRINT '
@@ -80,15 +80,10 @@ SET @VersionDate = '20190101';
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-
 
     MIT License
 	   
-	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2018.
-
-	Copyright (c) 2018 Brent Ozar Unlimited
+	Copyright (c) 2019 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal

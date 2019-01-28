@@ -55,8 +55,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version NVARCHAR(30);
-	SET @Version = '3.1';
-	SET @VersionDate = '20190101';
+	SET @Version = '3.2';
+	SET @VersionDate = '20190128';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -134,14 +134,10 @@ IF @Help = 1
 	Unknown limitations of this version:
 	 - Could be tickling
 	
-	Changes - for the full list of improvements and fixes in this version, see:
-	https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-	
-	
 	
 	MIT License
 	
-	Copyright (c) 2018 Brent Ozar Unlimited
+	Copyright (c) 2019 Brent Ozar Unlimited
 	
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
