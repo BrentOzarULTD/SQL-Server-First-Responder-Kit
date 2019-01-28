@@ -33,8 +33,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.1';
-	SET @VersionDate = '20190101';
+	SET @Version = '7.2';
+	SET @VersionDate = '20190128';
 	SET @OutputType = UPPER(@OutputType);
 
 	IF @Help = 1 PRINT '
@@ -82,9 +82,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2018.
+	All other copyright for sp_Blitz are held by Brent Ozar Unlimited, 2019.
 
-	Copyright (c) 2018 Brent Ozar Unlimited
+	Copyright (c) 2019 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -301,6 +301,8 @@ AS
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+		   AND db_id('rdsadmin') IS NOT NULL
+		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (6);
 						INSERT INTO #SkipChecks (CheckID) VALUES (29);
@@ -328,6 +330,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (219);
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://aws.amazon.com/rds/sqlserver/' AS URL ,
+					            'Amazon RDS detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
 			END; /* Amazon RDS skipped checks */
 
 		/* If the server is ExpressEdition, skip checks that it doesn't allow */
@@ -338,6 +354,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (61); /* Agent alerts 19-25 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* Failsafe operator */
 						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://stackoverflow.com/questions/1169634/limitations-of-sql-server-express' AS URL ,
+					            'Express Edition detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
 			END; /* Express Edition skipped checks */
 
 		/* If the server is an Azure Managed Instance, skip checks that it doesn't allow */
@@ -345,7 +375,11 @@ AS
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (1);  /* Full backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2);  /* Log backups - because of the MI GUID name bug mentioned here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (6);  /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Informational - Database Encrypted per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (24);  /* File Configuration - System Database on C Drive per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (50);  /* Max Server Memory Set Too High - because they max it out */
+						INSERT INTO #SkipChecks (CheckID) VALUES (55);  /* Security - Database Owner <> sa per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);  /* TraceFlag On - because Azure Managed Instances go wild and crazy with the trace flags */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);  /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100);  /* Remote DAC disabled - but it's working anyway, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
@@ -356,6 +390,20 @@ AS
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'tempdb');  /* Max file size set */
+			            INSERT  INTO #BlitzResults
+			            ( CheckID ,
+				            Priority ,
+				            FindingsGroup ,
+				            Finding ,
+				            URL ,
+				            Details
+			            )
+			            SELECT 223 AS CheckID ,
+					            0 AS Priority ,
+					            'Informational' AS FindingsGroup ,
+					            'Some Checks Skipped' AS Finding ,
+					            'https://docs.microsoft.com/en-us/azure/sql-database/sql-database-managed-instance-index' AS URL ,
+					            'Managed Instance detected, so we skipped some checks that are not currently possible, relevant, or practical there.' AS Details;
             END; /* Azure Managed Instance skipped checks */
 
 		/*
@@ -953,7 +1001,8 @@ AS
                                         UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
-										FROM    sys.master_files AS mf )
+										FROM    sys.master_files AS mf
+									    WHERE mf.database_id <> 2 )
 										AND rh.destination_database_name IS NULL
 								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));
 					END;
@@ -1044,7 +1093,9 @@ AS
 										( 'Database backup history retained back to '
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
-								ORDER BY backup_start_date ASC;
+                                LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name
+                                WHERE rh.destination_database_name IS NULL
+								ORDER BY bs.backup_start_date ASC;
 						END;
 					END;
 
@@ -3959,7 +4010,9 @@ AS
 						  FROM sys.all_columns
 						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
-						  SELECT 'is_read_committed_snapshot_on', 0, 133, 210, 'Read Committed Snapshot Isolation Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
+						  SELECT 'is_read_committed_snapshot_on', 
+                            CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END,  /* RCSI is always enabled in Azure SQL DB per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+                            133, 210, CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 'Read Committed Snapshot Isolation Disabled' ELSE 'Read Committed Snapshot Isolation Enabled' END, 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
@@ -4007,7 +4060,8 @@ AS
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_memory_optimized_elevate_to_snapshot_on', 0, 144, 210, 'Memory Optimized Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
-						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
+						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases')
+                            AND SERVERPROPERTY('EngineEdition') <> 8; /* Hekaton is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 
 						DECLARE DatabaseDefaultsLoop CURSOR FOR
 						  SELECT name, DefaultValue, CheckID, Priority, Finding, URL, Details
@@ -4778,6 +4832,7 @@ IF @ProductVersionMajor >= 10
 			AND d.application_name NOT LIKE '%Red Gate Software Ltd SQL Prompt%'
 			AND d.application_name NOT LIKE '%Spotlight Diagnostic Server%'
 			AND d.application_name NOT LIKE '%SQL Diagnostic Manager%'
+			AND d.application_name NOT LIKE 'SQL Server Checkup%'
 			AND d.application_name NOT LIKE '%Sentry%'
 			AND d.application_name NOT LIKE '%LiteSpeed%'
             AND d.application_name NOT LIKE '%SQL Monitor - Monitoring%'
@@ -8241,8 +8296,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '3.1';
-	SET @VersionDate = '20190101';
+	SET @Version = '3.2';
+	SET @VersionDate = '20190128';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -8284,7 +8339,7 @@ AS
 
     MIT License
 	
-	Copyright (c) 2018 Brent Ozar Unlimited
+	Copyright (c) 2019 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -8457,7 +8512,7 @@ CREATE TABLE #Warnings
 
 IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = @MSDBName)
 	BEGIN
-	RAISERROR('@MSDBName was specified, but the database does not exist.', 0, 1) WITH NOWAIT;
+	RAISERROR('@MSDBName was specified, but the database does not exist.', 16, 1) WITH NOWAIT;
 	RETURN;
 	END
 
@@ -9369,13 +9424,13 @@ DECLARE @RemoteCheck TABLE (c INT NULL);
 
 IF @WriteBackupsToDatabaseName IS NULL
 	BEGIN
-	RAISERROR('@WriteBackupsToDatabaseName can''t be NULL.', 0, 1) WITH NOWAIT
+	RAISERROR('@WriteBackupsToDatabaseName can''t be NULL.', 16, 1) WITH NOWAIT
 	RETURN;
 	END
 
 IF LOWER(@WriteBackupsToDatabaseName) = N'msdb'
 	BEGIN
-	RAISERROR('We can''t write to the real msdb, we have to write to a fake msdb.', 0, 1) WITH NOWAIT
+	RAISERROR('We can''t write to the real msdb, we have to write to a fake msdb.', 16, 1) WITH NOWAIT
 	RETURN;
 	END
 
@@ -9383,7 +9438,7 @@ IF @WriteBackupsToListenerName IS NULL
 BEGIN
 	IF @AGName IS NULL
 		BEGIN
-			RAISERROR('@WriteBackupsToListenerName and @AGName can''t both be NULL.', 0, 1) WITH NOWAIT;
+			RAISERROR('@WriteBackupsToListenerName and @AGName can''t both be NULL.', 16, 1) WITH NOWAIT;
 			RETURN;
 		END
 	ELSE
@@ -9407,7 +9462,7 @@ BEGIN
 		)
 			BEGIN
 				SET @msg = N'We need a linked server to write data across. Please set one up for ' + @WriteBackupsToListenerName + N'.';
-				RAISERROR(@msg, 0, 1) WITH NOWAIT;
+				RAISERROR(@msg, 16, 1) WITH NOWAIT;
 				RETURN;
 			END
 END
@@ -9426,7 +9481,7 @@ END
 	IF @@ROWCOUNT = 0
 		BEGIN
 		SET @msg = N'The database ' + @WriteBackupsToDatabaseName + N' doesn''t appear to exist on that server.'
-		RAISERROR(@msg, 0, 1) WITH NOWAIT
+		RAISERROR(@msg, 16, 1) WITH NOWAIT
 		RETURN;
 		END
 
@@ -10007,8 +10062,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '7.1';
-SET @VersionDate = '20190101';
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
@@ -10039,7 +10094,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2018 Brent Ozar Unlimited
+Copyright (c) 2019 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -16320,8 +16375,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 DECLARE @Version VARCHAR(30);
-SET @Version = '7.1';
-SET @VersionDate = '20190101';
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 
 
 IF @Help = 1 PRINT '
@@ -16355,7 +16410,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2018 Brent Ozar Unlimited
+Copyright (c) 2019 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -16688,6 +16743,17 @@ BEGIN
 				Ignorable BIT DEFAULT 0
 			);
 		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
+
+	IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
+		DROP TABLE #checkversion;
+	CREATE TABLE #checkversion (
+		version NVARCHAR(128),
+		common_version AS SUBSTRING(version, 1, CHARINDEX('.', version) + 1 ),
+		major AS PARSENAME(CONVERT(VARCHAR(32), version), 4),
+		minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
+		build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
+		revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
+	);
 
 	IF 504 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
@@ -18980,7 +19046,29 @@ BEGIN
                      FROM   sys.databases
                      WHERE  QUOTENAME([name]) = @OutputDatabaseName)
     BEGIN
-    	RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
+    	DECLARE	@v DECIMAL(6,2),
+			@build INT,
+			@memGrantSortSupported BIT = 1;
+
+		RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
+
+		INSERT INTO #checkversion (version)
+		SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
+		OPTION (RECOMPILE);
+
+
+		SELECT @v = common_version ,
+			   @build = build
+		FROM   #checkversion
+		OPTION (RECOMPILE);
+
+		IF (@v < 11)
+		OR (@v = 11 AND @build < 6020) 
+		OR (@v = 12 AND @build < 5000) 
+		OR (@v = 13 AND @build < 1601)
+			SET @memGrantSortSupported = 0;
+
+		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
         /* Set the sp_BlitzCache sort order based on their top wait type */
 
@@ -18988,8 +19076,8 @@ BEGIN
         IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
             BEGIN
             SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' AND @memGrantSortSupported = 1 THEN 'memory grant'
+                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' AND @memGrantSortSupported = 1 THEN 'memory grant'
                                                 WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
                                                 WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
                                                 WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
@@ -19004,7 +19092,7 @@ BEGIN
             END;
 
         /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34)
+        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34) AND @memGrantSortSupported = 1
             SET @BlitzCacheSortOrder = 'memory grant';
 
         /* Next, Compilations/Sec High - CheckID 15 and 16 */
@@ -20297,8 +20385,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '7.1';
-SET @VersionDate = '20190101';
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 SET @OutputType  = UPPER(@OutputType);
 
 IF @Help = 1 PRINT '
@@ -20331,13 +20419,10 @@ Known limitations of this version:
 Unknown limitations of this version:
  - We knew them once, but we forgot.
 
-Changes - for the full list of improvements and fixes in this version, see:
-https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/milestone/4?closed=1
-
 
 MIT License
 
-Copyright (c) 2018 Brent Ozar Unlimited
+Copyright (c) 2019 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20959,6 +21044,7 @@ IF @GetAllDatabases = 1
         AND state_desc = 'ONLINE'
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
+        AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
 
@@ -21015,7 +21101,7 @@ BEGIN TRY
 		              @ScriptVersionName,
                       CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16), GETDATE(), 121) END, 
                       N'From Your Community Volunteers',   
-					  N'http://www.BrentOzar.com/BlitzIndex',
+					  N'http://FirstResponderKit.org',
                       N'',
                       N'',
 					  N''
@@ -21380,7 +21466,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
-                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',16,1) WITH NOWAIT;
+                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
                         SET @SkipPartitions = 1;
                         INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                                         index_usage_summary, index_size_summary )
@@ -22485,6 +22571,26 @@ BEGIN
     END;
     ELSE
     SELECT 'No foreign keys.' AS finding;
+
+    /* Show histograms for all stats on this table. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1900 */
+    IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
+    BEGIN
+        SET @dsql=N'SELECT s.name AS [Stat Name], c.name AS [Leading Column Name], hist.step_number AS [Step Number], 
+                        hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
+                        hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
+                        s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
+                        props.last_updated AS [Last Updated], s.stats_id AS [StatsID]
+                    FROM sys.stats AS s
+                    INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
+                    INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
+                    CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
+                    CROSS APPLY sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
+                    WHERE s.object_id = @ObjectID
+                    ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
+        EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
+    END
+
+
 END; 
 
 --If @TableName is NOT specified...
@@ -24437,7 +24543,7 @@ BEGIN;
             VALUES  ( -1, 0 , 
 		            @ScriptVersionName,
                     CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END, 
-                    N'From Your Community Volunteers' ,   N'http://www.BrentOzar.com/BlitzIndex' ,
+                    N'From Your Community Volunteers' ,   N'http://FirstResponderKit.org' ,
                     @DaysUptimeInsertValue, N'',N''
                     );
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -24699,7 +24805,9 @@ BEGIN;
 											[database_name] NVARCHAR(128), 
 											[schema_name] NVARCHAR(128), 
 											[table_name] NVARCHAR(128), 
-											[index_name] NVARCHAR(128), 
+											[index_name] NVARCHAR(128),
+                                            [Drop_Tsql] NVARCHAR(4000),
+                                            [Create_Tsql] NVARCHAR(4000), 
 											[index_id] INT, 
 											[db_schema_object_indexid] NVARCHAR(500), 
 											[object_type] NVARCHAR(15), 
@@ -24806,7 +24914,9 @@ BEGIN;
 											[database_name], 
 											[schema_name], 
 											[table_name], 
-											[index_name], 
+											[index_name],
+                                            [Drop_Tsql],
+                                            [Create_Tsql], 
 											[index_id], 
 											[db_schema_object_indexid], 
 											[object_type], 
@@ -24877,7 +24987,7 @@ BEGIN;
 										i.[database_name] AS [Database Name], 
 										i.[schema_name] AS [Schema Name], 
 										i.[object_name] AS [Object Name], 
-										ISNULL(i.index_name, '''') AS [Index Name], 
+										ISNULL(i.index_name, '''') AS [Index Name],
 										CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
 										db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
 										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
@@ -24940,9 +25050,22 @@ BEGIN;
 										i.create_date AS [Create Date],
 										i.modify_date AS [Modify Date],
 										more_info AS [More Info],
+                                        CASE 
+						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
+							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
+						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
+						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + 
+							                         QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) + N'';''
+						                ELSE N''''
+						                END AS [Drop TSQL],
+					                    CASE 
+						                    WHEN i.index_definition = ''[HEAP]'' THEN N''''
+					                            ELSE N''--'' + ict.create_tsql END AS [Create TSQL],  
 										1 AS [Display Order]
 									FROM #IndexSanity AS i
 									LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                                    LEFT JOIN #IndexCreateTsql AS ict  ON i.index_sanity_id = ict.index_sanity_id
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
@@ -24968,7 +25091,7 @@ BEGIN;
 			SELECT  i.[database_name] AS [Database Name], 
 					i.[schema_name] AS [Schema Name], 
 					i.[object_name] AS [Object Name], 
-					ISNULL(i.index_name, '') AS [Index Name], 
+					ISNULL(i.index_name, '') AS [Index Name],
 					CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
 					db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
 					CASE    WHEN index_id IN ( 1, 0 ) THEN 'TABLE'
@@ -25031,9 +25154,22 @@ BEGIN;
 					i.create_date AS [Create Date],
 					i.modify_date AS [Modify Date],
 					more_info AS [More Info],
+                    CASE 
+						 WHEN i.is_primary_key = 1 AND i.index_definition <> '[HEAP]'
+							THEN N'--ALTER TABLE ' + QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name])
+							     + N' DROP CONSTRAINT ' + QUOTENAME(i.index_name) + N';'
+						 WHEN i.is_primary_key = 0 AND i.index_definition <> '[HEAP]'
+						     THEN N'--DROP INDEX '+ QUOTENAME(i.index_name) + N' ON ' + 
+							     QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name]) + N';'
+						 ELSE N''
+						 END AS [Drop TSQL],
+					CASE 
+						WHEN i.index_definition = '[HEAP]' THEN N''
+					    ELSE N'--' + ict.create_tsql END AS [Create TSQL], 
 					1 AS [Display Order]
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
 					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                    LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
 			ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 			OPTION (RECOMPILE);
   		END;
@@ -25152,8 +25288,8 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 DECLARE @Version VARCHAR(30);
-SET @Version = '2.1';
-SET @VersionDate = '20190101';
+SET @Version = '2.2';
+SET @VersionDate = '20190128';
 
 
 	IF @Help = 1 PRINT '
@@ -25206,15 +25342,10 @@ SET @VersionDate = '20190101';
 	Unknown limitations of this version:
 	 - None.  (If we knew them, they would be known. Duh.)
 
-     Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-
 
     MIT License
 	   
-	All other copyright for sp_BlitzLock are held by Brent Ozar Unlimited, 2018.
-
-	Copyright (c) 2018 Brent Ozar Unlimited
+	Copyright (c) 2019 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -26384,8 +26515,8 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.1';
-	SET @VersionDate = '20190101';
+	SET @Version = '7.2';
+	SET @VersionDate = '20190128';
 
 
 	IF @Help = 1
@@ -26406,7 +26537,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2018 Brent Ozar Unlimited
+Copyright (c) 2019 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

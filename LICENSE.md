@@ -16,6 +16,10 @@ Copyright for sp_BlitzInMemoryOLTP are held by Ned Otter and Konstantin
 Taranov as part of project sqlserver-kit and are provided under the MIT license:
 https://github.com/ktaranov/sqlserver-kit
 
+Copyright for SqlServerVersionScript are held by Josh Darnell as part of
+project SqlServerVersionScript and are provided undre the MIT license:
+https://github.com/jadarnel27/SqlServerVersionScript
+
 
 Copyright (c) 2019 Brent Ozar Unlimited
 
