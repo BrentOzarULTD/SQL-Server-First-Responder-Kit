@@ -845,7 +845,8 @@ SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMER
 FROM    sys.databases
 WHERE   database_id = 2;
 
-IF @DaysUptime = 0 SET @DaysUptime = .01;
+IF @DaysUptime = 0 OR @DaysUptime IS NULL 
+  SET @DaysUptime = .01;
 
 SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
 
