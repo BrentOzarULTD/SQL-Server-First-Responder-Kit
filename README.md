@@ -27,7 +27,6 @@ Navigation
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
- - [Power BI Dashboard for DBAs](#power-bi-dashboard-for-dbas)
  - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
@@ -414,14 +413,6 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 * @ExpertMode = 1 - turns on more details useful for digging deeper into results.
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist.
 * @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
-
-[*Back to top*](#header1)
-
-## Power BI Dashboard for DBAs
-
-[Documentation for this part of the project is currently at BrentOzar.com.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
-
-To contribute changes, read the [contributing guide](CONTRIBUTING.md) - there's a special section for the Power BI Dashboard since it has to be changed differently than scripts.
 
 [*Back to top*](#header1)
 
