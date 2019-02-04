@@ -541,7 +541,7 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
                         + ISNULL(inequality_columns,''),',','')
                         ,'[',''),']',''),' ','_') 
-                    + CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' 
+                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END + N'] ON ' 
                     + [statement] + N' (' + ISNULL(equality_columns,N'')
                     + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
                     + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
