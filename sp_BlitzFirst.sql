@@ -3853,7 +3853,7 @@ BEGIN
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     c.[Wait Time (Seconds)],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
+                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
