@@ -535,7 +535,7 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
                     END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
                         ELSE N''
                     END,
-                [create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
+                [create_tsql] AS N'CREATE INDEX [IX_ 
                     + REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
