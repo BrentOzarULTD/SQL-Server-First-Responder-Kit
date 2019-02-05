@@ -239,8 +239,8 @@ If you want to add a new one, start at 225.
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
-| 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 224 |
-| 200 | Performance | SSRS/SSAS/SSIS Installed | https://www.BrentOzar.com/ | 122 |
+| 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
+| 200 | Performance | SSRS/SSAS/SSIS Installed | https://www.BrentOzar.com/ | 224 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |
