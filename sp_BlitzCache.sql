@@ -1020,11 +1020,24 @@ SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c W
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
 SET @SortOrder = REPLACE(@SortOrder, 'executions per minute', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'execution per minute', 'avg executions');
 SET @SortOrder = REPLACE(@SortOrder, 'executions / minute', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'execution / minute', 'avg executions');
 SET @SortOrder = REPLACE(@SortOrder, 'xpm', 'avg executions');
+SET @SortOrder = REPLACE(@SortOrder, 'execution', 'executions');
 SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
+SET @SortOrder = REPLACE(@SortOrder, 'recent compilation', 'compiles');
+SET @SortOrder = REPLACE(@SortOrder, 'compile', 'compiles');
+SET @SortOrder = REPLACE(@SortOrder, 'read', 'reads');
+SET @SortOrder = REPLACE(@SortOrder, 'avg read', 'avg reads');
+SET @SortOrder = REPLACE(@SortOrder, 'write', 'writes');
+SET @SortOrder = REPLACE(@SortOrder, 'avg write', 'avg writes');
+SET @SortOrder = REPLACE(@SortOrder, 'memory grants', 'memory grant');
+SET @SortOrder = REPLACE(@SortOrder, 'avg memory grants', 'avg memory grant');
+SET @SortOrder = REPLACE(@SortOrder, 'spill', 'spills');
+SET @SortOrder = REPLACE(@SortOrder, 'avg spill', 'avg spills');
 
-RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking sort order', 16, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
