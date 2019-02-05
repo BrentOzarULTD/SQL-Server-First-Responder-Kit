@@ -7809,6 +7809,49 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								EXECUTE(@StringToExecute);
 							END;
 
+                        /* CheckID 224 - Performance - SSRS/SSAS/SSIS Installed */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 224 )
+							BEGIN
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 224) WITH NOWAIT;
+								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
+                                BEGIN
+                                    
+                                    IF OBJECT_ID('tempdb..#services') IS NOT NULL DROP TABLE #services;
+                                    CREATE TABLE #services (cmdshell_output varchar(max));
+                                    
+                                    INSERT INTO #services
+                                    EXEC xp_cmdshell 'net start'
+                                    
+                                    IF EXISTS (SELECT 1 
+                                                FROM #services 
+                                                WHERE cmdshell_output LIKE 'SQL Server Reporting Services%'
+                                                    OR cmdshell_output LIKE 'SQL Server Integration Services%'
+                                                    OR cmdshell_output LIKE 'SQL Server Analysis Services%')
+                                    BEGIN
+								    INSERT  INTO #BlitzResults
+								    		( CheckID ,
+								    		  Priority ,
+								    		  FindingsGroup ,
+								    		  Finding ,
+								    		  URL ,
+								    		  Details
+								    		)
+								    		SELECT
+								    				 224 AS CheckID
+								    				,200 AS Priority
+								    				,'Performance' AS FindingsGroup
+								    				,'SSRS/SSIS/SSAS Installed' AS Finding
+								    				,'https://BrentOzar.com/go/trace' AS URL
+								    				,'Did you know you have other SQL Server services installed on this box other than the engine? It can be a real performance pain' as Details
+								    									    		
+								    END;
+								    
+                                 END;
+                            END;
+
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
