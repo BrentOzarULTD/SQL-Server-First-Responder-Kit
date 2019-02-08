@@ -16,7 +16,7 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@EventSessionPath VARCHAR(256) = 'system_health*.xel', 
 	@Debug BIT = 0, 
 	@Help BIT = 0,
-	Version     VARCHAR(30) = NULL OUTPUT,
+	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
 )
