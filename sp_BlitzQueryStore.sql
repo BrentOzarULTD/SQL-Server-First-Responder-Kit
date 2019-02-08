@@ -46,7 +46,9 @@ ALTER PROCEDURE dbo.sp_BlitzQueryStore
 	@SkipXML BIT = 0,
 	@Debug BIT = 0,
 	@ExpertMode BIT = 0,
-	@VersionDate DATETIME = NULL OUTPUT
+	@Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
 BEGIN /*First BEGIN*/
@@ -54,10 +56,13 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-DECLARE @Version NVARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
-
+SET @Version = '3.2';
+SET @VersionDate = '20190128';
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
+								
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
 		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
