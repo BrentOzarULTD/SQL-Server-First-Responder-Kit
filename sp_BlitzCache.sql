@@ -3982,6 +3982,7 @@ IF EXISTS ( SELECT 1/0
 		FROM #missing_index_detail AS m
 		JOIN ##bou_BlitzCacheProcs AS bbcp
 		ON m.SqlHandle = bbcp.SqlHandle
+		AND m.QueryHash = bbcp.QueryHash
 		OPTION (RECOMPILE);
 		
 		RAISERROR(N'Inserting to #index_spool_ugly', 0, 1) WITH NOWAIT;
