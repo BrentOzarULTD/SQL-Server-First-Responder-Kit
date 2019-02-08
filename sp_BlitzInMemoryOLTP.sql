@@ -25,7 +25,9 @@ ALTER PROCEDURE dbo.sp_BlitzInMemoryOLTP(
       , @dbName            NVARCHAR(4000) = N'ALL'
       , @tableName         NVARCHAR(4000) = NULL
       , @debug             BIT            = 0
-	  , @VersionDate DATETIME = NULL OUTPUT
+	  , @Version           VARCHAR(30)    = NULL OUTPUT
+	  , @VersionDate       DATETIME       = NULL OUTPUT
+      , @VersionCheckMode  BIT            = 0
 )
 /*
 .SYNOPSIS
@@ -79,10 +81,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 */
 AS 
-DECLARE @ScriptVersion VARCHAR(30);
 SET @ScriptVersion = '1.8';
 SET @VersionDate = '20180801';
 
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
+								
 BEGIN TRY
 
     SET NOCOUNT ON;
