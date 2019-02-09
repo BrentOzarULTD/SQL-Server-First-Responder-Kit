@@ -1368,7 +1368,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
-		IF @SkipStatistics = 0 
+		IF @SkipStatistics = 0 AND DB_NAME() = @DatabaseName /* Can only get stats in the current database - see https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1947 */
 			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
@@ -1468,7 +1468,7 @@ BEGIN TRY
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
-						ON      si.name = s.name
+						ON      si.name = s.name AND s.object_id = si.id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
