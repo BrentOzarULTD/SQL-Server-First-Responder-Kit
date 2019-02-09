@@ -4,7 +4,7 @@ GO
 
 ALTER PROCEDURE dbo.sp_ineachdb
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
-  @command             nvarchar(max),
+  @command             nvarchar(max) = NULL,
   @replace_character   nchar(1) = N'?',
   @print_dbname        bit = 0,
   @select_dbname       bit = 0, 
