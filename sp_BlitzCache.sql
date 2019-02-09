@@ -261,17 +261,24 @@ ALTER PROCEDURE dbo.sp_BlitzCache
 	@Debug BIT = 0,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@MinutesBack INT = NULL,
-	@VersionDate DATETIME = NULL OUTPUT
+	@Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+	@VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-DECLARE @Version VARCHAR(30);
 SET @Version = '7.2';
 SET @VersionDate = '20190128';
 
+
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
+	
 IF @Help = 1 PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
 	
@@ -323,7 +330,7 @@ SOFTWARE.
 ';
 
 DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
-
+	
 IF @Help = 1
 BEGIN
     SELECT N'@Help' AS [Parameter Name] ,

@@ -20,16 +20,23 @@ ALTER PROCEDURE dbo.sp_AllNightLog
 								@Restore BIT = 0,
 								@Debug BIT = 0,
 								@Help BIT = 0,
-								@VersionDate DATETIME = NULL OUTPUT
+								@Version                 VARCHAR(30) = NULL OUTPUT,
+								@VersionDate             DATETIME = NULL OUTPUT,
+								@VersionCheckMode        BIT = 0
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
 
 BEGIN;
 
-DECLARE @Version VARCHAR(30);
+
 SET @Version = '3.2';
 SET @VersionDate = '20190128';
+
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 
 IF @Help = 1
 
