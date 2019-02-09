@@ -4569,8 +4569,6 @@ BEGIN;
 											[schema_name], 
 											[table_name], 
 											[index_name],
-                                            [Drop_Tsql],
-                                            [Create_Tsql], 
 											[index_id], 
 											[db_schema_object_indexid], 
 											[object_type], 
@@ -4631,6 +4629,8 @@ BEGIN;
 											[create_date], 
 											[modify_date], 
 											[more_info],
+                                            [Drop_Tsql],
+                                            [Create_Tsql], 
 											[display_order]
 										)
 									SELECT ''@@@RunID@@@'',
