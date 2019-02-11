@@ -7828,9 +7828,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                     
                                     IF EXISTS (SELECT 1 
                                                 FROM #services 
-                                                WHERE cmdshell_output LIKE 'SQL Server Reporting Services%'
-                                                    OR cmdshell_output LIKE 'SQL Server Integration Services%'
-                                                    OR cmdshell_output LIKE 'SQL Server Analysis Services%')
+                                                WHERE cmdshell_output LIKE '%SQL Server Reporting Services%'
+                                                    OR cmdshell_output LIKE '%SQL Server Integration Services%'
+                                                    OR cmdshell_output LIKE '%SQL Server Analysis Services%')
                                     BEGIN
 								    INSERT  INTO #BlitzResults
 								    		( CheckID ,
