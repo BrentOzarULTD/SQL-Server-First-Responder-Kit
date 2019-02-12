@@ -7851,9 +7851,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								    				 224 AS CheckID
 								    				,200 AS Priority
 								    				,'Performance' AS FindingsGroup
-								    				,'SSRS/SSIS/SSAS Installed' AS Finding
-								    				,'https://BrentOzar.com/' AS URL
-								    				,'Did you know you have other SQL Server services installed on this box other than the engine? It can be a real performance pain' as Details
+								    				,'SSAS/SSIS/SSRS Installed' AS Finding
+								    				,'https://www.BrentOzar.com/go/services' AS URL
+								    				,'Did you know you have other SQL Server services installed on this box other than the engine? It can be a real performance pain.' as Details
 								    									    		
 								    END;
 								    
