@@ -1026,10 +1026,6 @@ SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c W
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-SET @SortOrder = REPLACE(@SortOrder, 'executions per minute', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'executions / minute', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'xpm', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 
 SET @SortOrder = CASE 
                      WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
