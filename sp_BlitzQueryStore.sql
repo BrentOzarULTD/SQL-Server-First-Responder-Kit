@@ -8,23 +8,6 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
-DECLARE @msg NVARCHAR(MAX) = N'';
-
-	-- Must be a compatible, on-prem version of SQL (2016+)
-IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
-	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
-	)
-	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
-OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
-	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
-	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
-	)
-BEGIN
-	SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016, or Azure Database compatibility < 130.' + REPLICATE(CHAR(13), 7933);
-	PRINT @msg;
-	RETURN;
-END;
-
 IF OBJECT_ID('dbo.sp_BlitzQueryStore') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzQueryStore AS RETURN 0;');
 GO
@@ -62,9 +45,25 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
+
+DECLARE @msg NVARCHAR(MAX) = N''; --Used to format RAISERROR messages in some places
+
+	-- Must be a compatible, on-prem version of SQL (2016+)
+IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
+	)
+	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
+OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
+	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
+	)
+BEGIN
+	SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016, or Azure Database compatibility < 130.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
 								
 DECLARE /*Variables for the variable Gods*/
-		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
 		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
 		@sql_where NVARCHAR(MAX) = N'', -- Used to hold WHERE clause for dynamic SQL
 		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.), --We accept Duration in seconds, but we filter in milliseconds (this is grandfathered from sp_BlitzCache)
@@ -341,7 +340,7 @@ This one holds the grouped data that helps use figure out which periods to exami
 
 RAISERROR(N'Creating temp tables', 0, 1) WITH NOWAIT;
 
-DROP TABLE IF EXISTS #grouped_interval;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #grouped_interval;';
 
 CREATE TABLE #grouped_interval
 (
@@ -373,7 +372,7 @@ CREATE TABLE #grouped_interval
 /*
 These are the plans we focus on based on what we find in the grouped intervals
 */
-DROP TABLE IF EXISTS #working_plans;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #working_plans;';
 
 CREATE TABLE #working_plans
 (
@@ -387,7 +386,7 @@ CREATE TABLE #working_plans
 /*
 These are the gathered metrics we get from query store to generate some warnings and help you find your worst offenders
 */
-DROP TABLE IF EXISTS #working_metrics;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #working_metrics;';
 
 CREATE TABLE #working_metrics 
 (
@@ -495,7 +494,7 @@ CREATE TABLE #working_metrics
 /*
 This is where we store some additional metrics, along with the query plan and text
 */
-DROP TABLE IF EXISTS #working_plan_text;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #working_plan_text;';
 
 CREATE TABLE #working_plan_text 
 (
@@ -538,7 +537,7 @@ CREATE TABLE #working_plan_text
 /*
 This is where we store warnings that we generate from the XML and metrics
 */
-DROP TABLE IF EXISTS #working_warnings;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #working_warnings;';
 
 CREATE TABLE #working_warnings 
 (
@@ -640,7 +639,7 @@ CREATE TABLE #working_warnings
 );
 
 
-DROP TABLE IF EXISTS #working_wait_stats;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #working_wait_stats;';
 
 CREATE TABLE #working_wait_stats
 (
@@ -685,7 +684,7 @@ CREATE TABLE #working_wait_stats
 /*
 The next three tables hold plan XML parsed out to different degrees 
 */
-DROP TABLE IF EXISTS #statements;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #statements;';
 
 CREATE TABLE #statements 
 (
@@ -699,7 +698,7 @@ CREATE TABLE #statements
 );
 
 
-DROP TABLE IF EXISTS #query_plan;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #query_plan;';
 
 CREATE TABLE #query_plan 
 (
@@ -712,7 +711,7 @@ CREATE TABLE #query_plan
 );
 
 
-DROP TABLE IF EXISTS #relop;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #relop;';
 
 CREATE TABLE #relop 
 (
@@ -725,7 +724,7 @@ CREATE TABLE #relop
 );
 
 
-DROP TABLE IF EXISTS #plan_cost;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #plan_cost;';
 
 CREATE TABLE #plan_cost 
 (
@@ -736,7 +735,7 @@ CREATE TABLE #plan_cost
 );
 
 
-DROP TABLE IF EXISTS #est_rows;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #est_rows;';
 
 CREATE TABLE #est_rows 
 (
@@ -746,7 +745,7 @@ CREATE TABLE #est_rows
 );
 
 
-DROP TABLE IF EXISTS #stats_agg;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #stats_agg;';
 
 CREATE TABLE #stats_agg
 (
@@ -762,7 +761,7 @@ CREATE TABLE #stats_agg
 );
 
 
-DROP TABLE IF EXISTS #trace_flags;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #trace_flags;';
 
 CREATE TABLE #trace_flags 
 (
@@ -773,7 +772,7 @@ CREATE TABLE #trace_flags
 );
 
 
-DROP TABLE IF EXISTS #warning_results;	
+EXEC sp_executesql N'DROP TABLE IF EXISTS #warning_results;';
 
 CREATE TABLE #warning_results 
 (
@@ -787,7 +786,7 @@ CREATE TABLE #warning_results
 );
 
 /*These next three tables hold information about implicit conversion and cached parameters */
-DROP TABLE IF EXISTS #stored_proc_info;	
+EXEC sp_executesql N'DROP TABLE IF EXISTS #stored_proc_info;';	
 
 CREATE TABLE #stored_proc_info
 (
@@ -804,7 +803,7 @@ CREATE TABLE #stored_proc_info
 	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #variable_info;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #variable_info;';
 
 CREATE TABLE #variable_info
 (
@@ -817,7 +816,7 @@ CREATE TABLE #variable_info
 	INDEX vif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #conversion_info;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #conversion_info;';
 
 CREATE TABLE #conversion_info
 (
@@ -841,7 +840,7 @@ CREATE TABLE #conversion_info
 /* These tables support the Missing Index details clickable*/
 
 
-DROP TABLE IF EXISTS #missing_index_xml;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_xml;';
 
 CREATE TABLE #missing_index_xml
 (
@@ -852,7 +851,7 @@ CREATE TABLE #missing_index_xml
 	INDEX mix_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #missing_index_schema;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_schema;';
 
 CREATE TABLE #missing_index_schema
 (
@@ -867,7 +866,7 @@ CREATE TABLE #missing_index_schema
 );
 
 
-DROP TABLE IF EXISTS #missing_index_usage;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_usage;';
 
 CREATE TABLE #missing_index_usage
 (
@@ -882,7 +881,7 @@ CREATE TABLE #missing_index_usage
 	INDEX miu_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #missing_index_detail;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_detail;';
 
 CREATE TABLE #missing_index_detail
 (
@@ -898,7 +897,7 @@ CREATE TABLE #missing_index_detail
 );
 
 
-DROP TABLE IF EXISTS #missing_index_pretty;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_pretty;';
 
 CREATE TABLE #missing_index_pretty
 (
@@ -962,7 +961,7 @@ CREATE TABLE #missing_index_pretty
 	INDEX mip_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-DROP TABLE IF EXISTS #index_spool_ugly;
+EXEC sp_executesql N'DROP TABLE IF EXISTS #index_spool_ugly;';
 
 CREATE TABLE #index_spool_ugly
 (
