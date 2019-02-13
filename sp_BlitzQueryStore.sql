@@ -82,7 +82,9 @@ DECLARE /*Variables for the variable Gods*/
 		@is_azure_db BIT = 0, --Are we using Azure? I'm not. You might be. That's cool.
 		@compatibility_level TINYINT = 0, --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
 		@log_size_mb DECIMAL(38,2) = 0,
-		@avg_tempdb_data_file DECIMAL(38,2) = 0;
+		@avg_tempdb_data_file DECIMAL(38,2) = 0,
+        @TmpCnt             INT; -- temporary counter
+;
 
 /*Grabs CTFP setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -187,13 +189,20 @@ ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERS
 	END;
 
 /*Making sure at least one database uses QS*/
-IF  (	SELECT COUNT(*)
-		FROM sys.databases AS d
-		WHERE d.is_query_store_on = 1
-		AND d.user_access_desc='MULTI_USER'
-		AND d.state_desc = 'ONLINE'
-		AND d.name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
-		AND d.is_distributor = 0 ) = 0
+
+SET @sql_select =   'SELECT @cnt = COUNT(*)' + @lf +
+		            'FROM sys.databases AS d' + @lf +
+		            'WHERE d.is_query_store_on = 1' + @lf +
+		            'AND d.user_access_desc=''MULTI_USER''' + @lf +
+		            'AND d.state_desc = ''ONLINE''' + @lf +
+		            'AND d.name NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'')' + @lf +
+		            'AND d.is_distributor = 0' + @lf +
+                    ';'
+                    ;
+
+EXEC sp_executesql @sql_select , N'@cnt INT OUTPUT', @cnt = @TmpCnt OUTPUT;
+
+IF  (	 @TmpCnt = 0 )
 	BEGIN
 		SELECT @msg = N'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
@@ -238,19 +247,27 @@ BEGIN
 END;
 
 /*Does it have Query Store enabled?*/
+
 RAISERROR('Making sure [%s] has Query Store enabled', 0, 1, @DatabaseName) WITH NOWAIT;
-IF 	
-	((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
-AND		
-	(   SELECT DB_NAME(d.database_id)
-		FROM sys.databases AS d
-		WHERE d.is_query_store_on = 1
-		AND d.user_access_desc='MULTI_USER'
-		AND d.state_desc = 'ONLINE'
-		AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
-BEGIN
-	RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
-	RETURN;
+
+IF 	((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
+BEGIN 
+    SET @sql_select =   'SELECT @cnt = COUNT(*)' + @lf +
+		            'FROM sys.databases AS d' + @lf +
+		            'WHERE d.is_query_store_on = 1' + @lf +
+		            'AND d.user_access_desc=''MULTI_USER''' + @lf +
+		            'AND d.state_desc = ''ONLINE''' + @lf +
+		            'AND d.name = @DatabaseName' + @lf +
+		            --'AND d.is_distributor = 0' + @lf +
+                    ';'
+                    ;
+
+    EXEC sp_executesql @sql_select , N'@DatabaseName SYSNAME, @cnt INT OUTPUT', @cnt = @TmpCnt OUTPUT, @DatabaseName = @DatabaseName;
+    IF(@TmpCnt = 0)
+    BEGIN
+	    RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
+	    RETURN;
+    END;
 END;
 
 /*Check database compat level*/
@@ -364,9 +381,10 @@ CREATE TABLE #grouped_interval
     total_max_logical_io_writes_mb DECIMAL(38, 2) NULL,
     total_max_query_max_used_memory_mb DECIMAL(38, 2) NULL,
 	total_max_log_bytes_mb DECIMAL(38, 2) NULL,
-	total_max_tempdb_space DECIMAL(38, 2) NULL,
-	INDEX gi_ix_dates CLUSTERED (start_range, end_range)
+	total_max_tempdb_space DECIMAL(38, 2) NULL
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX gi_ix_dates ON #grouped_interval(start_range, end_range);';
 
 
 /*
@@ -378,11 +396,10 @@ CREATE TABLE #working_plans
 (
     plan_id BIGINT,
     query_id BIGINT,
-	pattern NVARCHAR(258),
-	INDEX wp_ix_ids CLUSTERED (plan_id, query_id)
+	pattern NVARCHAR(258)
 );
 
-
+EXEC sp_executesql N'CREATE CLUSTERED INDEX wp_ix_ids ON #working_plans(plan_id, query_id);';
 /*
 These are the gathered metrics we get from query store to generate some warnings and help you find your worst offenders
 */
@@ -486,10 +503,10 @@ CREATE TABLE #working_metrics
 	total_log_bytes_used AS avg_log_bytes_used * count_executions,
 	total_tempdb_space_used AS avg_tempdb_space_used * count_executions,
 	xpm AS NULLIF(count_executions, 0) / NULLIF(DATEDIFF(MINUTE, first_execution_time, last_execution_time), 0),
-    percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_query_max_used_memory * 1.00 ), 0) / NULLIF(min_query_max_used_memory, 0), 0) * 100.),
-	INDEX wm_ix_ids CLUSTERED (plan_id, query_id, query_hash)
+    percent_memory_grant_used AS CONVERT(MONEY, ISNULL(NULLIF(( max_query_max_used_memory * 1.00 ), 0) / NULLIF(min_query_max_used_memory, 0), 0) * 100.)
 );
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX wm_ix_ids ON #working_metrics(plan_id, query_id, query_hash);';
 
 /*
 This is where we store some additional metrics, along with the query plan and text
@@ -529,10 +546,10 @@ CREATE TABLE #working_plan_text
 	context_settings NVARCHAR(512),
 	/*This is from #working_plans*/
 	pattern NVARCHAR(512),
-	top_three_waits NVARCHAR(MAX),
-	INDEX wpt_ix_ids CLUSTERED (plan_id, query_id, query_plan_hash)
+	top_three_waits NVARCHAR(MAX)
 ); 
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX wpt_ix_ids ON #working_plan_text(plan_id, query_id, query_hash);';
 
 /*
 This is where we store warnings that we generate from the XML and metrics
@@ -635,9 +652,9 @@ CREATE TABLE #working_warnings
 	cached_execution_parameters XML,
 	missing_indexes XML,
     warnings NVARCHAR(4000)
-	INDEX ww_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX ww_ix_ids ON #working_warnings(plan_id, query_id, query_hash, [sql_handle]);';
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #working_wait_stats;';
 
@@ -676,9 +693,11 @@ CREATE TABLE #working_wait_stats
 								WHEN 21 THEN N'ASYNC_IO_COMPLETION, IO_COMPLETION, BACKUPIO, WRITE_COMPLETION, IO_QUEUE_LIMIT, IO_RETRY'
 								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
 								WHEN 23 THEN N'LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
-							END,
-    INDEX wws_ix_ids CLUSTERED ( plan_id)
+							END
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX wws_ix_ids ON #working_wait_stats(plan_id);';
+
 
 
 /*
@@ -694,8 +713,9 @@ CREATE TABLE #statements
 	sql_handle VARBINARY(64),
 	statement XML,
     is_cursor BIT
-	INDEX s_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX s_ix_ids ON #statements(plan_id, query_id, query_hash, sql_handle);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #query_plan;';
@@ -706,10 +726,10 @@ CREATE TABLE #query_plan
     query_id BIGINT,
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
-	query_plan XML,
-	INDEX qp_ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
+	query_plan XML
 );
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX qp_ix_ids ON #query_plan(plan_id, query_id, query_hash, sql_handle);';
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #relop;';
 
@@ -719,9 +739,10 @@ CREATE TABLE #relop
     query_id BIGINT,
 	query_hash BINARY(8),
 	sql_handle VARBINARY(64),
-	relop XML,
-	INDEX ix_ids CLUSTERED (plan_id, query_id, query_hash, sql_handle)
+	relop XML
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX ix_ids ON #relop(plan_id, query_id, query_hash, sql_handle);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #plan_cost;';
@@ -730,9 +751,10 @@ CREATE TABLE #plan_cost
 (
 	query_plan_cost DECIMAL(38,2),
 	sql_handle VARBINARY(64),
-	plan_id INT,
-	INDEX px_ix_ids CLUSTERED (sql_handle, plan_id)
+	plan_id INT
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX px_ix_ids ON #plan_cost(sql_handle, plan_id);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #est_rows;';
@@ -740,9 +762,11 @@ EXEC sp_executesql N'DROP TABLE IF EXISTS #est_rows;';
 CREATE TABLE #est_rows 
 (
 	estimated_rows DECIMAL(38,2),
-	query_hash BINARY(8),
-	INDEX px_ix_ids CLUSTERED (query_hash)
+	query_hash BINARY(8)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX px_ix_ids ON #est_rows(query_hash);';
+
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #stats_agg;';
@@ -756,9 +780,10 @@ CREATE TABLE #stats_agg
     [statistics] NVARCHAR(258),
     [table] NVARCHAR(258),
     [schema] NVARCHAR(258),
-    [database] NVARCHAR(258),
-	INDEX sa_ix_ids CLUSTERED (sql_handle)
+    [database] NVARCHAR(258)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX sa_ix_ids ON #stats_agg(sql_handle);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #trace_flags;';
@@ -767,9 +792,10 @@ CREATE TABLE #trace_flags
 (
 	sql_handle VARBINARY(54),
 	global_trace_flags NVARCHAR(4000),
-	session_trace_flags NVARCHAR(4000),
-	INDEX tf_ix_ids CLUSTERED (sql_handle)
+	session_trace_flags NVARCHAR(4000)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX tf_ix_ids ON #trace_flags(sql_handle);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #warning_results;';
@@ -800,8 +826,10 @@ CREATE TABLE #stored_proc_info
     column_name NVARCHAR(4000),
     converted_to NVARCHAR(258),
 	set_options NVARCHAR(1000)
-	INDEX tf_ix_ids CLUSTERED (sql_handle, query_hash)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX tf_ix_ids ON #stored_proc_info(sql_handle, query_hash);';
+
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #variable_info;';
 
@@ -812,9 +840,11 @@ CREATE TABLE #variable_info
     proc_name NVARCHAR(1000),
     variable_name NVARCHAR(258),
     variable_datatype NVARCHAR(258),
-    compile_time_value NVARCHAR(258),
-	INDEX vif_ix_ids CLUSTERED (sql_handle, query_hash)
+    compile_time_value NVARCHAR(258)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX vif_ix_ids ON #variable_info(sql_handle, query_hash);';
+
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #conversion_info;';
 
@@ -833,9 +863,11 @@ CREATE TABLE #conversion_info
     paren_charindex AS CHARINDEX('(', expression) + 1,
     comma_paren_charindex AS
         CHARINDEX(',', expression, CHARINDEX('(', expression) + 1) - CHARINDEX('(', expression) - 1,
-    convert_implicit_charindex AS CHARINDEX('=CONVERT_IMPLICIT', expression),
-	INDEX cif_ix_ids CLUSTERED (sql_handle, query_hash)
+    convert_implicit_charindex AS CHARINDEX('=CONVERT_IMPLICIT', expression)
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX cif_ix_ids ON #conversion_info(sql_handle, query_hash);';
+
 
 /* These tables support the Missing Index details clickable*/
 
@@ -847,9 +879,11 @@ CREATE TABLE #missing_index_xml
     query_hash BINARY(8),
     sql_handle VARBINARY(64),
     impact FLOAT,
-    index_xml XML,
-	INDEX mix_ix_ids CLUSTERED (sql_handle, query_hash)
+    index_xml XML
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX mix_ix_ids ON #missing_index_xml(sql_handle, query_hash);';
+
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_schema;';
 
@@ -861,9 +895,10 @@ CREATE TABLE #missing_index_schema
     database_name NVARCHAR(128),
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
-    index_xml XML,
-	INDEX mis_ix_ids CLUSTERED (sql_handle, query_hash)
+    index_xml XML
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX mis_ix_ids ON #missing_index_schema(sql_handle, query_hash);';
 
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_usage;';
@@ -877,9 +912,10 @@ CREATE TABLE #missing_index_usage
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
 	usage NVARCHAR(128),
-    index_xml XML,
-	INDEX miu_ix_ids CLUSTERED (sql_handle, query_hash)
+    index_xml XML
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX miu_ix_ids ON #missing_index_usage(sql_handle, query_hash);';
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_detail;';
 
@@ -892,10 +928,10 @@ CREATE TABLE #missing_index_detail
     schema_name NVARCHAR(128),
     table_name NVARCHAR(128),
     usage NVARCHAR(128),
-    column_name NVARCHAR(128),
-	INDEX mid_ix_ids CLUSTERED (sql_handle, query_hash)
+    column_name NVARCHAR(128)
 );
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX mid_ix_ids ON #missing_index_detail(sql_handle, query_hash);';
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #missing_index_pretty;';
 
@@ -957,9 +993,10 @@ CREATE TABLE #missing_index_pretty
 			   + CHAR(10)
 			   + N'GO'
 			   + CHAR(10)
-			   + N'*/',
-	INDEX mip_ix_ids CLUSTERED (sql_handle, query_hash)
+			   + N'*/'
 );
+
+EXEC sp_executesql N'CREATE CLUSTERED INDEX mip_ix_ids ON #missing_index_pretty(sql_handle, query_hash);';
 
 EXEC sp_executesql N'DROP TABLE IF EXISTS #index_spool_ugly;';
 
@@ -973,10 +1010,10 @@ CREATE TABLE #index_spool_ugly
     table_name NVARCHAR(128),
 	equality NVARCHAR(MAX),
 	inequality NVARCHAR(MAX),
-	[include] NVARCHAR(MAX),
-	INDEX isu_ix_ids CLUSTERED (sql_handle, query_hash)
+	[include] NVARCHAR(MAX)
 );
 
+EXEC sp_executesql N'CREATE CLUSTERED INDEX isu_ix_ids ON #index_spool_ugly(sql_handle, query_hash);';
 
 /*Sets up WHERE clause that gets used quite a bit*/
 
