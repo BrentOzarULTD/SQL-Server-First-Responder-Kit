@@ -549,7 +549,7 @@ CREATE TABLE #working_plan_text
 	top_three_waits NVARCHAR(MAX)
 ); 
 
-EXEC sp_executesql N'CREATE CLUSTERED INDEX wpt_ix_ids ON #working_plan_text(plan_id, query_id, query_hash);';
+EXEC sp_executesql N'CREATE CLUSTERED INDEX wpt_ix_ids ON #working_plan_text(plan_id, query_id, query_plan_hash);';
 
 /*
 This is where we store warnings that we generate from the XML and metrics
