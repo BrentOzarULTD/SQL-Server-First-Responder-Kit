@@ -1026,18 +1026,28 @@ SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c W
 
 SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-SET @SortOrder = REPLACE(@SortOrder, 'executions per minute', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'executions / minute', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'xpm', 'avg executions');
-SET @SortOrder = REPLACE(@SortOrder, 'recent compilations', 'compiles');
 
+SET @SortOrder = CASE 
+                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
+                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
+                     WHEN @SortOrder IN ('read') THEN 'reads'
+                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
+                     WHEN @SortOrder IN ('write') THEN 'writes'
+                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
+                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
+                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('spill') THEN 'spills'
+                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
+                     WHEN @SortOrder IN ('execution') THEN 'executions'
+                 ELSE @SortOrder END							  
+							  
 RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
 					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex')
   BEGIN
-  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 0, 1) WITH NOWAIT;
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
   END; 
 
