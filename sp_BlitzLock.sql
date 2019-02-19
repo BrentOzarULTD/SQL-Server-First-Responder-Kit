@@ -27,8 +27,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '2.2';
-SET @VersionDate = '20190128';
+SET @Version = '2.3';
+SET @VersionDate = '20190219';
 
 IF(@VersionCheckMode = 1)
 BEGIN
