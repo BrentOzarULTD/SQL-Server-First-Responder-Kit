@@ -1,4 +1,4 @@
-﻿DECLARE @msg NVARCHAR(MAX) = N'';
+DECLARE @msg NVARCHAR(MAX) = N'';
 
 	-- Must be a compatible, on-prem version of SQL (2014+)
 IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
@@ -25,7 +25,9 @@ ALTER PROCEDURE dbo.sp_BlitzInMemoryOLTP(
       , @dbName            NVARCHAR(4000) = N'ALL'
       , @tableName         NVARCHAR(4000) = NULL
       , @debug             BIT            = 0
-	  , @VersionDate DATETIME = NULL OUTPUT
+	  , @Version           VARCHAR(30)    = NULL OUTPUT
+	  , @VersionDate       DATETIME       = NULL OUTPUT
+      , @VersionCheckMode  BIT            = 0
 )
 /*
 .SYNOPSIS
@@ -83,6 +85,12 @@ DECLARE @ScriptVersion VARCHAR(30);
 SET @ScriptVersion = '1.8';
 SET @VersionDate = '20180801';
 
+IF(@VersionCheckMode = 1)
+BEGIN
+    SET @Version = @ScriptVersion;
+	RETURN;
+END;
+								
 BEGIN TRY
 
     SET NOCOUNT ON;
@@ -94,9 +102,9 @@ BEGIN TRY
     DECLARE @Edition NVARCHAR(MAX) = CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128))
           , @errorMessage  NVARCHAR(512);
 
-    DECLARE @Version INT = CONVERT(INT, SERVERPROPERTY('ProductMajorVersion'));
+    DECLARE @MSSQLVersion INT = CONVERT(INT, SERVERPROPERTY('ProductMajorVersion'));
 
-    IF @debug = 1 PRINT('--@Version = ' + CAST(@Version AS VARCHAR(30)));
+    IF @debug = 1 PRINT('--@MSSQLVersion = ' + CAST(@MSSQLVersion AS VARCHAR(30)));
 
     /*
     ###################################################
@@ -133,7 +141,7 @@ BEGIN TRY
 
     -- not on Azure, so we need to check versions/Editions
     -- SQL 2014 only supports XTP on Enterprise edition
-    IF (SERVERPROPERTY('EngineEdition') IN (2, 4)) AND @Version = 12 AND (@Edition NOT LIKE 'Enterprise%' AND  @Edition NOT LIKE 'Developer%')
+    IF (SERVERPROPERTY('EngineEdition') IN (2, 4)) AND @MSSQLVersion = 12 AND (@Edition NOT LIKE 'Enterprise%' AND  @Edition NOT LIKE 'Developer%')
     BEGIN
         SET @errorMessage = CONCAT('For SQL 2014, In-Memory OLTP is only suppported on Enterprise Edition. You are running SQL Server edition: ', @Edition);
         THROW 55002, @errorMessage, 1;
@@ -143,7 +151,7 @@ BEGIN TRY
     -- SQL 2016 non-Enterprise only supports XTP after SP1
     DECLARE @BuildString VARCHAR(4) = CONVERT(VARCHAR(4), SERVERPROPERTY('ProductBuild'));
     
-    IF (SERVERPROPERTY('EngineEdition') IN (2, 4)) AND @Version = 13 AND (@BuildString < 4001)
+    IF (SERVERPROPERTY('EngineEdition') IN (2, 4)) AND @MSSQLVersion = 13 AND (@BuildString < 4001)
     -- 13.0.4001.0 is the minimum build for XTP support
     BEGIN
         SET @errorMessage = 'For SQL 2016, In-Memory OLTP is only suppported on non-Enterprise Edition as of SP1';
@@ -668,7 +676,7 @@ BEGIN TRY
                     ,', b.name AS tableName 
                     , p.rows AS [rowCount]
                     ,durability_desc '
-                    ,CASE WHEN @Version >= 13 THEN ', temporal_type_desc ' ELSE ',NULL AS temporal_type_desc' END
+                    ,CASE WHEN @MSSQLVersion >= 13 THEN ', temporal_type_desc ' ELSE ',NULL AS temporal_type_desc' END
                     ,', FORMAT(memory_allocated_for_table_kb, ''###,###,###'') AS memoryAllocatedForTableKB
                     ,FORMAT(memory_used_by_table_kb, ''###,###,###'') AS memoryUsedByTableKB
                     ,FORMAT(memory_allocated_for_indexes_kb, ''###,###,###'') AS memoryAllocatedForIndexesKB
@@ -739,13 +747,13 @@ BEGIN TRY
                     INNER JOIN '
                     ,dbName
                     ,'.sys.tables t ON t.object_id = c.object_id'
-                    ,CASE WHEN @Version > 12 THEN ' INNER JOIN sys.memory_optimized_tables_internal_attributes a ON a.object_id = c.object_id
+                    ,CASE WHEN @MSSQLVersion > 12 THEN ' INNER JOIN sys.memory_optimized_tables_internal_attributes a ON a.object_id = c.object_id
                                                                             AND a.xtp_object_id = c.xtp_object_id' ELSE NULL END
                     ,@crlf + ' LEFT JOIN '
                     ,dbName 
                     ,'.sys.indexes i ON c.object_id = i.object_id
                                                     AND c.index_id = i.index_id '
-                                                    ,CASE WHEN @Version > 12 THEN 'AND a.minor_id = 0' ELSE NULL END
+                                                    ,CASE WHEN @MSSQLVersion > 12 THEN 'AND a.minor_id = 0' ELSE NULL END
                     ,@crlf + ' WHERE t.type = '
                     , '''u'''
                     , '   AND t.is_memory_optimized = 1 '
@@ -819,7 +827,7 @@ BEGIN TRY
                     INNER JOIN '
                     ,dbName
                     ,'.sys.indexes AS i ON h.object_id = i.object_id AND h.index_id = i.index_id'
-                    ,CASE WHEN @Version > 12 THEN
+                    ,CASE WHEN @MSSQLVersion > 12 THEN
                     CONCAT(' INNER JOIN ', dbName ,'.sys.memory_optimized_tables_internal_attributes ia ON h.xtp_object_id = ia.xtp_object_id') ELSE NULL END
                     ,' INNER JOIN '
                     ,dbName
@@ -827,7 +835,7 @@ BEGIN TRY
                     ,' INNER JOIN '
                     ,dbName
                     ,'.sys.schemas sch ON sch.schema_id = t.schema_id '
-                    ,CASE WHEN @Version > 12 THEN 'WHERE ia.type = 1' ELSE NULL END
+                    ,CASE WHEN @MSSQLVersion > 12 THEN 'WHERE ia.type = 1' ELSE NULL END
                 )
             FROM #MemoryOptimizedDatabases
             WHERE rowNumber = @dbCounter;
@@ -879,14 +887,14 @@ BEGIN TRY
                     INNER JOIN '
                     ,dbName
                     ,'.sys.tables t ON t.object_id = c.object_id'
-                    ,CASE WHEN @Version > 12 THEN
+                    ,CASE WHEN @MSSQLVersion > 12 THEN
                     CONCAT(' INNER JOIN ', dbName ,'.sys.memory_optimized_tables_internal_attributes a ON a.object_id = c.object_id
                                                                         AND a.xtp_object_id = c.xtp_object_id') ELSE NULL END 
                     ,' LEFT JOIN '
                     ,dbName 
                     ,'.sys.indexes i ON c.object_id = i.object_id
                                                     AND c.index_id = i.index_id '
-                                                    ,CASE WHEN @Version > 12 THEN ' AND a.minor_id = 0' ELSE NULL END
+                                                    ,CASE WHEN @MSSQLVersion > 12 THEN ' AND a.minor_id = 0' ELSE NULL END
                     ,' WHERE t.type = '
                     , '''u'''
                     , '   AND t.is_memory_optimized = 1 '
@@ -1015,8 +1023,8 @@ BEGIN TRY
                             SELECT DISTINCT REPLACE(value, ''.dll'', '''') AS object_id
                             FROM #moduleSplit
                             WHERE rowNumber % ' 
-                     ,CASE WHEN @Version = 12 THEN ' 4 = 0'
-                           ELSE ' 6 = 4'  -- @Version >= 13 
+                     ,CASE WHEN @MSSQLVersion = 12 THEN ' 4 = 0'
+                           ELSE ' 6 = 4'  -- @MSSQLVersion >= 13 
                       END 
                         ,')'
                     );
@@ -1043,7 +1051,7 @@ BEGIN TRY
                 WHERE rowNumber = @dbCounter;
 
                 IF @debug = 1
-                PRINT('--List loaded natively compiled modules in this database (@Version >= 13)' + @crlf + @sql + @crlf);
+                PRINT('--List loaded natively compiled modules in this database (@MSSQLVersion >= 13)' + @crlf + @sql + @crlf);
                 ELSE 
                 BEGIN
 
@@ -1107,7 +1115,7 @@ BEGIN TRY
             */
 
             -- temporal is supported in SQL 2016+
-            IF @Version >= 13
+            IF @MSSQLVersion >= 13
             BEGIN
 
                 SELECT @sql = 
@@ -1204,7 +1212,7 @@ BEGIN TRY
             #########################################################
             */
 
-            IF @Version >= 13
+            IF @MSSQLVersion >= 13
             BEGIN
     
                 SELECT @sql = 
@@ -1678,7 +1686,7 @@ BEGIN TRY
     ###################################################
     */
 
-    IF @instanceLevelOnly = 1 AND @Version >= 12
+    IF @instanceLevelOnly = 1 AND @MSSQLVersion >= 12
     BEGIN
 
         SELECT @@version AS Version;
@@ -2020,7 +2028,7 @@ BEGIN TRY
             SELECT *
             FROM sys.event_notifications;
         END;
-    END; -- @instanceLevelOnly = 1 AND @Version >= 12
+    END; -- @instanceLevelOnly = 1 AND @MSSQLVersion >= 12
 
 	SELECT
 		'Thanks for using sp_BlitzInMemoryOLTP!' AS [Thanks],

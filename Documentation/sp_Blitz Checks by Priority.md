@@ -6,14 +6,14 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 223.  
-If you want to add a new one, start at 224.
+CURRENT HIGH CHECKID: 224.  
+If you want to add a new one, start at 225.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
-| 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 223 |
-| 0 | Informational | Some Checks Skipped | https://www.BrentOzar.com/blitz/ | 204 |
+| 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 204 |
+| 0 | Informational | Some Checks Skipped | https://www.BrentOzar.com/blitz/ | 223 |
 | 1 | Backup | Backing Up to Same Drive Where Databases Reside | https://www.BrentOzar.com/go/backup | 93 |
 | 1 | Backup | Backups Not Performed Recently | https://www.BrentOzar.com/go/nobak | 1 |
 | 1 | Backup | Encryption Certificate Not Backed Up Recently | https://www.BrentOzar.com/go/tde | 202 |
@@ -240,6 +240,7 @@ If you want to add a new one, start at 224.
 | 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
+| 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
 | 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |

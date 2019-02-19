@@ -16,7 +16,9 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@EventSessionPath VARCHAR(256) = 'system_health*.xel', 
 	@Debug BIT = 0, 
 	@Help BIT = 0,
-	@VersionDate DATETIME = NULL OUTPUT
+	@Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 )
 WITH RECOMPILE
 AS
@@ -25,11 +27,17 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+SET @Version = '2.3';
+SET @VersionDate = '20190219';
 DECLARE @Version VARCHAR(30);
 SET @Version = '2.2';
 SET @VersionDate = '20190128';
 
 
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 	IF @Help = 1 PRINT '
 	/*
 	sp_BlitzLock from http://FirstResponderKit.org
@@ -176,7 +184,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
-        DECLARE @d VARCHAR(40);
+        DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000);
 
         CREATE TABLE #t (id INT NOT NULL);
         UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
@@ -555,17 +563,19 @@ You need to use an Azure storage account, and the path has to look like this: ht
         ALTER TABLE #agent_job ADD job_name NVARCHAR(256),
                                    step_name NVARCHAR(256);
 
-        
-        UPDATE aj
-        SET  aj.job_name = j.name, 
-             aj.step_name = s.step_name
-		FROM msdb.dbo.sysjobs AS j
-		JOIN msdb.dbo.sysjobsteps AS s 
-            ON j.job_id = s.job_id
-        JOIN #agent_job AS aj
-            ON  aj.job_id_guid = j.job_id
-            AND aj.step_id = s.step_id;
-
+        IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
+            BEGIN
+            SET @StringToExecute = N'UPDATE aj
+                    SET  aj.job_name = j.name, 
+                         aj.step_name = s.step_name
+		            FROM msdb.dbo.sysjobs AS j
+		            JOIN msdb.dbo.sysjobsteps AS s 
+                        ON j.job_id = s.job_id
+                    JOIN #agent_job AS aj
+                        ON  aj.job_id_guid = j.job_id
+                        AND aj.step_id = s.step_id;';
+            EXEC(@StringToExecute);
+            END
 
         UPDATE dp
            SET dp.client_app = 
@@ -1225,4 +1235,3 @@ You need to use an Azure storage account, and the path has to look like this: ht
     END; --Final End
 
 GO
-
