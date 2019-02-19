@@ -62,10 +62,6 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-								
-DECLARE @Version NVARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
