@@ -1847,7 +1847,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                 ELSE 0 END AS avg_page_lock_wait_in_ms,           
                 SUM(index_lock_promotion_attempt_count),
                 SUM(index_lock_promotion_count),
-                LEFT(MAX(data_compression_info.data_compression_rollup),8000),
+                LEFT(MAX(data_compression_info.data_compression_rollup),4000),
 				SUM(page_latch_wait_count), 
 				SUM(page_latch_wait_in_ms), 
 				SUM(page_io_latch_wait_count), 
