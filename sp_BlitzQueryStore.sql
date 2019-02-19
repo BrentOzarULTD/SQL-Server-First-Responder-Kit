@@ -63,6 +63,7 @@ BEGIN
 	RETURN;
 END;
 
+
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
 		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL

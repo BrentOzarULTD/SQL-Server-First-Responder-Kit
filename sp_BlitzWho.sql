@@ -36,6 +36,7 @@ BEGIN
 	END;
 
 
+
 	IF @Help = 1
 		PRINT '
 sp_BlitzWho from http://FirstResponderKit.org

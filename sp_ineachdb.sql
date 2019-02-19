@@ -32,6 +32,7 @@ ALTER PROCEDURE dbo.sp_ineachdb
 AS
 BEGIN
   SET NOCOUNT ON;
+
   SET @Version = '2.3';
   SET @VersionDate = '20190219';
   
