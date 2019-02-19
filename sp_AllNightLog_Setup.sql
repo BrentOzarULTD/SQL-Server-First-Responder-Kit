@@ -36,10 +36,6 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-DECLARE @Version VARCHAR(30);
-SET @Version = '3.2';
-SET @VersionDate = '20190128';;
-
 SET @Version = '3.3';
 SET @VersionDate = '20190219';
 
