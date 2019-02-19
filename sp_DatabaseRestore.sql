@@ -29,6 +29,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
+    @VersionDate DATETIME = NULL OUTPUT
 AS
 SET NOCOUNT ON;
 
@@ -41,6 +42,10 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
+DECLARE @Version NVARCHAR(30);
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
+
  
 IF @Help = 1
 BEGIN

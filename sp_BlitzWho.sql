@@ -34,6 +34,10 @@ BEGIN
 	BEGIN
 		RETURN;
 	END;
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '7.2';
+	SET @VersionDate = '20190128';
+
 
 	IF @Help = 1
 		PRINT '

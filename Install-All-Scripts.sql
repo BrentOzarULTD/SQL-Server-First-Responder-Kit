@@ -37,6 +37,9 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
+DECLARE @Version VARCHAR(30);
+SET @Version = '3.2';
+SET @VersionDate = '20190128';
 
 IF @Help = 1
 
@@ -1522,6 +1525,9 @@ SET NOCOUNT ON;
 
 BEGIN;
 
+DECLARE @Version VARCHAR(30);
+SET @Version = '3.2';
+SET @VersionDate = '20190128';;
 
 SET @Version = '3.3';
 SET @VersionDate = '20190219';
@@ -2848,6 +2854,9 @@ AS
 	
 	SET @Version = '7.3';
 	SET @VersionDate = '20190219';
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '7.2';
+	SET @VersionDate = '20190128';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -11167,6 +11176,9 @@ AS
 	BEGIN
 		RETURN;
 	END;
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '3.2';
+	SET @VersionDate = '20190128';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12934,6 +12946,9 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
+DECLARE @Version VARCHAR(30);
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 
 
 IF(@VersionCheckMode = 1)
@@ -19269,6 +19284,9 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+DECLARE @Version VARCHAR(30);
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
@@ -23287,6 +23305,9 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
+DECLARE @Version VARCHAR(30);
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -27821,6 +27842,8 @@ BEGIN;
 											[schema_name], 
 											[table_name], 
 											[index_name],
+                                            [Drop_Tsql],
+                                            [Create_Tsql], 
 											[index_id], 
 											[db_schema_object_indexid], 
 											[object_type], 
@@ -28197,6 +28220,10 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '2.3';
 SET @VersionDate = '20190219';
+DECLARE @Version VARCHAR(30);
+SET @Version = '2.2';
+SET @VersionDate = '20190128';
+
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -29464,6 +29491,10 @@ BEGIN
 	RETURN;
 END;
 								
+DECLARE @Version NVARCHAR(30);
+	SET @Version = '3.2';
+	SET @VersionDate = '20190128';
+
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
 		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
@@ -35189,6 +35220,10 @@ BEGIN
 	BEGIN
 		RETURN;
 	END;
+	DECLARE @Version VARCHAR(30);
+	SET @Version = '7.2';
+	SET @VersionDate = '20190128';
+
 
 	IF @Help = 1
 		PRINT '
@@ -36074,6 +36109,10 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
+DECLARE @Version NVARCHAR(30);
+SET @Version = '7.2';
+SET @VersionDate = '20190128';
+
  
 IF @Help = 1
 BEGIN
@@ -37189,6 +37228,9 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
+		DECLARE @Version VARCHAR(30);
+		SET @Version = '3.2';
+		SET @VersionDate = '20190128';
 
 IF @Help = 1
 
@@ -37466,6 +37508,9 @@ ALTER PROCEDURE dbo.sp_ineachdb
 AS
 BEGIN
   SET NOCOUNT ON;
+  DECLARE @Version VARCHAR(30);
+  SET @Version = '2.2';
+  SET @VersionDate = '20190128';
 
   SET @Version = '2.3';
   SET @VersionDate = '20190219';

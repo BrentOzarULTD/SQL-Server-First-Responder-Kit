@@ -69,3 +69,4 @@ When you have a question about what the scripts found, first make sure you read 
 
 ## Update the Collector
 Because you're a spaz and you always forget to do it.
+
