@@ -37,9 +37,6 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-DECLARE @Version VARCHAR(30);
-SET @Version = '3.2';
-SET @VersionDate = '20190128';
 
 IF @Help = 1
 
@@ -563,6 +560,7 @@ DiskPollster:
 						SELECT fl.BackupFile
 						FROM @FileList AS fl
 						WHERE fl.BackupFile IS NOT NULL
+						AND fl.BackupFile NOT IN (SELECT name from sys.databases where database_id < 5)
 						AND NOT EXISTS
 							(
 							SELECT 1
@@ -1524,10 +1522,6 @@ AS
 SET NOCOUNT ON;
 
 BEGIN;
-
-DECLARE @Version VARCHAR(30);
-SET @Version = '3.2';
-SET @VersionDate = '20190128';;
 
 SET @Version = '3.3';
 SET @VersionDate = '20190219';
@@ -2854,9 +2848,6 @@ AS
 	
 	SET @Version = '7.3';
 	SET @VersionDate = '20190219';
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -11176,9 +11167,6 @@ AS
 	BEGIN
 		RETURN;
 	END;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -12946,9 +12934,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
 
 IF(@VersionCheckMode = 1)
@@ -19284,9 +19269,6 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
@@ -23305,9 +23287,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -28220,9 +28199,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '2.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '2.2';
-SET @VersionDate = '20190128';
 
 
 IF(@VersionCheckMode = 1)
@@ -29490,10 +29466,7 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-								
-DECLARE @Version NVARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
+
 
 DECLARE /*Variables for the variable Gods*/
 		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
@@ -35220,9 +35193,7 @@ BEGIN
 	BEGIN
 		RETURN;
 	END;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
+
 
 
 	IF @Help = 1
@@ -36109,9 +36080,6 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-DECLARE @Version NVARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
  
 IF @Help = 1
@@ -37228,9 +37196,7 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-		DECLARE @Version VARCHAR(30);
-		SET @Version = '3.2';
-		SET @VersionDate = '20190128';
+
 
 IF @Help = 1
 
@@ -37508,9 +37474,6 @@ ALTER PROCEDURE dbo.sp_ineachdb
 AS
 BEGIN
   SET NOCOUNT ON;
-  DECLARE @Version VARCHAR(30);
-  SET @Version = '2.2';
-  SET @VersionDate = '20190128';
 
   SET @Version = '2.3';
   SET @VersionDate = '20190219';

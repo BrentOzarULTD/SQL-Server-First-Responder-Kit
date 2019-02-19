@@ -37,9 +37,6 @@ AS
 	
 	SET @Version = '7.3';
 	SET @VersionDate = '20190219';
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -8359,9 +8356,6 @@ AS
 	BEGIN
 		RETURN;
 	END;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
 
 	IF @Help = 1 PRINT '
 	/*
@@ -10129,9 +10123,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
 
 IF(@VersionCheckMode = 1)
@@ -16467,9 +16458,6 @@ AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
@@ -20488,9 +20476,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '7.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -25403,9 +25388,6 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SET @Version = '2.3';
 SET @VersionDate = '20190219';
-DECLARE @Version VARCHAR(30);
-SET @Version = '2.2';
-SET @VersionDate = '20190128';
 
 
 IF(@VersionCheckMode = 1)
@@ -26645,9 +26627,7 @@ BEGIN
 	BEGIN
 		RETURN;
 	END;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
+
 
 
 	IF @Help = 1
