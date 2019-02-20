@@ -2768,7 +2768,7 @@ BEGIN
 
         /* Next, Compilations/Sec High - CheckID 15 and 16 */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'compilations';
+            SET @BlitzCacheSortOrder = 'recent compilations';
 
         /* Still not set? Use the top wait type. */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
@@ -4008,7 +4008,7 @@ EXEC dbo.sp_BlitzFirst @ExpertMode = 1;
 
 Saving output to tables:
 EXEC sp_BlitzFirst
-, @OutputDatabaseName = 'DBAtools'
+  @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirst'
 , @OutputTableNameFileStats = 'BlitzFirst_FileStats'
