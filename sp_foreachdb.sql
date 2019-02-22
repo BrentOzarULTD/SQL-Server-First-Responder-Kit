@@ -1,3 +1,4 @@
+
 IF OBJECT_ID('dbo.sp_foreachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_foreachdb AS RETURN 0');
 GO
@@ -110,6 +111,11 @@ IF @Help = 1
         END;
 
         SET @command1 = COALESCE(@command1,@command);
+
+        IF @@VERSION LIKE 'Microsoft SQL Azure (RTM)%' begin
+            SELECT @command1 = REPLACE(@Command1,'use [?];', '')
+            SELECT @command1 = REPLACE(@Command1,'[?].', '')
+        end
 
         DECLARE @sql NVARCHAR(MAX) ,
             @dblist NVARCHAR(MAX) ,
