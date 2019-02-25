@@ -2763,6 +2763,7 @@ INSERT  INTO #BlitzResults
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 40 )
+                    AND @@VERSION NOT LIKE 'Microsoft SQL Azure (RTM)%'
 					BEGIN
 						IF ( SELECT COUNT(*)
 							 FROM   tempdb.sys.database_files
@@ -3630,6 +3631,7 @@ INSERT  INTO #BlitzResults
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 189 )
                             AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
+                            AND @@VERSION NOT LIKE 'Microsoft SQL Azure (RTM)%'
 							BEGIN
 							IF (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001 AND @@VERSION LIKE '%Standard Edition%')
 								BEGIN
@@ -8126,7 +8128,6 @@ GO
 --Sample execution call with the most common parameters:
 EXEC [dbo].[sp_Blitz]
     @CheckUserDatabaseObjects = 1 ,
-
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
     @OutputProcedureCache = 0 ,
