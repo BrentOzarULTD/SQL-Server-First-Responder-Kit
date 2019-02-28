@@ -14,15 +14,22 @@ ALTER PROCEDURE [dbo].[sp_BlitzBackups]
 	@WriteBackupsToListenerName NVARCHAR(256) = NULL,
     @WriteBackupsToDatabaseName NVARCHAR(256) = NULL,
     @WriteBackupsLastHours INT = 168,
-    @VersionDate DATE = NULL OUTPUT
+    @Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
 	BEGIN
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '3.2';
-	SET @VersionDate = '20190128';
+	
+	SET @Version = '3.3';
+	SET @VersionDate = '20190219';
+	
+	IF(@VersionCheckMode = 1)
+	BEGIN
+		RETURN;
+	END;
 
 	IF @Help = 1 PRINT '
 	/*

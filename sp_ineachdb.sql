@@ -4,7 +4,7 @@ GO
 
 ALTER PROCEDURE dbo.sp_ineachdb
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
-  @command             nvarchar(max),
+  @command             nvarchar(max) = NULL,
   @replace_character   nchar(1) = N'?',
   @print_dbname        bit = 0,
   @select_dbname       bit = 0, 
@@ -25,15 +25,21 @@ ALTER PROCEDURE dbo.sp_ineachdb
   @is_broker_enabled   bit = NULL,
   @user_access         nvarchar(128)  = NULL, 
   @Help                BIT = 0,
-  @VersionDate DATETIME = NULL OUTPUT
+  @Version             VARCHAR(30)    = NULL OUTPUT,
+  @VersionDate         DATETIME       = NULL OUTPUT,
+  @VersionCheckMode    BIT            = 0
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
 AS
 BEGIN
   SET NOCOUNT ON;
-  DECLARE @Version VARCHAR(30);
-  SET @Version = '2.2';
-  SET @VersionDate = '20190128';
 
+  SET @Version = '2.3';
+  SET @VersionDate = '20190219';
+  
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 IF @Help = 1
 
 	BEGIN

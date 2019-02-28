@@ -27,17 +27,22 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@FirstFullBackup BIT = 0,
 				@FirstDiffBackup BIT = 0,
 				@Help BIT = 0,
-				@VersionDate DATETIME = NULL OUTPUT
+				@Version     VARCHAR(30) = NULL OUTPUT,
+				@VersionDate DATETIME = NULL OUTPUT,
+				@VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
 
 BEGIN;
 
-DECLARE @Version VARCHAR(30);
-SET @Version = '3.2';
-SET @VersionDate = '20190128';;
+SET @Version = '3.3';
+SET @VersionDate = '20190219';
 
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 
 IF @Help = 1
 

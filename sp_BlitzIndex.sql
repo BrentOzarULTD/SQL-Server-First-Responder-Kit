@@ -31,16 +31,22 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
     @Help TINYINT = 0,
-    @VersionDate DATETIME = NULL OUTPUT
+    @Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
+SET @Version = '7.3';
+SET @VersionDate = '20190219';
 SET @OutputType  = UPPER(@OutputType);
+
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 
 IF @Help = 1 PRINT '
 /*
@@ -535,13 +541,13 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
                     END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
                         ELSE N''
                     END,
-                [create_tsql] AS N'CREATE INDEX [ix_' + table_name + N'_' 
+                [create_tsql] AS N'CREATE INDEX [IX_' 
                     + REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
                         + ISNULL(inequality_columns,''),',','')
                         ,'[',''),']',''),' ','_') 
-                    + CASE WHEN included_columns IS NOT NULL THEN N'_includes' ELSE N'' END + N'] ON ' 
+                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END + N'] ON ' 
                     + [statement] + N' (' + ISNULL(equality_columns,N'')
                     + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
                     + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
@@ -1368,7 +1374,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
-		IF @SkipStatistics = 0 
+		IF @SkipStatistics = 0 AND DB_NAME() = @DatabaseName /* Can only get stats in the current database - see https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1947 */
 			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
@@ -1468,7 +1474,7 @@ BEGIN TRY
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
-						ON      si.name = s.name
+						ON      si.name = s.name AND s.object_id = si.id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 						ON      s.object_id = obj.object_id
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
@@ -1841,7 +1847,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                 ELSE 0 END AS avg_page_lock_wait_in_ms,           
                 SUM(index_lock_promotion_attempt_count),
                 SUM(index_lock_promotion_count),
-                LEFT(MAX(data_compression_info.data_compression_rollup),8000),
+                LEFT(MAX(data_compression_info.data_compression_rollup),4000),
 				SUM(page_latch_wait_count), 
 				SUM(page_latch_wait_in_ms), 
 				SUM(page_io_latch_wait_count), 

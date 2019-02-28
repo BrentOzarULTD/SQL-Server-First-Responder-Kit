@@ -33,16 +33,22 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @LogMessageURL VARCHAR(200) = '',
     @LogMessageCheckDate DATETIMEOFFSET = NULL,
     @Debug BIT = 0,
-    @VersionDate DATETIME = NULL OUTPUT
+	@Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-DECLARE @Version VARCHAR(30);
-SET @Version = '7.2';
-SET @VersionDate = '20190128';
 
+SET @Version = '7.3';
+SET @VersionDate = '20190219';
+
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
 
 IF @Help = 1 PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
@@ -2289,7 +2295,7 @@ BEGIN
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
     LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
-    WHERE wNow.wait_type IN ('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL') 
+    WHERE wNow.wait_type IN ('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL') 
 	  AND wNow.wait_time_ms > (wBase.wait_time_ms + 1000);
 
 
@@ -2762,7 +2768,7 @@ BEGIN
 
         /* Next, Compilations/Sec High - CheckID 15 and 16 */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'compilations';
+            SET @BlitzCacheSortOrder = 'recent compilations';
 
         /* Still not set? Use the top wait type. */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
@@ -4002,7 +4008,7 @@ EXEC dbo.sp_BlitzFirst @ExpertMode = 1;
 
 Saving output to tables:
 EXEC sp_BlitzFirst
-, @OutputDatabaseName = 'DBAtools'
+  @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirst'
 , @OutputTableNameFileStats = 'BlitzFirst_FileStats'

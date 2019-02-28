@@ -19,14 +19,22 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinTempdbMB INT = 0 ,
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
-	@VersionDate DATETIME = NULL OUTPUT
+	@Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 AS
 BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
+	
+	SET @Version = '7.3';
+	SET @VersionDate = '20190219';
+    
+	IF(@VersionCheckMode = 1)
+	BEGIN
+		RETURN;
+	END;
+
 
 
 	IF @Help = 1

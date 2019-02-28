@@ -27,15 +27,22 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @BringThePain TINYINT = 0 ,
     @UsualDBOwner sysname = NULL ,
     @Debug TINYINT = 0 ,
-    @VersionDate DATETIME = NULL OUTPUT
+    @Version     VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionCheckMode BIT = 0
 WITH RECOMPILE
 AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	DECLARE @Version VARCHAR(30);
-	SET @Version = '7.2';
-	SET @VersionDate = '20190128';
+	
+	SET @Version = '7.3';
+	SET @VersionDate = '20190219';
 	SET @OutputType = UPPER(@OutputType);
+
+    IF(@VersionCheckMode = 1)
+	BEGIN
+		RETURN;
+	END;
 
 	IF @Help = 1 PRINT '
 	/*
@@ -3180,7 +3187,7 @@ AS
 											'https://BrentOzar.com/go/poison/#' + wait_type AS URL ,
 											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
-									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
+									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
 									GROUP BY wait_type
 								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
@@ -3460,7 +3467,7 @@ AS
 							IF (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
 							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001) OR
 							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 5000) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 6518) OR
+							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 7001) OR
 							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
@@ -7789,7 +7796,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                 	 		AND c.name IN ('cpu_rate', 'memory_limit_mb', 'process_memory_limit_mb', 'workingset_limit_mb' ))
 							BEGIN
 								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 114) WITH NOWAIT;
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 222) WITH NOWAIT;
 								
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 										SELECT  222 AS CheckID ,
@@ -7808,6 +7815,50 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								EXECUTE(@StringToExecute);
 							END;
+
+                        /* CheckID 224 - Performance - SSRS/SSAS/SSIS Installed */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 224 )
+							BEGIN
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 224) WITH NOWAIT;
+                                
+								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
+                                BEGIN
+                                    
+                                    IF OBJECT_ID('tempdb..#services') IS NOT NULL DROP TABLE #services;
+                                    CREATE TABLE #services (cmdshell_output varchar(max));
+                                    
+                                    INSERT INTO #services
+                                    EXEC xp_cmdshell 'net start'
+                                    
+                                    IF EXISTS (SELECT 1 
+                                                FROM #services 
+                                                WHERE cmdshell_output LIKE '%SQL Server Reporting Services%'
+                                                    OR cmdshell_output LIKE '%SQL Server Integration Services%'
+                                                    OR cmdshell_output LIKE '%SQL Server Analysis Services%')
+                                    BEGIN
+								    INSERT  INTO #BlitzResults
+								    		( CheckID ,
+								    		  Priority ,
+								    		  FindingsGroup ,
+								    		  Finding ,
+								    		  URL ,
+								    		  Details
+								    		)
+								    		SELECT
+								    				 224 AS CheckID
+								    				,200 AS Priority
+								    				,'Performance' AS FindingsGroup
+								    				,'SSAS/SSIS/SSRS Installed' AS Finding
+								    				,'https://www.BrentOzar.com/go/services' AS URL
+								    				,'Did you know you have other SQL Server services installed on this box other than the engine? It can be a real performance pain.' as Details
+								    									    		
+								    END;
+								    
+                                 END;
+                            END;
 
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */

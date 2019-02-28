@@ -1,5 +1,5 @@
 ﻿#Set your file path
-$FilePath = "C:\Users\edarl\OneDrive\Documents\GitHub\SQL-Server-First-Responder-Kit"
+$FilePath = "C:\temp\SQL-Server-First-Responder-Kit"
 
 
 #All Core Blitz Without sp_BlitzQueryStore
