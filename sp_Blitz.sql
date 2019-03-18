@@ -4341,6 +4341,9 @@ IF(
     )
 )
 BEGIN
+
+    IF @Debug IN (1, 2) RAISERROR('Running check with id %d',0,1,2000);
+
     SET @spBlitzFullName                    = QUOTENAME(DB_NAME()) + '.' +QUOTENAME(OBJECT_SCHEMA_NAME(@@PROCID)) + '.' + QUOTENAME(OBJECT_NAME(@@PROCID));
     SET @BlitzIsOutdatedComparedToOthers    = 0;
     SET @tsql                               = NULL;
@@ -4409,7 +4412,7 @@ BEGIN
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_ineachdb'',''P'',1' + @crlf +
                 '    UNION ALL' + @crlf +
-                '    SELECT ''SqlServerVersions'',''U'',0' + @crlf +
+                '    SELECT ''SqlServerVersions'',''U'',1' + @crlf +
                 ')' + @crlf +
                 'INSERT INTO #FRKObjects (' + @crlf +
                 '    DatabaseName,ObjectSchemaName,ObjectName, ObjectType,MandatoryComponent' + @crlf +
@@ -4474,10 +4477,11 @@ BEGIN
     WHERE ObjectType = 'P' 
     AND ObjectSchemaName IS NOT NULL
     ;
-    /* For debug 
-    SELECT * 
-    FROM #StatementsToRun4FRKVersionCheck ORDER BY SubjectName,SubjectFullPath,StatementId  -- in case of schema change  ;
-    */
+    IF(@Debug in (1,2))
+    BEGIN
+        SELECT * 
+        FROM #StatementsToRun4FRKVersionCheck ORDER BY SubjectName,SubjectFullPath,StatementId  -- in case of schema change  ;
+    END;
     
     
     -- loop on queries...
@@ -4505,7 +4509,7 @@ BEGIN
             BREAK;
         END;
 
-        RAISERROR('Statement: %s',0,1,@tsql);
+        IF @Debug IN (1, 2) RAISERROR('    Statement: %s',0,1,@tsql);
 
         -- we start a new component
         IF(@PreviousComponentName IS NULL OR 
@@ -4596,7 +4600,8 @@ BEGIN
                     NULL AS Details
                 ;
                 
-                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectFullPath = @CurrentComponentFullName ;
+                -- as it's missing, no value for SubjectFullPath
+                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectName = @CurrentComponentName ;
                 CONTINUE;
             END;
 
@@ -8888,7 +8893,7 @@ GO
 
 /*
 --Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz]
+EXEC [dbo].[sp_Blitz] @Debug = 1
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
