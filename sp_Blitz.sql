@@ -8893,7 +8893,7 @@ GO
 
 /*
 --Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz] @Debug = 1
+EXEC [dbo].[sp_Blitz] 
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
