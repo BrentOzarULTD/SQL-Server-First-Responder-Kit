@@ -826,6 +826,11 @@ BEGIN
 		FROM #Headers 
 		WHERE BackupType = 5;                                                  
 	END;
+
+	IF @DiffLastLSN IS NULL
+	BEGIN
+		SET @DiffLastLsn=@FullLastLSN
+	END
 END      
 
 
