@@ -35,8 +35,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '7.3';
-	SET @VersionDate = '20190219';
+
+	SELECT @Version = '7.4', @VersionDate = '20190320';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -1005,6 +1005,7 @@ AS
 										/* Filter out databases that were recently restored: */
 										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
 								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> 'HTT' AND
+                                        @IsWindowsOperatingSystem = 1 AND -- GitHub Issue #1995
                                         UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
 												UPPER(LEFT(mf.physical_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3))
@@ -8349,8 +8350,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '3.3';
-	SET @VersionDate = '20190219';
+	SELECT @Version = '3.4', @VersionDate = '20190320';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10105,6 +10105,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
     @StoredProcName NVARCHAR(128) = NULL,
+	@SlowlySearchPlansFor NVARCHAR(4000) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
@@ -10121,8 +10122,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 
 IF(@VersionCheckMode = 1)
@@ -10272,6 +10272,11 @@ BEGIN
     SELECT N'@StoredProcName',
            N'NVARCHAR(128)',
            N'Name of stored procedure you want to find plans for.'
+
+    UNION ALL
+    SELECT N'@SlowlySearchPlansFor',
+           N'NVARCHAR(4000)',
+           N'String to search for in plan text. % wildcards allowed.'
 
     UNION ALL
     SELECT N'@BringThePain',
@@ -11689,6 +11694,13 @@ IF @MinutesBack IS NOT NULL
 	SET @body += N'       AND x.last_execution_time >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
+IF @SlowlySearchPlansFor IS NOT NULL
+    BEGIN
+    RAISERROR(N'Setting string search for @SlowlySearchPlansFor, so remember, this is gonna be slow', 0, 1) WITH NOWAIT;
+    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE((@SlowlySearchPlansFor), N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
+    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE ''%' + @SlowlySearchPlansFor + '%'' ' + @nl;
+    END
+
 
 /* Apply the sort order here to only grab relevant plans.
    This should make it faster to process since we'll be pulling back fewer
@@ -11739,6 +11751,7 @@ SET @body += N') AS qs
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
 
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
+
 
 IF @NoobSaibot = 1
 BEGIN
@@ -12041,7 +12054,6 @@ BEGIN
 
     SET @sql += @body_order + @nl + @nl + @nl ;
 END;
-
 
 /*******************************************************************************
  *
@@ -16459,8 +16471,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -19185,7 +19196,7 @@ BEGIN
 
         /* Next, Compilations/Sec High - CheckID 15 and 16 */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'compilations';
+            SET @BlitzCacheSortOrder = 'recent compilations';
 
         /* Still not set? Use the top wait type. */
         IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
@@ -20425,7 +20436,7 @@ EXEC dbo.sp_BlitzFirst @ExpertMode = 1;
 
 Saving output to tables:
 EXEC sp_BlitzFirst
-, @OutputDatabaseName = 'DBAtools'
+  @OutputDatabaseName = 'DBAtools'
 , @OutputSchemaName = 'dbo'
 , @OutputTableName = 'BlitzFirst'
 , @OutputTableNameFileStats = 'BlitzFirst_FileStats'
@@ -20474,8 +20485,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -23858,16 +23868,12 @@ BEGIN;
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info
                         FROM
                         (
-                            SELECT  ROW_NUMBER() OVER (ORDER BY mi.is_low, magic_benefit_number DESC) AS rownum,
+                            SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
                                 50 AS check_id, 
                                 sz.index_sanity_id,
                                 10 AS Priority,
                                 N'Indexaphobia' AS findings_group,
-                                N'High value missing index' + CASE mi.is_low 
-															  WHEN 0 THEN N' with High Impact' 
-															  WHEN 1 THEN N' with Low Impact'
-															  END
-															  AS finding, 
+                                N'High value missing index' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/Indexaphobia' AS URL,
                                 mi.[statement] + 
@@ -25072,8 +25078,6 @@ BEGIN;
 											[create_date], 
 											[modify_date], 
 											[more_info],
-                                            [Drop_Tsql],
-                                            [Create_Tsql], 
 											[display_order]
 										)
 									SELECT ''@@@RunID@@@'',
@@ -25085,6 +25089,18 @@ BEGIN;
 										i.[schema_name] AS [Schema Name], 
 										i.[object_name] AS [Object Name], 
 										ISNULL(i.index_name, '''') AS [Index Name],
+                                        CASE 
+						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
+							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
+						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
+						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + 
+							                         QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) + N'';''
+						                ELSE N''''
+						                END AS [Drop TSQL],
+					                    CASE 
+						                    WHEN i.index_definition = ''[HEAP]'' THEN N''''
+					                            ELSE N''--'' + ict.create_tsql END AS [Create TSQL],
 										CAST(i.index_id AS NVARCHAR(10))AS [Index ID],
 										db_schema_object_indexid AS [Details: schema.table.index(indexid)], 
 										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
@@ -25147,18 +25163,6 @@ BEGIN;
 										i.create_date AS [Create Date],
 										i.modify_date AS [Modify Date],
 										more_info AS [More Info],
-                                        CASE 
-						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
-							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
-							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
-						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
-						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + 
-							                         QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) + N'';''
-						                ELSE N''''
-						                END AS [Drop TSQL],
-					                    CASE 
-						                    WHEN i.index_definition = ''[HEAP]'' THEN N''''
-					                            ELSE N''--'' + ict.create_tsql END AS [Create TSQL],  
 										1 AS [Display Order]
 									FROM #IndexSanity AS i
 									LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
@@ -25386,8 +25390,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '2.3';
-SET @VersionDate = '20190219';
+SELECT @Version = '2.4', @VersionDate = '20190320';
 
 
 IF(@VersionCheckMode = 1)
@@ -26620,8 +26623,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '7.3';
-	SET @VersionDate = '20190219';
+	SELECT @Version = '7.4', @VersionDate = '20190320';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN

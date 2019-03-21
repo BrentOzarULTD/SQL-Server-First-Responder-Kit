@@ -254,6 +254,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @QueryFilter VARCHAR(10) = 'ALL' ,
     @DatabaseName NVARCHAR(128) = NULL ,
     @StoredProcName NVARCHAR(128) = NULL,
+	@SlowlySearchPlansFor NVARCHAR(4000) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
@@ -270,8 +271,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 
 IF(@VersionCheckMode = 1)
@@ -421,6 +421,11 @@ BEGIN
     SELECT N'@StoredProcName',
            N'NVARCHAR(128)',
            N'Name of stored procedure you want to find plans for.'
+
+    UNION ALL
+    SELECT N'@SlowlySearchPlansFor',
+           N'NVARCHAR(4000)',
+           N'String to search for in plan text. % wildcards allowed.'
 
     UNION ALL
     SELECT N'@BringThePain',
@@ -1838,6 +1843,13 @@ IF @MinutesBack IS NOT NULL
 	SET @body += N'       AND x.last_execution_time >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
+IF @SlowlySearchPlansFor IS NOT NULL
+    BEGIN
+    RAISERROR(N'Setting string search for @SlowlySearchPlansFor, so remember, this is gonna be slow', 0, 1) WITH NOWAIT;
+    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE((@SlowlySearchPlansFor), N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
+    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE ''%' + @SlowlySearchPlansFor + '%'' ' + @nl;
+    END
+
 
 /* Apply the sort order here to only grab relevant plans.
    This should make it faster to process since we'll be pulling back fewer
@@ -1888,6 +1900,7 @@ SET @body += N') AS qs
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
 
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
+
 
 IF @NoobSaibot = 1
 BEGIN
@@ -2190,7 +2203,6 @@ BEGIN
 
     SET @sql += @body_order + @nl + @nl + @nl ;
 END;
-
 
 /*******************************************************************************
  *
