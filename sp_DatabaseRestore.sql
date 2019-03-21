@@ -34,6 +34,8 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
+SET @Version = '7.3';
+SET @VersionDate = '20190219';
 SET @Version = '7.4';
 SET @VersionDate = '20190320';
 
@@ -967,6 +969,7 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 			FROM @FileList
 			WHERE BackupFile LIKE N'%.trn'
 			  AND BackupFile LIKE N'%' + @Database + N'%'
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  ORDER BY BackupFile;
 		

@@ -36,6 +36,8 @@ SET NOCOUNT ON;
 
 BEGIN;
 
+SET @Version = '3.3';
+SET @VersionDate = '20190219';
 SET @Version = '3.4';
 SET @VersionDate = '20190320';
 

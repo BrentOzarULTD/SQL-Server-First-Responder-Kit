@@ -1523,6 +1523,8 @@ SET NOCOUNT ON;
 
 BEGIN;
 
+SET @Version = '3.3';
+SET @VersionDate = '20190219';
 SET @Version = '3.4';
 SET @VersionDate = '20190320';
 
@@ -2846,6 +2848,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
+	SET @Version = '7.3';
+	SET @VersionDate = '20190219';
 	SET @Version = '7.4';
 	SET @VersionDate = '20190320';
 	SET @OutputType = UPPER(@OutputType);
@@ -12934,6 +12938,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+SET @Version = '7.3';
+SET @VersionDate = '20190219';
 SET @Version = '7.4';
 SET @VersionDate = '20190320';
 
@@ -23299,6 +23305,8 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+SET @Version = '7.3';
+SET @VersionDate = '20190219';
 SET @Version = '7.4';
 SET @VersionDate = '20190320';
 SET @OutputType  = UPPER(@OutputType);
@@ -28205,6 +28213,8 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
+SET @Version = '2.3';
+SET @VersionDate = '20190219';
 SET @Version = '2.4';
 SET @VersionDate = '20190320';
 
