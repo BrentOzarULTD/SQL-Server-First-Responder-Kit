@@ -30,8 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SET @Version = '3.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '3.4', @VersionDate = '20190320';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1523,10 +1522,7 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SET @Version = '3.3';
-SET @VersionDate = '20190219';
-SET @Version = '3.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '3.4', @VersionDate = '20190320';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2848,10 +2844,8 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '7.3';
-	SET @VersionDate = '20190219';
-	SET @Version = '7.4';
-	SET @VersionDate = '20190320';
+
+	SELECT @Version = '7.4', @VersionDate = '20190320';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -11165,8 +11159,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '3.4';
-	SET @VersionDate = '20190320';
+	SELECT @Version = '3.4', @VersionDate = '20190320';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12938,10 +12931,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
-SET @Version = '7.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 
 IF(@VersionCheckMode = 1)
@@ -19290,8 +19280,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -23305,10 +23294,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '7.3';
-SET @VersionDate = '20190219';
-SET @Version = '7.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -28213,10 +28199,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '2.3';
-SET @VersionDate = '20190219';
-SET @Version = '2.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '2.4', @VersionDate = '20190320';
 
 
 IF(@VersionCheckMode = 1)
@@ -29478,8 +29461,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SET @Version = '3.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '3.4', @VersionDate = '20190320';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -35204,8 +35186,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SET @Version = '7.4';
-	SET @VersionDate = '20190320';
+	SELECT @Version = '7.4', @VersionDate = '20190320';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -36091,8 +36072,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SET @Version = '7.4';
-SET @VersionDate = '20190320';
+SELECT @Version = '7.4', @VersionDate = '20190320';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37024,6 +37004,7 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 			FROM @FileList
 			WHERE BackupFile LIKE N'%.trn'
 			  AND BackupFile LIKE N'%' + @Database + N'%'
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  ORDER BY BackupFile;
 		
@@ -37212,8 +37193,7 @@ ALTER PROCEDURE dbo.sp_foreachdb
 AS
     BEGIN
         SET NOCOUNT ON;
-		SET @Version = '3.4';
-		SET @VersionDate = '20190320';
+        SELECT @Version = '3.4', @VersionDate = '20190320';
 		
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37498,8 +37478,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SET @Version = '2.4';
-  SET @VersionDate = '20190320';
+  SELECT @Version = '2.4', @VersionDate = '20190320';
   
 IF(@VersionCheckMode = 1)
 BEGIN
