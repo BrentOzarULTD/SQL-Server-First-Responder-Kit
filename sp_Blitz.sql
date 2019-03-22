@@ -2038,7 +2038,17 @@ INSERT  INTO #BlitzResults
 
 						    EXEC sys.sp_executesql @stmt = @StringToExecute, @params = N'@Processors int output', @Processors = @Processors output;
                         END;
-                        ELSE SET @Processors = 1 /* not correct, but I do not know how to find it */
+                        ELSE begin
+                            SET @StringToExecute = '						
+    						    SET @Processors = isnull((SELECT TOP (1) cpu_limit 
+                                FROM sys.dm_db_resource_stats
+                                ORDER BY end_time desc),1); /* if using dtu model, set Processors to 1 */  
+                            '
+						    IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+						    IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+
+						    EXEC sys.sp_executesql @stmt = @StringToExecute, @params = N'@Processors int output', @Processors = @Processors output;
+                        end 
 						
 						IF @Debug IN (1, 2) RAISERROR('Setting @NUMANodes', 0, 1) WITH NOWAIT;
 						
@@ -8135,3 +8145,4 @@ EXEC [dbo].[sp_Blitz]
     @CheckServerInfo = 1
     , @debug=2
 --*/
+
