@@ -6115,6 +6115,37 @@ IF @ProductVersionMajor >= 10
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
+			/* Check 225 - Reliability - Resumable Index Operation Paused */
+			IF NOT EXISTS (
+					SELECT 1
+					FROM #SkipChecks
+					WHERE DatabaseName IS NULL
+						AND CheckID = 225
+					)
+                AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'index_resumable_operations')
+			BEGIN
+				IF @Debug IN (1,2)
+				BEGIN
+					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
+				END
+
+				EXECUTE sp_MSforeachdb 'USE [?];
+					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+					SELECT 225 AS CheckID
+						,''?'' AS DatabaseName
+						,200 AS Priority
+						,''Reliability'' AS FindingsGroup
+						,''Resumable Index Operation Paused'' AS Finding
+						,''https://BrentOzar.com/go/resumable'' AS URL
+						,iro.state_desc + N'' since '' + CONVERT(NVARCHAR(50), last_pause_time, 120) + '', ''
+                            + CAST(iro.percent_complete AS NVARCHAR(20)) + ''% complete: ''
+                            + CAST(iro.sql_text AS NVARCHAR(1000)) AS Details
+					FROM sys.index_resumable_operations iro
+					JOIN sys.objects o ON iro.[object_id] = o.[object_id]
+					WHERE iro.state <> 0;';
+			END; --of Check 225.
+
 			--/* Check 220 - Statistics Without Histograms */
 			--IF NOT EXISTS (
 			--		SELECT 1
