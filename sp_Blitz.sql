@@ -4337,7 +4337,7 @@ IF(
     NOT EXISTS ( 
         SELECT  1
         FROM    #SkipChecks
-        WHERE   DatabaseName IS NULL AND CheckID = 2000 
+        WHERE   DatabaseName IS NULL AND CheckID = 226 
     )
 )
 BEGIN
@@ -4535,8 +4535,8 @@ BEGIN
                 Details
             )
             SELECT 
-                2000 AS CheckID ,
-                1 AS Priority ,
+                2260 AS CheckID ,
+                200 AS Priority ,
                 'Reliability' AS FindingsGroup ,
                 'First Responder kit consistency check has been unexpectedly modified (check names)' AS Finding ,
                 'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4566,8 +4566,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2261 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4592,8 +4592,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2262 AS CheckID ,
+                    200 AS Priority ,
                     'Features' AS FindingsGroup ,
                     'First Responder kit mandatory component called "' + @CurrentComponentName + '" is missing' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4621,8 +4621,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2263 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check has been unexpectedly modified (checks ordering)' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4648,8 +4648,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2261 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4674,8 +4674,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2264 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4702,8 +4702,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2263 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check has been unexpectedly modified (checks ordering)' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4729,8 +4729,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2261 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4756,8 +4756,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2265 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency check (Failed dynamic SP call to ' + @CurrentComponentFullName + ')' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4784,8 +4784,8 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2000 AS CheckID ,
-                    1 AS Priority ,
+                    2266 AS CheckID ,
+                    200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
                     'First Responder kit consistency: outdated component (' + @CurrentComponentFullName + ')' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
@@ -4807,6 +4807,7 @@ BEGIN
                     SET @MaximumVersionDate = @CurrentComponentVersionDate;
                 END;
             END;
+            /* Kept for debug purpose:
             ELSE 
             BEGIN
                 INSERT  INTO #BlitzResults( 
@@ -4826,6 +4827,7 @@ BEGIN
                     'Version date is: ' + CONVERT(VARCHAR(32),@CurrentComponentVersionDate,121) AS Details
                 ;
             END;
+            */
         END;
 
         -- could be performed differently to minimize computation
