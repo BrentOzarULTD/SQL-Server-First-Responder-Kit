@@ -4800,7 +4800,6 @@ BEGIN
     EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @minimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @MinimumExecutionCount;
 END;
 
-
 RAISERROR('Displaying analysis of plan cache.', 0, 1) WITH NOWAIT;
 
 DECLARE @columns NVARCHAR(MAX) = N'' ;
@@ -4816,32 +4815,32 @@ BEGIN
 	QueryPlan AS [Query Plan],
 	missing_indexes AS [Missing Indexes],
 	implicit_conversion_info AS [Implicit Conversion Info],
-	cached_execution_parameters AS [Cached Execution Parameters],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS MONEY), 1), N''.00'', N'''') AS [# Executions],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS MONEY), 1), N''.00'', N'''') AS [Executions / Minute],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS MONEY), 1), N''.00'', N'''') AS [Execution Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalCPU) AS MONEY), 1), N''.00'', N'''') AS [Total CPU (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageCPU) AS MONEY), 1), N''.00'', N'''') AS [Avg CPU (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPU) AS MONEY), 1), N''.00'', N'''') AS [CPU Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalDuration) AS MONEY), 1), N''.00'', N'''') AS [Total Duration (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageDuration) AS MONEY), 1), N''.00'', N'''') AS [Avg Duration (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDuration) AS MONEY), 1), N''.00'', N'''') AS [Duration Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReads) AS MONEY), 1), N''.00'', N'''') AS [Total Reads],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReads) AS MONEY), 1), N''.00'', N'''') AS [Avg Reads],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReads) AS MONEY), 1), N''.00'', N'''') AS [Read Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalWrites) AS MONEY), 1), N''.00'', N'''') AS [Total Writes],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageWrites) AS MONEY), 1), N''.00'', N'''') AS [Avg Writes],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWrites) AS MONEY), 1), N''.00'', N'''') AS [Write Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Average Rows],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Memory Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Memory Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Used Grant KB], 
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Used Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS MONEY), 1), N''.00'', N'''') AS [Average Max Memory Grant],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinSpills) AS MONEY), 1), N''.00'', N'''') AS [Min Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxSpills) AS MONEY), 1), N''.00'', N'''') AS [Max Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((TotalSpills) AS MONEY), 1), N''.00'', N'''') AS [Total Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1), N''.00'', N'''') AS [Avg Spills],
+	cached_execution_parameters AS [Cached Execution Parameters],		
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((ExecutionCount) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [# Executions],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((ExecutionsPerMinute) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Executions / Minute],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentExecutions) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Execution Weight],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total CPU (ms)],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg CPU (ms)],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [CPU Weight],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Duration (ms)],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Duration (ms)],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Duration Weight],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Reads],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Reads],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Read Weight],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Writes],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Writes],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Write Weight],
+    REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageReturnedRows) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Average Rows],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Minimum Memory Grant KB],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Maximum Memory Grant KB],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinUsedGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Minimum Used Grant KB], 
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxUsedGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Maximum Used Grant KB],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AvgMaxMemoryGrant) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Average Max Memory Grant],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Min Spills],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Max Spills],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Spills],
+	REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AvgSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Spills],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
 	PlanHandle AS [Plan Handle], 
@@ -4931,49 +4930,49 @@ BEGIN
     END;
     
     SET @columns += N'        
-        REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS MONEY), 1), N''.00'', N'''') AS [# Executions],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS MONEY), 1), N''.00'', N'''') AS [Executions / Minute],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS MONEY), 1), N''.00'', N'''') AS [Execution Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((SerialDesiredMemory) AS MONEY), 1), N''.00'', N'''') AS [Serial Desired Memory],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((SerialRequiredMemory) AS MONEY), 1), N''.00'', N'''') AS [Serial Required Memory],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalCPU) AS MONEY), 1), N''.00'', N'''') AS [Total CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageCPU) AS MONEY), 1), N''.00'', N'''') AS [Avg CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPU) AS MONEY), 1), N''.00'', N'''') AS [CPU Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalDuration) AS MONEY), 1), N''.00'', N'''') AS [Total Duration (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageDuration) AS MONEY), 1), N''.00'', N'''') AS [Avg Duration (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDuration) AS MONEY), 1), N''.00'', N'''') AS [Duration Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReads) AS MONEY), 1), N''.00'', N'''') AS [Total Reads],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReads) AS MONEY), 1), N''.00'', N'''') AS [Average Reads],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReads) AS MONEY), 1), N''.00'', N'''') AS [Read Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalWrites) AS MONEY), 1), N''.00'', N'''') AS [Total Writes],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageWrites) AS MONEY), 1), N''.00'', N'''') AS [Average Writes],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWrites) AS MONEY), 1), N''.00'', N'''') AS [Write Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutionsByType) AS MONEY), 1), N''.00'', N'''') AS [% Executions (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPUByType) AS MONEY), 1), N''.00'', N'''') AS [% CPU (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDurationByType) AS MONEY), 1), N''.00'', N'''') AS [% Duration (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReadsByType) AS MONEY), 1), N''.00'', N'''') AS [% Reads (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWritesByType) AS MONEY), 1), N''.00'', N'''') AS [% Writes (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Total Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Avg Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((MinReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Min Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((MaxReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Max Rows],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Memory Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Memory Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Used Grant KB], 
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Used Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS MONEY), 1), N''.00'', N'''') AS [Average Max Memory Grant],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinSpills) AS MONEY), 1), N''.00'', N'''') AS [Min Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxSpills) AS MONEY), 1), N''.00'', N'''') AS [Max Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((TotalSpills) AS MONEY), 1), N''.00'', N'''') AS [Total Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1), N''.00'', N'''') AS [Avg Spills],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((NumberOfPlans) AS MONEY), 1), N''.00'', N'''') AS [# Plans],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((NumberOfDistinctPlans) AS MONEY), 1), N''.00'', N'''') AS [# Distinct Plans],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((ExecutionCount) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [# Executions],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((ExecutionsPerMinute) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Executions / Minute],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentExecutions) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Execution Weight],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((SerialDesiredMemory) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Serial Desired Memory],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((SerialRequiredMemory) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Serial Required Memory],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total CPU (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg CPU (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [CPU Weight],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Duration (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Duration (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentDuration) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Duration Weight],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Reads],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Average Reads],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentReads) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Read Weight],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Writes],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Average Writes],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentWrites) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Write Weight],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentExecutionsByType) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [% Executions (Type)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentCPUByType) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [% CPU (Type)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentDurationByType) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [% Duration (Type)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentReadsByType) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [% Reads (Type)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((PercentWritesByType) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [% Writes (Type)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalReturnedRows) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Rows],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AverageReturnedRows) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Rows],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinReturnedRows) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Min Rows],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxReturnedRows) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Max Rows],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Minimum Memory Grant KB],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Maximum Memory Grant KB],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinUsedGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Minimum Used Grant KB], 
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxUsedGrantKB) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Maximum Used Grant KB],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AvgMaxMemoryGrant) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Average Max Memory Grant],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MinSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Min Spills],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((MaxSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Max Spills],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((TotalSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Total Spills],
+		REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((AvgSpills) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Avg Spills],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((NumberOfPlans) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [# Plans],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((NumberOfDistinctPlans) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CachedPlanSize) AS MONEY), 1), N''.00'', N'''') AS [Cached Plan Size (KB)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileTime) AS MONEY), 1), N''.00'', N'''') AS [Compile Time (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileCPU) AS MONEY), 1), N''.00'', N'''') AS [Compile CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileMemory) AS MONEY), 1), N''.00'', N'''') AS [Compile memory (KB)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((CachedPlanSize) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Cached Plan Size (KB)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((CompileTime) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Compile Time (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((CompileCPU) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Compile CPU (ms)],
+        REPLACE(CONVERT(NVARCHAR(30), FORMAT(CAST((CompileMemory) AS MONEY), ''N''), 1), (@decimalSeparatorCurrent + N''00''), N'''') AS [Compile memory (KB)],
         COALESCE(SetOptions, '''') AS [SET Options],
 		PlanHandle AS [Plan Handle], 
 		SqlHandle AS [SQL Handle], 
@@ -5004,6 +5003,11 @@ IF @MinutesBack IS NOT NULL
     BEGIN
 		SET @sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ' + @nl;
     END;
+
+/* Determine current decimal separator to strip out zero-valued decimals.
+ */ 
+DECLARE @decimalSeparatorCurrent AS CHAR(1);
+SET @decimalSeparatorCurrent = CASE WHEN (CHARINDEX(',', FORMAT(CAST(1.23 AS MONEY), 'N')) <= 0) THEN '.' ELSE ',' END;	
 
 SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
                                                 WHEN N'reads' THEN N' TotalReads '
@@ -5036,8 +5040,8 @@ IF @Debug = 1
         PRINT SUBSTRING(@sql, 32000, 36000);
         PRINT SUBSTRING(@sql, 36000, 40000);
     END;
-
-EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
+	
+EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT, @decimalSeparatorCurrent CHAR(1)', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack, @decimalSeparatorCurrent;
 
 IF @HideSummary = 0 AND @ExportToExcel = 0
 BEGIN
