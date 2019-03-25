@@ -264,10 +264,10 @@ AS
             SubjectName                 VARCHAR(256),
             SubjectFullPath             VARCHAR(1024),
             StatementText               NVARCHAR(MAX),
-            StatementOutputsCounter     BIT, -- currently not used
+            StatementOutputsCounter     BIT,
             OutputCounterExpectedValue  INT,
-            StatementOutputsExecRet     BIT, -- currently not used
-            StatementOutputsDateTime    BIT  -- currently not used
+            StatementOutputsExecRet     BIT,
+            StatementOutputsDateTime    BIT 
         );
 
         /* End of First Responder Kit consistency (temporary tables) */
@@ -4551,7 +4551,7 @@ BEGIN
 
         IF(@StatementCheckName = 'Mandatory')
         BEGIN
-
+            -- outputs counter
             EXEC @ExecRet = sp_executesql @tsql, N'@cnt INT OUTPUT',@cnt = @TmpCnt OUTPUT;
 
             IF(@ExecRet <> 0)
@@ -4635,6 +4635,7 @@ BEGIN
                 CONTINUE;
             END;
 
+            -- outputs counter
             EXEC @ExecRet = sp_executesql @tsql, N'@cnt INT OUTPUT',@cnt = @TmpCnt OUTPUT;
 
             IF(@ExecRet <> 0)
@@ -4674,12 +4675,13 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2264 AS CheckID ,
+                    2266 AS CheckID ,
                     200 AS Priority ,
                     'Reliability' AS FindingsGroup ,
-                    'Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' AS Finding ,
+                    'First Responder kit consistency: outdated component (' + @CurrentComponentFullName + ')' AS Finding ,
                     'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'VersionCheckMode has been introduced in component version date "20190219". This means its version is from before that date.' AS Details;
+                    'Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' + @crlf +
+                    'VersionCheckMode has been introduced in component version date after "20190320". This means its version is lower than or equal to that date.' AS Details;
                 ;            
                             
                 DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectFullPath = @CurrentComponentFullName ;
