@@ -1734,21 +1734,23 @@ FROM   #checkversion
 OPTION (RECOMPILE);
 
 IF (@SortOrder IN ('memory grant', 'avg memory grant')) 
-AND ((@v < 11)
-OR (@v = 11 AND @build < 6020) 
-OR (@v = 12 AND @build < 5000) 
-OR (@v = 13 AND @build < 1601))
+  AND NOT EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by memory grant or average memory grant. Please use another sort order.', 16, 1);
    RETURN;
 END;
 
-IF (@SortOrder IN ('spills', 'avg spills')) 
-AND (@v < 13 
-	OR @v = 13 AND @build < 5026
-	OR @v = 14 AND @build < 3015)
+IF (@SortOrder IN ('spills') 
+  AND NOT EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills'))
 BEGIN
-   RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
+   RAISERROR('Your version of SQL does not support sorting by total spills. Please use another sort order.', 16, 1);
+   RETURN;
+END;
+
+IF (@SortOrder IN ('avg spills')
+  AND NOT EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'total_spills'))
+BEGIN
+   RAISERROR('Your version of SQL does not support sorting by average spills. Please use another sort order.', 16, 1);
    RETURN;
 END;
 
