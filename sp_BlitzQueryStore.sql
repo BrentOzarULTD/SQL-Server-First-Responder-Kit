@@ -3149,9 +3149,9 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE b
 SET b.is_fast_forward_cursor = 1
 FROM #working_warnings b
-JOIN #statements AS qs
-ON b.sql_handle = qs.sql_handle
-CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+JOIN #statements AS s
+ON b.sql_handle = s.sql_handle
+CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
 AND s.is_cursor = 1
 OPTION (RECOMPILE);
