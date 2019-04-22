@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 225.
-If you want to add a new one, start at 226.
+CURRENT HIGH CHECKID: 228.
+If you want to add a new one, start at 229.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -297,5 +297,8 @@ If you want to add a new one, start at 226.
 | 250 | Server Info | Windows Version |  | 172 |
 | 250 | Server Info | Power Plan |  | 211 |
 | 250 | Server Info | Stacked Instances | https://www.brentozar.com/go/babygotstacked/ | 212 |
+| 253 | First Responder Kit | Version Check Failed | http://FirstResponderKit.org | 226 |
+| 253 | First Responder Kit | Component Missing | http://FirstResponderKit.org | 227 |
+| 253 | First Responder Kit | Component Outdated | http://FirstResponderKit.org | 228 |
 | 254 | Rundate | (Current Date) |  | 156 |
 | 255 | Thanks! | From Your Community Volunteers |  | -1 |

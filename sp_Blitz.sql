@@ -4397,8 +4397,6 @@ BEGIN
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzFirst'',''P'',0' + @crlf +
                 '    UNION ALL' + @crlf +
-                '    SELECT ''sp_BlitzInMemoryOLTP'',''P'',0' + @crlf +
-                '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzIndex'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzLock'',''P'',0' + @crlf +
@@ -4409,11 +4407,11 @@ BEGIN
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_DatabaseRestore'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
-                '    SELECT ''sp_foreachdb'',''P'',1' + @crlf +
+                '    SELECT ''sp_foreachdb'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
-                '    SELECT ''sp_ineachdb'',''P'',1' + @crlf +
+                '    SELECT ''sp_ineachdb'',''P'',0' + @crlf +
                 '    UNION ALL' + @crlf +
-                '    SELECT ''SqlServerVersions'',''U'',1' + @crlf +
+                '    SELECT ''SqlServerVersions'',''U'',0' + @crlf +
                 ')' + @crlf +
                 'INSERT INTO #FRKObjects (' + @crlf +
                 '    DatabaseName,ObjectSchemaName,ObjectName, ObjectType,MandatoryComponent' + @crlf +
@@ -4536,12 +4534,12 @@ BEGIN
                 Details
             )
             SELECT 
-                2260 AS CheckID ,
-                200 AS Priority ,
-                'Reliability' AS FindingsGroup ,
-                'First Responder kit consistency check has been unexpectedly modified (check names)' AS Finding ,
-                'https://www.BrentOzar.com/blitz/' AS URL ,
-                'First Responder kit consistency check failed because a change has been made to code generator and the handling code has not been adapted' + @crlf +
+                226 AS CheckID ,
+                253 AS Priority ,
+                'First Responder Kit' AS FindingsGroup ,
+                'Version Check Failed (code generator changed)' AS Finding ,
+                'http://FirstResponderKit.org' AS URL ,
+                'Download an updated First Responder Kit. Your version check failed because a change has been made to the version check code generator.' + @crlf +
                 'Error: No handler for check with name "' + ISNULL(@StatementCheckName,'') + '"' AS Details
             ;
             
@@ -4567,12 +4565,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2261 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'First Responder kit consistency check failed because a change has been made to code generator' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Your version check failed due to dynamic query failure.' + @crlf +
                     'Error: following query failed at execution (check if component [' + ISNULL(@CurrentComponentName,@CurrentComponentName) + '] is mandatory and missing)' + @crlf +
                     @tsql AS Details
                 ;
@@ -4593,12 +4591,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2262 AS CheckID ,
-                    200 AS Priority ,
-                    'Features' AS FindingsGroup ,
-                    'First Responder kit mandatory component called "' + @CurrentComponentName + '" is missing' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    NULL AS Details
+                    227 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Missing: ' + @CurrentComponentName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated version of the First Responder Kit to install it.' AS Details
                 ;
                 
                 -- as it's missing, no value for SubjectFullPath
@@ -4622,12 +4620,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2263 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check has been unexpectedly modified (checks ordering)' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'First Responder kit consistency check failed because "Mandatory" check has not been completed before for current component' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because "Mandatory" check has not been completed before for current component' + @crlf +
                     'Error: version check mode happenned before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
@@ -4650,12 +4648,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2261 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'First Responder kit consistency check failed because a change has been made to code generator' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because a change has been made to the code generator.' + @crlf +
                     'Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] can run in VersionCheckMode)' + @crlf +
                     @tsql AS Details
                 ;
@@ -4676,12 +4674,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2266 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency: outdated component (' + @CurrentComponentFullName + ')' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' + @crlf +
+                    228 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Outdated: ' + @CurrentComponentFullName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' + @crlf +
                     'VersionCheckMode has been introduced in component version date after "20190320". This means its version is lower than or equal to that date.' AS Details;
                 ;            
                             
@@ -4705,12 +4703,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2263 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check has been unexpectedly modified (checks ordering)' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'First Responder kit consistency check failed because "VersionCheckMode" check has not been completed before for component called "' + @CurrentComponentFullName + '"' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because "VersionCheckMode" check has not been completed before for component called "' + @CurrentComponentFullName + '"' + @crlf +
                     'Error: VersionCheck happenned before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
@@ -4732,12 +4730,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2261 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check has been unexpectedly modified (dynamic query failure)' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'First Responder kit consistency check failed because a change has been made to code generator' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. The version check failed because a change has been made to the code generator.' + @crlf +
                     'Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] is at the expected version)' + @crlf +
                     @tsql AS Details
                 ;
@@ -4759,12 +4757,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2265 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency check (Failed dynamic SP call to ' + @CurrentComponentFullName + ')' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] is at the expected version)' + @crlf +
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (Failed dynamic SP call to ' + @CurrentComponentFullName + ')' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] is at the expected version)' + @crlf +
                     'Return code: ' + CONVERT(VARCHAR(10),@InnerExecRet) + @crlf +
                     'T-SQL Query: ' + @crlf + 
                     @tsql AS Details
@@ -4787,12 +4785,12 @@ BEGIN
                     Details
                 )
                 SELECT 
-                    2266 AS CheckID ,
-                    200 AS Priority ,
-                    'Reliability' AS FindingsGroup ,
-                    'First Responder kit consistency: outdated component (' + @CurrentComponentFullName + ')' AS Finding ,
-                    'https://www.BrentOzar.com/blitz/' AS URL ,
-                    'Please update component' AS Details
+                    228 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Outdated: ' + @CurrentComponentFullName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download and install the latest First Responder Kit - you''re running some older code, and it doesn''t get better with age.' AS Details
                 ;            
             
                 RAISERROR('Component %s is outdated',10,1,@CurrentComponentFullName);
