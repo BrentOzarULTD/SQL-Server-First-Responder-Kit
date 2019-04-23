@@ -5710,6 +5710,32 @@ IF @ProductVersionMajor >= 10
 
 					END;
 
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 229 )
+						AND CAST(SERVERPROPERTY('Edition') AS NVARCHAR(4000)) LIKE '%Evaluation%'
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+						
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 229 AS CheckID,
+							       1 AS Priority,
+							       'Reliability' AS FindingsGroup,
+							       'Evaluation Edition' AS Finding,
+							       'https://www.BrentOzar.com/go/workgroup' AS URL,
+							       'This server will stop working on: ' + CAST(CONVERT(DATETIME, DATEADD(DD, 180, create_date), 102) AS VARCHAR(100)) AS details
+							FROM   sys.server_principals
+							WHERE sid = 0x010100000000000512000000; 						
+						
+					END;
 
 
 				IF @CheckUserDatabaseObjects = 1
