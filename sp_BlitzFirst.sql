@@ -128,7 +128,6 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
     @BlitzCacheMinutesBack INT,
-    @BlitzCacheSortOrder VARCHAR(50),
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
@@ -2740,55 +2739,6 @@ BEGIN
 
 		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
-        /* Set the sp_BlitzCache sort order based on their top wait type */
-
-        /* First, check for poison waits - CheckID 30 */
-        IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
-                                                WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_COMMIT_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_ROLLBACK_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_SLOW_SECONDARY_THROTTLE' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 30
-                ORDER BY DetailsInt DESC;
-            END;
-
-        /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34) AND @memGrantSortSupported = 1
-            SET @BlitzCacheSortOrder = 'memory grant';
-
-        /* Next, Compilations/Sec High - CheckID 15 and 16 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'recent compilations';
-
-        /* Still not set? Use the top wait type. */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'ASYNC_NETWORK_IO' THEN 'duration'
-                                                WHEN Finding = 'CXPACKET' THEN 'reads'
-                                                WHEN Finding = 'LATCH_EX' THEN 'reads'
-                                                WHEN Finding LIKE 'LCK%' THEN 'duration'
-                                                WHEN Finding LIKE 'PAGEIOLATCH%' THEN 'reads'
-                                                WHEN Finding = 'SOS_SCHEDULER_YIELD' THEN 'cpu'
-                                                WHEN Finding = 'WRITELOG' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 6
-                ORDER BY DetailsInt DESC;
-            END;
-        /* Still null? Just use the default. */
-
-
 
         /* If they have an newer version of sp_BlitzCache that supports @MinutesBack and @CheckDateOverride */
         IF EXISTS (SELECT * FROM sys.objects o 
@@ -2812,23 +2762,15 @@ BEGIN
                 IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
                     SET @BlitzCacheMinutesBack = 15;
 
-                IF @BlitzCacheSortOrder IS NOT NULL
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @SortOrder = @BlitzCacheSortOrder,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
-                ELSE
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
+                EXEC sp_BlitzCache
+                    @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                    @OutputSchemaName = @UnquotedOutputSchemaName,
+                    @OutputTableName = @OutputTableNameBlitzCache,
+                    @CheckDateOverride = @StartSampleTime,
+                    @SortOrder = 'all',
+                    @SkipAnalysis = 1,
+                    @MinutesBack = @BlitzCacheMinutesBack,
+                    @Debug = @Debug;
 
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
