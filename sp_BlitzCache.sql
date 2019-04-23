@@ -2403,11 +2403,11 @@ OPTION (RECOMPILE) ;
  * metric.
  */
 RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
-DECLARE @total_duration MONEY,
-        @total_cpu MONEY,
-        @total_reads MONEY,
-        @total_writes MONEY,
-        @total_execution_count MONEY;
+DECLARE @total_duration BIGINT,
+        @total_cpu BIGINT,
+        @total_reads BIGINT,
+        @total_writes BIGINT,
+        @total_execution_count BIGINT;
 
 SELECT  @total_cpu = SUM(TotalCPU),
         @total_duration = SUM(TotalDuration),
