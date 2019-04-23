@@ -1062,10 +1062,6 @@ IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg wri
   SET @SortOrder = 'cpu';
   END; 
 
-SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
-       @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
-       @OutputTableName    = QUOTENAME(@OutputTableName);
-
 SET @QueryFilter = LOWER(@QueryFilter);
 
 IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
@@ -1103,6 +1099,9 @@ IF @Reanalyze = 1
 	RAISERROR(N'Reanalyzing current data, skipping to results', 0, 1) WITH NOWAIT;
     GOTO Results;
 	END;
+
+
+
 
 IF @SortOrder IN ('all', 'all avg')
 	BEGIN
@@ -4497,198 +4496,7 @@ OPTION (RECOMPILE);
 
 
 Results:
-IF @OutputDatabaseName IS NOT NULL
-   AND @OutputSchemaName IS NOT NULL
-   AND @OutputTableName IS NOT NULL
-BEGIN
-    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
-
-    /* send results to a table */
-    DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
-
-    SET @insert_sql = 'USE '
-        + @OutputDatabaseName
-        + '; IF EXISTS(SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @OutputSchemaName
-        + ''') AND NOT EXISTS (SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-        + @OutputTableName + ''') CREATE TABLE '
-        + @OutputSchemaName + '.'
-        + @OutputTableName
-        + N'(ID bigint NOT NULL IDENTITY(1,1),
-          ServerName NVARCHAR(258),
-		  CheckDate DATETIMEOFFSET,
-          Version NVARCHAR(258),
-          QueryType NVARCHAR(258),
-          Warnings varchar(max),
-          DatabaseName sysname,
-          SerialDesiredMemory float,
-          SerialRequiredMemory float,
-          AverageCPU bigint,
-          TotalCPU bigint,
-          PercentCPUByType money,
-          CPUWeight money,
-          AverageDuration bigint,
-          TotalDuration bigint,
-          DurationWeight money,
-          PercentDurationByType money,
-          AverageReads bigint,
-          TotalReads bigint,
-          ReadWeight money,
-          PercentReadsByType money,
-          AverageWrites bigint,
-          TotalWrites bigint,
-          WriteWeight money,
-          PercentWritesByType money,
-          ExecutionCount bigint,
-          ExecutionWeight money,
-          PercentExecutionsByType money,' + N'
-          ExecutionsPerMinute money,
-          PlanCreationTime datetime,
-		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
-          LastExecutionTime datetime,
-		  PlanHandle varbinary(64),
-		  [Remove Plan Handle From Cache] AS 
-			CASE WHEN [PlanHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  SqlHandle varbinary(64),
-			[Remove SQL Handle From Cache] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  [SQL Handle More Info] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-		  QueryHash binary(8),
-		  [Query Hash More Info] AS 
-			CASE WHEN [QueryHash] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-          QueryPlanHash binary(8),
-          StatementStartOffset int,
-          StatementEndOffset int,
-          MinReturnedRows bigint,
-          MaxReturnedRows bigint,
-          AverageReturnedRows money,
-          TotalReturnedRows bigint,
-          QueryText nvarchar(max),
-          QueryPlan xml,
-          NumberOfPlans int,
-          NumberOfDistinctPlans int,
-		  MinGrantKB BIGINT,
-		  MaxGrantKB BIGINT,
-		  MinUsedGrantKB BIGINT, 
-		  MaxUsedGrantKB BIGINT,
-		  PercentMemoryGrantUsed MONEY,
-		  AvgMaxMemoryGrant MONEY,
-		  MinSpills BIGINT,
-		  MaxSpills BIGINT,
-		  TotalSpills BIGINT,
-		  AvgSpills MONEY,
-		  QueryPlanCost FLOAT,
-          CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
-
-    		IF @Debug = 1
-			BEGIN
-			    PRINT SUBSTRING(@insert_sql, 0, 4000);
-			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
-			END;
-
-	EXEC sp_executesql @insert_sql ;
-
-    IF @CheckDateOverride IS NULL
-        BEGIN
-        SET @CheckDateOverride = SYSDATETIMEOFFSET();
-        END;
-
-
-    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
-          + @OutputDatabaseName
-          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-          + @OutputSchemaName + N''') '
-		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
-          + 'INSERT '
-          + @OutputDatabaseName + '.'
-          + @OutputSchemaName + '.'
-          + @OutputTableName
-          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
-          + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
-          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
-          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
-          + N' FROM ##BlitzCacheProcs '
-		  + N' WHERE 1=1 ';
-   
-   IF @MinimumExecutionCount IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
-	  END;
-
-   IF @MinutesBack IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
-	  END;
-
-	SET @insert_sql += N' AND SPID = @@SPID ';
-          
-    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                    WHEN N'reads' THEN N' TotalReads '
-                                                    WHEN N'writes' THEN N' TotalWrites '
-                                                    WHEN N'duration' THEN N' TotalDuration '
-                                                    WHEN N'executions' THEN N' ExecutionCount '
-                                                    WHEN N'compiles' THEN N' PlanCreationTime '
-													WHEN N'memory grant' THEN N' MaxGrantKB'
-													WHEN N'spills' THEN N' MaxSpills'
-                                                    WHEN N'avg cpu' THEN N' AverageCPU'
-                                                    WHEN N'avg reads' THEN N' AverageReads'
-                                                    WHEN N'avg writes' THEN N' AverageWrites'
-                                                    WHEN N'avg duration' THEN N' AverageDuration'
-                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
-													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-													WHEN 'avg spills' THEN N' AvgSpills'
-                                                    END + N' DESC ';
-
-    SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
-    
-    	IF @Debug = 1
-		BEGIN
-		    PRINT SUBSTRING(@insert_sql, 0, 4000);
-		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
-		END;
-
-    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
-
-    RETURN;
-END;
-ELSE IF @ExportToExcel = 1
+IF @ExportToExcel = 1
 BEGIN
     RAISERROR('Displaying results with Excel formatting (no plans).', 0, 1) WITH NOWAIT;
 
@@ -6103,7 +5911,10 @@ IF @Debug = 1
 
     END;
 
-
+    IF @OutputDatabaseName IS NOT NULL
+       AND @OutputSchemaName IS NOT NULL
+       AND @OutputTableName IS NOT NULL
+       GOTO OutputResultsToTable;
 RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
@@ -6233,7 +6044,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6244,7 +6055,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6255,7 +6066,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6266,7 +6077,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6277,7 +6088,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
@@ -6311,7 +6122,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -6359,7 +6170,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -6401,7 +6212,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6412,7 +6223,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6423,7 +6234,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )	 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6434,7 +6245,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -6445,7 +6256,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
@@ -6479,7 +6290,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -6527,7 +6338,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -6570,10 +6381,208 @@ END;
 						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
 						END;
 
-					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top;
+					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT, @i_SkipAnalysis BIT, @i_OutputDatabaseName NVARCHAR(258), @i_OutputSchemaName NVARCHAR(258), @i_OutputTableName NVARCHAR(258)', 
+                        @i_DatabaseName = @DatabaseName, @i_Top = @Top, @i_SkipAnalysis = @SkipAnalysis, @i_OutputDatabaseName = @OutputDatabaseName, @i_OutputSchemaName = @OutputSchemaName, @i_OutputTableName = @OutputTableName;
 
 
 /*End of AllSort section*/
+
+/*Begin code to sort by all*/
+OutputResultsToTable:
+
+IF @OutputDatabaseName IS NOT NULL
+   AND @OutputSchemaName IS NOT NULL
+   AND @OutputTableName IS NOT NULL
+BEGIN
+    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
+
+    SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+       @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
+       @OutputTableName    = QUOTENAME(@OutputTableName);
+
+    /* send results to a table */
+    DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
+
+    SET @insert_sql = 'USE '
+        + @OutputDatabaseName
+        + '; IF EXISTS(SELECT * FROM '
+        + @OutputDatabaseName
+        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+        + @OutputSchemaName
+        + ''') AND NOT EXISTS (SELECT * FROM '
+        + @OutputDatabaseName
+        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+        + @OutputTableName + ''') CREATE TABLE '
+        + @OutputSchemaName + '.'
+        + @OutputTableName
+        + N'(ID bigint NOT NULL IDENTITY(1,1),
+          ServerName NVARCHAR(258),
+		  CheckDate DATETIMEOFFSET,
+          Version NVARCHAR(258),
+          QueryType NVARCHAR(258),
+          Warnings varchar(max),
+          DatabaseName sysname,
+          SerialDesiredMemory float,
+          SerialRequiredMemory float,
+          AverageCPU bigint,
+          TotalCPU bigint,
+          PercentCPUByType money,
+          CPUWeight money,
+          AverageDuration bigint,
+          TotalDuration bigint,
+          DurationWeight money,
+          PercentDurationByType money,
+          AverageReads bigint,
+          TotalReads bigint,
+          ReadWeight money,
+          PercentReadsByType money,
+          AverageWrites bigint,
+          TotalWrites bigint,
+          WriteWeight money,
+          PercentWritesByType money,
+          ExecutionCount bigint,
+          ExecutionWeight money,
+          PercentExecutionsByType money,' + N'
+          ExecutionsPerMinute money,
+          PlanCreationTime datetime,
+		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+          LastExecutionTime datetime,
+		  PlanHandle varbinary(64),
+		  [Remove Plan Handle From Cache] AS 
+			CASE WHEN [PlanHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  SqlHandle varbinary(64),
+			[Remove SQL Handle From Cache] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  [SQL Handle More Info] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+		  QueryHash binary(8),
+		  [Query Hash More Info] AS 
+			CASE WHEN [QueryHash] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+          QueryPlanHash binary(8),
+          StatementStartOffset int,
+          StatementEndOffset int,
+          MinReturnedRows bigint,
+          MaxReturnedRows bigint,
+          AverageReturnedRows money,
+          TotalReturnedRows bigint,
+          QueryText nvarchar(max),
+          QueryPlan xml,
+          NumberOfPlans int,
+          NumberOfDistinctPlans int,
+		  MinGrantKB BIGINT,
+		  MaxGrantKB BIGINT,
+		  MinUsedGrantKB BIGINT, 
+		  MaxUsedGrantKB BIGINT,
+		  PercentMemoryGrantUsed MONEY,
+		  AvgMaxMemoryGrant MONEY,
+		  MinSpills BIGINT,
+		  MaxSpills BIGINT,
+		  TotalSpills BIGINT,
+		  AvgSpills MONEY,
+		  QueryPlanCost FLOAT,
+          CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
+
+    		IF @Debug = 1
+			BEGIN
+			    PRINT SUBSTRING(@insert_sql, 0, 4000);
+			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+			END;
+
+	EXEC sp_executesql @insert_sql ;
+
+    IF @CheckDateOverride IS NULL
+        BEGIN
+        SET @CheckDateOverride = SYSDATETIMEOFFSET();
+        END;
+
+
+    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
+          + @OutputDatabaseName
+          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+          + @OutputSchemaName + N''') '
+		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+          + 'INSERT '
+          + @OutputDatabaseName + '.'
+          + @OutputSchemaName + '.'
+          + @OutputTableName
+          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+          + N'SELECT TOP (@Top) '
+          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
+          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
+          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+          + N' FROM ##BlitzCacheProcs '
+		  + N' WHERE 1=1 ';
+   
+   IF @MinimumExecutionCount IS NOT NULL
+      BEGIN
+		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
+	  END;
+
+   IF @MinutesBack IS NOT NULL
+      BEGIN
+		SET @insert_sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+	  END;
+
+	SET @insert_sql += N' AND SPID = @@SPID ';
+          
+    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                    WHEN N'reads' THEN N' TotalReads '
+                                                    WHEN N'writes' THEN N' TotalWrites '
+                                                    WHEN N'duration' THEN N' TotalDuration '
+                                                    WHEN N'executions' THEN N' ExecutionCount '
+                                                    WHEN N'compiles' THEN N' PlanCreationTime '
+													WHEN N'memory grant' THEN N' MaxGrantKB'
+													WHEN N'spills' THEN N' MaxSpills'
+                                                    WHEN N'avg cpu' THEN N' AverageCPU'
+                                                    WHEN N'avg reads' THEN N' AverageReads'
+                                                    WHEN N'avg writes' THEN N' AverageWrites'
+                                                    WHEN N'avg duration' THEN N' AverageDuration'
+                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+													WHEN 'avg spills' THEN N' AvgSpills'
+                                                    END + N' DESC ';
+
+    SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
+    
+    	IF @Debug = 1
+		BEGIN
+		    PRINT SUBSTRING(@insert_sql, 0, 4000);
+		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+		END;
+
+    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+END; /* End of writing results to table */
 
 END; /*Final End*/
 
