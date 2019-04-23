@@ -154,7 +154,7 @@ CREATE TABLE ##BlitzCacheProcs (
         unparameterized_query BIT,
         near_parallel BIT,
         plan_warnings BIT,
-        plan_multiple_plans BIT,
+        plan_multiple_plans INT,
         long_running BIT,
         downlevel_estimator BIT,
         implicit_conversions BIT,
@@ -911,7 +911,7 @@ BEGIN
         unparameterized_query BIT,
         near_parallel BIT,
         plan_warnings BIT,
-        plan_multiple_plans BIT,
+        plan_multiple_plans INT,
         long_running BIT,
         downlevel_estimator BIT,
         implicit_conversions BIT,
@@ -2285,6 +2285,9 @@ FROM    (SELECT  SqlHandle,
 WHERE x.rn = 1
 OPTION (RECOMPILE);
 
+/* 
+    This block was used to delete duplicate queries, but has been removed.
+    For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2026
 WITH d AS (
 SELECT  SPID,
         ROW_NUMBER() OVER (PARTITION BY SqlHandle, QueryHash ORDER BY #sortable# DESC) AS rn
@@ -2294,7 +2297,8 @@ WHERE SPID = @@SPID
 DELETE d
 WHERE d.rn > 1
 AND SPID = @@SPID
-OPTION (RECOMPILE);
+OPTION (RECOMPILE); 
+*/
 ';
 
 SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
@@ -2586,7 +2590,7 @@ RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
 UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
-        plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
+        plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
 FROM (
         SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
                 COUNT(QueryHash) AS number_of_plans,
@@ -3396,7 +3400,7 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END 
+    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END 
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -4327,7 +4331,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN ', Multiple Plans' + COALESCE(' (' + CAST(plan_multiple_plans AS VARCHAR(10)) + ')', '') ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
@@ -4405,7 +4409,7 @@ SELECT  DISTINCT
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN ', Multiple Plans' + COALESCE(' (' + CAST(plan_multiple_plans AS VARCHAR(10)) + ')', '') ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
@@ -4694,7 +4698,7 @@ BEGIN
                   CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN '', 21'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END + 
                   CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
@@ -5140,7 +5144,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##BlitzCacheProcs
-                   WHERE  plan_multiple_plans = 1
+                   WHERE  plan_multiple_plans > 0
 				   AND SPID = @@SPID)
         INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (@@SPID,
