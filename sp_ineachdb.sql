@@ -87,6 +87,9 @@ IF @Help = 1
 		
 		*/
 		';
+		
+		RETURN -1;
+	END
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
@@ -264,6 +267,5 @@ IF @Help = 1
 
   CLOSE dbs; 
   DEALLOCATE dbs;
-END
 END
 GO
