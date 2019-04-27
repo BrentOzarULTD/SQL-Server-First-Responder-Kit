@@ -183,7 +183,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
         DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000);
 
         CREATE TABLE #t (id INT NOT NULL);
-        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+
+		/* WITH ROWCOUNT doesn't work on Amazon RDS - see: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2037 */
+		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND db_id('rdsadmin') IS NULL
+	        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
