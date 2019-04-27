@@ -82,7 +82,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 AS 
 DECLARE @ScriptVersion VARCHAR(30);
-SELECT @ScriptVersion = '1.8', @VersionDate = '20180801';
+SELECT @ScriptVersion = '1.9', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
 BEGIN

@@ -30,7 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
+SELECT @Version = '3.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1522,7 +1522,7 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
+SELECT @Version = '3.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2845,7 +2845,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.4', @VersionDate = '20190320';
+	SELECT @Version = '7.5', @VersionDate = '20190427';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -2925,8 +2925,8 @@ AS
 	BEGIN
 		SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT';
 
-	END;
-	ELSE /* IF @OutputType = 'SCHEMA' */
+	END;/* IF @OutputType = 'SCHEMA' */
+	ELSE 
 	BEGIN
 
 		DECLARE @StringToExecute NVARCHAR(4000)
@@ -2959,7 +2959,38 @@ AS
 			,@TraceFileIssue bit
 			-- Flag for Windows OS to help with Linux support
 			,@IsWindowsOperatingSystem BIT
-			,@DaysUptime NUMERIC(23,2);
+			,@DaysUptime NUMERIC(23,2)
+            /* For First Responder Kit consistency check:*/
+            ,@spBlitzFullName                VARCHAR(1024)
+            ,@BlitzIsOutdatedComparedToOthers BIT
+            ,@tsql                           NVARCHAR(MAX)
+            ,@VersionCheckModeExistsTSQL     NVARCHAR(MAX)
+            ,@BlitzProcDbName                VARCHAR(256)
+            ,@ExecRet                        INT
+            ,@InnerExecRet                   INT
+            ,@TmpCnt                         INT
+            ,@PreviousComponentName          VARCHAR(256)
+            ,@PreviousComponentFullPath      VARCHAR(1024)
+            ,@CurrentStatementId             INT
+            ,@CurrentComponentSchema         VARCHAR(256)
+            ,@CurrentComponentName           VARCHAR(256)
+            ,@CurrentComponentType           VARCHAR(256)
+            ,@CurrentComponentVersionDate    DATETIME2
+            ,@CurrentComponentFullName       VARCHAR(1024)
+            ,@CurrentComponentMandatory      BIT
+            ,@MaximumVersionDate             DATETIME
+            ,@StatementCheckName             VARCHAR(256)
+            ,@StatementOutputsCounter        BIT
+            ,@OutputCounterExpectedValue     INT
+            ,@StatementOutputsExecRet        BIT
+            ,@StatementOutputsDateTime       BIT
+            ,@CurrentComponentMandatoryCheckOK       BIT
+            ,@CurrentComponentVersionCheckModeOK     BIT
+            ,@canExitLoop                            BIT
+            ,@frkIsConsistent                        BIT
+            
+            /* End of declarations for First Responder Kit consistency check:*/
+        ;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
@@ -3010,6 +3041,47 @@ AS
 			  Finding NVARCHAR(128)
 			);
 
+        /* First Responder Kit consistency (temporary tables) */
+        
+        IF(OBJECT_ID('tempdb..#FRKObjects') IS NOT NULL)
+        BEGIN
+            EXEC sp_executesql N'DROP TABLE #FRKObjects;';
+        END;    
+
+        -- this one represents FRK objects
+        CREATE TABLE #FRKObjects (
+            DatabaseName                VARCHAR(256)    NOT NULL,
+            ObjectSchemaName            VARCHAR(256)    NULL,
+            ObjectName                  VARCHAR(256)    NOT NULL,
+            ObjectType                  VARCHAR(256)    NOT NULL,
+            MandatoryComponent          BIT             NOT NULL
+        );
+        
+        
+        IF(OBJECT_ID('tempdb..#StatementsToRun4FRKVersionCheck') IS NOT NULL)
+        BEGIN
+            EXEC sp_executesql N'DROP TABLE #StatementsToRun4FRKVersionCheck;';
+        END;
+
+
+        -- This one will contain the statements to be executed
+        -- order: 1- Mandatory, 2- VersionCheckMode, 3- VersionCheck
+
+        CREATE TABLE #StatementsToRun4FRKVersionCheck (
+            StatementId                 INT IDENTITY(1,1),
+            CheckName                   VARCHAR(256),
+            SubjectName                 VARCHAR(256),
+            SubjectFullPath             VARCHAR(1024),
+            StatementText               NVARCHAR(MAX),
+            StatementOutputsCounter     BIT,
+            OutputCounterExpectedValue  INT,
+            StatementOutputsExecRet     BIT,
+            StatementOutputsDateTime    BIT 
+        );
+
+        /* End of First Responder Kit consistency (temporary tables) */
+        
+            
 		/*
 		You can build your own table with a list of checks to skip. For example, you
 		might have some databases that you don't care about, or some checks you don't
@@ -7066,6 +7138,513 @@ IF @ProductVersionMajor >= 10
 
 					END;
 					END;
+                    
+/*This checks that First Responder Kit is consistent. 
+It assumes that all the objects of the kit resides in the same database, the one in which this SP is stored
+It also is ready to check for installation in another schema.
+*/
+IF(
+    NOT EXISTS ( 
+        SELECT  1
+        FROM    #SkipChecks
+        WHERE   DatabaseName IS NULL AND CheckID = 226 
+    )
+)
+BEGIN
+
+    IF @Debug IN (1, 2) RAISERROR('Running check with id %d',0,1,2000);
+
+    SET @spBlitzFullName                    = QUOTENAME(DB_NAME()) + '.' +QUOTENAME(OBJECT_SCHEMA_NAME(@@PROCID)) + '.' + QUOTENAME(OBJECT_NAME(@@PROCID));
+    SET @BlitzIsOutdatedComparedToOthers    = 0;
+    SET @tsql                               = NULL;
+    SET @VersionCheckModeExistsTSQL         = NULL;
+    SET @BlitzProcDbName                    = DB_NAME();
+    SET @ExecRet                            = NULL;
+    SET @InnerExecRet                       = NULL;
+    SET @TmpCnt                             = NULL;
+
+    SET @PreviousComponentName              = NULL;
+    SET @PreviousComponentFullPath          = NULL;
+    SET @CurrentStatementId                 = NULL;
+    SET @CurrentComponentSchema             = NULL;
+    SET @CurrentComponentName               = NULL;
+    SET @CurrentComponentType               = NULL;
+    SET @CurrentComponentVersionDate        = NULL;
+    SET @CurrentComponentFullName           = NULL;
+    SET @CurrentComponentMandatory          = NULL;
+    SET @MaximumVersionDate                 = NULL;
+
+    SET @StatementCheckName                 = NULL;
+    SET @StatementOutputsCounter            = NULL;
+    SET @OutputCounterExpectedValue         = NULL;
+    SET @StatementOutputsExecRet            = NULL;
+    SET @StatementOutputsDateTime           = NULL;
+
+    SET @CurrentComponentMandatoryCheckOK   = NULL;
+    SET @CurrentComponentVersionCheckModeOK = NULL;
+
+    SET @canExitLoop                        = 0;
+    SET @frkIsConsistent                    = 0;
+
+
+    SET @tsql = 'USE ' + QUOTENAME(@BlitzProcDbName) + ';' + @crlf +
+                'WITH FRKComponents (' + @crlf +
+                '    ObjectName,' + @crlf +
+                '    ObjectType,' + @crlf +
+                '    MandatoryComponent' + @crlf +
+                ')' + @crlf +
+                'AS (' + @crlf +
+                '    SELECT ''sp_AllNightLog'',''P'' ,0' + @crlf +
+                '    UNION ALL' + @crlf +
+                '    SELECT ''sp_AllNightLog_Setup'', ''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_Blitz'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzBackups'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzCache'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzFirst'',''P'',0' + @crlf +
+                '    UNION ALL' + @crlf +
+                '    SELECT ''sp_BlitzIndex'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzLock'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzQueryStore'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_BlitzWho'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_DatabaseRestore'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_foreachdb'',''P'',0' + @crlf +
+                '    UNION ALL ' + @crlf +
+                '    SELECT ''sp_ineachdb'',''P'',0' + @crlf +
+                '    UNION ALL' + @crlf +
+                '    SELECT ''SqlServerVersions'',''U'',0' + @crlf +
+                ')' + @crlf +
+                'INSERT INTO #FRKObjects (' + @crlf +
+                '    DatabaseName,ObjectSchemaName,ObjectName, ObjectType,MandatoryComponent' + @crlf +
+                ')' + @crlf +
+                'SELECT DB_NAME(),SCHEMA_NAME(o.schema_id), c.ObjectName,c.ObjectType,c.MandatoryComponent' + @crlf +
+                'FROM ' + @crlf +
+                '    FRKComponents c' + @crlf +
+                'LEFT JOIN ' + @crlf +
+                '    sys.objects o' + @crlf +
+                'ON c.ObjectName  = o.[name]' + @crlf +
+                'AND c.ObjectType = o.[type]' + @crlf +
+                --'WHERE o.schema_id IS NOT NULL' + @crlf +
+                ';'
+                ;
+
+    EXEC @ExecRet = sp_executesql @tsql ;
+
+    -- TODO: add check for statement success
+
+    -- TODO: based on SP requirements and presence (SchemaName is not null) ==> update MandatoryComponent column
+
+    -- Filling #StatementsToRun4FRKVersionCheck 
+    INSERT INTO #StatementsToRun4FRKVersionCheck (
+        CheckName,StatementText,SubjectName,SubjectFullPath, StatementOutputsCounter,OutputCounterExpectedValue,StatementOutputsExecRet,StatementOutputsDateTime
+    )
+    SELECT 
+        'Mandatory',
+        'SELECT @cnt = COUNT(*) FROM #FRKObjects WHERE ObjectSchemaName IS NULL AND ObjectName = ''' + ObjectName + ''' AND MandatoryComponent = 1;',
+        ObjectName,
+        QUOTENAME(DatabaseName) + '.' + QUOTENAME(ObjectSchemaName) + '.' + QUOTENAME(ObjectName),
+        1,
+        0,
+        0,
+        0
+    FROM #FRKObjects
+    UNION ALL 
+    SELECT 
+        'VersionCheckMode',
+        'SELECT @cnt = COUNT(*) FROM ' + 
+        QUOTENAME(DatabaseName) + '.sys.all_parameters ' + 
+        'where object_id = OBJECT_ID(''' + QUOTENAME(DatabaseName) + '.' + QUOTENAME(ObjectSchemaName) + '.' + QUOTENAME(ObjectName) + ''') AND [name] = ''@VersionCheckMode'';',
+        ObjectName,
+        QUOTENAME(DatabaseName) + '.' + QUOTENAME(ObjectSchemaName) + '.' + QUOTENAME(ObjectName),
+        1,
+        1,
+        0,
+        0
+    FROM #FRKObjects
+    WHERE ObjectType = 'P' 
+    AND ObjectSchemaName IS NOT NULL
+    UNION ALL
+    SELECT 
+        'VersionCheck',
+        'EXEC @ExecRet = ' + QUOTENAME(DatabaseName) + '.' + QUOTENAME(ObjectSchemaName) + '.' + QUOTENAME(ObjectName) + ' @VersionCheckMode = 1 , @VersionDate = @ObjDate OUTPUT;',
+        ObjectName,
+        QUOTENAME(DatabaseName) + '.' + QUOTENAME(ObjectSchemaName) + '.' + QUOTENAME(ObjectName),
+        0,
+        0,
+        1,
+        1
+    FROM #FRKObjects
+    WHERE ObjectType = 'P' 
+    AND ObjectSchemaName IS NOT NULL
+    ;
+    IF(@Debug in (1,2))
+    BEGIN
+        SELECT * 
+        FROM #StatementsToRun4FRKVersionCheck ORDER BY SubjectName,SubjectFullPath,StatementId  -- in case of schema change  ;
+    END;
+    
+    
+    -- loop on queries...
+    WHILE(@canExitLoop = 0)
+    BEGIN
+        SET @CurrentStatementId         = NULL;
+
+        SELECT TOP 1
+            @StatementCheckName         = CheckName,
+            @CurrentStatementId         = StatementId ,
+            @CurrentComponentName       = SubjectName,
+            @CurrentComponentFullName   = SubjectFullPath,
+            @tsql                       = StatementText,
+            @StatementOutputsCounter    = StatementOutputsCounter,
+            @OutputCounterExpectedValue = OutputCounterExpectedValue ,
+            @StatementOutputsExecRet    = StatementOutputsExecRet,
+            @StatementOutputsDateTime   = StatementOutputsDateTime
+        FROM #StatementsToRun4FRKVersionCheck
+        ORDER BY SubjectName, SubjectFullPath,StatementId /* in case of schema change */
+        ;
+
+        -- loop exit condition
+        IF(@CurrentStatementId IS NULL)
+        BEGIN
+            BREAK;
+        END;
+
+        IF @Debug IN (1, 2) RAISERROR('    Statement: %s',0,1,@tsql);
+
+        -- we start a new component
+        IF(@PreviousComponentName IS NULL OR 
+            (@PreviousComponentName IS NOT NULL AND @PreviousComponentName <> @CurrentComponentName) OR
+            (@PreviousComponentName IS NOT NULL AND @PreviousComponentName = @CurrentComponentName AND @PreviousComponentFullPath <> @CurrentComponentFullName)
+        )
+        BEGIN
+            -- reset variables
+            SET @CurrentComponentMandatoryCheckOK   = 0;
+            SET @CurrentComponentVersionCheckModeOK = 0;
+            SET @PreviousComponentName              = @CurrentComponentName;
+            SET @PreviousComponentFullPath          = @CurrentComponentFullName ;
+        END;
+
+        IF(@StatementCheckName NOT IN ('Mandatory','VersionCheckMode','VersionCheck'))
+        BEGIN
+            INSERT  INTO #BlitzResults( 
+                CheckID ,
+                Priority ,
+                FindingsGroup ,
+                Finding ,
+                URL ,
+                Details
+            )
+            SELECT 
+                226 AS CheckID ,
+                253 AS Priority ,
+                'First Responder Kit' AS FindingsGroup ,
+                'Version Check Failed (code generator changed)' AS Finding ,
+                'http://FirstResponderKit.org' AS URL ,
+                'Download an updated First Responder Kit. Your version check failed because a change has been made to the version check code generator.' + @crlf +
+                'Error: No handler for check with name "' + ISNULL(@StatementCheckName,'') + '"' AS Details
+            ;
+            
+            -- we will stop the test because it's possible to get the same message for other components
+            SET @canExitLoop = 1;
+            CONTINUE;
+        END;
+
+        IF(@StatementCheckName = 'Mandatory')
+        BEGIN
+            -- outputs counter
+            EXEC @ExecRet = sp_executesql @tsql, N'@cnt INT OUTPUT',@cnt = @TmpCnt OUTPUT;
+
+            IF(@ExecRet <> 0)
+            BEGIN
+            
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Your version check failed due to dynamic query failure.' + @crlf +
+                    'Error: following query failed at execution (check if component [' + ISNULL(@CurrentComponentName,@CurrentComponentName) + '] is mandatory and missing)' + @crlf +
+                    @tsql AS Details
+                ;
+                
+                -- we will stop the test because it's possible to get the same message for other components
+                SET @canExitLoop = 1;
+                CONTINUE;
+            END;
+
+            IF(@TmpCnt <> @OutputCounterExpectedValue)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    227 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Missing: ' + @CurrentComponentName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated version of the First Responder Kit to install it.' AS Details
+                ;
+                
+                -- as it's missing, no value for SubjectFullPath
+                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectName = @CurrentComponentName ;
+                CONTINUE;
+            END;
+
+            SET @CurrentComponentMandatoryCheckOK = 1;
+        END;
+        
+        IF(@StatementCheckName = 'VersionCheckMode')
+        BEGIN
+            IF(@CurrentComponentMandatoryCheckOK = 0)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because "Mandatory" check has not been completed before for current component' + @crlf +
+                    'Error: version check mode happenned before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
+                ;
+                
+                -- we will stop the test because it's possible to get the same message for other components
+                SET @canExitLoop = 1;
+                CONTINUE;
+            END;
+
+            -- outputs counter
+            EXEC @ExecRet = sp_executesql @tsql, N'@cnt INT OUTPUT',@cnt = @TmpCnt OUTPUT;
+
+            IF(@ExecRet <> 0)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because a change has been made to the code generator.' + @crlf +
+                    'Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] can run in VersionCheckMode)' + @crlf +
+                    @tsql AS Details
+                ;
+                
+                -- we will stop the test because it's possible to get the same message for other components
+                SET @canExitLoop = 1;
+                CONTINUE;
+            END;
+
+            IF(@TmpCnt <> @OutputCounterExpectedValue)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    228 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Outdated: ' + @CurrentComponentFullName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Component ' + @CurrentComponentFullName + ' is not at the minimum version required to run this procedure' + @crlf +
+                    'VersionCheckMode has been introduced in component version date after "20190320". This means its version is lower than or equal to that date.' AS Details;
+                ;            
+                            
+                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectFullPath = @CurrentComponentFullName ;
+                CONTINUE;
+            END;
+
+            SET @CurrentComponentVersionCheckModeOK = 1;
+        END;    
+
+        IF(@StatementCheckName = 'VersionCheck')
+        BEGIN
+            IF(@CurrentComponentMandatoryCheckOK = 0 OR @CurrentComponentVersionCheckModeOK = 0)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Version check failed because "VersionCheckMode" check has not been completed before for component called "' + @CurrentComponentFullName + '"' + @crlf +
+                    'Error: VersionCheck happenned before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
+                ;
+                
+                -- we will stop the test because it's possible to get the same message for other components
+                SET @canExitLoop = 1;
+                CONTINUE;
+            END;
+
+            EXEC @ExecRet = sp_executesql @tsql , N'@ExecRet INT OUTPUT, @ObjDate DATETIME OUTPUT', @ExecRet = @InnerExecRet OUTPUT, @ObjDate = @CurrentComponentVersionDate OUTPUT;
+
+            IF(@ExecRet <> 0)
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (dynamic query failure)' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. The version check failed because a change has been made to the code generator.' + @crlf +
+                    'Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] is at the expected version)' + @crlf +
+                    @tsql AS Details
+                ;
+                
+                -- we will stop the test because it's possible to get the same message for other components
+                SET @canExitLoop = 1;
+                CONTINUE;
+            END;
+            
+            
+            IF(@InnerExecRet <> 0)
+            BEGIN                
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    226 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Version Check Failed (Failed dynamic SP call to ' + @CurrentComponentFullName + ')' AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download an updated First Responder Kit. Error: following query failed at execution (check if component [' + @CurrentComponentFullName + '] is at the expected version)' + @crlf +
+                    'Return code: ' + CONVERT(VARCHAR(10),@InnerExecRet) + @crlf +
+                    'T-SQL Query: ' + @crlf + 
+                    @tsql AS Details
+                ;
+                
+                -- advance to next component
+                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectFullPath = @CurrentComponentFullName ;
+                CONTINUE;
+            END;
+
+            IF(@CurrentComponentVersionDate < @VersionDate)
+            BEGIN
+            
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    228 AS CheckID ,
+                    253 AS Priority ,
+                    'First Responder Kit' AS FindingsGroup ,
+                    'Component Outdated: ' + @CurrentComponentFullName AS Finding ,
+                    'http://FirstResponderKit.org' AS URL ,
+                    'Download and install the latest First Responder Kit - you''re running some older code, and it doesn''t get better with age.' AS Details
+                ;            
+            
+                RAISERROR('Component %s is outdated',10,1,@CurrentComponentFullName);
+                -- advance to next component
+                DELETE FROM #StatementsToRun4FRKVersionCheck WHERE SubjectFullPath = @CurrentComponentFullName ;
+                CONTINUE;
+            END;
+
+            ELSE IF(@CurrentComponentVersionDate > @VersionDate AND @BlitzIsOutdatedComparedToOthers = 0)
+            BEGIN
+                SET @BlitzIsOutdatedComparedToOthers = 1;
+                RAISERROR('Procedure %s is outdated',10,1,@spBlitzFullName);
+                IF(@MaximumVersionDate IS NULL OR @MaximumVersionDate < @CurrentComponentVersionDate)
+                BEGIN
+                    SET @MaximumVersionDate = @CurrentComponentVersionDate;
+                END;
+            END;
+            /* Kept for debug purpose:
+            ELSE 
+            BEGIN
+                INSERT  INTO #BlitzResults( 
+                    CheckID ,
+                    Priority ,
+                    FindingsGroup ,
+                    Finding ,
+                    URL ,
+                    Details
+                )
+                SELECT 
+                    2000 AS CheckID ,
+                    250 AS Priority ,
+                    'Informational' AS FindingsGroup ,
+                    'First Responder kit component ' + @CurrentComponentFullName + ' is at the expected version' AS Finding ,
+                    'https://www.BrentOzar.com/blitz/' AS URL ,
+                    'Version date is: ' + CONVERT(VARCHAR(32),@CurrentComponentVersionDate,121) AS Details
+                ;
+            END;
+            */
+        END;
+
+        -- could be performed differently to minimize computation
+        DELETE FROM #StatementsToRun4FRKVersionCheck WHERE StatementId = @CurrentStatementId ;
+    END;
+END;
+
 
 /*This counts memory dumps and gives min and max date of in view*/
 IF @ProductVersionMajor >= 10
@@ -7940,6 +8519,32 @@ IF @ProductVersionMajor >= 10
 
 					END;
 
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 229 )
+						AND CAST(SERVERPROPERTY('Edition') AS NVARCHAR(4000)) LIKE '%Evaluation%'
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+						
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 229 AS CheckID,
+							       1 AS Priority,
+							       'Reliability' AS FindingsGroup,
+							       'Evaluation Edition' AS Finding,
+							       'https://www.BrentOzar.com/go/workgroup' AS URL,
+							       'This server will stop working on: ' + CAST(CONVERT(DATETIME, DATEADD(DD, 180, create_date), 102) AS VARCHAR(100)) AS details
+							FROM   sys.server_principals
+							WHERE sid = 0x010100000000000512000000; 						
+						
+					END;
 
 
 				IF @CheckUserDatabaseObjects = 1
@@ -8924,6 +9529,37 @@ IF @ProductVersionMajor >= 10
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
+			/* Check 225 - Reliability - Resumable Index Operation Paused */
+			IF NOT EXISTS (
+					SELECT 1
+					FROM #SkipChecks
+					WHERE DatabaseName IS NULL
+						AND CheckID = 225
+					)
+                AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'index_resumable_operations')
+			BEGIN
+				IF @Debug IN (1,2)
+				BEGIN
+					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
+				END
+
+				EXECUTE sp_MSforeachdb 'USE [?];
+					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+					SELECT 225 AS CheckID
+						,''?'' AS DatabaseName
+						,200 AS Priority
+						,''Reliability'' AS FindingsGroup
+						,''Resumable Index Operation Paused'' AS Finding
+						,''https://BrentOzar.com/go/resumable'' AS URL
+						,iro.state_desc + N'' since '' + CONVERT(NVARCHAR(50), last_pause_time, 120) + '', ''
+                            + CAST(iro.percent_complete AS NVARCHAR(20)) + ''% complete: ''
+                            + CAST(iro.sql_text AS NVARCHAR(1000)) AS Details
+					FROM sys.index_resumable_operations iro
+					JOIN sys.objects o ON iro.[object_id] = o.[object_id]
+					WHERE iro.state <> 0;';
+			END; --of Check 225.
+
 			--/* Check 220 - Statistics Without Histograms */
 			--IF NOT EXISTS (
 			--		SELECT 1
@@ -9482,7 +10118,7 @@ IF @ProductVersionMajor >= 10
 						(@@SERVERNAME IS NOT NULL
 						AND
 						/* not a named instance */
-						CHARINDEX('\',CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))) = 0
+						CHARINDEX(CHAR(92),CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))) = 0
 						AND
 						/* not clustered, when computername may be different than the servername */
 						SERVERPROPERTY('IsClustered') = 0
@@ -11126,7 +11762,7 @@ GO
 
 /*
 --Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz]
+EXEC [dbo].[sp_Blitz] 
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
@@ -11159,7 +11795,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.4', @VersionDate = '20190320';
+	SELECT @Version = '3.5', @VersionDate = '20190427';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12814,7 +13450,7 @@ CREATE TABLE ##BlitzCacheProcs (
         unparameterized_query BIT,
         near_parallel BIT,
         plan_warnings BIT,
-        plan_multiple_plans BIT,
+        plan_multiple_plans INT,
         long_running BIT,
         downlevel_estimator BIT,
         implicit_conversions BIT,
@@ -12931,7 +13567,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
+SELECT @Version = '7.5', @VersionDate = '20190427';
 
 
 IF(@VersionCheckMode = 1)
@@ -13571,7 +14207,7 @@ BEGIN
         unparameterized_query BIT,
         near_parallel BIT,
         plan_warnings BIT,
-        plan_multiple_plans BIT,
+        plan_multiple_plans INT,
         long_running BIT,
         downlevel_estimator BIT,
         implicit_conversions BIT,
@@ -13722,10 +14358,6 @@ IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg wri
   SET @SortOrder = 'cpu';
   END; 
 
-SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
-       @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
-       @OutputTableName    = QUOTENAME(@OutputTableName);
-
 SET @QueryFilter = LOWER(@QueryFilter);
 
 IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
@@ -13739,6 +14371,25 @@ IF @SkipAnalysis = 1
   RAISERROR(N'Skip Analysis set to 1, hiding Summary', 0, 1) WITH NOWAIT;
   SET @HideSummary = 1;
   END; 
+
+DECLARE @AllSortSql NVARCHAR(MAX) = N'';
+DECLARE @VersionShowsMemoryGrants BIT;
+IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
+    SET @VersionShowsMemoryGrants = 1;
+ELSE
+    SET @VersionShowsMemoryGrants = 0;
+
+DECLARE @VersionShowsSpills BIT;
+IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
+    SET @VersionShowsSpills = 1;
+ELSE
+    SET @VersionShowsSpills = 0;
+
+DECLARE @VersionShowsAirQuoteActualPlans BIT;
+IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
+    SET @VersionShowsAirQuoteActualPlans = 1;
+ELSE
+    SET @VersionShowsAirQuoteActualPlans = 0;
 
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
   BEGIN
@@ -13763,6 +14414,9 @@ IF @Reanalyze = 1
 	RAISERROR(N'Reanalyzing current data, skipping to results', 0, 1) WITH NOWAIT;
     GOTO Results;
 	END;
+
+
+
 
 IF @SortOrder IN ('all', 'all avg')
 	BEGIN
@@ -14393,22 +15047,15 @@ SELECT @v = common_version ,
 FROM   #checkversion
 OPTION (RECOMPILE);
 
-IF (@SortOrder IN ('memory grant', 'avg memory grant')) 
-AND ((@v < 11)
-OR (@v = 11 AND @build < 6020) 
-OR (@v = 12 AND @build < 5000) 
-OR (@v = 13 AND @build < 1601))
+IF (@SortOrder IN ('memory grant', 'avg memory grant')) AND @VersionShowsMemoryGrants = 0
 BEGIN
    RAISERROR('Your version of SQL does not support sorting by memory grant or average memory grant. Please use another sort order.', 16, 1);
    RETURN;
 END;
 
-IF (@SortOrder IN ('spills', 'avg spills')) 
-AND (@v < 13 
-	OR @v = 13 AND @build < 5026
-	OR @v = 14 AND @build < 3015)
+IF (@SortOrder IN ('spills', 'avg spills') AND @VersionShowsSpills = 0)
 BEGIN
-   RAISERROR('Your version of SQL does not support sorting by spills or average spills. Please use another sort order.', 16, 1);
+   RAISERROR('Your version of SQL does not support sorting by spills. Please use another sort order.', 16, 1);
    RETURN;
 END;
 
@@ -14442,6 +15089,12 @@ FROM   (SELECT TOP (@Top) x.*, xpa.*,
         FROM   sys.#view# x
                CROSS APPLY (SELECT * FROM sys.dm_exec_plan_attributes(x.plan_handle) AS ixpa 
                             WHERE ixpa.attribute = ''dbid'') AS xpa ' + @nl ;
+
+
+IF @VersionShowsAirQuoteActualPlans = 1
+    BEGIN
+    SET @body += N'     CROSS APPLY sys.dm_exec_query_plan_stats(x.plan_handle) AS deqps ' + @nl ;
+    END
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
@@ -14559,6 +15212,11 @@ SET @body += N') AS qs
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
 
+IF @VersionShowsAirQuoteActualPlans = 1
+    BEGIN
+    SET @body += N'     CROSS APPLY sys.dm_exec_query_plan_stats(qs.plan_handle) AS deqps ' + @nl ;
+    END
+
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
 
 
@@ -14627,7 +15285,7 @@ SELECT TOP (@Top)
 	   NULL AS PercentMemoryGrantUsed, 
 	   NULL AS AvgMaxMemoryGrant,';
 
-		IF @v >=15 OR (@v = 14 AND @build >= 3015) OR (@v = 13 AND @build >= 5026)
+    IF @VersionShowsSpills = 1
     BEGIN
         RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @plans_triggers_select_list += N'
@@ -14646,10 +15304,20 @@ SELECT TOP (@Top)
 		   NULL AS AvgSpills, ' ;
     END;		       
 	     
-		SET @plans_triggers_select_list +=  
-	 N'st.text AS QueryText ,
-       query_plan AS QueryPlan,
-       t.t_TotalWorker,
+	SET @plans_triggers_select_list +=  
+	 N'st.text AS QueryText ,';
+
+    IF @VersionShowsAirQuoteActualPlans = 1
+        BEGIN
+        SET @plans_triggers_select_list += N' COALESCE(deqps.query_plan, qp.query_plan) AS QueryPlan, ' + @nl ;
+        END;
+    ELSE   
+        BEGIN
+        SET @plans_triggers_select_list += N' qp.query_plan AS QueryPlan, ' + @nl ;
+        END;
+
+	SET @plans_triggers_select_list +=  
+    N't.t_TotalWorker,
        t.t_TotalElapsed,
        t.t_TotalReads,
        t.t_TotalExecs,
@@ -14736,8 +15404,7 @@ BEGIN
            NULL AS LastReturnedRows, ' ;
     END;
 
-    IF (@v = 11 AND @build >= 6020) OR (@v = 12 AND @build >= 5000) OR (@v = 13 AND @build >= 1601) OR (@v >= 14)
-
+    IF @VersionShowsMemoryGrants = 1
     BEGIN
         RAISERROR(N'Getting memory grant information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @sql += N'
@@ -14760,7 +15427,7 @@ BEGIN
 		   NULL AS AvgMaxMemoryGrant, ' ;
     END;
 
-		IF @v >=15 OR (@v = 14 AND @build >= 3015) OR (@v = 13 AND @build >= 5026)
+	IF @VersionShowsSpills = 1
     BEGIN
         RAISERROR(N'Getting spill information for newer versions of SQL', 0, 1) WITH NOWAIT;
 		SET @sql += N'
@@ -14783,8 +15450,19 @@ BEGIN
            SUBSTRING(st.text, ( qs.statement_start_offset / 2 ) + 1, ( ( CASE qs.statement_end_offset
                                                                             WHEN -1 THEN DATALENGTH(st.text)
                                                                             ELSE qs.statement_end_offset
-                                                                          END - qs.statement_start_offset ) / 2 ) + 1) AS QueryText ,
-           query_plan AS QueryPlan,
+                                                                          END - qs.statement_start_offset ) / 2 ) + 1) AS QueryText , ' + @nl ;
+
+
+    IF @VersionShowsAirQuoteActualPlans = 1
+        BEGIN
+        SET @sql += N'           COALESCE(deqps.query_plan, qp.query_plan) AS QueryPlan, ' + @nl ;
+        END
+    ELSE
+        BEGIN
+        SET @sql += N'           query_plan AS QueryPlan, ' + @nl ;
+        END
+
+    SET @sql += N'
            t.t_TotalWorker,
            t.t_TotalElapsed,
            t.t_TotalReads,
@@ -14944,6 +15622,9 @@ FROM    (SELECT  SqlHandle,
 WHERE x.rn = 1
 OPTION (RECOMPILE);
 
+/* 
+    This block was used to delete duplicate queries, but has been removed.
+    For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2026
 WITH d AS (
 SELECT  SPID,
         ROW_NUMBER() OVER (PARTITION BY SqlHandle, QueryHash ORDER BY #sortable# DESC) AS rn
@@ -14953,7 +15634,8 @@ WHERE SPID = @@SPID
 DELETE d
 WHERE d.rn > 1
 AND SPID = @@SPID
-OPTION (RECOMPILE);
+OPTION (RECOMPILE); 
+*/
 ';
 
 SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
@@ -15058,11 +15740,11 @@ OPTION (RECOMPILE) ;
  * metric.
  */
 RAISERROR('Computing CPU, duration, read, and write metrics', 0, 1) WITH NOWAIT;
-DECLARE @total_duration MONEY,
-        @total_cpu MONEY,
-        @total_reads MONEY,
-        @total_writes MONEY,
-        @total_execution_count MONEY;
+DECLARE @total_duration BIGINT,
+        @total_cpu BIGINT,
+        @total_reads BIGINT,
+        @total_writes BIGINT,
+        @total_execution_count BIGINT;
 
 SELECT  @total_cpu = SUM(TotalCPU),
         @total_duration = SUM(TotalDuration),
@@ -15245,7 +15927,7 @@ RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
 UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
-        plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END
+        plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
 FROM (
         SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
                 COUNT(QueryHash) AS number_of_plans,
@@ -16055,7 +16737,7 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE ##BlitzCacheProcs
 SET NumberOfDistinctPlans = distinct_plan_count,
     NumberOfPlans = number_of_plans,
-    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN 1 END 
+    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END 
 FROM (
 SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
        COUNT(QueryHash) AS number_of_plans,
@@ -16986,7 +17668,7 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN ', Multiple Plans' + COALESCE(' (' + CAST(plan_multiple_plans AS VARCHAR(10)) + ')', '') ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
@@ -17064,7 +17746,7 @@ SELECT  DISTINCT
                   CASE WHEN downlevel_estimator = 1 THEN ', Downlevel CE' ELSE '' END +
                   CASE WHEN implicit_conversions = 1 THEN ', Implicit Conversions' ELSE '' END +
                   CASE WHEN tvf_join = 1 THEN ', Function Join' ELSE '' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN ', Multiple Plans' ELSE '' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN ', Multiple Plans' + COALESCE(' (' + CAST(plan_multiple_plans AS VARCHAR(10)) + ')', '') ELSE '' END +
                   CASE WHEN is_trivial = 1 THEN ', Trivial Plans' ELSE '' END +
 				  CASE WHEN is_forced_serial = 1 THEN ', Forced Serialization' ELSE '' END +
 				  CASE WHEN is_key_lookup_expensive = 1 THEN ', Expensive Key Lookup' ELSE '' END +
@@ -17155,198 +17837,7 @@ OPTION (RECOMPILE);
 
 
 Results:
-IF @OutputDatabaseName IS NOT NULL
-   AND @OutputSchemaName IS NOT NULL
-   AND @OutputTableName IS NOT NULL
-BEGIN
-    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
-
-    /* send results to a table */
-    DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
-
-    SET @insert_sql = 'USE '
-        + @OutputDatabaseName
-        + '; IF EXISTS(SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @OutputSchemaName
-        + ''') AND NOT EXISTS (SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-        + @OutputTableName + ''') CREATE TABLE '
-        + @OutputSchemaName + '.'
-        + @OutputTableName
-        + N'(ID bigint NOT NULL IDENTITY(1,1),
-          ServerName NVARCHAR(258),
-		  CheckDate DATETIMEOFFSET,
-          Version NVARCHAR(258),
-          QueryType NVARCHAR(258),
-          Warnings varchar(max),
-          DatabaseName sysname,
-          SerialDesiredMemory float,
-          SerialRequiredMemory float,
-          AverageCPU bigint,
-          TotalCPU bigint,
-          PercentCPUByType money,
-          CPUWeight money,
-          AverageDuration bigint,
-          TotalDuration bigint,
-          DurationWeight money,
-          PercentDurationByType money,
-          AverageReads bigint,
-          TotalReads bigint,
-          ReadWeight money,
-          PercentReadsByType money,
-          AverageWrites bigint,
-          TotalWrites bigint,
-          WriteWeight money,
-          PercentWritesByType money,
-          ExecutionCount bigint,
-          ExecutionWeight money,
-          PercentExecutionsByType money,' + N'
-          ExecutionsPerMinute money,
-          PlanCreationTime datetime,
-		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
-          LastExecutionTime datetime,
-		  PlanHandle varbinary(64),
-		  [Remove Plan Handle From Cache] AS 
-			CASE WHEN [PlanHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  SqlHandle varbinary(64),
-			[Remove SQL Handle From Cache] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  [SQL Handle More Info] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-		  QueryHash binary(8),
-		  [Query Hash More Info] AS 
-			CASE WHEN [QueryHash] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-          QueryPlanHash binary(8),
-          StatementStartOffset int,
-          StatementEndOffset int,
-          MinReturnedRows bigint,
-          MaxReturnedRows bigint,
-          AverageReturnedRows money,
-          TotalReturnedRows bigint,
-          QueryText nvarchar(max),
-          QueryPlan xml,
-          NumberOfPlans int,
-          NumberOfDistinctPlans int,
-		  MinGrantKB BIGINT,
-		  MaxGrantKB BIGINT,
-		  MinUsedGrantKB BIGINT, 
-		  MaxUsedGrantKB BIGINT,
-		  PercentMemoryGrantUsed MONEY,
-		  AvgMaxMemoryGrant MONEY,
-		  MinSpills BIGINT,
-		  MaxSpills BIGINT,
-		  TotalSpills BIGINT,
-		  AvgSpills MONEY,
-		  QueryPlanCost FLOAT,
-          CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
-
-    		IF @Debug = 1
-			BEGIN
-			    PRINT SUBSTRING(@insert_sql, 0, 4000);
-			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
-			END;
-
-	EXEC sp_executesql @insert_sql ;
-
-    IF @CheckDateOverride IS NULL
-        BEGIN
-        SET @CheckDateOverride = SYSDATETIMEOFFSET();
-        END;
-
-
-    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
-          + @OutputDatabaseName
-          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-          + @OutputSchemaName + N''') '
-		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
-          + 'INSERT '
-          + @OutputDatabaseName + '.'
-          + @OutputSchemaName + '.'
-          + @OutputTableName
-          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
-          + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
-          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
-          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
-          + N' FROM ##BlitzCacheProcs '
-		  + N' WHERE 1=1 ';
-   
-   IF @MinimumExecutionCount IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
-	  END;
-
-   IF @MinutesBack IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
-	  END;
-
-	SET @insert_sql += N' AND SPID = @@SPID ';
-          
-    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                    WHEN N'reads' THEN N' TotalReads '
-                                                    WHEN N'writes' THEN N' TotalWrites '
-                                                    WHEN N'duration' THEN N' TotalDuration '
-                                                    WHEN N'executions' THEN N' ExecutionCount '
-                                                    WHEN N'compiles' THEN N' PlanCreationTime '
-													WHEN N'memory grant' THEN N' MaxGrantKB'
-													WHEN N'spills' THEN N' MaxSpills'
-                                                    WHEN N'avg cpu' THEN N' AverageCPU'
-                                                    WHEN N'avg reads' THEN N' AverageReads'
-                                                    WHEN N'avg writes' THEN N' AverageWrites'
-                                                    WHEN N'avg duration' THEN N' AverageDuration'
-                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
-													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-													WHEN 'avg spills' THEN N' AvgSpills'
-                                                    END + N' DESC ';
-
-    SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
-    
-    	IF @Debug = 1
-		BEGIN
-		    PRINT SUBSTRING(@insert_sql, 0, 4000);
-		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
-		END;
-
-    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
-
-    RETURN;
-END;
-ELSE IF @ExportToExcel = 1
+IF @ExportToExcel = 1
 BEGIN
     RAISERROR('Displaying results with Excel formatting (no plans).', 0, 1) WITH NOWAIT;
 
@@ -17544,7 +18035,7 @@ BEGIN
                   CASE WHEN downlevel_estimator = 1 THEN '', 13'' ELSE '''' END +
                   CASE WHEN implicit_conversions = 1 THEN '', 14'' ELSE '''' END +
                   CASE WHEN tvf_join = 1 THEN '', 17'' ELSE '''' END +
-                  CASE WHEN plan_multiple_plans = 1 THEN '', 21'' ELSE '''' END +
+                  CASE WHEN plan_multiple_plans > 0 THEN '', 21'' ELSE '''' END +
                   CASE WHEN unmatched_index_count > 0 THEN '', 22'' ELSE '''' END + 
                   CASE WHEN is_trivial = 1 THEN '', 24'' ELSE '''' END + 
 				  CASE WHEN is_forced_serial = 1 THEN '', 25'' ELSE '''' END +
@@ -17990,7 +18481,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                    FROM   ##BlitzCacheProcs
-                   WHERE  plan_multiple_plans = 1
+                   WHERE  plan_multiple_plans > 0
 				   AND SPID = @@SPID)
         INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
         VALUES (@@SPID,
@@ -18761,7 +19252,10 @@ IF @Debug = 1
 
     END;
 
-
+    IF @OutputDatabaseName IS NOT NULL
+       AND @OutputSchemaName IS NOT NULL
+       AND @OutputTableName IS NOT NULL
+       GOTO OutputResultsToTable;
 RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
@@ -18856,29 +19350,6 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
          );
    END;
 
-DECLARE @AllSortSql NVARCHAR(MAX) = N'';
-DECLARE @MemGrant BIT;
-SELECT  @MemGrant = CASE WHEN (
-                                ( @v < 11 )
-                                OR (
-                                     @v = 11
-                                     AND @build < 6020
-                                   )
-                                OR (
-                                     @v = 12
-                                     AND @build < 5000
-                                   )
-                                OR (
-                                     @v = 13
-                                     AND @build < 1601
-                                   )
-                              ) THEN 0
-                         ELSE 1
-                    END;
-
-DECLARE @Spills BIT;
-SELECT @Spills = CASE WHEN (@v >= 15 OR (@v = 14 AND @build >= 3015) OR (@v = 13 AND @build >= 5026)) THEN 1 ELSE 0 END;
-		 
 
 IF LOWER(@SortOrder) = 'all'
 BEGIN
@@ -18891,7 +19362,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions ) 					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -18902,7 +19373,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )					 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -18913,7 +19384,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -18924,7 +19395,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -18935,13 +19406,13 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )				 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 '; 
 					
-					IF @MemGrant = 0
+					IF @VersionShowsMemoryGrants = 0
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
@@ -18960,7 +19431,7 @@ SET @AllSortSql += N'
 
 					END; 
 					
-					IF @MemGrant = 1
+					IF @VersionShowsMemoryGrants = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
@@ -18969,7 +19440,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -18989,7 +19460,7 @@ SET @AllSortSql += N'
 
 				    END;
 
-					IF @Spills = 0
+					IF @VersionShowsSpills = 0
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
@@ -19008,7 +19479,7 @@ SET @AllSortSql += N'
 
 					END; 
 					
-					IF @Spills = 1
+					IF @VersionShowsSpills = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
@@ -19017,7 +19488,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -19059,7 +19530,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg cpu'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -19070,7 +19541,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )		 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg reads'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -19081,7 +19552,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )	 
 					
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg writes'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -19092,7 +19563,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg duration'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 
@@ -19103,13 +19574,13 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 					 
-					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 
 					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 ';
 					 
-					IF @MemGrant = 0
+					IF @VersionShowsMemoryGrants = 0
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
@@ -19128,7 +19599,7 @@ SET @AllSortSql += N'
 
 					END; 
 					
-					IF @MemGrant = 1
+					IF @VersionShowsMemoryGrants = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
@@ -19137,7 +19608,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -19157,7 +19628,7 @@ SET @AllSortSql += N'
 
 				    END;
 
-					IF @Spills = 0
+					IF @VersionShowsSpills = 0
 					BEGIN
 						IF @ExportToExcel = 1
 						BEGIN
@@ -19176,7 +19647,7 @@ SET @AllSortSql += N'
 
 					END; 
 					
-					IF @Spills = 1
+					IF @VersionShowsSpills = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
 					
@@ -19185,7 +19656,7 @@ SET @AllSortSql += N'
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
 											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, SetOptions )			 
 										  
-										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName WITH RECOMPILE;
+										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
 						IF @ExportToExcel = 1
@@ -19228,10 +19699,208 @@ END;
 						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
 						END;
 
-					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT', @i_DatabaseName = @DatabaseName, @i_Top = @Top;
+					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT, @i_SkipAnalysis BIT, @i_OutputDatabaseName NVARCHAR(258), @i_OutputSchemaName NVARCHAR(258), @i_OutputTableName NVARCHAR(258)', 
+                        @i_DatabaseName = @DatabaseName, @i_Top = @Top, @i_SkipAnalysis = @SkipAnalysis, @i_OutputDatabaseName = @OutputDatabaseName, @i_OutputSchemaName = @OutputSchemaName, @i_OutputTableName = @OutputTableName;
 
 
 /*End of AllSort section*/
+
+/*Begin code to sort by all*/
+OutputResultsToTable:
+
+IF @OutputDatabaseName IS NOT NULL
+   AND @OutputSchemaName IS NOT NULL
+   AND @OutputTableName IS NOT NULL
+BEGIN
+    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
+
+    SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+       @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
+       @OutputTableName    = QUOTENAME(@OutputTableName);
+
+    /* send results to a table */
+    DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
+
+    SET @insert_sql = 'USE '
+        + @OutputDatabaseName
+        + '; IF EXISTS(SELECT * FROM '
+        + @OutputDatabaseName
+        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+        + @OutputSchemaName
+        + ''') AND NOT EXISTS (SELECT * FROM '
+        + @OutputDatabaseName
+        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+        + @OutputTableName + ''') CREATE TABLE '
+        + @OutputSchemaName + '.'
+        + @OutputTableName
+        + N'(ID bigint NOT NULL IDENTITY(1,1),
+          ServerName NVARCHAR(258),
+		  CheckDate DATETIMEOFFSET,
+          Version NVARCHAR(258),
+          QueryType NVARCHAR(258),
+          Warnings varchar(max),
+          DatabaseName sysname,
+          SerialDesiredMemory float,
+          SerialRequiredMemory float,
+          AverageCPU bigint,
+          TotalCPU bigint,
+          PercentCPUByType money,
+          CPUWeight money,
+          AverageDuration bigint,
+          TotalDuration bigint,
+          DurationWeight money,
+          PercentDurationByType money,
+          AverageReads bigint,
+          TotalReads bigint,
+          ReadWeight money,
+          PercentReadsByType money,
+          AverageWrites bigint,
+          TotalWrites bigint,
+          WriteWeight money,
+          PercentWritesByType money,
+          ExecutionCount bigint,
+          ExecutionWeight money,
+          PercentExecutionsByType money,' + N'
+          ExecutionsPerMinute money,
+          PlanCreationTime datetime,
+		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+          LastExecutionTime datetime,
+		  PlanHandle varbinary(64),
+		  [Remove Plan Handle From Cache] AS 
+			CASE WHEN [PlanHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  SqlHandle varbinary(64),
+			[Remove SQL Handle From Cache] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
+			ELSE ''N/A'' END,
+		  [SQL Handle More Info] AS 
+			CASE WHEN [SqlHandle] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+		  QueryHash binary(8),
+		  [Query Hash More Info] AS 
+			CASE WHEN [QueryHash] IS NOT NULL 
+			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
+			ELSE ''N/A'' END,
+          QueryPlanHash binary(8),
+          StatementStartOffset int,
+          StatementEndOffset int,
+          MinReturnedRows bigint,
+          MaxReturnedRows bigint,
+          AverageReturnedRows money,
+          TotalReturnedRows bigint,
+          QueryText nvarchar(max),
+          QueryPlan xml,
+          NumberOfPlans int,
+          NumberOfDistinctPlans int,
+		  MinGrantKB BIGINT,
+		  MaxGrantKB BIGINT,
+		  MinUsedGrantKB BIGINT, 
+		  MaxUsedGrantKB BIGINT,
+		  PercentMemoryGrantUsed MONEY,
+		  AvgMaxMemoryGrant MONEY,
+		  MinSpills BIGINT,
+		  MaxSpills BIGINT,
+		  TotalSpills BIGINT,
+		  AvgSpills MONEY,
+		  QueryPlanCost FLOAT,
+          CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
+
+    		IF @Debug = 1
+			BEGIN
+			    PRINT SUBSTRING(@insert_sql, 0, 4000);
+			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+			END;
+
+	EXEC sp_executesql @insert_sql ;
+
+    IF @CheckDateOverride IS NULL
+        BEGIN
+        SET @CheckDateOverride = SYSDATETIMEOFFSET();
+        END;
+
+
+    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
+          + @OutputDatabaseName
+          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+          + @OutputSchemaName + N''') '
+		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+          + 'INSERT '
+          + @OutputDatabaseName + '.'
+          + @OutputSchemaName + '.'
+          + @OutputTableName
+          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+          + N'SELECT TOP (@Top) '
+          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
+          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
+          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, PlanHandle, SqlHandle, QueryHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+          + N' FROM ##BlitzCacheProcs '
+		  + N' WHERE 1=1 ';
+   
+   IF @MinimumExecutionCount IS NOT NULL
+      BEGIN
+		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
+	  END;
+
+   IF @MinutesBack IS NOT NULL
+      BEGIN
+		SET @insert_sql += N' AND LastExecutionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+	  END;
+
+	SET @insert_sql += N' AND SPID = @@SPID ';
+          
+    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                    WHEN N'reads' THEN N' TotalReads '
+                                                    WHEN N'writes' THEN N' TotalWrites '
+                                                    WHEN N'duration' THEN N' TotalDuration '
+                                                    WHEN N'executions' THEN N' ExecutionCount '
+                                                    WHEN N'compiles' THEN N' PlanCreationTime '
+													WHEN N'memory grant' THEN N' MaxGrantKB'
+													WHEN N'spills' THEN N' MaxSpills'
+                                                    WHEN N'avg cpu' THEN N' AverageCPU'
+                                                    WHEN N'avg reads' THEN N' AverageReads'
+                                                    WHEN N'avg writes' THEN N' AverageWrites'
+                                                    WHEN N'avg duration' THEN N' AverageDuration'
+                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+													WHEN 'avg spills' THEN N' AvgSpills'
+                                                    END + N' DESC ';
+
+    SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
+    
+    	IF @Debug = 1
+		BEGIN
+		    PRINT SUBSTRING(@insert_sql, 0, 4000);
+		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
+		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
+		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
+		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
+		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
+		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
+		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
+		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
+		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+		END;
+
+    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+END; /* End of writing results to table */
 
 END; /*Final End*/
 
@@ -19280,7 +19949,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
+SELECT @Version = '7.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -19366,7 +20035,6 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
     @BlitzCacheMinutesBack INT,
-    @BlitzCacheSortOrder VARCHAR(50),
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
@@ -21978,55 +22646,6 @@ BEGIN
 
 		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
-        /* Set the sp_BlitzCache sort order based on their top wait type */
-
-        /* First, check for poison waits - CheckID 30 */
-        IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
-                                                WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_COMMIT_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_ROLLBACK_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_SLOW_SECONDARY_THROTTLE' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 30
-                ORDER BY DetailsInt DESC;
-            END;
-
-        /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34) AND @memGrantSortSupported = 1
-            SET @BlitzCacheSortOrder = 'memory grant';
-
-        /* Next, Compilations/Sec High - CheckID 15 and 16 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'recent compilations';
-
-        /* Still not set? Use the top wait type. */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'ASYNC_NETWORK_IO' THEN 'duration'
-                                                WHEN Finding = 'CXPACKET' THEN 'reads'
-                                                WHEN Finding = 'LATCH_EX' THEN 'reads'
-                                                WHEN Finding LIKE 'LCK%' THEN 'duration'
-                                                WHEN Finding LIKE 'PAGEIOLATCH%' THEN 'reads'
-                                                WHEN Finding = 'SOS_SCHEDULER_YIELD' THEN 'cpu'
-                                                WHEN Finding = 'WRITELOG' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 6
-                ORDER BY DetailsInt DESC;
-            END;
-        /* Still null? Just use the default. */
-
-
 
         /* If they have an newer version of sp_BlitzCache that supports @MinutesBack and @CheckDateOverride */
         IF EXISTS (SELECT * FROM sys.objects o 
@@ -22050,23 +22669,15 @@ BEGIN
                 IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
                     SET @BlitzCacheMinutesBack = 15;
 
-                IF @BlitzCacheSortOrder IS NOT NULL
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @SortOrder = @BlitzCacheSortOrder,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
-                ELSE
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
+                EXEC sp_BlitzCache
+                    @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                    @OutputSchemaName = @UnquotedOutputSchemaName,
+                    @OutputTableName = @OutputTableNameBlitzCache,
+                    @CheckDateOverride = @StartSampleTime,
+                    @SortOrder = 'all',
+                    @SkipAnalysis = 1,
+                    @MinutesBack = @BlitzCacheMinutesBack,
+                    @Debug = @Debug;
 
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -23279,6 +23890,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
     @BringThePain BIT = 0,
+    @IgnoreDatabases NVARCHAR(MAX) = NULL, /* Comma-delimited list of databases you want to skip */
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
 	@OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(256) = NULL ,
@@ -23294,7 +23906,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
+SELECT @Version = '7.5', @VersionDate = '20190427';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -23374,12 +23986,14 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
+DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
+SET @IgnoreDatabases = LTRIM(RTRIM(@IgnoreDatabases));
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
@@ -23458,6 +24072,9 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 	DROP TABLE #FilteredIndexes;
 		
+IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
+    DROP TABLE #Ignore_Databases
+
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
@@ -23940,6 +24557,12 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 		  column_name NVARCHAR(128) NULL
 		);
 
+        CREATE TABLE #Ignore_Databases 
+        (
+          DatabaseName NVARCHAR(128), 
+          Reason NVARCHAR(100)
+        );
+
 /* Sanitize our inputs */
 SELECT
 	@OutputServerName = QUOTENAME(@OutputServerName),
@@ -23987,6 +24610,37 @@ IF @GetAllDatabases = 1
                         );        
                 END;
             END;
+
+        IF @IgnoreDatabases IS NOT NULL
+            AND LEN(@IgnoreDatabases) > 0
+            BEGIN
+                RAISERROR(N'Setting up filter to ignore databases', 0, 1) WITH NOWAIT;
+                SET @DatabaseToIgnore = '';
+
+                WHILE LEN(@IgnoreDatabases) > 0
+                BEGIN
+                    IF PATINDEX('%,%', @IgnoreDatabases) > 0
+                    BEGIN  
+                        SET @DatabaseToIgnore = SUBSTRING(@IgnoreDatabases, 0, PATINDEX('%,%',@IgnoreDatabases)) ;
+                        
+                        INSERT INTO #Ignore_Databases (DatabaseName, Reason)
+                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        OPTION (RECOMPILE) ;
+                        
+                        SET @IgnoreDatabases = SUBSTRING(@IgnoreDatabases, LEN(@DatabaseToIgnore + ',') + 1, LEN(@IgnoreDatabases)) ;
+                    END;
+                    ELSE
+                    BEGIN
+                        SET @DatabaseToIgnore = @IgnoreDatabases ;
+                        SET @IgnoreDatabases = NULL ;
+
+                        INSERT INTO #Ignore_Databases (DatabaseName, Reason)
+                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        OPTION (RECOMPILE) ;
+                    END;
+            END;
+                
+        END
 
     END;
 ELSE
@@ -24073,16 +24727,72 @@ BEGIN CATCH
         RETURN;
     END CATCH;
 
+
+RAISERROR (N'Checking partition counts to exclude databases with over 100 partitions',0,1) WITH NOWAIT;
+IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
+    BEGIN   
+        DECLARE partition_cursor CURSOR FOR
+        SELECT dl.DatabaseName
+        FROM #DatabaseList dl
+        LEFT OUTER JOIN #Ignore_Databases i ON dl.DatabaseName = i.DatabaseName
+        WHERE COALESCE(dl.secondary_role_allow_connections_desc, 'OK') <> 'NO' 
+        AND i.DatabaseName IS NULL
+
+        OPEN partition_cursor
+        FETCH NEXT FROM partition_cursor INTO @DatabaseName
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            /* Count the total number of partitions */
+            SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+            EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
+            IF @Rowcount > 100
+                BEGIN
+                   RAISERROR (N'Skipping database %s because > 100 partitions were found. To check this database, you must set @BringThePain = 1.',0,1,@DatabaseName) WITH NOWAIT;
+				INSERT INTO #Ignore_Databases (DatabaseName, Reason)
+				SELECT @DatabaseName, 'Over 100 partitions found - use @BringThePain = 1 to analyze'
+                END;
+            FETCH NEXT FROM partition_cursor INTO @DatabaseName
+        END;
+        CLOSE partition_cursor
+        DEALLOCATE partition_cursor
+
+    END;					
+
+INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
+                                index_usage_summary, index_size_summary )
+SELECT  1, 0 , 
+        'Database Skipped',
+        i.DatabaseName,
+        'http://FirstResponderKit.org',
+        i.Reason, '', '', ''
+FROM #Ignore_Databases i;
+
+
+/* Last startup */
+SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
+FROM    sys.databases
+WHERE   database_id = 2;
+
+IF @DaysUptime = 0 OR @DaysUptime IS NULL 
+  SET @DaysUptime = .01;
+
+SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
+
+
 /* Permission granted or unnecessary? Ok, let's go! */
 
+RAISERROR (N'Starting loop through databases',0,1) WITH NOWAIT;
 DECLARE c1 CURSOR 
 LOCAL FAST_FORWARD 
 FOR 
-SELECT DatabaseName 
-FROM #DatabaseList 
-WHERE COALESCE(secondary_role_allow_connections_desc, 'OK') 
-<> 'NO' 
-ORDER BY DatabaseName;
+SELECT dl.DatabaseName 
+FROM #DatabaseList dl
+LEFT OUTER JOIN #Ignore_Databases i ON dl.DatabaseName = i.DatabaseName
+WHERE COALESCE(dl.secondary_role_allow_connections_desc, 'OK') <> 'NO' 
+  AND i.DatabaseName IS NULL
+ORDER BY dl.DatabaseName;
 
 OPEN c1;
 FETCH NEXT FROM c1 INTO @DatabaseName;
@@ -24100,16 +24810,6 @@ FROM     sys.databases
          AND user_access_desc='MULTI_USER'
          AND state_desc = 'ONLINE';
 
-/* Last startup */
-SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
-FROM    sys.databases
-WHERE   database_id = 2;
-
-IF @DaysUptime = 0 OR @DaysUptime IS NULL 
-  SET @DaysUptime = .01;
-
-SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPERTY('ServerName')))) + ' Days Uptime: ' + RTRIM(@DaysUptime);
-
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
 --This step puts index information into temp tables.
@@ -24117,7 +24817,7 @@ SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPE
 BEGIN TRY
     BEGIN
 
-        --Validate SQL Server Verson
+        --Validate SQL Server Version
 
         IF (SELECT LEFT(@SQLServerProductVersion,
               CHARINDEX('.',@SQLServerProductVersion,0)-1
@@ -28199,7 +28899,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.4', @VersionDate = '20190320';
+SELECT @Version = '2.5', @VersionDate = '20190427';
 
 
 IF(@VersionCheckMode = 1)
@@ -28355,7 +29055,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
         DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000);
 
         CREATE TABLE #t (id INT NOT NULL);
-        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+
+		/* WITH ROWCOUNT doesn't work on Amazon RDS - see: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2037 */
+		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND db_id('rdsadmin') IS NULL
+	        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -29287,14 +29993,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
 					NULL AS is_victim,
-					cao.wait_type AS owner_mode,
+					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
 					cao.owner_activity AS owner_activity,
 					cao.waiter_activity	AS owner_waiter_activity,
 					cao.merging	AS owner_merging,
 					cao.spilling AS owner_spilling,
 					cao.waiting_to_close AS owner_waiting_to_close,
-					caw.wait_type AS waiter_mode,
+					caw.wait_type COLLATE DATABASE_DEFAULT AS waiter_mode,
 					caw.waiter_type AS waiter_waiter_type,
 					caw.owner_activity AS waiter_owner_activity,
 					caw.waiter_activity	AS waiter_waiter_activity,
@@ -29461,7 +30167,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
+SELECT @Version = '3.5', @VersionDate = '20190427';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -32554,9 +33260,9 @@ WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS 
 UPDATE b
 SET b.is_fast_forward_cursor = 1
 FROM #working_warnings b
-JOIN #statements AS qs
-ON b.sql_handle = qs.sql_handle
-CROSS APPLY qs.statement.nodes('/p:StmtCursor') AS n1(fn)
+JOIN #statements AS s
+ON b.sql_handle = s.sql_handle
+CROSS APPLY s.statement.nodes('/p:StmtCursor') AS n1(fn)
 WHERE n1.fn.exist('//p:CursorPlan/@CursorActualType[.="FastForward"]') = 1
 AND s.is_cursor = 1
 OPTION (RECOMPILE);
@@ -35186,7 +35892,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.4', @VersionDate = '20190320';
+	SELECT @Version = '7.5', @VersionDate = '20190427';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -36072,7 +36778,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
+SELECT @Version = '7.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37193,7 +37899,7 @@ ALTER PROCEDURE dbo.sp_foreachdb
 AS
     BEGIN
         SET NOCOUNT ON;
-        SELECT @Version = '3.4', @VersionDate = '20190320';
+        SELECT @Version = '3.5', @VersionDate = '20190427';
 		
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37478,7 +38184,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.4', @VersionDate = '20190320';
+  SELECT @Version = '2.5', @VersionDate = '20190427';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37532,6 +38238,9 @@ IF @Help = 1
 		
 		*/
 		';
+		
+		RETURN -1;
+	END
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
@@ -37709,6 +38418,5 @@ IF @Help = 1
 
   CLOSE dbs; 
   DEALLOCATE dbs;
-END
 END
 GO

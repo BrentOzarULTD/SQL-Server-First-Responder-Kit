@@ -30,6 +30,7 @@ DELETE dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (14, 3076, 'RTM CU14', 'https://support.microsoft.com/en-us/help/4484710', '2019-03-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 14'),
     (14, 3048, 'RTM CU13', 'https://support.microsoft.com/en-us/help/4466404', '2018-12-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 13'),
     (14, 3045, 'RTM CU12', 'https://support.microsoft.com/en-us/help/4464082', '2018-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 12'),
     (14, 3038, 'RTM CU11', 'https://support.microsoft.com/en-us/help/4462262', '2018-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 11'),
@@ -78,9 +79,11 @@ VALUES
     (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
     (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    (12, 6259, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/4491539', '2019-04-16', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 3'),
     (12, 6214, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/4482960', '2019-02-19', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 2'),
     (12, 6205, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/4470220', '2018-12-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 1'),
     (12, 6024, 'SP3 ', 'https://support.microsoft.com/en-us/help/4022619', '2018-10-30', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 '),
+    (12, 5626, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/4491540', '2019-04-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 17'),
     (12, 5626, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/4482967', '2019-02-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 16'),
     (12, 5605, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4469137', '2018-12-12', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 15'),
     (12, 5600, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4459860', '2018-10-15', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 14'),
