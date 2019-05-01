@@ -386,6 +386,25 @@ SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
     SET @SimpleFolderEnumeration = 1;
 
+SET @HeadersSQL = 
+N'INSERT INTO #Headers WITH (TABLOCK)
+  (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
+  ,DatabaseName, DatabaseVersion, DatabaseCreationDate, BackupSize, FirstLSN, LastLSN, CheckpointLSN, DatabaseBackupLSN
+  ,BackupStartDate, BackupFinishDate, SortOrder, CodePage, UnicodeLocaleId, UnicodeComparisonStyle, CompatibilityLevel
+  ,SoftwareVendorId, SoftwareVersionMajor, SoftwareVersionMinor, SoftwareVersionBuild, MachineName, Flags, BindingID
+  ,RecoveryForkID, Collation, FamilyGUID, HasBulkLoggedData, IsSnapshot, IsReadOnly, IsSingleUser, HasBackupChecksums
+  ,IsDamaged, BeginsLogChain, HasIncompleteMetaData, IsForceOffline, IsCopyOnly, FirstRecoveryForkID, ForkPointLSN
+  ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize';
+  
+IF @MajorVersion >= 11
+  SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N', Containment';
+
+IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
+  SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
+
+SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
+SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
+
 IF @BackupPathFull IS NOT NULL
 BEGIN
     IF @SimpleFolderEnumeration = 1
@@ -525,25 +544,6 @@ BEGIN
 	    SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
 	    SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
     END
-
-    SET @HeadersSQL = 
-    N'INSERT INTO #Headers WITH (TABLOCK)
-      (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
-      ,DatabaseName, DatabaseVersion, DatabaseCreationDate, BackupSize, FirstLSN, LastLSN, CheckpointLSN, DatabaseBackupLSN
-      ,BackupStartDate, BackupFinishDate, SortOrder, CodePage, UnicodeLocaleId, UnicodeComparisonStyle, CompatibilityLevel
-      ,SoftwareVendorId, SoftwareVersionMajor, SoftwareVersionMinor, SoftwareVersionBuild, MachineName, Flags, BindingID
-      ,RecoveryForkID, Collation, FamilyGUID, HasBulkLoggedData, IsSnapshot, IsReadOnly, IsSingleUser, HasBackupChecksums
-      ,IsDamaged, BeginsLogChain, HasIncompleteMetaData, IsForceOffline, IsCopyOnly, FirstRecoveryForkID, ForkPointLSN
-      ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize';
-  
-    IF @MajorVersion >= 11
-      SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N', Containment';
-
-    IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
-      SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
-
-    SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
-    SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
     --get the backup completed data so we can apply tlogs from that point forwards                                                   
     SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
@@ -715,6 +715,16 @@ BEGIN
 		WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
 	
 	END;
+END;
+
+IF @BackupPathFull IS NULL AND @ContinueLogs = 1
+BEGIN
+		
+	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
+	FROM master.sys.databases d
+	JOIN master.sys.master_files f ON d.database_id = f.database_id
+	WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
+	
 END;
 
 IF @BackupPathDiff IS NOT NULL
