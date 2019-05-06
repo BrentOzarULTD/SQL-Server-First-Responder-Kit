@@ -5651,9 +5651,9 @@ IF @ProductVersionMajor >= 10
 										DB_NAME(s.database_id)
 										+ '' has ''
 										+ CONVERT(NVARCHAR(20), COUNT_BIG(*))
-										+ '' open implicit transactions ''
-										+ '' with an oldest begin time of ''
-										+ CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) AS details
+										+ '' open implicit transactions with an oldest begin time of ''
+										+ CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) 
+										+ '' Run sp_BlitzWho and check the is_implicit_transaction column to see the culprits.'' AS details
 								FROM    sys.dm_tran_active_transactions AS tat
 								LEFT JOIN sys.dm_tran_session_transactions AS tst
 								ON tst.transaction_id = tat.transaction_id
