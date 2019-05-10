@@ -1802,6 +1802,8 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
+RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
+SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (select database_id from sys.dm_hadr_database_replica_states where is_primary_replica = 0 AND DATABASEPROPERTYEX(DB_NAME(database_id), ''Updateability'') = ''READ_ONLY'')' + @nl ;
 
 IF @IgnoreSystemDBs = 1
     BEGIN
