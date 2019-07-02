@@ -373,7 +373,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Getting default log drive for @MoveLogDrive', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
 END;
-IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveDataDrive) > 0 --Has to end in a '\'
+IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveLogDrive) > 0 --Has to end in a '\'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "\"', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive += N'\';
