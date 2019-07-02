@@ -36,7 +36,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.5', @VersionDate = '20190427';
+	SELECT @Version = '7.6', @VersionDate = '20190702';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -78,7 +78,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
@@ -2352,7 +2352,7 @@ AS
 											200 AS Priority ,
 											'Monitoring' AS FindingsGroup ,
 											'Alerts Disabled' AS Finding ,
-											'https://www.BrentOzar.com/go/alerts/' AS URL ,
+											'https://BrentOzar.com/go/alert' AS URL ,
 											( 'The following Alert is disabled, please review and enable if desired: '
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
@@ -5651,9 +5651,9 @@ IF @ProductVersionMajor >= 10
 										DB_NAME(s.database_id)
 										+ '' has ''
 										+ CONVERT(NVARCHAR(20), COUNT_BIG(*))
-										+ '' open implicit transactions ''
-										+ '' with an oldest begin time of ''
-										+ CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) AS details
+										+ '' open implicit transactions with an oldest begin time of ''
+										+ CONVERT(NVARCHAR(30), MIN(tat.transaction_begin_time)) 
+										+ '' Run sp_BlitzWho and check the is_implicit_transaction column to see the culprits.'' AS details
 								FROM    sys.dm_tran_active_transactions AS tat
 								LEFT JOIN sys.dm_tran_session_transactions AS tst
 								ON tst.transaction_id = tat.transaction_id
@@ -8873,6 +8873,25 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
 							ORDER BY r.rownum FOR XML PATH(N'');
 						END;
+                    ELSE IF @OutputType = 'XML'
+                        BEGIN
+							/* --TOURSTOP05-- */
+							SELECT  [Priority] ,
+									[FindingsGroup] ,
+									[Finding] ,
+									[DatabaseName] ,
+									[URL] ,
+									[Details] ,
+									[QueryPlanFiltered] ,
+									CheckID
+							FROM    #BlitzResults
+							ORDER BY Priority ,
+									FindingsGroup ,
+									Finding ,
+									DatabaseName ,
+									Details
+                            FOR XML PATH('Result'), ROOT('sp_Blitz_Output');
+						END;
 					ELSE IF @OutputType <> 'NONE'
 						BEGIN
 							/* --TOURSTOP05-- */
@@ -8986,7 +9005,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.5', @VersionDate = '20190427';
+	SELECT @Version = '3.6', @VersionDate = '20190702';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10758,7 +10777,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.5', @VersionDate = '20190427';
+SELECT @Version = '7.6', @VersionDate = '20190702';
 
 
 IF(@VersionCheckMode = 1)
@@ -12289,6 +12308,11 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
+IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_hadr_database_replica_states' AND c.name = 'is_primary_replica')
+    BEGIN
+    RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
+    SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (select database_id from sys.dm_hadr_database_replica_states where is_primary_replica = 0 AND DATABASEPROPERTYEX(DB_NAME(database_id), ''Updateability'') = ''READ_ONLY'')' + @nl ;
+    END
 
 IF @IgnoreSystemDBs = 1
     BEGIN
@@ -15159,31 +15183,31 @@ BEGIN
 	missing_indexes AS [Missing Indexes],
 	implicit_conversion_info AS [Implicit Conversion Info],
 	cached_execution_parameters AS [Cached Execution Parameters],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS MONEY), 1), N''.00'', N'''') AS [# Executions],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS MONEY), 1), N''.00'', N'''') AS [Executions / Minute],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS MONEY), 1), N''.00'', N'''') AS [Execution Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalCPU) AS MONEY), 1), N''.00'', N'''') AS [Total CPU (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageCPU) AS MONEY), 1), N''.00'', N'''') AS [Avg CPU (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPU) AS MONEY), 1), N''.00'', N'''') AS [CPU Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalDuration) AS MONEY), 1), N''.00'', N'''') AS [Total Duration (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageDuration) AS MONEY), 1), N''.00'', N'''') AS [Avg Duration (ms)],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDuration) AS MONEY), 1), N''.00'', N'''') AS [Duration Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReads) AS MONEY), 1), N''.00'', N'''') AS [Total Reads],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReads) AS MONEY), 1), N''.00'', N'''') AS [Avg Reads],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReads) AS MONEY), 1), N''.00'', N'''') AS [Read Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((TotalWrites) AS MONEY), 1), N''.00'', N'''') AS [Total Writes],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageWrites) AS MONEY), 1), N''.00'', N'''') AS [Avg Writes],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWrites) AS MONEY), 1), N''.00'', N'''') AS [Write Weight],
-    REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Average Rows],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Memory Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Memory Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Used Grant KB], 
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Used Grant KB],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS MONEY), 1), N''.00'', N'''') AS [Average Max Memory Grant],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MinSpills) AS MONEY), 1), N''.00'', N'''') AS [Min Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((MaxSpills) AS MONEY), 1), N''.00'', N'''') AS [Max Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((TotalSpills) AS MONEY), 1), N''.00'', N'''') AS [Total Spills],
-	REPLACE(CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1), N''.00'', N'''') AS [Avg Spills],
+    CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS BIGINT), 1) AS [# Executions],
+    CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS BIGINT), 1) AS [Executions / Minute],
+    CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS BIGINT), 1) AS [Execution Weight],
+    CONVERT(NVARCHAR(30), CAST((TotalCPU) AS BIGINT), 1) AS [Total CPU (ms)],
+    CONVERT(NVARCHAR(30), CAST((AverageCPU) AS BIGINT), 1) AS [Avg CPU (ms)],
+    CONVERT(NVARCHAR(30), CAST((PercentCPU) AS BIGINT), 1) AS [CPU Weight],
+    CONVERT(NVARCHAR(30), CAST((TotalDuration) AS BIGINT), 1) AS [Total Duration (ms)],
+    CONVERT(NVARCHAR(30), CAST((AverageDuration) AS BIGINT), 1) AS [Avg Duration (ms)],
+    CONVERT(NVARCHAR(30), CAST((PercentDuration) AS BIGINT), 1) AS [Duration Weight],
+    CONVERT(NVARCHAR(30), CAST((TotalReads) AS BIGINT), 1) AS [Total Reads],
+    CONVERT(NVARCHAR(30), CAST((AverageReads) AS BIGINT), 1) AS [Avg Reads],
+    CONVERT(NVARCHAR(30), CAST((PercentReads) AS BIGINT), 1) AS [Read Weight],
+    CONVERT(NVARCHAR(30), CAST((TotalWrites) AS BIGINT), 1) AS [Total Writes],
+    CONVERT(NVARCHAR(30), CAST((AverageWrites) AS BIGINT), 1) AS [Avg Writes],
+    CONVERT(NVARCHAR(30), CAST((PercentWrites) AS BIGINT), 1) AS [Write Weight],
+    CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS BIGINT), 1) AS [Average Rows],
+	CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS BIGINT), 1) AS [Minimum Memory Grant KB],
+	CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS BIGINT), 1) AS [Maximum Memory Grant KB],
+	CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS BIGINT), 1) AS [Minimum Used Grant KB], 
+	CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS BIGINT), 1) AS [Maximum Used Grant KB],
+	CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS BIGINT), 1) AS [Average Max Memory Grant],
+	CONVERT(NVARCHAR(30), CAST((MinSpills) AS BIGINT), 1) AS [Min Spills],
+	CONVERT(NVARCHAR(30), CAST((MaxSpills) AS BIGINT), 1) AS [Max Spills],
+	CONVERT(NVARCHAR(30), CAST((TotalSpills) AS BIGINT), 1) AS [Total Spills],
+	CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1) AS [Avg Spills],
     PlanCreationTime AS [Created At],
     LastExecutionTime AS [Last Execution],
 	PlanHandle AS [Plan Handle], 
@@ -15273,49 +15297,49 @@ BEGIN
     END;
     
     SET @columns += N'        
-        REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS MONEY), 1), N''.00'', N'''') AS [# Executions],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS MONEY), 1), N''.00'', N'''') AS [Executions / Minute],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS MONEY), 1), N''.00'', N'''') AS [Execution Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((SerialDesiredMemory) AS MONEY), 1), N''.00'', N'''') AS [Serial Desired Memory],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((SerialRequiredMemory) AS MONEY), 1), N''.00'', N'''') AS [Serial Required Memory],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalCPU) AS MONEY), 1), N''.00'', N'''') AS [Total CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageCPU) AS MONEY), 1), N''.00'', N'''') AS [Avg CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPU) AS MONEY), 1), N''.00'', N'''') AS [CPU Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalDuration) AS MONEY), 1), N''.00'', N'''') AS [Total Duration (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageDuration) AS MONEY), 1), N''.00'', N'''') AS [Avg Duration (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDuration) AS MONEY), 1), N''.00'', N'''') AS [Duration Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReads) AS MONEY), 1), N''.00'', N'''') AS [Total Reads],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReads) AS MONEY), 1), N''.00'', N'''') AS [Average Reads],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReads) AS MONEY), 1), N''.00'', N'''') AS [Read Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalWrites) AS MONEY), 1), N''.00'', N'''') AS [Total Writes],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageWrites) AS MONEY), 1), N''.00'', N'''') AS [Average Writes],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWrites) AS MONEY), 1), N''.00'', N'''') AS [Write Weight],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentExecutionsByType) AS MONEY), 1), N''.00'', N'''') AS [% Executions (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentCPUByType) AS MONEY), 1), N''.00'', N'''') AS [% CPU (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentDurationByType) AS MONEY), 1), N''.00'', N'''') AS [% Duration (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentReadsByType) AS MONEY), 1), N''.00'', N'''') AS [% Reads (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((PercentWritesByType) AS MONEY), 1), N''.00'', N'''') AS [% Writes (Type)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((TotalReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Total Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Avg Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((MinReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Min Rows],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((MaxReturnedRows) AS MONEY), 1), N''.00'', N'''') AS [Max Rows],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Memory Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Memory Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Minimum Used Grant KB], 
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS MONEY), 1), N''.00'', N'''') AS [Maximum Used Grant KB],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS MONEY), 1), N''.00'', N'''') AS [Average Max Memory Grant],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MinSpills) AS MONEY), 1), N''.00'', N'''') AS [Min Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((MaxSpills) AS MONEY), 1), N''.00'', N'''') AS [Max Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((TotalSpills) AS MONEY), 1), N''.00'', N'''') AS [Total Spills],
-		REPLACE(CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1), N''.00'', N'''') AS [Avg Spills],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((NumberOfPlans) AS MONEY), 1), N''.00'', N'''') AS [# Plans],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((NumberOfDistinctPlans) AS MONEY), 1), N''.00'', N'''') AS [# Distinct Plans],
+        CONVERT(NVARCHAR(30), CAST((ExecutionCount) AS BIGINT), 1) AS [# Executions],
+        CONVERT(NVARCHAR(30), CAST((ExecutionsPerMinute) AS BIGINT), 1) AS [Executions / Minute],
+        CONVERT(NVARCHAR(30), CAST((PercentExecutions) AS BIGINT), 1) AS [Execution Weight],
+        CONVERT(NVARCHAR(30), CAST((SerialDesiredMemory) AS BIGINT), 1) AS [Serial Desired Memory],
+        CONVERT(NVARCHAR(30), CAST((SerialRequiredMemory) AS BIGINT), 1) AS [Serial Required Memory],
+        CONVERT(NVARCHAR(30), CAST((TotalCPU) AS BIGINT), 1) AS [Total CPU (ms)],
+        CONVERT(NVARCHAR(30), CAST((AverageCPU) AS BIGINT), 1) AS [Avg CPU (ms)],
+        CONVERT(NVARCHAR(30), CAST((PercentCPU) AS BIGINT), 1) AS [CPU Weight],
+        CONVERT(NVARCHAR(30), CAST((TotalDuration) AS BIGINT), 1) AS [Total Duration (ms)],
+        CONVERT(NVARCHAR(30), CAST((AverageDuration) AS BIGINT), 1) AS [Avg Duration (ms)],
+        CONVERT(NVARCHAR(30), CAST((PercentDuration) AS BIGINT), 1) AS [Duration Weight],
+        CONVERT(NVARCHAR(30), CAST((TotalReads) AS BIGINT), 1) AS [Total Reads],
+        CONVERT(NVARCHAR(30), CAST((AverageReads) AS BIGINT), 1) AS [Average Reads],
+        CONVERT(NVARCHAR(30), CAST((PercentReads) AS BIGINT), 1) AS [Read Weight],
+        CONVERT(NVARCHAR(30), CAST((TotalWrites) AS BIGINT), 1) AS [Total Writes],
+        CONVERT(NVARCHAR(30), CAST((AverageWrites) AS BIGINT), 1) AS [Average Writes],
+        CONVERT(NVARCHAR(30), CAST((PercentWrites) AS BIGINT), 1) AS [Write Weight],
+        CONVERT(NVARCHAR(30), CAST((PercentExecutionsByType) AS BIGINT), 1) AS [% Executions (Type)],
+        CONVERT(NVARCHAR(30), CAST((PercentCPUByType) AS BIGINT), 1) AS [% CPU (Type)],
+        CONVERT(NVARCHAR(30), CAST((PercentDurationByType) AS BIGINT), 1) AS [% Duration (Type)],
+        CONVERT(NVARCHAR(30), CAST((PercentReadsByType) AS BIGINT), 1) AS [% Reads (Type)],
+        CONVERT(NVARCHAR(30), CAST((PercentWritesByType) AS BIGINT), 1) AS [% Writes (Type)],
+        CONVERT(NVARCHAR(30), CAST((TotalReturnedRows) AS BIGINT), 1) AS [Total Rows],
+        CONVERT(NVARCHAR(30), CAST((AverageReturnedRows) AS BIGINT), 1) AS [Avg Rows],
+        CONVERT(NVARCHAR(30), CAST((MinReturnedRows) AS BIGINT), 1) AS [Min Rows],
+        CONVERT(NVARCHAR(30), CAST((MaxReturnedRows) AS BIGINT), 1) AS [Max Rows],
+		CONVERT(NVARCHAR(30), CAST((MinGrantKB) AS BIGINT), 1) AS [Minimum Memory Grant KB],
+		CONVERT(NVARCHAR(30), CAST((MaxGrantKB) AS BIGINT), 1) AS [Maximum Memory Grant KB],
+		CONVERT(NVARCHAR(30), CAST((MinUsedGrantKB) AS BIGINT), 1) AS [Minimum Used Grant KB], 
+		CONVERT(NVARCHAR(30), CAST((MaxUsedGrantKB) AS BIGINT), 1) AS [Maximum Used Grant KB],
+		CONVERT(NVARCHAR(30), CAST((AvgMaxMemoryGrant) AS BIGINT), 1) AS [Average Max Memory Grant],
+		CONVERT(NVARCHAR(30), CAST((MinSpills) AS BIGINT), 1) AS [Min Spills],
+		CONVERT(NVARCHAR(30), CAST((MaxSpills) AS BIGINT), 1) AS [Max Spills],
+		CONVERT(NVARCHAR(30), CAST((TotalSpills) AS BIGINT), 1) AS [Total Spills],
+		CONVERT(NVARCHAR(30), CAST((AvgSpills) AS MONEY), 1) AS [Avg Spills],
+        CONVERT(NVARCHAR(30), CAST((NumberOfPlans) AS BIGINT), 1) AS [# Plans],
+        CONVERT(NVARCHAR(30), CAST((NumberOfDistinctPlans) AS BIGINT), 1) AS [# Distinct Plans],
         PlanCreationTime AS [Created At],
         LastExecutionTime AS [Last Execution],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CachedPlanSize) AS MONEY), 1), N''.00'', N'''') AS [Cached Plan Size (KB)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileTime) AS MONEY), 1), N''.00'', N'''') AS [Compile Time (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileCPU) AS MONEY), 1), N''.00'', N'''') AS [Compile CPU (ms)],
-        REPLACE(CONVERT(NVARCHAR(30), CAST((CompileMemory) AS MONEY), 1), N''.00'', N'''') AS [Compile memory (KB)],
+        CONVERT(NVARCHAR(30), CAST((CachedPlanSize) AS BIGINT), 1) AS [Cached Plan Size (KB)],
+        CONVERT(NVARCHAR(30), CAST((CompileTime) AS BIGINT), 1) AS [Compile Time (ms)],
+        CONVERT(NVARCHAR(30), CAST((CompileCPU) AS BIGINT), 1) AS [Compile CPU (ms)],
+        CONVERT(NVARCHAR(30), CAST((CompileMemory) AS BIGINT), 1) AS [Compile memory (KB)],
         COALESCE(SetOptions, '''') AS [SET Options],
 		PlanHandle AS [Plan Handle], 
 		SqlHandle AS [SQL Handle], 
@@ -17140,7 +17164,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.5', @VersionDate = '20190427';
+SELECT @Version = '7.6', @VersionDate = '20190702';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -18382,8 +18406,9 @@ BEGIN
         'Maintenance Tasks Running' AS FindingGroup,
         'Backup Running' AS Finding,
         'http://www.BrentOzar.com/askbrent/backups/' AS URL,
-        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' 
-		   + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
+        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+            + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+		    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
         'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
         pl.query_plan AS QueryPlan,
         r.start_time AS StartTime,
@@ -18521,9 +18546,9 @@ BEGIN
                 ''Long-Running Query Blocking Others'' AS Finding,
                 ''http://www.BrentOzar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' ' 
+                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows: ' 
 					+ @LineFeed + @LineFeed + 
-					'+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+					'''+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
                     (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '''') AS NVARCHAR(2000)) AS Details,
                 ''KILL '' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + '';'' AS HowToStopIt,
                 (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
@@ -18541,7 +18566,9 @@ BEGIN
 	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
             LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
             INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-            WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000;';
+            WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000
+              /* And the blocking session ID is not blocked by anyone else: */
+              AND NOT EXISTS(SELECT * FROM sys.dm_os_waiting_tasks tBlocking WHERE s.session_id = tBlocking.session_id AND tBlocking.session_id <> tBlocking.blocking_session_id AND tBlocking.blocking_session_id IS NOT NULL);';
 		EXECUTE sp_executesql @StringToExecute;
     END;
 
@@ -18609,17 +18636,18 @@ BEGIN
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
 		SELECT  37 AS CheckId,
 		        50 AS Priority,
-		        ''Implicit Transactions'' AS FindingsGroup,
-		        ''Queries were found running using implicit transactions'',
+		        ''Query Problems'' AS FindingsGroup,
+		        ''Implicit Transactions'',
 		        ''https://www.brentozar.com/go/ImplicitTransactions/'' AS URL,
-		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + 
-				''Host: '' + s.[host_name]  + '' '' + 
-				''Program: '' + s.[program_name]  + '' '' + 
+		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + CHAR(13) + CHAR(10) +
+				''Host: '' + s.[host_name]  + '' '' + CHAR(13) + CHAR(10) +
+				''Program: '' + s.[program_name]  + '' '' + CHAR(13) + CHAR(10) +
 				CONVERT(NVARCHAR(10), s.open_transaction_count) + 
 				'' open transactions since: '' + 
 				CONVERT(NVARCHAR(30), tat.transaction_begin_time) + ''. '' 
 					AS Details,
-				''Check client configuration options'' AS HowToStopit,
+				''Run sp_BlitzWho and check the is_implicit_transaction column to spot the culprits.
+If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		        tat.transaction_begin_time,
 		        s.login_name,
 		        s.nt_user_name,
@@ -21097,7 +21125,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.5', @VersionDate = '20190427';
+SELECT @Version = '7.6', @VersionDate = '20190702';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -26090,7 +26118,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.5', @VersionDate = '20190427';
+SELECT @Version = '2.6', @VersionDate = '20190702';
 
 
 IF(@VersionCheckMode = 1)
@@ -27358,7 +27386,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.5', @VersionDate = '20190427';
+SELECT @Version = '3.6', @VersionDate = '20190702';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -33083,7 +33111,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.5', @VersionDate = '20190427';
+	SELECT @Version = '7.6', @VersionDate = '20190702';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
