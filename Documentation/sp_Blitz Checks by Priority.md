@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 224.  
-If you want to add a new one, start at 225.
+CURRENT HIGH CHECKID: 229.
+If you want to add a new one, start at 230.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -24,6 +24,7 @@ If you want to add a new one, start at 225.
 | 1 | Corruption | Database Corruption Detected | https://www.BrentOzar.com/go/repair | 90 |
 | 1 | Performance | Memory Dangerously Low | https://www.BrentOzar.com/go/max | 51 |
 | 1 | Performance | Memory Dangerously Low in NUMA Nodes | https://www.BrentOzar.com/go/max | 159 |
+| 1 | Reliability | Evaluation Edition | https://www.BrentOzar.com/go/workgroup | 229 |
 | 1 | Reliability | Last good DBCC CHECKDB over 2 weeks old | https://www.BrentOzar.com/go/checkdb | 68 |
 | 5 | Monitoring | Disabled Internal Monitoring Features | https://msdn.microsoft.com/en-us/library/ms190737.aspx | 177 |
 | 5 | Reliability | Dangerous Third Party Modules | https://support.microsoft.com/en-us/kb/2033238 | 179 |
@@ -242,6 +243,7 @@ If you want to add a new one, start at 225.
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
 | 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
+| 200 | Reliability | Resumable Index Operation Paused | https://www.BrentOzar.com/go/resumable | 225 |
 | 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |
 | 210 | Non-Default Database Config | Auto Create Stats Incremental Enabled | https://www.BrentOzar.com/go/dbdefaults | 134 |
@@ -296,5 +298,8 @@ If you want to add a new one, start at 225.
 | 250 | Server Info | Windows Version |  | 172 |
 | 250 | Server Info | Power Plan |  | 211 |
 | 250 | Server Info | Stacked Instances | https://www.brentozar.com/go/babygotstacked/ | 212 |
+| 253 | First Responder Kit | Version Check Failed | http://FirstResponderKit.org | 226 |
+| 253 | First Responder Kit | Component Missing | http://FirstResponderKit.org | 227 |
+| 253 | First Responder Kit | Component Outdated | http://FirstResponderKit.org | 228 |
 | 254 | Rundate | (Current Date) |  | 156 |
 | 255 | Thanks! | From Your Community Volunteers |  | -1 |

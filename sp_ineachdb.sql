@@ -1,8 +1,8 @@
 IF OBJECT_ID('dbo.sp_ineachdb') IS NULL
-    EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0');
+    EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0')
 GO
 
-ALTER PROCEDURE dbo.sp_ineachdb
+ALTER PROCEDURE [dbo].[sp_ineachdb]
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
   @command             nvarchar(max) = NULL,
   @replace_character   nchar(1) = N'?',
@@ -33,7 +33,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.4', @VersionDate = '20190320';
+  SELECT @Version = '2.6', @VersionDate = '20190702';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -87,6 +87,9 @@ IF @Help = 1
 		
 		*/
 		';
+		
+		RETURN -1;
+	END
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
@@ -95,6 +98,9 @@ IF @Help = 1
           @cmd    nvarchar(max),
           @thisdb sysname,
           @cr     char(2) = CHAR(13) + CHAR(10);
+
+DECLARE @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff		-- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017))
+DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) -- Stores the SQL Server Instance name.
 
   CREATE TABLE #ineachdb(id int, name nvarchar(512));
 
@@ -187,12 +193,14 @@ IF @Help = 1
           -- https://docs.microsoft.com/en-us/sql/t-sql/functions/databasepropertyex-transact-sql
         )
         OR (@state_desc <> N'ONLINE' AND state_desc <> @state_desc)
-        OR
-        (
-          -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
-          -- AG secondary, we skip any database where allow connections is off
-          SERVERPROPERTY('IsHadrEnabled') = 1
-          AND EXISTS
+      )
+  );
+
+-- from Andy Mallon / First Responders Kit. Make sure that if we're an 
+-- AG secondary, we skip any database where allow connections is off
+if @SQLVersion >= 11
+  DELETE dbs FROM #ineachdb AS dbs
+  WHERE EXISTS
           (
             SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
               INNER JOIN sys.availability_replicas AS ar
@@ -201,10 +209,7 @@ IF @Help = 1
               ON ags.group_id = ar.group_id
               WHERE drs.database_id = dbs.id
               AND ar.secondary_role_allow_connections = 0
-              AND ags.primary_replica <> @@SERVERNAME
-          )
-        )
-      )
+              AND ags.primary_replica <> @ServerName
   );
 
   -- Well, if we deleted them all...
@@ -264,6 +269,5 @@ IF @Help = 1
 
   CLOSE dbs; 
   DEALLOCATE dbs;
-END
 END
 GO

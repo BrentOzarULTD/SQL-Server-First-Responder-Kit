@@ -42,7 +42,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
+SELECT @Version = '7.6', @VersionDate = '20190702';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -128,7 +128,6 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @ObjectFullName NVARCHAR(2000),
 	@BlitzWho NVARCHAR(MAX) = N'EXEC dbo.sp_BlitzWho @ShowSleepingSPIDs = ' + CONVERT(NVARCHAR(1), @ShowSleepingSPIDs) + N';',
     @BlitzCacheMinutesBack INT,
-    @BlitzCacheSortOrder VARCHAR(50),
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
@@ -1285,8 +1284,9 @@ BEGIN
         'Maintenance Tasks Running' AS FindingGroup,
         'Backup Running' AS Finding,
         'http://www.BrentOzar.com/askbrent/backups/' AS URL,
-        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' 
-		   + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
+        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+            + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+		    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
         'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
         pl.query_plan AS QueryPlan,
         r.start_time AS StartTime,
@@ -1424,9 +1424,9 @@ BEGIN
                 ''Long-Running Query Blocking Others'' AS Finding,
                 ''http://www.BrentOzar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
-                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows:'' ' 
+                    (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows: ' 
 					+ @LineFeed + @LineFeed + 
-					'+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
+					'''+ CAST(COALESCE((SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(r.sql_handle)),
                     (SELECT TOP 1 [text] FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) WHERE spBlocker.spid = tBlocked.blocking_session_id), '''') AS NVARCHAR(2000)) AS Details,
                 ''KILL '' + CAST(tBlocked.blocking_session_id AS NVARCHAR(100)) + '';'' AS HowToStopIt,
                 (SELECT TOP 1 query_plan FROM sys.dm_exec_query_plan(r.plan_handle)) AS QueryPlan,
@@ -1444,7 +1444,9 @@ BEGIN
 	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
             LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
             INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-            WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000;';
+            WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000
+              /* And the blocking session ID is not blocked by anyone else: */
+              AND NOT EXISTS(SELECT * FROM sys.dm_os_waiting_tasks tBlocking WHERE s.session_id = tBlocking.session_id AND tBlocking.session_id <> tBlocking.blocking_session_id AND tBlocking.blocking_session_id IS NOT NULL);';
 		EXECUTE sp_executesql @StringToExecute;
     END;
 
@@ -1512,17 +1514,18 @@ BEGIN
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
 		SELECT  37 AS CheckId,
 		        50 AS Priority,
-		        ''Implicit Transactions'' AS FindingsGroup,
-		        ''Queries were found running using implicit transactions'',
+		        ''Query Problems'' AS FindingsGroup,
+		        ''Implicit Transactions'',
 		        ''https://www.brentozar.com/go/ImplicitTransactions/'' AS URL,
-		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + 
-				''Host: '' + s.[host_name]  + '' '' + 
-				''Program: '' + s.[program_name]  + '' '' + 
+		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + CHAR(13) + CHAR(10) +
+				''Host: '' + s.[host_name]  + '' '' + CHAR(13) + CHAR(10) +
+				''Program: '' + s.[program_name]  + '' '' + CHAR(13) + CHAR(10) +
 				CONVERT(NVARCHAR(10), s.open_transaction_count) + 
 				'' open transactions since: '' + 
 				CONVERT(NVARCHAR(30), tat.transaction_begin_time) + ''. '' 
 					AS Details,
-				''Check client configuration options'' AS HowToStopit,
+				''Run sp_BlitzWho and check the is_implicit_transaction column to spot the culprits.
+If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		        tat.transaction_begin_time,
 		        s.login_name,
 		        s.nt_user_name,
@@ -2740,55 +2743,6 @@ BEGIN
 
 		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
-        /* Set the sp_BlitzCache sort order based on their top wait type */
-
-        /* First, check for poison waits - CheckID 30 */
-        IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 30)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: RESOURCE_SEMAPHORE_QUERY_COMPILE' AND @memGrantSortSupported = 1 THEN 'memory grant'
-                                                WHEN Finding = 'Poison Wait Detected: THREADPOOL' THEN 'executions'
-                                                WHEN Finding = 'Poison Wait Detected: LOG_RATE_GOVERNOR' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_CATCHUP_THROTTLE' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_COMMIT_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_ROLLBACK_ACK' THEN 'writes'
-                                                WHEN Finding = 'Poison Wait Detected: SE_REPL_SLOW_SECONDARY_THROTTLE' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 30
-                ORDER BY DetailsInt DESC;
-            END;
-
-        /* Too much free memory - which probably indicates queries finished w/huge grants - CheckID 34 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 34) AND @memGrantSortSupported = 1
-            SET @BlitzCacheSortOrder = 'memory grant';
-
-        /* Next, Compilations/Sec High - CheckID 15 and 16 */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID IN (15,16))
-            SET @BlitzCacheSortOrder = 'recent compilations';
-
-        /* Still not set? Use the top wait type. */
-        IF @BlitzCacheSortOrder IS NULL AND EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 6)
-            BEGIN
-            SELECT TOP 1 @BlitzCacheSortOrder = CASE
-                                                WHEN Finding = 'ASYNC_NETWORK_IO' THEN 'duration'
-                                                WHEN Finding = 'CXPACKET' THEN 'reads'
-                                                WHEN Finding = 'LATCH_EX' THEN 'reads'
-                                                WHEN Finding LIKE 'LCK%' THEN 'duration'
-                                                WHEN Finding LIKE 'PAGEIOLATCH%' THEN 'reads'
-                                                WHEN Finding = 'SOS_SCHEDULER_YIELD' THEN 'cpu'
-                                                WHEN Finding = 'WRITELOG' THEN 'writes'
-                                            ELSE NULL
-                                            END
-                FROM #BlitzFirstResults
-                WHERE CheckID = 6
-                ORDER BY DetailsInt DESC;
-            END;
-        /* Still null? Just use the default. */
-
-
 
         /* If they have an newer version of sp_BlitzCache that supports @MinutesBack and @CheckDateOverride */
         IF EXISTS (SELECT * FROM sys.objects o 
@@ -2812,23 +2766,15 @@ BEGIN
                 IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
                     SET @BlitzCacheMinutesBack = 15;
 
-                IF @BlitzCacheSortOrder IS NOT NULL
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @SortOrder = @BlitzCacheSortOrder,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
-                ELSE
-                    EXEC sp_BlitzCache
-                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                        @OutputSchemaName = @UnquotedOutputSchemaName,
-                        @OutputTableName = @OutputTableNameBlitzCache,
-                        @CheckDateOverride = @StartSampleTime,
-                        @MinutesBack = @BlitzCacheMinutesBack,
-                        @Debug = @Debug;
+                EXEC sp_BlitzCache
+                    @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                    @OutputSchemaName = @UnquotedOutputSchemaName,
+                    @OutputTableName = @OutputTableNameBlitzCache,
+                    @CheckDateOverride = @StartSampleTime,
+                    @SortOrder = 'all',
+                    @SkipAnalysis = 1,
+                    @MinutesBack = @BlitzCacheMinutesBack,
+                    @Debug = @Debug;
 
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '

@@ -27,7 +27,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.4', @VersionDate = '20190320';
+SELECT @Version = '2.6', @VersionDate = '20190702';
 
 
 IF(@VersionCheckMode = 1)
@@ -183,7 +183,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
         DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000);
 
         CREATE TABLE #t (id INT NOT NULL);
-        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+
+		/* WITH ROWCOUNT doesn't work on Amazon RDS - see: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2037 */
+		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
+		   AND db_id('rdsadmin') IS NULL
+	        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -1115,14 +1121,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
 					NULL AS is_victim,
-					cao.wait_type AS owner_mode,
+					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
 					cao.owner_activity AS owner_activity,
 					cao.waiter_activity	AS owner_waiter_activity,
 					cao.merging	AS owner_merging,
 					cao.spilling AS owner_spilling,
 					cao.waiting_to_close AS owner_waiting_to_close,
-					caw.wait_type AS waiter_mode,
+					caw.wait_type COLLATE DATABASE_DEFAULT AS waiter_mode,
 					caw.waiter_type AS waiter_waiter_type,
 					caw.owner_activity AS waiter_owner_activity,
 					caw.waiter_activity	AS waiter_waiter_activity,
