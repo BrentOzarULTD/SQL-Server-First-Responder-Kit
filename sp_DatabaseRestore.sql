@@ -13,7 +13,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
     @TestRestore BIT = 0, 
     @RunCheckDB BIT = 0, 
-    @RestoreDiff BIT = NULL,
+    @RestoreDiff BIT = 0,
     @ContinueLogs BIT = 0, 
     @StandbyMode BIT = 0,
     @StandbyUndoPath NVARCHAR(MAX) = NULL,
@@ -730,11 +730,6 @@ END;
 
 IF @BackupPathDiff IS NOT NULL
 BEGIN 
-	IF @RestoreDiff IS NULL
-	BEGIN
-		SET @RestoreDiff = 1
-	END
-	
     DELETE FROM @FileList;
     DELETE FROM @FileListSimple;
     IF @SimpleFolderEnumeration = 1
