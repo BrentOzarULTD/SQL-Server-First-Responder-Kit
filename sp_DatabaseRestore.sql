@@ -23,6 +23,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
+	@DatabaseOwner SYSNAME = NULL,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
     @Help BIT = 0,
@@ -1116,6 +1117,28 @@ IF @RunCheckDB = 1
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'INTEGRITY CHECK', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+	END;
+
+
+IF @DatabaseOwner IS NOT NULL
+	BEGIN
+		IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
+		BEGIN
+			SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @databaseowner + ']';
+
+				IF @Debug = 1 OR @Execute = 'N'
+				BEGIN
+					IF @sql IS NULL PRINT '@sql is NULL for Set Database Owner';
+					PRINT @sql;
+				END;
+
+			IF @Debug IN (0, 1) AND @Execute = 'Y'
+				EXECUTE (@sql);
+		END
+		ELSE
+		BEGIN
+			PRINT @DatabaseOwner + ' is not a valid Login. Database Owner not set.'
+		END
 	END;
 
  -- If test restore then blow the database away (be careful)
