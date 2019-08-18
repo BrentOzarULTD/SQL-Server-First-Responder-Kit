@@ -127,7 +127,9 @@ SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARC
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
-SET @IgnoreDatabases = LTRIM(RTRIM(@IgnoreDatabases));
+SET @IgnoreDatabases = REPLACE(REPLACE(LTRIM(RTRIM(@IgnoreDatabases)), CHAR(10), ''), CHAR(13), '');
+
+
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
@@ -758,7 +760,7 @@ IF @GetAllDatabases = 1
                         SET @DatabaseToIgnore = SUBSTRING(@IgnoreDatabases, 0, PATINDEX('%,%',@IgnoreDatabases)) ;
                         
                         INSERT INTO #Ignore_Databases (DatabaseName, Reason)
-                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        SELECT LTRIM(RTRIM(@DatabaseToIgnore)), 'Specified in the @IgnoreDatabases parameter'
                         OPTION (RECOMPILE) ;
                         
                         SET @IgnoreDatabases = SUBSTRING(@IgnoreDatabases, LEN(@DatabaseToIgnore + ',') + 1, LEN(@IgnoreDatabases)) ;
@@ -769,7 +771,7 @@ IF @GetAllDatabases = 1
                         SET @IgnoreDatabases = NULL ;
 
                         INSERT INTO #Ignore_Databases (DatabaseName, Reason)
-                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        SELECT LTRIM(RTRIM(@DatabaseToIgnore)), 'Specified in the @IgnoreDatabases parameter'
                         OPTION (RECOMPILE) ;
                     END;
             END;
