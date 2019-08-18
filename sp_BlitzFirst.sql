@@ -1695,7 +1695,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
 	DECLARE @MaxWorkspace BIGINT
-	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+	SET @MaxWorkspace = (SELECT CAST(cntr_value AS BIGINT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
 	
 	IF (@MaxWorkspace IS NULL
 	    OR @MaxWorkspace = 0)
