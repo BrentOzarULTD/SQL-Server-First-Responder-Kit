@@ -790,6 +790,7 @@ IF @MinutesBack IS NOT NULL
 
 RAISERROR(N'Creating temp tables for results and warnings.', 0, 1) WITH NOWAIT;
 
+
 IF OBJECT_ID('tempdb.dbo.##BlitzCacheResults') IS NULL
 BEGIN
     CREATE TABLE ##BlitzCacheResults (
@@ -1195,6 +1196,9 @@ IF OBJECT_ID('tempdb..#missing_index_pretty') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#index_spool_ugly') IS NOT NULL
     DROP TABLE #index_spool_ugly;
+	
+IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
+	DROP TABLE #ReadableDBs;	
 
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
@@ -1472,6 +1476,18 @@ CREATE TABLE #index_spool_ugly
 	creation_hours NVARCHAR(128)
 );
 
+
+CREATE TABLE #ReadableDBs 
+(
+database_id INT
+);
+
+IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+BEGIN
+	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+
+    EXEC('INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;');
+END
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -1802,10 +1818,10 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
-IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_hadr_database_replica_states' AND c.name = 'is_primary_replica')
+	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
     BEGIN
     RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
-    SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (select database_id from sys.dm_hadr_database_replica_states where is_primary_replica = 0 AND DATABASEPROPERTYEX(DB_NAME(database_id), ''Updateability'') = ''READ_ONLY'')' + @nl ;
+    SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (SELECT database_id FROM #ReadableDBs)' + @nl ;
     END
 
 IF @IgnoreSystemDBs = 1
