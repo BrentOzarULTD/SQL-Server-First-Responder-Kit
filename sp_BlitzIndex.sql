@@ -4749,7 +4749,7 @@ BEGIN;
 										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
 											ELSE ''NonClustered''
 											END AS [Object Type], 
-										index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
+										LEFT(index_definition,4000) AS [Definition: [Property]] ColumnName {datatype maxbytes}],
 										ISNULL(LTRIM(key_column_names_with_sort_order), '''') AS [Key Column Names With Sort],
 										ISNULL(count_key_columns, 0) AS [Count Key Columns],
 										ISNULL(include_column_names, '''') AS [Include Column Names], 
