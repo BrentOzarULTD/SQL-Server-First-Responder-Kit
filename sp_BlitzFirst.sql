@@ -1369,6 +1369,7 @@ BEGIN
     CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
     WHERE r.command LIKE 'DBCC%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
 	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
