@@ -1154,7 +1154,7 @@ IF @DatabaseOwner IS NOT NULL
 	BEGIN
 		IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
 		BEGIN
-			SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @databaseowner + ']';
+			SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @DatabaseOwner + ']';
 
 				IF @Debug = 1 OR @Execute = 'N'
 				BEGIN
