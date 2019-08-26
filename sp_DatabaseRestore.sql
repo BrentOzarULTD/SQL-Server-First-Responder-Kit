@@ -27,6 +27,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
 	@DatabaseOwner sysname = NULL,
+	@DatabaseOwner SYSNAME = NULL,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
     @Help BIT = 0,
@@ -39,6 +40,7 @@ SET NOCOUNT ON;
 /*Versioning details*/
 
 SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 
 IF(@VersionCheckMode = 1)
 BEGIN
