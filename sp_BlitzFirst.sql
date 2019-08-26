@@ -42,7 +42,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.6', @VersionDate = '20190702';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -293,6 +293,7 @@ BEGIN
     download that from http://FirstResponderKit.org if you want to build
     a tool that relies on the output of sp_BlitzFirst.
     */
+
 
     IF OBJECT_ID('tempdb..#BlitzFirstResults') IS NOT NULL
         DROP TABLE #BlitzFirstResults;
@@ -997,6 +998,21 @@ BEGIN
             END;
         END;
 
+	IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
+		DROP TABLE #ReadableDBs;
+	CREATE TABLE #ReadableDBs (
+	database_id INT
+	);
+
+	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+    BEGIN
+		RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+
+        SET @StringToExecute = 'INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;';
+        EXEC(@StringToExecute);
+		
+	END
+
 
     SET @StockWarningHeader = '<?ClickToSeeCommmand -- ' + @LineFeed + @LineFeed
         + 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
@@ -1309,7 +1325,8 @@ BEGIN
     AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     WHERE r.command LIKE 'BACKUP%'
-	AND r.start_time <= DATEADD(minute, -5, GETDATE());
+	AND r.start_time <= DATEADD(minute, -5, GETDATE())
+	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
@@ -1351,7 +1368,9 @@ BEGIN
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
     WHERE r.command LIKE 'DBCC%'
-	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%';
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
@@ -1384,7 +1403,8 @@ BEGIN
     AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
     WHERE r.command LIKE 'RESTORE%'
-    AND s.program_name <> 'SQL Server Log Shipping';
+    AND s.program_name <> 'SQL Server Log Shipping'
+	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
@@ -1411,7 +1431,8 @@ BEGIN
     INNER JOIN sys.dm_exec_requests r ON t.session_id = r.session_id
     INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
     CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE t.wait_type = 'PREEMPTIVE_OS_WRITEFILEGATHER';
+    WHERE t.wait_type = 'PREEMPTIVE_OS_WRITEFILEGATHER'
+	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
@@ -1446,10 +1467,11 @@ BEGIN
             INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
             WHERE tBlocked.wait_type LIKE ''LCK%'' AND tBlocked.wait_duration_ms > 30000
               /* And the blocking session ID is not blocked by anyone else: */
-              AND NOT EXISTS(SELECT * FROM sys.dm_os_waiting_tasks tBlocking WHERE s.session_id = tBlocking.session_id AND tBlocking.session_id <> tBlocking.blocking_session_id AND tBlocking.blocking_session_id IS NOT NULL);';
+              AND NOT EXISTS(SELECT * FROM sys.dm_os_waiting_tasks tBlocking WHERE s.session_id = tBlocking.session_id AND tBlocking.session_id <> tBlocking.blocking_session_id AND tBlocking.blocking_session_id IS NOT NULL)
+			  AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);';
 		EXECUTE sp_executesql @StringToExecute;
     END;
-
+	
     /* Query Problems - Plan Cache Erased Recently */
     IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
@@ -1674,7 +1696,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
 	DECLARE @MaxWorkspace BIGINT
-	SET @MaxWorkspace = (SELECT CAST(cntr_value AS INT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
+	SET @MaxWorkspace = (SELECT CAST(cntr_value AS BIGINT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
 	
 	IF (@MaxWorkspace IS NULL
 	    OR @MaxWorkspace = 0)

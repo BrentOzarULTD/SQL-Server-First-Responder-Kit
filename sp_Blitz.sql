@@ -36,7 +36,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.6', @VersionDate = '20190702';
+	SELECT @Version = '7.7', @VersionDate = '20190826';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -8273,6 +8273,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							             THEN 'balanced power mode -- Uh... you want your CPUs to run at full speed, right?'
 							             WHEN '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 							             THEN 'high performance power mode'
+							             WHEN 'e9a42b02-d5df-448d-aa00-03f14749eb61'
+							             THEN 'ultimate performance power mode'
 										 ELSE 'an unknown power mode.'
 							        END AS Details
 								

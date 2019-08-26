@@ -271,7 +271,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.6', @VersionDate = '20190702';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 
 
 IF(@VersionCheckMode = 1)
@@ -790,6 +790,7 @@ IF @MinutesBack IS NOT NULL
 
 RAISERROR(N'Creating temp tables for results and warnings.', 0, 1) WITH NOWAIT;
 
+
 IF OBJECT_ID('tempdb.dbo.##BlitzCacheResults') IS NULL
 BEGIN
     CREATE TABLE ##BlitzCacheResults (
@@ -990,7 +991,9 @@ END;
 DECLARE @DurationFilter_i INT,
 		@MinMemoryPerQuery INT,
         @msg NVARCHAR(4000),
-		@NoobSaibot BIT = 0;
+		@NoobSaibot BIT = 0,
+		@VersionShowsAirQuoteActualPlans BIT;
+
 
 IF @SortOrder = 'sp_BlitzIndex'
 BEGIN
@@ -1089,10 +1092,12 @@ IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec
 ELSE
     SET @VersionShowsSpills = 0;
 
-DECLARE @VersionShowsAirQuoteActualPlans BIT;
+/* This new 2019 & Azure SQL DB feature isn't working consistently, so turning it back off til Microsoft gets it ready.
+   See this Github issue for more details: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2022
 IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
+*/
     SET @VersionShowsAirQuoteActualPlans = 0;
 
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
@@ -1195,6 +1200,9 @@ IF OBJECT_ID('tempdb..#missing_index_pretty') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#index_spool_ugly') IS NOT NULL
     DROP TABLE #index_spool_ugly;
+	
+IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
+	DROP TABLE #ReadableDBs;	
 
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
@@ -1472,6 +1480,18 @@ CREATE TABLE #index_spool_ugly
 	creation_hours NVARCHAR(128)
 );
 
+
+CREATE TABLE #ReadableDBs 
+(
+database_id INT
+);
+
+IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+BEGIN
+	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+
+    EXEC('INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;');
+END
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 WITH x AS (
@@ -1802,10 +1822,10 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
-IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id WHERE o.name = 'dm_hadr_database_replica_states' AND c.name = 'is_primary_replica')
+	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
     BEGIN
     RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
-    SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (select database_id from sys.dm_hadr_database_replica_states where is_primary_replica = 0 AND DATABASEPROPERTYEX(DB_NAME(database_id), ''Updateability'') = ''READ_ONLY'')' + @nl ;
+    SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (SELECT database_id FROM #ReadableDBs)' + @nl ;
     END
 
 IF @IgnoreSystemDBs = 1
@@ -4438,8 +4458,8 @@ SELECT  DISTINCT
                   CASE WHEN is_forced_plan = 1 THEN ', Forced Plan' ELSE '' END +
                   CASE WHEN is_forced_parameterized = 1 THEN ', Forced Parameterization' ELSE '' END +
                   --CASE WHEN unparameterized_query = 1 THEN ', Unparameterized Query' ELSE '' END +
-                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +
-                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ')' ELSE '' END +                  
+                  CASE WHEN missing_index_count > 0 THEN ', Missing Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.missing_index_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ')' ELSE '' END +
+                  CASE WHEN unmatched_index_count > 0 THEN ', Unmatched Indexes (' + CONVERT(VARCHAR(10), (SELECT SUM(b2.unmatched_index_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ')' ELSE '' END +                  
                   CASE WHEN is_cursor = 1 THEN ', Cursor' 
 							+ CASE WHEN is_optimistic_cursor = 1 THEN '; optimistic' ELSE '' END
 							+ CASE WHEN is_forward_only_cursor = 0 THEN '; not forward only' ELSE '' END
@@ -4462,8 +4482,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL) ) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' CLR function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
@@ -5777,7 +5797,7 @@ BEGIN
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT SPID,
                     999,
-                    254,
+                    CASE WHEN ISNULL(p.percent_24, 0) > 75 THEN 1 ELSE 254 END AS Priority,
                     'Plan Cache Information',
                     'You have ' + CONVERT(NVARCHAR(10), ISNULL(p.total_plans, 0)) 
 								+ ' total plans in your cache, with ' 
