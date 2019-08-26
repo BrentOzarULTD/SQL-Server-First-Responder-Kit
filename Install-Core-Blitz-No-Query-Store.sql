@@ -38,6 +38,7 @@ AS
 	
 
 	SELECT @Version = '7.9', @VersionDate = '20191024';
+	SELECT @Version = '7.7', @VersionDate = '20190826';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -9011,6 +9012,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	SELECT @Version = '3.9', @VersionDate = '20191024';
+	SELECT @Version = '3.7', @VersionDate = '20190826';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10784,6 +10786,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 
 
 IF(@VersionCheckMode = 1)
@@ -11543,6 +11546,7 @@ DECLARE @DurationFilter_i INT,
 		@VersionShowsAirQuoteActualPlans BIT,
         @ObjectFullName NVARCHAR(2000)
 ;
+		@VersionShowsAirQuoteActualPlans BIT;
 
 
 IF @SortOrder = 'sp_BlitzIndex'
@@ -11643,9 +11647,12 @@ IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec
 ELSE
     SET @VersionShowsSpills = 0;
 
+/* This new 2019 & Azure SQL DB feature isn't working consistently, so turning it back off til Microsoft gets it ready.
+   See this Github issue for more details: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2022
 IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
+*/
     SET @VersionShowsAirQuoteActualPlans = 0;
 
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
@@ -17287,6 +17294,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -21375,6 +21383,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.7', @VersionDate = '20190826';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21462,6 +21471,8 @@ SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We de
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
 SET @IgnoreDatabases = REPLACE(REPLACE(LTRIM(RTRIM(@IgnoreDatabases)), CHAR(10), ''), CHAR(13), '');
+
+
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
@@ -26379,6 +26390,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT @Version = '2.9', @VersionDate = '20191024';
+SELECT @Version = '2.7', @VersionDate = '20190826';
 
 
 IF(@VersionCheckMode = 1)
@@ -27619,6 +27631,7 @@ BEGIN
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 	SELECT @Version = '7.9', @VersionDate = '20191024';
+	SELECT @Version = '7.7', @VersionDate = '20190826';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
