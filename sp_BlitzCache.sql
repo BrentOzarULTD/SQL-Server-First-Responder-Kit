@@ -5662,7 +5662,7 @@ BEGIN
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
-                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
 
 		IF @v >= 14 OR (@v = 13 AND @build >= 5026)
