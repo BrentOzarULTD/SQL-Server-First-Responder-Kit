@@ -6443,7 +6443,7 @@ END;
 
 /*Begin*/
 QueryHash:
-RAISERROR('Beginning query hash ', 0, 1) WITH NOWAIT;
+RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
 BEGIN
 
