@@ -5828,7 +5828,7 @@ BEGIN
                      'Selects w/ Writes',
                      'Read queries are causing writes',
                      'https://dba.stackexchange.com/questions/191825/',
-					 'This is thrown when reads cause writes that are not already flagged as spills (2016+) or index spools');
+					 'This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools.');
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
