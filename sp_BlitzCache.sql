@@ -345,7 +345,7 @@ BEGIN
     UNION ALL
     SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
     UNION ALL
     SELECT N'@UseTriggersAnyway',
@@ -1059,7 +1059,8 @@ RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex')
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1131,6 +1132,12 @@ IF @SortOrder IN ('all', 'all avg')
 	BEGIN
 	RAISERROR(N'Checking all sort orders, please be patient', 0, 1) WITH NOWAIT;
     GOTO AllSorts;
+	END;
+
+IF @SortOrder = 'query hash'
+	BEGIN
+	RAISERROR(N'Checking longest runing queries with multiple plans', 0, 1) WITH NOWAIT;
+    GOTO QueryHash;
 	END;
 
 
@@ -6433,6 +6440,70 @@ END;
 
 
 /*End of AllSort section*/
+
+/*Begin*/
+QueryHash:
+RAISERROR('Beginning query hash ', 0, 1) WITH NOWAIT;
+
+BEGIN
+
+    SELECT qs.query_hash, 
+           MAX(qs.max_worker_time) AS max_worker_time,
+           COUNT_BIG(*) AS records
+    INTO #query_hash_grouped
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY (   SELECT pa.value
+                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+                    WHERE  pa.attribute = 'dbid' ) AS ca
+    GROUP BY qs.query_hash, ca.value
+    HAVING COUNT_BIG(*) > 1
+    ORDER BY max_worker_time DESC,
+             records DESC;
+    
+    DECLARE @qhg NVARCHAR(MAX) = N''
+    
+    SELECT TOP (1)
+	         @qhg = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.query_hash, 1) 
+    FROM #query_hash_grouped AS qhg 
+    WHERE qhg.query_hash <> 0x00
+    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'''')
+	OPTION(RECOMPILE);
+    
+    EXEC sp_BlitzCache @Top = @Top,
+                       @SortOrder = 'cpu',                                             
+                       @UseTriggersAnyway = @UseTriggersAnyway,                                   
+                       @ExportToExcel = @ExportToExcel,                                       
+                       @ExpertMode = @ExpertMode,                                             
+                       @OutputServerName = @OutputServerName,                                     
+                       @OutputDatabaseName = @OutputDatabaseName,                                   
+                       @OutputSchemaName = @OutputSchemaName,                                     
+                       @OutputTableName = @OutputTableName,                                      
+                       @ConfigurationDatabaseName = @ConfigurationDatabaseName,                            
+                       @ConfigurationSchemaName = @ConfigurationSchemaName,                              
+                       @ConfigurationTableName = @ConfigurationTableName,                               
+                       @DurationFilter = @DurationFilter,                                      
+                       @HideSummary = @HideSummary,                                         
+                       @IgnoreSystemDBs = @IgnoreSystemDBs,                                     
+                       @OnlyQueryHashes = @qhg,                                       
+                       @IgnoreQueryHashes = @IgnoreQueryHashes,                                     
+                       @OnlySqlHandles = @OnlySqlHandles,                                        
+                       @IgnoreSqlHandles = @IgnoreSqlHandles,                                      
+                       @QueryFilter = @QueryFilter,                                           
+                       @DatabaseName = @DatabaseName,                                         
+                       @StoredProcName = @StoredProcName,                                       
+                       @SlowlySearchPlansFor = @SlowlySearchPlansFor,                                 
+                       @Reanalyze = @Reanalyze,                                           
+                       @SkipAnalysis = @SkipAnalysis,                                        
+                       @BringThePain = @BringThePain,                                        
+                       @MinimumExecutionCount = @MinimumExecutionCount,                                  
+                       @Debug = @Debug,                                               
+                       @CheckDateOverride = @CheckDateOverride,                  
+                       @MinutesBack = @MinutesBack;                                            
+    
+END;
+
+
+/*End*/
 
 /*Begin code to sort by all*/
 OutputResultsToTable:
