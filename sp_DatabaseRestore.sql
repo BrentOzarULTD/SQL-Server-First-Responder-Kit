@@ -23,7 +23,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
-	@DatabaseOwner SYSNAME = NULL,
+	@DatabaseOwner sysname = NULL,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
     @Help BIT = 0,
