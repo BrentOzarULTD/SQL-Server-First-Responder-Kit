@@ -73,5 +73,5 @@ END
 
 PRINT @SQL;
 
-IF(@printOnly = 1)
+IF(@printOnly = 0)
     EXEC sp_executeSQL @SQL
