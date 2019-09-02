@@ -646,14 +646,13 @@ BEGIN
             IF @ExistingDBAction IN (2, 3)
             BEGIN
                 RAISERROR('Killing connections', 0, 1) WITH NOWAIT;
-                SET @sql = N'/* Kill connections */' + NCHAR(13);
-                SELECT 
-                    @sql = @sql + N'KILL ' + CAST(spid as nvarchar(5)) + N';' + NCHAR(13)
+                SET @sql = N'/* Kill connections */' +
+				CAST((SELECT NCHAR(13) + N'KILL ' + CAST(spid as nvarchar(5)) + N';' 
                 FROM
                     --database_ID was only added to sys.dm_exec_sessions in SQL Server 2012 but we need to support older
                     sys.sysprocesses
                 WHERE
-                    dbid = @RestoreDatabaseID;
+                    dbid = @RestoreDatabaseID FOR XML PATH('')) AS XML).value('.','nvarchar(max)');
                 IF @Debug = 1 OR @Execute = 'N'
 		        BEGIN
 			        IF @sql IS NULL PRINT '@sql is NULL for Kill connections';
@@ -693,14 +692,13 @@ BEGIN
 
             SELECT
                 @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
-                       + STUFF(
-                             (SELECT
+                       + STUFF( CAST( (SELECT
                                   CHAR(10) + ',DISK=''' + @BackupPathFull + BackupFile + ''''
                               FROM
                                   #SplitBackups
                               ORDER BY
                                   BackupFile
-                             FOR XML PATH('')),
+                             FOR XML PATH('')) AS xml).value('.','nvarchar(max)') ,
                              1,
                              2,
                              '') + N' WITH NORECOVERY, REPLACE' + @MoveOption + NCHAR(13);
