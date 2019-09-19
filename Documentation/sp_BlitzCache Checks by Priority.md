@@ -73,6 +73,7 @@ If you want to add a new check, start at 63
 | 100 | MSTVFs | These have many of the same problems scalar UDFs have | http://brentozar.com/blitzcache/tvf-join/ | 60 | No |
 | 100 | Many to Many Merge | These use secret worktables that could be doing lots of reads | Blog not published yet | 61 | Yes |
 | 50 | Non-SARGable queries | Queries may have non-SARGable predicates |http://brentozar.com/go/sargable| 62 | No |
+| 50 | Selects w/ Writes | Read queries are causing writes | https://dba.stackexchange.com/questions/191825/ | This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools | No |
 | 254 | Plan Cache Information | Breaks cache down by creation date (24/4/1 hrs) | None | 999 | No |
 | 255 | Global Trace Flags Enabled | You have Global Trace Flags enabled on your server | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 1000 | No |
 | 255 | Need more help? | Paste your plan on the internet! | http://pastetheplan.com | 2147483646 | No |

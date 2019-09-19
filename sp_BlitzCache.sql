@@ -222,6 +222,7 @@ CREATE TABLE ##BlitzCacheProcs (
 		is_mstvf BIT,
 		is_mm_join BIT,
         is_nonsargable BIT,
+		select_with_writes BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -980,6 +981,7 @@ BEGIN
 		is_mstvf BIT,
 		is_mm_join BIT,
         is_nonsargable BIT,
+		select_with_writes BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -3312,6 +3314,25 @@ JOIN spools sp
 ON sp.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
 
+RAISERROR('Checking for selects that cause non-spill and index spool writes', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES (
+    'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, selects
+AS ( SELECT s.QueryHash
+     FROM   #statements AS s
+	 JOIN ##BlitzCacheProcs b
+	 ON s.QueryHash = b.QueryHash
+	 WHERE b.index_spool_rows IS NULL
+	 AND   b.index_spool_cost IS NULL
+	 AND   b.is_big_spills IS NULL
+	 AND   b.AverageWrites > 1024.
+     AND  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 
+)
+UPDATE b
+   SET b.select_with_writes = 1
+FROM ##BlitzCacheProcs b
+JOIN selects AS s
+ON s.QueryHash = b.QueryHash;
 
 /* 2012+ only */
 IF @v >= 11
@@ -4439,7 +4460,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END + 
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END +
+				  CASE WHEN select_with_writes > 0 THEN ', Select w/ Writes' ELSE '' END
 				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
@@ -4517,7 +4539,8 @@ SELECT  DISTINCT
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END +
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END +
+				  CASE WHEN select_with_writes > 0 THEN ', Select w/ Writes' ELSE '' END
                   , 3, 200000) 
 FROM ##BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4806,7 +4829,8 @@ BEGIN
                   CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END + 
 				  CASE WHEN CompileTime > 5000 THEN '', 63 '' ELSE '''' END +
 				  CASE WHEN CompileCPU > 5000 THEN '', 64 '' ELSE '''' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN '', 65 '' ELSE '''' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN '', 65 '' ELSE '''' END +
+				  CASE WHEN select_with_writes > 0 THEN '', 66'' ELSE '''' END
 				  , 3, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5789,6 +5813,22 @@ BEGIN
                      'Queries taking 10% of Max Compile Memory',
                      'https://www.brentozar.com/blitzcache/high-compilers/',
 					 'If you see high RESOURCE_SEMAPHORE_QUERY_COMPILE waits, these may be related');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##BlitzCacheProcs p
+                    WHERE  p.index_spool_rows IS NULL
+	                AND    p.index_spool_cost IS NULL
+	                AND    p.is_big_spills IS NULL
+	                AND    p.AverageWrites > 1024.
+  					)
+             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     66,
+                     50,
+                     'Selects w/ Writes',
+                     'Read queries are causing writes',
+                     'https://dba.stackexchange.com/questions/191825/',
+					 'This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools.');
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
