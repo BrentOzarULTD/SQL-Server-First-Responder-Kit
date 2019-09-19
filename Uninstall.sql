@@ -11,7 +11,7 @@ DECLARE @printOnly bit = 0; --Flip this bit to 1 if you want to print the drop c
 SET NOCOUNT ON;
 DECLARE @SQL nvarchar(max) = N'';
 
-IF OBJECT_ID('TempDB.dbo.#ToDelete') IS NOT NULL
+IF OBJECT_ID('tempdb.dbo.#ToDelete') IS NOT NULL
     DROP TABLE #ToDelete;
 
 SELECT 'sp_AllNightLog' as ProcedureName INTO #ToDelete UNION
@@ -75,4 +75,4 @@ END
 PRINT @SQL;
 
 IF(@printOnly = 0)
-    EXEC sp_executeSQL @SQL
+    EXEC sp_executesql @SQL
