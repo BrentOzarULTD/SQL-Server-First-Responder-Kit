@@ -1136,7 +1136,7 @@ IF @SortOrder IN ('all', 'all avg')
 
 IF @SortOrder = 'query hash'
 	BEGIN
-	RAISERROR(N'Checking longest runing queries with multiple plans', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Checking most CPU-intensive queries with multiple plans', 0, 1) WITH NOWAIT;
     GOTO QueryHash;
 	END;
 
@@ -6466,7 +6466,7 @@ BEGIN
 	         @qhg = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.query_hash, 1) 
     FROM #query_hash_grouped AS qhg 
     WHERE qhg.query_hash <> 0x00
-    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'''')
+    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 	OPTION(RECOMPILE);
     
     EXEC sp_BlitzCache @Top = @Top,
