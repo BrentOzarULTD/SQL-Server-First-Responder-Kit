@@ -1096,12 +1096,9 @@ IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec
 ELSE
     SET @VersionShowsSpills = 0;
 
-/* This new 2019 & Azure SQL DB feature isn't working consistently, so turning it back off til Microsoft gets it ready.
-   See this Github issue for more details: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2022
 IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
-*/
     SET @VersionShowsAirQuoteActualPlans = 0;
 
 IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
@@ -2048,7 +2045,7 @@ SELECT TOP (@Top)
 
     IF @VersionShowsAirQuoteActualPlans = 1
         BEGIN
-        SET @plans_triggers_select_list += N' COALESCE(deqps.query_plan, qp.query_plan) AS QueryPlan, ' + @nl ;
+        SET @plans_triggers_select_list += N' CASE WHEN DATALENGTH(COALESCE(deqps.query_plan,'''')) > DATALENGTH(COALESCE(qp.query_plan,'''')) THEN deqps.query_plan ELSE qp.query_plan END AS QueryPlan, ' + @nl ;
         END;
     ELSE   
         BEGIN
@@ -2194,7 +2191,7 @@ BEGIN
 
     IF @VersionShowsAirQuoteActualPlans = 1
         BEGIN
-        SET @sql += N'           COALESCE(deqps.query_plan, qp.query_plan) AS QueryPlan, ' + @nl ;
+        SET @sql += N'           CASE WHEN DATALENGTH(COALESCE(deqps.query_plan,'''')) > DATALENGTH(COALESCE(qp.query_plan,'''')) THEN deqps.query_plan ELSE qp.query_plan END AS QueryPlan, ' + @nl ;
         END
     ELSE
         BEGIN
