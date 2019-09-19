@@ -614,6 +614,7 @@ BEGIN
            N'BIGINT',
            N'The maximum used memory grant the query received in kb.';
 
+    UNION ALL
     SELECT N'MinSpills',
            N'BIGINT',
            N'The minimum amount this query has spilled to tempdb in 8k pages.'
