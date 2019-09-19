@@ -5824,10 +5824,7 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
-                    WHERE  p.index_spool_rows IS NULL
-	                AND    p.index_spool_cost IS NULL
-	                AND    p.is_big_spills IS NULL
-	                AND    p.AverageWrites > 1024.
+                    WHERE  p.select_with_writes = 1
   					)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
