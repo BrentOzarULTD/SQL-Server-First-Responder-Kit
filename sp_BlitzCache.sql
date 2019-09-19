@@ -222,6 +222,7 @@ CREATE TABLE ##BlitzCacheProcs (
 		is_mstvf BIT,
 		is_mm_join BIT,
         is_nonsargable BIT,
+		select_with_writes BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -345,7 +346,7 @@ BEGIN
     UNION ALL
     SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
     UNION ALL
     SELECT N'@UseTriggersAnyway',
@@ -613,6 +614,7 @@ BEGIN
            N'BIGINT',
            N'The maximum used memory grant the query received in kb.';
 
+    UNION ALL
     SELECT N'MinSpills',
            N'BIGINT',
            N'The minimum amount this query has spilled to tempdb in 8k pages.'
@@ -980,6 +982,7 @@ BEGIN
 		is_mstvf BIT,
 		is_mm_join BIT,
         is_nonsargable BIT,
+		select_with_writes BIT,
 		implicit_conversion_info XML,
 		cached_execution_parameters XML,
 		missing_indexes XML,
@@ -1059,7 +1062,8 @@ RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex')
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1131,6 +1135,12 @@ IF @SortOrder IN ('all', 'all avg')
 	BEGIN
 	RAISERROR(N'Checking all sort orders, please be patient', 0, 1) WITH NOWAIT;
     GOTO AllSorts;
+	END;
+
+IF @SortOrder = 'query hash'
+	BEGIN
+	RAISERROR(N'Checking most CPU-intensive queries with multiple plans', 0, 1) WITH NOWAIT;
+    GOTO QueryHash;
 	END;
 
 
@@ -3312,6 +3322,25 @@ JOIN spools sp
 ON sp.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
 
+RAISERROR('Checking for selects that cause non-spill and index spool writes', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES (
+    'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, selects
+AS ( SELECT s.QueryHash
+     FROM   #statements AS s
+	 JOIN ##BlitzCacheProcs b
+	 ON s.QueryHash = b.QueryHash
+	 WHERE b.index_spool_rows IS NULL
+	 AND   b.index_spool_cost IS NULL
+	 AND   b.is_big_spills IS NULL
+	 AND   b.AverageWrites > 1024.
+     AND  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 
+)
+UPDATE b
+   SET b.select_with_writes = 1
+FROM ##BlitzCacheProcs b
+JOIN selects AS s
+ON s.QueryHash = b.QueryHash;
 
 /* 2012+ only */
 IF @v >= 11
@@ -4439,7 +4468,8 @@ SET    Warnings = SUBSTRING(
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END + 
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END +
+				  CASE WHEN select_with_writes > 0 THEN ', Select w/ Writes' ELSE '' END
 				  , 3, 200000) 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
@@ -4517,7 +4547,8 @@ SELECT  DISTINCT
                   CASE WHEN is_nonsargable = 1 THEN ', non-SARGables' ELSE '' END +
 				  CASE WHEN CompileTime > 5000 THEN ', Long Compile Time' ELSE '' END +
 				  CASE WHEN CompileCPU > 5000 THEN ', High Compile CPU' ELSE '' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN ', High Compile Memory' ELSE '' END +
+				  CASE WHEN select_with_writes > 0 THEN ', Select w/ Writes' ELSE '' END
                   , 3, 200000) 
 FROM ##BlitzCacheProcs b
 WHERE SPID = @@SPID
@@ -4806,7 +4837,8 @@ BEGIN
                   CASE WHEN is_nonsargable = 1 THEN '', 62'' ELSE '''' END + 
 				  CASE WHEN CompileTime > 5000 THEN '', 63 '' ELSE '''' END +
 				  CASE WHEN CompileCPU > 5000 THEN '', 64 '' ELSE '''' END +
-				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN '', 65 '' ELSE '''' END
+				  CASE WHEN CompileMemory > 1024 AND ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10. THEN '', 65 '' ELSE '''' END +
+				  CASE WHEN select_with_writes > 0 THEN '', 66'' ELSE '''' END
 				  , 3, 200000) AS opserver_warning , ' + @nl ;
     END;
     
@@ -5662,7 +5694,7 @@ BEGIN
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
-                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
 
 		IF @v >= 14 OR (@v = 13 AND @build >= 5026)
@@ -5789,6 +5821,22 @@ BEGIN
                      'Queries taking 10% of Max Compile Memory',
                      'https://www.brentozar.com/blitzcache/high-compilers/',
 					 'If you see high RESOURCE_SEMAPHORE_QUERY_COMPILE waits, these may be related');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##BlitzCacheProcs p
+                    WHERE  p.index_spool_rows IS NULL
+	                AND    p.index_spool_cost IS NULL
+	                AND    p.is_big_spills IS NULL
+	                AND    p.AverageWrites > 1024.
+  					)
+             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     66,
+                     50,
+                     'Selects w/ Writes',
+                     'Read queries are causing writes',
+                     'https://dba.stackexchange.com/questions/191825/',
+					 'This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools.');
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
@@ -6433,6 +6481,70 @@ END;
 
 
 /*End of AllSort section*/
+
+/*Begin*/
+QueryHash:
+RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
+
+BEGIN
+
+    SELECT qs.query_hash, 
+           MAX(qs.max_worker_time) AS max_worker_time,
+           COUNT_BIG(*) AS records
+    INTO #query_hash_grouped
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY (   SELECT pa.value
+                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+                    WHERE  pa.attribute = 'dbid' ) AS ca
+    GROUP BY qs.query_hash, ca.value
+    HAVING COUNT_BIG(*) > 1
+    ORDER BY max_worker_time DESC,
+             records DESC;
+    
+    DECLARE @qhg NVARCHAR(MAX) = N''
+    
+    SELECT TOP (1)
+	         @qhg = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.query_hash, 1) 
+    FROM #query_hash_grouped AS qhg 
+    WHERE qhg.query_hash <> 0x00
+    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+	OPTION(RECOMPILE);
+    
+    EXEC sp_BlitzCache @Top = @Top,
+                       @SortOrder = 'cpu',                                             
+                       @UseTriggersAnyway = @UseTriggersAnyway,                                   
+                       @ExportToExcel = @ExportToExcel,                                       
+                       @ExpertMode = @ExpertMode,                                             
+                       @OutputServerName = @OutputServerName,                                     
+                       @OutputDatabaseName = @OutputDatabaseName,                                   
+                       @OutputSchemaName = @OutputSchemaName,                                     
+                       @OutputTableName = @OutputTableName,                                      
+                       @ConfigurationDatabaseName = @ConfigurationDatabaseName,                            
+                       @ConfigurationSchemaName = @ConfigurationSchemaName,                              
+                       @ConfigurationTableName = @ConfigurationTableName,                               
+                       @DurationFilter = @DurationFilter,                                      
+                       @HideSummary = @HideSummary,                                         
+                       @IgnoreSystemDBs = @IgnoreSystemDBs,                                     
+                       @OnlyQueryHashes = @qhg,                                       
+                       @IgnoreQueryHashes = @IgnoreQueryHashes,                                     
+                       @OnlySqlHandles = @OnlySqlHandles,                                        
+                       @IgnoreSqlHandles = @IgnoreSqlHandles,                                      
+                       @QueryFilter = @QueryFilter,                                           
+                       @DatabaseName = @DatabaseName,                                         
+                       @StoredProcName = @StoredProcName,                                       
+                       @SlowlySearchPlansFor = @SlowlySearchPlansFor,                                 
+                       @Reanalyze = @Reanalyze,                                           
+                       @SkipAnalysis = @SkipAnalysis,                                        
+                       @BringThePain = @BringThePain,                                        
+                       @MinimumExecutionCount = @MinimumExecutionCount,                                  
+                       @Debug = @Debug,                                               
+                       @CheckDateOverride = @CheckDateOverride,                  
+                       @MinutesBack = @MinutesBack;                                            
+    
+END;
+
+
+/*End*/
 
 /*Begin code to sort by all*/
 OutputResultsToTable:
