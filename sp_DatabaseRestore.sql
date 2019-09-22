@@ -41,6 +41,7 @@ SET NOCOUNT ON;
 
 SELECT @Version = '7.9', @VersionDate = '20191024';
 SELECT @Version = '7.7', @VersionDate = '20190826';
+SELECT @Version = '7.8', @VersionDate = '20190922';
 
 IF(@VersionCheckMode = 1)
 BEGIN

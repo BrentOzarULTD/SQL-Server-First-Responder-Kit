@@ -84,6 +84,7 @@ AS
 DECLARE @ScriptVersion VARCHAR(30);
 SELECT @ScriptVersion = '1.8', @VersionDate = '20191024';
 SELECT @ScriptVersion = '1.9', @VersionDate = '20190826';
+SELECT @ScriptVersion = '1.8', @VersionDate = '20190922';
 
 IF(@VersionCheckMode = 1)
 BEGIN

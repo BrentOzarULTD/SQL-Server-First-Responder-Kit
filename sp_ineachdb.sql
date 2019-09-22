@@ -35,6 +35,7 @@ BEGIN
 
   SELECT @Version = '2.9', @VersionDate = '20191024';
   SELECT @Version = '2.7', @VersionDate = '20190826';
+  SELECT @Version = '2.8', @VersionDate = '20190922';
   
 IF(@VersionCheckMode = 1)
 BEGIN
