@@ -42,7 +42,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.7', @VersionDate = '20190826';
+SELECT @Version = '7.8', @VersionDate = '20190922';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2094,7 +2094,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 
     /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
-    IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIME()) > 10 AND @CheckProcedureCache = 1
+    IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)

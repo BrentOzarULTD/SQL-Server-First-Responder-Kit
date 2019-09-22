@@ -56,7 +56,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.7', @VersionDate = '20190826';
+SELECT @Version = '3.8', @VersionDate = '20190922';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -5314,7 +5314,7 @@ BEGIN
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
-                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;
 					 
 					 						 					

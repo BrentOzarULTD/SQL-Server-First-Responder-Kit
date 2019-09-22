@@ -76,13 +76,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     Author: Ned Otter
     Version: 2.0
     Original link: http://nedotter.com/archive/2017/10/in-memory-oltp-diagnostic-script/
-    Release Link: https://github.com/ktaranov/sqlserver-kit/blob/master/Stored_Procedure/sp_BlitzInMemoryOLTP.sql
+    Release Link: https://github.com/ktaranov/sqlserver-kit/blob/master/Stored_Procedure/dbo.sp_BlitzInMemoryOLTP.sql
     Main Contributors: Ned Otter, Konstantin Taranov, Aleksey Nagorskiy
 
 */
 AS 
 DECLARE @ScriptVersion VARCHAR(30);
-SELECT @ScriptVersion = '1.9', @VersionDate = '20190826';
+SELECT @ScriptVersion = '1.8', @VersionDate = '20190922';
 
 IF(@VersionCheckMode = 1)
 BEGIN

@@ -40,7 +40,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.7', @VersionDate = '20190826';
+SELECT @Version = '7.8', @VersionDate = '20190922';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -2063,42 +2063,53 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
-;WITH    [maps]
-		AS ( SELECT   
-					index_sanity_id,
-					partition_number,
-					data_compression_desc,
-					partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
-			FROM    #IndexPartitionSanity ips
-			),
-	[grps]
-		AS ( SELECT MIN([maps].[partition_number]) AS [MinKey] ,
-					MAX([maps].[partition_number]) AS [MaxKey] ,
-					index_sanity_id,
-					maps.data_compression_desc
-			FROM     [maps]
-			GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
-INSERT #PartitionCompressionInfo
-		(index_sanity_id, partition_compression_detail)
-SELECT DISTINCT grps.index_sanity_id , 
-                SUBSTRING((  STUFF((SELECT N', ' + N' Partition'
-				               + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
-				                 THEN + N's '
-				               + CAST([grps2].[MinKey] AS NVARCHAR(10))
-				               + N' - '
-				               + CAST([grps2].[MaxKey] AS NVARCHAR(10))
-				               + N' use ' + grps2.data_compression_desc
-				                 ELSE N' '
-				               + CAST([grps2].[MinKey] AS NVARCHAR(10))
-				               + N' uses '  + grps2.data_compression_desc
-				               END AS [Partitions]
-				  FROM   [grps] AS grps2
-				  WHERE grps2.index_sanity_id = grps.index_sanity_id
-				  ORDER BY grps2.MinKey, grps2.MaxKey
-				  FOR     XML PATH('') ,
-				  TYPE 
-				).[value]('.', 'NVARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
-FROM grps;
+WITH maps
+    AS
+     (
+         SELECT ips.index_sanity_id,
+                ips.partition_number,
+                ips.data_compression_desc,
+                ips.partition_number - ROW_NUMBER() OVER ( PARTITION BY ips.index_sanity_id, ips.data_compression_desc
+                                                           ORDER BY ips.partition_number ) AS rn
+         FROM   #IndexPartitionSanity AS ips
+     )
+SELECT *
+INTO   #maps
+FROM   maps;
+
+WITH grps
+    AS
+     (
+         SELECT   MIN(maps.partition_number) AS MinKey,
+                  MAX(maps.partition_number) AS MaxKey,
+                  maps.index_sanity_id,
+                  maps.data_compression_desc
+         FROM     #maps AS maps
+         GROUP BY maps.rn, maps.index_sanity_id, maps.data_compression_desc
+     )
+SELECT *
+INTO   #grps
+FROM   grps;
+
+INSERT #PartitionCompressionInfo ( index_sanity_id, partition_compression_detail )
+SELECT DISTINCT
+       grps.index_sanity_id,
+       SUBSTRING(
+           ( STUFF(
+                 (   SELECT   N', ' + N' Partition'
+                              + CASE
+                                     WHEN grps2.MinKey < grps2.MaxKey
+                                     THEN
+                                     + N's ' + CAST(grps2.MinKey AS NVARCHAR(10)) + N' - '
+                                     + CAST(grps2.MaxKey AS NVARCHAR(10)) + N' use ' + grps2.data_compression_desc
+                                     ELSE
+                                     N' ' + CAST(grps2.MinKey AS NVARCHAR(10)) + N' uses ' + grps2.data_compression_desc
+                                END AS Partitions
+                     FROM     #grps AS grps2
+                     WHERE    grps2.index_sanity_id = grps.index_sanity_id
+                     ORDER BY grps2.MinKey, grps2.MaxKey
+                     FOR XML PATH(''), TYPE ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')), 0, 8000) AS partition_compression_detail
+FROM   #grps AS grps;
 		
 RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 UPDATE sz
