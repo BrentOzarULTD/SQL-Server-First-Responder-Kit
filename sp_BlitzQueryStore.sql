@@ -11,11 +11,11 @@ GO
 DECLARE @msg NVARCHAR(MAX) = N'';
 
 	-- Must be a compatible, on-prem version of SQL (2016+)
-IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+IF  (	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure' 
 	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
 	)
 	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
-OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+OR	(	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure'
 	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
 	)
@@ -98,7 +98,7 @@ WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
 /*Check if this is Azure first*/
-IF (SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
+IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
     BEGIN 
         /*Grabs log size for datbase*/
         SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
@@ -167,7 +167,7 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
+IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
