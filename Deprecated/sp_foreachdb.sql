@@ -34,7 +34,7 @@ ALTER PROCEDURE dbo.sp_foreachdb
 AS
     BEGIN
         SET NOCOUNT ON;
-        SELECT @Version = '3.5', @VersionDate = '20190427';
+        SELECT @Version = '3.8', @VersionDate = '20190922';
 		
 IF(@VersionCheckMode = 1)
 BEGIN

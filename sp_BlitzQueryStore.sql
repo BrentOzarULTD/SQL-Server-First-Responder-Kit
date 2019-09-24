@@ -11,11 +11,11 @@ GO
 DECLARE @msg NVARCHAR(MAX) = N'';
 
 	-- Must be a compatible, on-prem version of SQL (2016+)
-IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+IF  (	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure' 
 	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
 	)
 	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
-OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+OR	(	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure'
 	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
 	)
@@ -56,7 +56,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.5', @VersionDate = '20190427';
+SELECT @Version = '3.8', @VersionDate = '20190922';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -98,7 +98,7 @@ WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
 /*Check if this is Azure first*/
-IF (SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
+IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
     BEGIN 
         /*Grabs log size for datbase*/
         SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
@@ -167,7 +167,7 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
+IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
@@ -5314,7 +5314,7 @@ BEGIN
                      200,
                      'Is Paul White Electric?',
                      'This query has a Switch operator in it!',
-                     'http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx',
+                     'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;
 					 
 					 						 					
