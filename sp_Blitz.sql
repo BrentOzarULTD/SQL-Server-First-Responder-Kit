@@ -26,6 +26,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
     @UsualDBOwner sysname = NULL ,
+	@SkipBlockingChecks TINYINT = 1 ,
     @Debug TINYINT = 0 ,
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
@@ -5959,6 +5960,7 @@ IF @ProductVersionMajor >= 10
 					        BEGIN
 						        IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
 							        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
+									AND @SkipBlockingChecks = 0
 							        BEGIN
 								
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 33) WITH NOWAIT;
