@@ -2500,9 +2500,9 @@ BEGIN;
                         N'Total lock wait time > 5 minutes (row + page) with long average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-                        i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 COALESCE((SELECT SUM(1) 
+                        (i.db_schema_object_indexid + N': ' +
+                            sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
+							 CAST(COALESCE((SELECT SUM(1) 
 							                FROM #IndexSanity iMe 
 											INNER JOIN #IndexSanity iOthers 
 												ON iMe.database_id = iOthers.database_id 
@@ -2511,7 +2511,8 @@ BEGIN;
 											WHERE i.index_sanity_id = iMe.index_sanity_id
 											AND iOthers.is_hypothetical = 0
 											AND iOthers.is_disabled = 0
-										   ), 0) AS details, 
+										   ), 0)
+                                         AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
                         i.index_usage_summary,
@@ -2556,9 +2557,9 @@ BEGIN;
                         N'Total lock wait time > 5 minutes (row + page) with short average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-                        i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
-							 COALESCE((SELECT SUM(1) 
+                        (i.db_schema_object_indexid + N': ' +
+                            sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
+							 CAST(COALESCE((SELECT SUM(1) 
 							                FROM #IndexSanity iMe 
 											INNER JOIN #IndexSanity iOthers 
 												ON iMe.database_id = iOthers.database_id 
@@ -2567,7 +2568,8 @@ BEGIN;
 											WHERE i.index_sanity_id = iMe.index_sanity_id
 											AND iOthers.is_hypothetical = 0
 											AND iOthers.is_disabled = 0
-										   ),0) AS details, 
+										   ),0)
+                                         AS NVARCHAR(30))	 AS details, 
                         i.index_definition,
                         i.secret_columns,
                         i.index_usage_summary,
