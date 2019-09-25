@@ -913,7 +913,6 @@ BEGIN
 		WHERE BackupType = 5;                                                  
 	END;
 
-	if @DiffLastLSN is null	set @DiffLastLsn=@FullLastLSN
 	IF @DiffLastLSN IS NULL
 	BEGIN
 		SET @DiffLastLSN=@FullLastLSN
