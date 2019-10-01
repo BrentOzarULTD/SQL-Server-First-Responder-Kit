@@ -200,7 +200,7 @@ IF  (	SELECT COUNT(*)
 		PRINT @msg;
 		RETURN;
 	END;
-
+									
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
@@ -241,14 +241,14 @@ END;
 /*Does it have Query Store enabled?*/
 RAISERROR('Making sure [%s] has Query Store enabled', 0, 1, @DatabaseName) WITH NOWAIT;
 IF 	
-	((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
-AND		
-	(   SELECT DB_NAME(d.database_id)
-		FROM sys.databases AS d
-		WHERE d.is_query_store_on = 1
-		AND d.user_access_desc='MULTI_USER'
-		AND d.state_desc = 'ONLINE'
-		AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
+
+	( SELECT [d].[name]
+		FROM [sys].[databases] AS d
+		WHERE [d].[is_query_store_on] = 1
+		AND [d].[user_access_desc]='MULTI_USER'
+		AND [d].[state_desc] = 'ONLINE'
+		AND [d].[database_id] = (SELECT database_id FROM sys.databases WHERE name = @DatabaseName)
+	) IS NULL
 BEGIN
 	RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
 	RETURN;
