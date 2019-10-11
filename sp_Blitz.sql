@@ -1078,6 +1078,7 @@ AS
 										/* Filter out databases that were recently restored: */
 										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
 								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> 'HTT' AND
+                                        bmf.physical_device_name NOT LIKE '\\%' AND -- GitHub Issue #2141
                                         @IsWindowsOperatingSystem = 1 AND -- GitHub Issue #1995
                                         UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
