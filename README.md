@@ -398,7 +398,7 @@ Parameters include:
 * @RunRecovery - default 0. When set to 1, we run RESTORE WITH RECOVERY, putting the database into writable mode, and no additional log backups can be restored.
 * @ExistingDBAction - if the database already exists when we try to restore it, 1 sets the database to single user mode, 2 kills the connections, and 3 kills the connections and then drops the database.
 * @Debug - default 0. When 1, we print out messages of what we're doing in the messages tab of SSMS.
-* @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'.
+* @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'. This doesn't use the StopAt parameter for the restore command - it simply stops restoring logs that would have this date/time's contents in it. (For example, if you're taking backups every 15 minutes on the hour, and you pass in 9:05 AM as part of the restore time, the restores would stop at your last log backup that doesn't include 9:05AM's data - but it won't restore right up to 9:05 AM.)
 
 
 For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
