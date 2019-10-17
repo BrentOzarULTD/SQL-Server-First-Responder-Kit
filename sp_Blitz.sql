@@ -6161,7 +6161,7 @@ IF @ProductVersionMajor >= 10
 		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
 		  INNER JOIN sys.databases sd ON sd.name = N''?''
 		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
-		  WHERE i.type_desc = ''HEAP'' AND COALESCE(NULLIF(ius.user_seeks,0), NULLIF(ius.user_scans,0), NULLIF(ius.user_lookups,0), NULLIF(ius.user_updates,0)) IS NOT NULL
+		  WHERE i.type_desc = ''HEAP'' AND COALESCE(NULLIF(ius.user_seeks,0), NULLIF(ius.user_scans,0), NULLIF(ius.user_lookups,0), NULLIF(ius.user_updates,0)) IS NULL
 		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S'' OPTION (RECOMPILE)';
 							END;
 
