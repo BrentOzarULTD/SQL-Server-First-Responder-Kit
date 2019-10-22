@@ -747,6 +747,40 @@ BEGIN
 	RETURN;
 END;
 
+/* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
+IF @SortOrder LIKE 'query hash%'
+	BEGIN
+	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
+
+    SELECT qs.query_hash, 
+           MAX(qs.max_worker_time) AS max_worker_time,
+           COUNT_BIG(*) AS records
+    INTO #query_hash_grouped
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY (   SELECT pa.value
+                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+                    WHERE  pa.attribute = 'dbid' ) AS ca
+    GROUP BY qs.query_hash, ca.value
+    HAVING COUNT_BIG(*) > 1
+    ORDER BY max_worker_time DESC,
+             records DESC;
+    
+    SELECT TOP (1)
+	         @OnlyQueryHashes = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.query_hash, 1) 
+    FROM #query_hash_grouped AS qhg 
+    WHERE qhg.query_hash <> 0x00
+    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+	OPTION(RECOMPILE);
+
+	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
+    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
+	
+	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
+	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+	END
+
+
 /* Set @Top based on sort */
 IF (
      @Top IS NULL
@@ -1133,13 +1167,6 @@ IF @SortOrder IN ('all', 'all avg')
 	RAISERROR(N'Checking all sort orders, please be patient', 0, 1) WITH NOWAIT;
     GOTO AllSorts;
 	END;
-
-IF @SortOrder = 'query hash'
-	BEGIN
-	RAISERROR(N'Checking most CPU-intensive queries with multiple plans', 0, 1) WITH NOWAIT;
-    GOTO QueryHash;
-	END;
-
 
 RAISERROR(N'Creating temp tables for internal processing', 0, 1) WITH NOWAIT;
 IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
@@ -6476,69 +6503,6 @@ END;
 
 /*End of AllSort section*/
 
-/*Begin*/
-QueryHash:
-RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
-
-BEGIN
-
-    SELECT qs.query_hash, 
-           MAX(qs.max_worker_time) AS max_worker_time,
-           COUNT_BIG(*) AS records
-    INTO #query_hash_grouped
-    FROM sys.dm_exec_query_stats AS qs
-    CROSS APPLY (   SELECT pa.value
-                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
-                    WHERE  pa.attribute = 'dbid' ) AS ca
-    GROUP BY qs.query_hash, ca.value
-    HAVING COUNT_BIG(*) > 1
-    ORDER BY max_worker_time DESC,
-             records DESC;
-    
-    DECLARE @qhg NVARCHAR(MAX) = N''
-    
-    SELECT TOP (1)
-	         @qhg = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.query_hash, 1) 
-    FROM #query_hash_grouped AS qhg 
-    WHERE qhg.query_hash <> 0x00
-    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-	OPTION(RECOMPILE);
-    
-    EXEC sp_BlitzCache @Top = @Top,
-                       @SortOrder = 'cpu',                                             
-                       @UseTriggersAnyway = @UseTriggersAnyway,                                   
-                       @ExportToExcel = @ExportToExcel,                                       
-                       @ExpertMode = @ExpertMode,                                             
-                       @OutputServerName = @OutputServerName,                                     
-                       @OutputDatabaseName = @OutputDatabaseName,                                   
-                       @OutputSchemaName = @OutputSchemaName,                                     
-                       @OutputTableName = @OutputTableName,                                      
-                       @ConfigurationDatabaseName = @ConfigurationDatabaseName,                            
-                       @ConfigurationSchemaName = @ConfigurationSchemaName,                              
-                       @ConfigurationTableName = @ConfigurationTableName,                               
-                       @DurationFilter = @DurationFilter,                                      
-                       @HideSummary = @HideSummary,                                         
-                       @IgnoreSystemDBs = @IgnoreSystemDBs,                                     
-                       @OnlyQueryHashes = @qhg,                                       
-                       @IgnoreQueryHashes = @IgnoreQueryHashes,                                     
-                       @OnlySqlHandles = @OnlySqlHandles,                                        
-                       @IgnoreSqlHandles = @IgnoreSqlHandles,                                      
-                       @QueryFilter = @QueryFilter,                                           
-                       @DatabaseName = @DatabaseName,                                         
-                       @StoredProcName = @StoredProcName,                                       
-                       @SlowlySearchPlansFor = @SlowlySearchPlansFor,                                 
-                       @Reanalyze = @Reanalyze,                                           
-                       @SkipAnalysis = @SkipAnalysis,                                        
-                       @BringThePain = @BringThePain,                                        
-                       @MinimumExecutionCount = @MinimumExecutionCount,                                  
-                       @Debug = @Debug,                                               
-                       @CheckDateOverride = @CheckDateOverride,                  
-                       @MinutesBack = @MinutesBack;                                            
-    
-END;
-
-
-/*End*/
 
 /*Begin code to sort by all*/
 OutputResultsToTable:
