@@ -152,6 +152,7 @@ The @SortOrder parameter lets you pick which top 10 queries you want to examine:
 * writes - if you wanna find those pesky ETL processes
 * You can also use average or avg for a lot of the sorts, like @SortOrder = 'avg reads'
 * all - sorts by all the different sort order options, and returns a single result set of hot messes. (Note that @SortOrder = 'all' is incompatible with the @OutputTableName parameter because it produces a different result set shape.)
+* query hash - filters for only queries that have multiple cached plans (even though they may all still be the same plan, just different copies stored.) If you use @SortOrder = 'query hash', you can specify a second sort order with a comma, like 'query hash, reads' in order to find only queries with multiple plans, sorted by the ones doing the most reads. The default second sort is CPU.
 
 Other common parameters include:
 
