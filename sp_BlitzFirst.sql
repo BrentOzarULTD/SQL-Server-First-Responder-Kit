@@ -27,6 +27,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
+    @BlitzCacheSkipAnalysis BIT = 1 ,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -2809,7 +2810,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     @OutputTableName = @OutputTableNameBlitzCache,
                     @CheckDateOverride = @StartSampleTime,
                     @SortOrder = 'all',
-                    @SkipAnalysis = 1,
+                    @SkipAnalysis = @BlitzCacheSkipAnalysis,
                     @MinutesBack = @BlitzCacheMinutesBack,
                     @Debug = @Debug;
 
