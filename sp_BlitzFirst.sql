@@ -18,6 +18,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNamePerfmonStats NVARCHAR(256) = NULL ,
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
+    @OutputTableNameBlitzWho NVARCHAR(256) = NULL ,
     @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
@@ -149,6 +150,7 @@ SELECT
     @OutputTableNameWaitStats = QUOTENAME(@OutputTableNameWaitStats),
 	@OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE),
     /* @OutputTableNameBlitzCache = QUOTENAME(@OutputTableNameBlitzCache),  We purposely don't sanitize this because sp_BlitzCache will */
+    /* @OutputTableNameBlitzWho = QUOTENAME(@OutputTableNameBlitzWho),  We purposely don't sanitize this because sp_BlitzWho will */
     @LineFeed = CHAR(13) + CHAR(10),
     @StartSampleTime = SYSDATETIMEOFFSET(),
     @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
@@ -277,6 +279,7 @@ BEGIN
 		END;
     END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
      
+
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
@@ -1288,6 +1291,18 @@ BEGIN
         INNER JOIN sys.dm_os_performance_counters dmv ON counters.counter_name COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.counter_name) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS);
+
+	/* If they want to run sp_BlitzWho and export to table, go for it. */
+	IF @OutputTableNameBlitzWho IS NOT NULL
+		AND @OutputDatabaseName IS NOT NULL
+		AND @OutputSchemaName IS NOT NULL
+		AND EXISTS ( SELECT *
+						FROM   sys.databases
+						WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+	BEGIN
+		RAISERROR('Logging sp_BlitzWho to table',10,1) WITH NOWAIT;
+		EXEC sp_BlitzWho @OutputDatabaseName = @UnquotedOutputDatabaseName, @OutputSchemaName = @UnquotedOutputSchemaName, @OutputTableName = @OutputTableNameBlitzWho, @CheckDateOverride = @StartSampleTime;
+	END
 
 	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
 

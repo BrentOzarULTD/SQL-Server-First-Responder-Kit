@@ -19,6 +19,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinTempdbMB INT = 0 ,
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
+	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -861,7 +862,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[statement_start_offset]
 	,[statement_end_offset]' ELSE N'' END + N'
 ) 
-	SELECT @@SERVERNAME, SYSDATETIMEOFFSET() AS CheckDate , '
+	SELECT @@SERVERNAME, COALESCE(@CheckDateOverride, SYSDATETIMEOFFSET()) AS CheckDate , '
 	+ @StringToExecute;
 	END
 ELSE
@@ -873,7 +874,9 @@ IF @Debug = 1
 		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
 	END
 
-EXEC(@StringToExecute);
+EXEC sp_executesql @StringToExecute,
+	N'@CheckDateOverride DATETIMEOFFSET',
+	@CheckDateOverride;
 
 END
 GO 
