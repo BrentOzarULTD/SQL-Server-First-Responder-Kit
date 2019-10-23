@@ -2896,6 +2896,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
+                JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50)),
                 PRIMARY KEY CLUSTERED (ID ASC));';
 
         EXEC(@StringToExecute);
@@ -2928,6 +2929,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
 
+        /* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+        SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+            ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+        EXEC(@StringToExecute);
+
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
     BEGIN
@@ -2957,6 +2965,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
+                JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50)),
                 PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
             + @OutputTableName
@@ -3015,8 +3024,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC(@StringToExecute);
 
-        /* Create the view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameFileStats_View;
+
+        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
+        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
+            BEGIN
+            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameFileStats_View + N';';
+
+            EXEC(@StringToExecute);
+            END
+
+        /* Create the view */
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
             SET @StringToExecute = 'USE '
@@ -3066,7 +3086,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '                                            ELSE(f.io_stall_write_ms - fPrior.io_stall_write_ms) /         (f.num_of_writes   -       fPrior.num_of_writes)' + @LineFeed
                 + '                                        END,' + @LineFeed
                 + '            (f.num_of_writes - fPrior.num_of_writes) AS num_of_writes,' + @LineFeed
-                + '            (f.bytes_written - fPrior.bytes_written) / 1024.0 / 1024.0 AS megabytes_written' + @LineFeed
+                + '            (f.bytes_written - fPrior.bytes_written) / 1024.0 / 1024.0 AS megabytes_written, ' + @LineFeed
+                + '            f.ServerName + CAST(f.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + '     FROM   ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' f' + @LineFeed
                 + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate' + @LineFeed
                 + '            INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
@@ -3187,8 +3208,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC(@StringToExecute);
 
-        /* Create the view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStats_View;
+
+        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
+        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
+            BEGIN
+            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStats_View + N';';
+
+            EXEC(@StringToExecute);
+            END
+
+        /* Create the view */
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
             SET @StringToExecute = 'USE '
@@ -3222,7 +3254,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      ,pMon.[cntr_value]' + @LineFeed
                 + '      ,pMon.[cntr_type]' + @LineFeed
                 + '      ,(pMon.[cntr_value] - pMonPrior.[cntr_value]) AS cntr_delta' + @LineFeed
-                + ' ,(pMon.cntr_value - pMonPrior.cntr_value) * 1.0 / DATEDIFF(ss, pMonPrior.CheckDate, pMon.CheckDate) AS cntr_delta_per_second' + @LineFeed
+                + '      ,(pMon.cntr_value - pMonPrior.cntr_value) * 1.0 / DATEDIFF(ss, pMonPrior.CheckDate, pMon.CheckDate) AS cntr_delta_per_second' + @LineFeed
+                + '      ,pMon.ServerName + CAST(pMon.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
                 + '  INNER HASH JOIN CheckDates Dates' + @LineFeed
                 + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
@@ -3237,8 +3270,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			EXEC(@StringToExecute);
             END
 
-        /* Create the second view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStatsActuals_View;
+
+        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
+        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
+            BEGIN
+            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStatsActuals_View + N';';
+
+            EXEC(@StringToExecute);
+            END
+
+        /* Create the second view */
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
             SET @StringToExecute = 'USE '
@@ -3313,7 +3357,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '       NUM.counter_name,' + @LineFeed
                 + '       NUM.instance_name,' + @LineFeed
                 + '       NUM.CheckDate,' + @LineFeed
-                + '       NUM.cntr_delta / DEN.cntr_delta AS cntr_value' + @LineFeed
+                + '       NUM.cntr_delta / DEN.cntr_delta AS cntr_value,' + @LineFeed
+                + '       NUM.ServerName + CAST(NUM.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + '       ' + @LineFeed
                 + 'FROM   PERF_AVERAGE_BULK AS NUM' + @LineFeed
                 + '       JOIN PERF_LARGE_RAW_BASE AS DEN ON NUM.counter_join = DEN.counter_join' + @LineFeed
@@ -3330,7 +3375,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '       NUM.counter_name,' + @LineFeed
                 + '       NUM.instance_name,' + @LineFeed
                 + '       NUM.CheckDate,' + @LineFeed
-                + '       CAST((CAST(NUM.cntr_delta as DECIMAL(19)) / DEN.cntr_delta) as decimal(23,3))  AS cntr_value' +         @LineFeed
+                + '       CAST((CAST(NUM.cntr_delta as DECIMAL(19)) / DEN.cntr_delta) as decimal(23,3))  AS cntr_value,' +         @LineFeed
+                + '       NUM.ServerName + CAST(NUM.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + 'FROM   PERF_AVERAGE_FRACTION AS NUM' + @LineFeed
                 + '       JOIN PERF_LARGE_RAW_BASE AS DEN ON NUM.counter_join = DEN.counter_join' + @LineFeed
                 + '                                          AND NUM.CheckDate = DEN.CheckDate' + @LineFeed
@@ -3345,7 +3391,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '       counter_name,' + @LineFeed
                 + '       instance_name,' + @LineFeed
                 + '       CheckDate,' + @LineFeed
-                + '       cntr_value' + @LineFeed
+                + '       cntr_value,' + @LineFeed
+                + '       ServerName + CAST(CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + 'FROM   PERF_COUNTER_BULK_COUNT' + @LineFeed
                 + '' + @LineFeed
                 + 'UNION ALL' + @LineFeed
@@ -3355,7 +3402,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '       counter_name,' + @LineFeed
                 + '       instance_name,' + @LineFeed
                 + '       CheckDate,' + @LineFeed
-                + '       cntr_value' + @LineFeed
+                + '       cntr_value,' + @LineFeed
+                + '       ServerName + CAST(CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + 'FROM   PERF_COUNTER_RAWCOUNT;'')';
 
 			EXEC(@StringToExecute);
@@ -3490,8 +3538,20 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		EXEC(@StringToExecute);
 
 
-        /* Create the wait stats view */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
+
+        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
+        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
+            BEGIN
+            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameWaitStats_View + N';';
+
+            EXEC(@StringToExecute);
+            END
+
+
+        /* Create the wait stats view */
         IF OBJECT_ID(@ObjectFullName) IS NULL
             BEGIN
             SET @StringToExecute = 'USE '
@@ -3522,6 +3582,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + ', (w.wait_time_ms - wPrior.wait_time_ms) / 1000.0 / DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS wait_time_minutes_per_minute' + @LineFeed
                 + ', (w.signal_wait_time_ms - wPrior.signal_wait_time_ms) AS signal_wait_time_ms_delta' + @LineFeed
                 + ', (w.waiting_tasks_count - wPrior.waiting_tasks_count) AS waiting_tasks_count_delta' + @LineFeed
+                + ', w.ServerName + CAST(w.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
                 + 'INNER HASH JOIN CheckDates Dates' + @LineFeed
                 + 'ON Dates.CheckDate = w.CheckDate' + @LineFeed

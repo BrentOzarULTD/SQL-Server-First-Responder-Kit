@@ -1029,7 +1029,9 @@ DECLARE @DurationFilter_i INT,
 		@MinMemoryPerQuery INT,
         @msg NVARCHAR(4000),
 		@NoobSaibot BIT = 0,
-		@VersionShowsAirQuoteActualPlans BIT;
+		@VersionShowsAirQuoteActualPlans BIT,
+        @ObjectFullName NVARCHAR(2000)
+;
 
 
 IF @SortOrder = 'sp_BlitzIndex'
@@ -6606,6 +6608,7 @@ BEGIN
 		  TotalSpills BIGINT,
 		  AvgSpills MONEY,
 		  QueryPlanCost FLOAT,
+          JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
           CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
 
     		IF @Debug = 1
@@ -6623,6 +6626,14 @@ BEGIN
 			END;
 
 	EXEC sp_executesql @insert_sql ;
+
+    /* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+    SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+    SET @insert_sql = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+        ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+    EXEC(@insert_sql);
+    
 
     IF @CheckDateOverride IS NULL
         BEGIN
