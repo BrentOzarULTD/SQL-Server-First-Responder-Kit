@@ -326,6 +326,7 @@ BEGIN
           QueryStatsFirstID INT NULL,
           PlanHandle VARBINARY(64) NULL,
           DetailsInt INT NULL,
+          QueryHash BINARY(8)
         );
 
     IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL
@@ -1215,6 +1216,17 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted by user/sec',NULL);
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions aborted/sec',NULL);
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2016 XTP Transactions','Transactions created/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Cursors','Expired rows removed/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Cursors','Expired rows touched/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Garbage Collection','Rows processed/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP IO Governor','Io Issued/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Phantom Processor','Phantom expired rows touched/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Phantom Processor','Phantom rows touched/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transaction Log','Log bytes written/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transaction Log','Log records written/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transactions','Transactions aborted by user/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transactions','Transactions aborted/sec',NULL);
+        INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transactions','Transactions created/sec',NULL);
         END;
 
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
@@ -1310,7 +1322,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Backup Running - CheckID 1 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
     SELECT 1 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -1328,7 +1340,8 @@ BEGIN
         s.[host_name] AS HostName,
         db.[resource_database_id] AS DatabaseID,
         DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount
+        0 AS OpenTransactionCount,
+        r.query_hash
     FROM sys.dm_exec_requests r
     INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
     INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
@@ -1354,7 +1367,7 @@ BEGIN
 
     /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
     IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
     SELECT 2 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -1370,7 +1383,8 @@ BEGIN
         s.[host_name] AS HostName,
         db.[resource_database_id] AS DatabaseID,
         DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount
+        0 AS OpenTransactionCount,
+        r.query_hash
     FROM sys.dm_exec_requests r
     INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
     INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
@@ -1391,7 +1405,7 @@ BEGIN
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
     SELECT 3 AS CheckID,
         1 AS Priority,
         'Maintenance Tasks Running' AS FindingGroup,
@@ -1407,7 +1421,8 @@ BEGIN
         s.[host_name] AS HostName,
         db.[resource_database_id] AS DatabaseID,
         DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount
+        0 AS OpenTransactionCount,
+        r.query_hash
     FROM sys.dm_exec_requests r
     INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
     INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
@@ -1454,7 +1469,7 @@ BEGIN
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
     IF SERVERPROPERTY('Edition') <> 'SQL Azure' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
-        SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+        SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
             SELECT 5 AS CheckID,
                 1 AS Priority,
                 ''Query Problems'' AS FindingGroup,
@@ -1477,6 +1492,7 @@ BEGIN
                 r.[database_id] AS DatabaseID,
                 DB_NAME(r.database_id) AS DatabaseName,
                 0 AS OpenTransactionCount
+                r.query_hash
             FROM sys.dm_os_waiting_tasks tBlocked
 	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
             LEFT OUTER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
@@ -1585,7 +1601,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText)
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
     SELECT 9 AS CheckID,
         1 AS Priority,
         'Query Problems' AS FindingGroup,
@@ -1600,7 +1616,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         s.[host_name] AS HostName,
         db.[resource_database_id] AS DatabaseID,
         DB_NAME(db.resource_database_id) AS DatabaseName,
-        (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText
+        (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+        r.query_hash
     FROM sys.dm_exec_sessions s
     INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
     INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
@@ -1853,7 +1870,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
                    */
                    INSERT INTO #BlitzFirstResults 
-                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash)
                    SELECT 42 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
@@ -1873,7 +1890,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           r.database_id,
                           DB_NAME(r.database_id),
                           dest.text,
-                          s.open_transaction_count
+                          s.open_transaction_count,
+                          r.query_hash
                   FROM @bad_estimate AS b
                   JOIN sys.dm_exec_requests AS r
                   ON r.session_id = b.session_id
@@ -1887,7 +1905,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
                    */
                    INSERT INTO #BlitzFirstResults 
-                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash)
                    SELECT 43 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
@@ -1907,7 +1925,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           r.database_id,
                           DB_NAME(r.database_id),
                           dest.text,
-                          s.open_transaction_count
+                          s.open_transaction_count,
+                          r.query_hash
                   FROM @parallelism_skew AS p
                   JOIN sys.dm_exec_requests AS r
                   ON r.session_id = p.session_id
@@ -2251,7 +2270,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
         /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
-        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle)
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle, QueryHash)
         SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
             'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -2286,7 +2305,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    END - qsNow.statement_start_offset) / 2) + 1),
             qsNow.ID AS QueryStatsNowID,
             qsFirst.ID AS QueryStatsFirstID,
-            qsNow.plan_handle AS PlanHandle
+            qsNow.plan_handle AS PlanHandle,
+            qsNow.query_hash
             FROM #QueryStats qsNow
                 INNER JOIN #QueryStats qsTotal ON qsTotal.Pass = 0
                 LEFT OUTER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
@@ -2896,9 +2916,24 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
+                QueryHash BINARY(8) NULL,
                 JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50)),
                 PRIMARY KEY CLUSTERED (ID ASC));';
 
+        EXEC(@StringToExecute);
+
+        /* If the table doesn't have the new QueryHash column, add it. See Github #2162. */
+        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+        SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''QueryHash'')
+            ALTER TABLE ' + @ObjectFullName + N' ADD QueryHash BINARY(8) NULL;';
+        EXEC(@StringToExecute);
+
+        /* If the table doesn't have the new JoinKey computed column, add it. See Github #2164. */
+        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+        SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+            ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
         EXEC(@StringToExecute);
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -2908,8 +2943,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
-            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt) SELECT '
-            + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
+            + ' (ServerName, CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt, QueryHash) SELECT '
+            + ' @SrvName, @CheckDate, CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, OriginalLoginName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, DetailsInt, QueryHash FROM #BlitzFirstResults ORDER BY Priority , FindingsGroup , Finding , Details';
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
@@ -2928,13 +2963,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
 			@@SERVERNAME, @OutputTableCleanupDate;
-
-        /* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
-        SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-        SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-            ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
-        EXEC(@StringToExecute);
 
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -2965,6 +2993,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 DatabaseName NVARCHAR(128) NULL,
                 OpenTransactionCount INT NULL,
                 DetailsInt INT NULL,
+                QueryHash BINARY(8) NULL,
                 JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50)),
                 PRIMARY KEY CLUSTERED (ID ASC));'
             + ' INSERT '
@@ -4059,4 +4088,5 @@ EXEC sp_BlitzFirst
 , @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats'
 , @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
 , @OutputTableNameBlitzCache = 'BlitzCache'
+, @OutputTableNameBlitzWho = 'BlitzWho'
 */
