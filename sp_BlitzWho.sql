@@ -108,6 +108,7 @@ DECLARE  @ProductVersion NVARCHAR(128)
 						  AND r.statement_end_offset = session_stats.statement_end_offset' 
 		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
 		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
+		,@ObjectFullName NVARCHAR(2000);
 
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -135,6 +136,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
       WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 	 BEGIN
 	 SET @ExpertMode = 1; /* Force ExpertMode when we're logging to table */
+
+	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+	EXEC(@StringToExecute);
 
 	 /* Create the table if it doesn't exist */
 	 SET @StringToExecute = N'USE '
@@ -242,6 +250,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[plan_handle] [varbinary] (64) NULL,
 	[statement_start_offset] INT NULL,
 	[statement_end_offset] INT NULL,
+	JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50)),
 	PRIMARY KEY CLUSTERED (ID ASC));';
 	IF @Debug = 1
 		BEGIN
