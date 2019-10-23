@@ -137,13 +137,6 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	 BEGIN
 	 SET @ExpertMode = 1; /* Force ExpertMode when we're logging to table */
 
-	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
-	EXEC(@StringToExecute);
-
 	 /* Create the table if it doesn't exist */
 	 SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName
@@ -257,6 +250,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 			PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
 			PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
 		END
+	EXEC(@StringToExecute);
+
+	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
 	EXEC(@StringToExecute);
 
 	/* Delete history older than @OutputTableRetentionDays */
