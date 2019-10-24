@@ -11,11 +11,11 @@ GO
 DECLARE @msg NVARCHAR(MAX) = N'';
 
 	-- Must be a compatible, on-prem version of SQL (2016+)
-IF  (	(SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure' 
+IF  (	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure' 
 	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
 	)
 	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
-OR	(	(SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure'
+OR	(	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure'
 	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
 	)
@@ -56,7 +56,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.8', @VersionDate = '20190922';
+SELECT @Version = '3.9', @VersionDate = '20191024';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -98,7 +98,7 @@ WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
 /*Check if this is Azure first*/
-IF (SELECT SERVERPROPERTY ('EDITION')) <> 'SQL Azure'
+IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
     BEGIN 
         /*Grabs log size for datbase*/
         SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
@@ -167,7 +167,7 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  ( (SELECT SERVERPROPERTY ('EDITION')) = 'SQL Azure' )
+IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
@@ -200,7 +200,7 @@ IF  (	SELECT COUNT(*)
 		PRINT @msg;
 		RETURN;
 	END;
-
+									
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
@@ -241,14 +241,14 @@ END;
 /*Does it have Query Store enabled?*/
 RAISERROR('Making sure [%s] has Query Store enabled', 0, 1, @DatabaseName) WITH NOWAIT;
 IF 	
-	((DB_ID(@DatabaseName)) IS NOT NULL AND @DatabaseName <> '')
-AND		
-	(   SELECT DB_NAME(d.database_id)
-		FROM sys.databases AS d
-		WHERE d.is_query_store_on = 1
-		AND d.user_access_desc='MULTI_USER'
-		AND d.state_desc = 'ONLINE'
-		AND DB_NAME(d.database_id) = @DatabaseName ) IS NULL
+
+	( SELECT [d].[name]
+		FROM [sys].[databases] AS d
+		WHERE [d].[is_query_store_on] = 1
+		AND [d].[user_access_desc]='MULTI_USER'
+		AND [d].[state_desc] = 'ONLINE'
+		AND [d].[database_id] = (SELECT database_id FROM sys.databases WHERE name = @DatabaseName)
+	) IS NULL
 BEGIN
 	RAISERROR('The @DatabaseName you specified ([%s]) does not have the Query Store enabled. Please check the name or settings, and try again.', 0, 1, @DatabaseName) WITH	NOWAIT;
 	RETURN;
