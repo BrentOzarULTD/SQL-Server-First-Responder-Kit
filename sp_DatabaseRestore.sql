@@ -232,6 +232,8 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
 		@BackupParameters NVARCHAR(500) = N'', --Used to save BlockSize, MaxTransferSize and BufferCount
         @RestoreDatabaseID SMALLINT;    --Holds DB_ID of @RestoreDatabaseName
+		@BackupParameters nvarchar(500) = N'', --Used to save BlockSize, MaxTransferSize and BufferCount
+        @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
 
 DECLARE @FileListSimple TABLE (
     BackupFile NVARCHAR(255) NOT NULL, 
@@ -818,6 +820,11 @@ BEGIN
 	    ELSE
 		BEGIN
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
+                             '') + N' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13);
+        END;
+	    ELSE
+		BEGIN
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13);
 		END
 	    IF (@StandbyMode = 1)
 	    BEGIN
@@ -832,6 +839,7 @@ BEGIN
 			ELSE
 	        BEGIN
 		        SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathFull + @LastFullBackup + N''' WITH  REPLACE' + @BackupParameters + @MoveOption + N' , STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
+		        SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH  REPLACE' + @BackupParameters + @MoveOption + N' , STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
 	        END
         END;
 		IF @Debug = 1 OR @Execute = 'N'
@@ -1007,6 +1015,7 @@ BEGIN
 		ELSE
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
 
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + @BackupParameters + NCHAR(13);
 	    IF (@StandbyMode = 1)
 		BEGIN
 		    IF (@StandbyUndoPath IS NULL)
@@ -1017,6 +1026,8 @@ BEGIN
 				SET @sql = @sql + ', STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
 			ELSE 
 			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
+		    ELSE
+			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + @BackupParameters + NCHAR(13);
 	    END;
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
