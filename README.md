@@ -151,7 +151,11 @@ The @SortOrder parameter lets you pick which top 10 queries you want to examine:
 * memory grant - if you're troubleshooting a RESOURCE_SEMAPHORE issue and want to find queries getting a lot of memory
 * writes - if you wanna find those pesky ETL processes
 * You can also use average or avg for a lot of the sorts, like @SortOrder = 'avg reads'
-* all - sorts by all the different sort order options, and returns a single result set of hot messes. (Note that @SortOrder = 'all' is incompatible with the @OutputTableName parameter because it produces a different result set shape.)
+* all - sorts by all the different sort order options, and returns a single result set of hot messes. This is a little tricky because:
+  * We find the @Top N queries by CPU, then by reads, then writes, duration, executions, memory grant, spills, etc.
+  * As we work through each pattern, we exclude the results from the prior patterns. So for example, we get the top 10 by CPU, and then when we go to get the top 10 by reads, we exclude queries that were already found in the top 10 by CPU. As a result, the top 10 by reads may not really be the top 10 by reads - because some of those might have been in the top 10 by CPU.
+  * To make things even a little more confusing, in the Pattern column of the output, we only specify the first pattern that matched, not all of the patterns that matched. It would be cool if at some point in the future, we turned this into a comma-delimited list of patterns that a query matched, and then we'd be able to get down to a tighter list of top queries. For now, though, this is kinda unscientific.
+* query hash - filters for only queries that have multiple cached plans (even though they may all still be the same plan, just different copies stored.) If you use @SortOrder = 'query hash', you can specify a second sort order with a comma, like 'query hash, reads' in order to find only queries with multiple plans, sorted by the ones doing the most reads. The default second sort is CPU.
 
 Other common parameters include:
 
@@ -398,7 +402,7 @@ Parameters include:
 * @RunRecovery - default 0. When set to 1, we run RESTORE WITH RECOVERY, putting the database into writable mode, and no additional log backups can be restored.
 * @ExistingDBAction - if the database already exists when we try to restore it, 1 sets the database to single user mode, 2 kills the connections, and 3 kills the connections and then drops the database.
 * @Debug - default 0. When 1, we print out messages of what we're doing in the messages tab of SSMS.
-* @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'.
+* @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'. This doesn't use the StopAt parameter for the restore command - it simply stops restoring logs that would have this date/time's contents in it. (For example, if you're taking backups every 15 minutes on the hour, and you pass in 9:05 AM as part of the restore time, the restores would stop at your last log backup that doesn't include 9:05AM's data - but it won't restore right up to 9:05 AM.)
 
 
 For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)

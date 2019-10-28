@@ -66,13 +66,14 @@ If you want to add a new check, start at 63
 | 150 | Expensive Index Spool | You have an index spool, this is usually a sign that there's an index missing somewhere. | https://www.brentozar.com/blitzcache/eager-index-spools/ | 54 | No |
 | 150 | Index Spools Many Rows | You have an index spool that spools more rows than the query returns | https://www.brentozar.com/blitzcache/eager-index-spools/ | 55 | No |
 | 100 | Potentially bad cardinality estimates | Estimated rows are different from average rows by a factor of 10000 | https://www.brentozar.com/blitzcache/bad-estimates/ | 56 | Yes |
-| 200 | Is Paul White Electric? | This query has a Switch operator in it! | http://sqlblog.com/blogs/paul_white/archive/2013/06/11/hello-operator-my-switch-is-bored.aspx | 998 | Yes |
+| 200 | Is Paul White Electric? | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 998 | Yes |
 | 200 | Database Level Statistics | Database has stats updated 7 days ago with more than 100k modifications | https://www.brentozar.com/blitzcache/stale-statistics/ | 999 | No |
 | 200 | Row Goals | This query had row goals introduced | https://www.brentozar.com/go/rowgoals/ | 58 | Yes |
 | 100 | tempdb Spills | This query spills >500mb to tempdb on average | https://www.brentozar.com/blitzcache/tempdb-spills/ | 59 | No |
 | 100 | MSTVFs | These have many of the same problems scalar UDFs have | http://brentozar.com/blitzcache/tvf-join/ | 60 | No |
 | 100 | Many to Many Merge | These use secret worktables that could be doing lots of reads | Blog not published yet | 61 | Yes |
 | 50 | Non-SARGable queries | Queries may have non-SARGable predicates |http://brentozar.com/go/sargable| 62 | No |
+| 50 | Selects w/ Writes | Read queries are causing writes | https://dba.stackexchange.com/questions/191825/ | This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools | No |
 | 254 | Plan Cache Information | Breaks cache down by creation date (24/4/1 hrs) | None | 999 | No |
 | 255 | Global Trace Flags Enabled | You have Global Trace Flags enabled on your server | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 1000 | No |
 | 255 | Need more help? | Paste your plan on the internet! | http://pastetheplan.com | 2147483646 | No |
