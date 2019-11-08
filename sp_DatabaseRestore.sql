@@ -725,7 +725,7 @@ BEGIN
     END;
 
     /*Process @ExistingDBAction flag */
-    IF @ExistingDBAction BETWEEN 1 AND 3
+    IF @ExistingDBAction BETWEEN 1 AND 4
     BEGIN
         IF @RestoreDatabaseID IS NOT NULL
         BEGIN
@@ -738,7 +738,7 @@ BEGIN
 			        IF @sql IS NULL PRINT '@sql is NULL for SINGLE_USER';
 			        PRINT @sql;
 		        END;
-		        IF @Debug IN (0, 1) AND @Execute = 'Y'
+		        IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
 			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
             END
             IF @ExistingDBAction IN (2, 3)
@@ -772,7 +772,20 @@ BEGIN
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-            END;
+            END
+			IF @ExistingDBAction = 4
+			BEGIN
+				RAISERROR ('Offlining database', 0, 1) WITH NOWAIT;
+
+				SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + SPACE( 1 ) + 'SET OFFLINE WITH ROLLBACK IMMEDIATE';
+				IF @Debug = 1 OR @Execute = 'N'
+				BEGIN
+					IF @sql IS NULL PRINT '@sql is NULL for Offline database';
+					PRINT @sql;
+				END;
+				IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
+				EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			END;
         END
         ELSE
             RAISERROR('@ExistingDBAction > 0, but no existing @RestoreDatabaseName', 0, 1) WITH NOWAIT;
