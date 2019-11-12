@@ -1,7 +1,7 @@
 IF OBJECT_ID('dbo.sp_BlitzBackups') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;');
 GO
-ALTER PROCEDURE [dbo].[sp_BlitzBackups]
+ALTER PROCEDURE dbo.sp_BlitzBackups
     @Help TINYINT = 0 ,
 	@HoursBack INT = 168,
 	@MSDBName NVARCHAR(256) = 'msdb',

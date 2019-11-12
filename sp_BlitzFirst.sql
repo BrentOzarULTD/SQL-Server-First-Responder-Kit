@@ -3,7 +3,7 @@ IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
 GO
 
 
-ALTER PROCEDURE [dbo].[sp_BlitzFirst]
+ALTER PROCEDURE dbo.sp_BlitzFirst
     @LogMessage NVARCHAR(4000) = NULL ,
     @Help TINYINT = 0 ,
     @AsOf DATETIMEOFFSET = NULL ,

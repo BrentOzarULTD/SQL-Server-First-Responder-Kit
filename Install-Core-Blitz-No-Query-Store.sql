@@ -2,7 +2,7 @@ IF OBJECT_ID('dbo.sp_Blitz') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;');
 GO
 
-ALTER PROCEDURE [dbo].[sp_Blitz]
+ALTER PROCEDURE dbo.sp_Blitz
     @Help TINYINT = 0 ,
     @CheckUserDatabaseObjects TINYINT = 1 ,
     @CheckProcedureCache TINYINT = 0 ,
@@ -8977,7 +8977,7 @@ GO
 
 /*
 --Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz] 
+EXEC dbo.sp_Blitz
     @CheckUserDatabaseObjects = 1 ,
     @CheckProcedureCache = 0 ,
     @OutputType = 'TABLE' ,
@@ -8988,7 +8988,7 @@ EXEC [dbo].[sp_Blitz]
 IF OBJECT_ID('dbo.sp_BlitzBackups') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzBackups AS RETURN 0;');
 GO
-ALTER PROCEDURE [dbo].[sp_BlitzBackups]
+ALTER PROCEDURE dbo.sp_BlitzBackups
     @Help TINYINT = 0 ,
 	@HoursBack INT = 168,
 	@MSDBName NVARCHAR(256) = 'msdb',
@@ -17245,7 +17245,7 @@ IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
 GO
 
 
-ALTER PROCEDURE [dbo].[sp_BlitzFirst]
+ALTER PROCEDURE dbo.sp_BlitzFirst
     @LogMessage NVARCHAR(4000) = NULL ,
     @Help TINYINT = 0 ,
     @AsOf DATETIMEOFFSET = NULL ,
