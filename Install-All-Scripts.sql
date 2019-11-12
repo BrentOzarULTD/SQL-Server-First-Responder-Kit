@@ -37045,7 +37045,7 @@ GO
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
-ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
+ALTER PROCEDURE dbo.sp_DatabaseRestore
     @Database NVARCHAR(128) = NULL, 
     @RestoreDatabaseName NVARCHAR(128) = NULL, 
     @BackupPathFull NVARCHAR(260) = NULL, 
@@ -38276,7 +38276,7 @@ IF OBJECT_ID('dbo.sp_ineachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0')
 GO
 
-ALTER PROCEDURE [dbo].[sp_ineachdb]
+ALTER PROCEDURE dbo.sp_ineachdb
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
   @command             nvarchar(max) = NULL,
   @replace_character   nchar(1) = N'?',
