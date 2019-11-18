@@ -4411,8 +4411,6 @@ BEGIN
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_DatabaseRestore'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
-                '    SELECT ''sp_foreachdb'',''P'',0' + @crlf +
-                '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_ineachdb'',''P'',0' + @crlf +
                 '    UNION ALL' + @crlf +
                 '    SELECT ''SqlServerVersions'',''U'',0' + @crlf +
