@@ -18,14 +18,14 @@ BEGIN
         (
             MajorVersionNumber ASC,
             MinorVersionNumber ASC,
-            MinorVersionName
+            ReleaseDate ASC
         )
     );
 
 END;
 GO
 
-TRUNCATE TABLE dbo.SqlServerVersions;
+DELETE FROM dbo.SqlServerVersions;
 
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
