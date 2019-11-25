@@ -40,7 +40,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.6', @VersionDate = '20190702';
+SELECT @Version = '7.9', @VersionDate = '20191024';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -127,7 +127,7 @@ SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARC
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
-SET @IgnoreDatabases = LTRIM(RTRIM(@IgnoreDatabases));
+SET @IgnoreDatabases = REPLACE(REPLACE(LTRIM(RTRIM(@IgnoreDatabases)), CHAR(10), ''), CHAR(13), '');
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
@@ -758,7 +758,7 @@ IF @GetAllDatabases = 1
                         SET @DatabaseToIgnore = SUBSTRING(@IgnoreDatabases, 0, PATINDEX('%,%',@IgnoreDatabases)) ;
                         
                         INSERT INTO #Ignore_Databases (DatabaseName, Reason)
-                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        SELECT LTRIM(RTRIM(@DatabaseToIgnore)), 'Specified in the @IgnoreDatabases parameter'
                         OPTION (RECOMPILE) ;
                         
                         SET @IgnoreDatabases = SUBSTRING(@IgnoreDatabases, LEN(@DatabaseToIgnore + ',') + 1, LEN(@IgnoreDatabases)) ;
@@ -769,7 +769,7 @@ IF @GetAllDatabases = 1
                         SET @IgnoreDatabases = NULL ;
 
                         INSERT INTO #Ignore_Databases (DatabaseName, Reason)
-                        SELECT @DatabaseToIgnore, 'Specified in the @IgnoreDatabases parameter'
+                        SELECT LTRIM(RTRIM(@DatabaseToIgnore)), 'Specified in the @IgnoreDatabases parameter'
                         OPTION (RECOMPILE) ;
                     END;
             END;
@@ -2063,42 +2063,53 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
-;WITH    [maps]
-		AS ( SELECT   
-					index_sanity_id,
-					partition_number,
-					data_compression_desc,
-					partition_number - ROW_NUMBER() OVER (PARTITION BY ips.index_sanity_id, data_compression_desc ORDER BY partition_number ) AS [rN]
-			FROM    #IndexPartitionSanity ips
-			),
-	[grps]
-		AS ( SELECT MIN([maps].[partition_number]) AS [MinKey] ,
-					MAX([maps].[partition_number]) AS [MaxKey] ,
-					index_sanity_id,
-					maps.data_compression_desc
-			FROM     [maps]
-			GROUP BY [maps].[rN], index_sanity_id, maps.data_compression_desc)
-INSERT #PartitionCompressionInfo
-		(index_sanity_id, partition_compression_detail)
-SELECT DISTINCT grps.index_sanity_id , 
-                SUBSTRING((  STUFF((SELECT N', ' + N' Partition'
-				               + CASE WHEN [grps2].[MinKey] < [grps2].[MaxKey]
-				                 THEN + N's '
-				               + CAST([grps2].[MinKey] AS NVARCHAR(10))
-				               + N' - '
-				               + CAST([grps2].[MaxKey] AS NVARCHAR(10))
-				               + N' use ' + grps2.data_compression_desc
-				                 ELSE N' '
-				               + CAST([grps2].[MinKey] AS NVARCHAR(10))
-				               + N' uses '  + grps2.data_compression_desc
-				               END AS [Partitions]
-				  FROM   [grps] AS grps2
-				  WHERE grps2.index_sanity_id = grps.index_sanity_id
-				  ORDER BY grps2.MinKey, grps2.MaxKey
-				  FOR     XML PATH('') ,
-				  TYPE 
-				).[value]('.', 'NVARCHAR(MAX)'), 1, 1, '') ), 0, 8000) AS [partition_compression_detail]
-FROM grps;
+WITH maps
+    AS
+     (
+         SELECT ips.index_sanity_id,
+                ips.partition_number,
+                ips.data_compression_desc,
+                ips.partition_number - ROW_NUMBER() OVER ( PARTITION BY ips.index_sanity_id, ips.data_compression_desc
+                                                           ORDER BY ips.partition_number ) AS rn
+         FROM   #IndexPartitionSanity AS ips
+     )
+SELECT *
+INTO   #maps
+FROM   maps;
+
+WITH grps
+    AS
+     (
+         SELECT   MIN(maps.partition_number) AS MinKey,
+                  MAX(maps.partition_number) AS MaxKey,
+                  maps.index_sanity_id,
+                  maps.data_compression_desc
+         FROM     #maps AS maps
+         GROUP BY maps.rn, maps.index_sanity_id, maps.data_compression_desc
+     )
+SELECT *
+INTO   #grps
+FROM   grps;
+
+INSERT #PartitionCompressionInfo ( index_sanity_id, partition_compression_detail )
+SELECT DISTINCT
+       grps.index_sanity_id,
+       SUBSTRING(
+           ( STUFF(
+                 (   SELECT   N', ' + N' Partition'
+                              + CASE
+                                     WHEN grps2.MinKey < grps2.MaxKey
+                                     THEN
+                                     + N's ' + CAST(grps2.MinKey AS NVARCHAR(10)) + N' - '
+                                     + CAST(grps2.MaxKey AS NVARCHAR(10)) + N' use ' + grps2.data_compression_desc
+                                     ELSE
+                                     N' ' + CAST(grps2.MinKey AS NVARCHAR(10)) + N' uses ' + grps2.data_compression_desc
+                                END AS Partitions
+                     FROM     #grps AS grps2
+                     WHERE    grps2.index_sanity_id = grps.index_sanity_id
+                     ORDER BY grps2.MinKey, grps2.MaxKey
+                     FOR XML PATH(''), TYPE ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')), 0, 8000) AS partition_compression_detail
+FROM   #grps AS grps;
 		
 RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 UPDATE sz
@@ -2186,6 +2197,15 @@ BEGIN
 			sz.page_io_latch_wait_count,
 			CONVERT(VARCHAR(10), (sz.page_io_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_io_latch_wait_in_ms / 1000), 0), 108) AS page_io_latch_wait_time,
             ct.create_tsql,
+            CASE 
+                WHEN s.is_primary_key = 1 AND s.index_definition <> '[HEAP]'
+                THEN N'--ALTER TABLE ' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
+                        + N' DROP CONSTRAINT ' + QUOTENAME(s.index_name) + N';'
+                WHEN s.is_primary_key = 0 AND s.index_definition <> '[HEAP]'
+                    THEN N'--DROP INDEX '+ QUOTENAME(s.index_name) + N' ON ' + 
+                        QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name]) + N';'
+                ELSE N''
+            END AS drop_tsql,
             1 AS display_order
         FROM #IndexSanity s
         LEFT JOIN #IndexSanitySize sz ON 
@@ -2201,7 +2221,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -2226,7 +2246,8 @@ BEGIN
 			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
 			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
 			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
-            create_tsql AS [Create TSQL]
+            create_tsql AS [Create TSQL],
+            drop_tsql AS [Drop TSQL]
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
     OPTION    ( RECOMPILE );                        
@@ -2262,7 +2283,7 @@ BEGIN
         WHERE   mi.[object_id] = @ObjectID
                 /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
         AND (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
-        ORDER BY is_low, magic_benefit_number DESC
+        ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END;       
     ELSE     
@@ -2489,8 +2510,8 @@ BEGIN;
                         N'Total lock wait time > 5 minutes (row + page) with long average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-                        i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
+                        (i.db_schema_object_indexid + N': ' +
+                            sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
 							 CAST(COALESCE((SELECT SUM(1) 
 							                FROM #IndexSanity iMe 
 											INNER JOIN #IndexSanity iOthers 
@@ -2546,8 +2567,8 @@ BEGIN;
                         N'Total lock wait time > 5 minutes (row + page) with short average waits' AS finding, 
                         [database_name] AS [Database Name],
                         N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
-                        i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary + N' NC indexes on table: ' +
+                        (i.db_schema_object_indexid + N': ' +
+                            sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
 							 CAST(COALESCE((SELECT SUM(1) 
 							                FROM #IndexSanity iMe 
 											INNER JOIN #IndexSanity iOthers 
@@ -3542,7 +3563,7 @@ BEGIN;
 						OR (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000
                         ) AS t
                         WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
-                        ORDER BY t.is_low, magic_benefit_number DESC
+                        ORDER BY magic_benefit_number DESC
 						OPTION    ( RECOMPILE );
 
 
@@ -4550,12 +4571,12 @@ BEGIN;
 											[schema_name] NVARCHAR(128), 
 											[table_name] NVARCHAR(128), 
 											[index_name] NVARCHAR(128),
-                                            [Drop_Tsql] NVARCHAR(4000),
-                                            [Create_Tsql] NVARCHAR(4000), 
+                                            [Drop_Tsql] NVARCHAR(MAX),
+                                            [Create_Tsql] NVARCHAR(MAX), 
 											[index_id] INT, 
 											[db_schema_object_indexid] NVARCHAR(500), 
 											[object_type] NVARCHAR(15), 
-											[index_definition] NVARCHAR(4000), 
+											[index_definition] NVARCHAR(MAX), 
 											[key_column_names_with_sort_order] NVARCHAR(MAX), 
 											[count_key_columns] INT, 
 											[include_column_names] NVARCHAR(MAX), 
@@ -4749,7 +4770,7 @@ BEGIN;
 										CASE    WHEN index_id IN ( 1, 0 ) THEN ''TABLE''
 											ELSE ''NonClustered''
 											END AS [Object Type], 
-										index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}],
+										LEFT(index_definition,4000) AS [Definition: [Property]] ColumnName {datatype maxbytes}],
 										ISNULL(LTRIM(key_column_names_with_sort_order), '''') AS [Key Column Names With Sort],
 										ISNULL(count_key_columns, 0) AS [Count Key Columns],
 										ISNULL(include_column_names, '''') AS [Include Column Names], 
@@ -4969,7 +4990,7 @@ BEGIN;
 				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, 0 AS [Display Order], NULL AS is_low
-			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
+			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
 	  	END;
 
