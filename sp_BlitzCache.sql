@@ -1921,8 +1921,8 @@ IF @MinutesBack IS NOT NULL
 IF @SlowlySearchPlansFor IS NOT NULL
     BEGIN
     RAISERROR(N'Setting string search for @SlowlySearchPlansFor, so remember, this is gonna be slow', 0, 1) WITH NOWAIT;
-    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE((@SlowlySearchPlansFor), N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
-    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE ''%' + @SlowlySearchPlansFor + '%'' ' + @nl;
+    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE(@SlowlySearchPlansFor, N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
+    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE N''%' + @SlowlySearchPlansFor + N'%'' ' + @nl;
     END
 
 
