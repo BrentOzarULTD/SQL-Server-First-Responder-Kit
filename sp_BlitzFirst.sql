@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.91', @VersionDate = '20191202';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1491,6 +1491,7 @@ BEGIN
                 s.[host_name] AS HostName,
                 r.[database_id] AS DatabaseID,
                 DB_NAME(r.database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
                 0 AS OpenTransactionCount
                 r.query_hash
             FROM sys.dm_os_waiting_tasks tBlocked

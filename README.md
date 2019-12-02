@@ -152,9 +152,9 @@ The @SortOrder parameter lets you pick which top 10 queries you want to examine:
 * writes - if you wanna find those pesky ETL processes
 * You can also use average or avg for a lot of the sorts, like @SortOrder = 'avg reads'
 * all - sorts by all the different sort order options, and returns a single result set of hot messes. This is a little tricky because:
-  * We find the @Top N queries by CPU, then by reads, then writes, duration, executions, memory grant, spills, etc.
-  * As we work through each pattern, we exclude the results from the prior patterns. So for example, we get the top 10 by CPU, and then when we go to get the top 10 by reads, we exclude queries that were already found in the top 10 by CPU. As a result, the top 10 by reads may not really be the top 10 by reads - because some of those might have been in the top 10 by CPU.
-  * To make things even a little more confusing, in the Pattern column of the output, we only specify the first pattern that matched, not all of the patterns that matched. It would be cool if at some point in the future, we turned this into a comma-delimited list of patterns that a query matched, and then we'd be able to get down to a tighter list of top queries. For now, though, this is kinda unscientific.
+* We find the @Top N queries by CPU, then by reads, then writes, duration, executions, memory grant, spills, etc. If you want to set @Top > 10, you also have to set @BringThePain = 1 to make sure you understand that it can be pretty slow.
+* As we work through each pattern, we exclude the results from the prior patterns. So for example, we get the top 10 by CPU, and then when we go to get the top 10 by reads, we exclude queries that were already found in the top 10 by CPU. As a result, the top 10 by reads may not really be the top 10 by reads - because some of those might have been in the top 10 by CPU.
+* To make things even a little more confusing, in the Pattern column of the output, we only specify the first pattern that matched, not all of the patterns that matched. It would be cool if at some point in the future, we turned this into a comma-delimited list of patterns that a query matched, and then we'd be able to get down to a tighter list of top queries. For now, though, this is kinda unscientific.
 * query hash - filters for only queries that have multiple cached plans (even though they may all still be the same plan, just different copies stored.) If you use @SortOrder = 'query hash', you can specify a second sort order with a comma, like 'query hash, reads' in order to find only queries with multiple plans, sorted by the ones doing the most reads. The default second sort is CPU.
 
 Other common parameters include:
@@ -255,6 +255,7 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 * @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
 * @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
 * @Filter = 0 (default) - 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB
+* @OutputDatabaseName, @OutputSchemaName, @OutputTableName - these only work for @Mode = 2, index usage detail.
 
 
 [*Back to top*](#header1)
