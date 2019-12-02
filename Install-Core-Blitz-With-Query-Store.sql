@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.9', @VersionDate = '20191024';
+	SELECT @Version = '7.91', @VersionDate = '20191202';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -4408,8 +4408,6 @@ BEGIN
                 '    SELECT ''sp_BlitzWho'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_DatabaseRestore'',''P'',0' + @crlf +
-                '    UNION ALL ' + @crlf +
-                '    SELECT ''sp_foreachdb'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_ineachdb'',''P'',0' + @crlf +
                 '    UNION ALL' + @crlf +
@@ -9010,7 +9008,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.9', @VersionDate = '20191024';
+	SELECT @Version = '3.91', @VersionDate = '20191202';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10769,7 +10767,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
 	@SlowlySearchPlansFor NVARCHAR(4000) = NULL,
     @Reanalyze BIT = 0 ,
     @SkipAnalysis BIT = 0 ,
-    @BringThePain BIT = 0, /* This will forcibly set @Top to 2,147,483,647 */
+    @BringThePain BIT = 0 ,
     @MinimumExecutionCount INT = 0,
 	@Debug BIT = 0,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
@@ -10783,7 +10781,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.91', @VersionDate = '20191202';
 
 
 IF(@VersionCheckMode = 1)
@@ -10942,7 +10940,7 @@ BEGIN
     UNION ALL
     SELECT N'@BringThePain',
            N'BIT',
-           N'This forces sp_BlitzCache to examine the entire plan cache. Be careful running this on servers with a lot of memory or a large execution plan cache.'
+           N'When using @SortOrder = ''all'' and @Top > 10, we require you to set @BringThePain = 1 so you understand that sp_BlitzCache will take a while to run.'
 
     UNION ALL
     SELECT N'@QueryFilter',
@@ -11553,12 +11551,6 @@ BEGIN
 
 END
 
-
-IF @BringThePain = 1
-   BEGIN
-   RAISERROR(N'You have chosen to bring the pain. Setting top to 2147483647.', 0, 1) WITH NOWAIT;
-   SET @Top = 2147483647;
-   END; 
 
 /* Change duration from seconds to milliseconds */
 IF @DurationFilter IS NOT NULL
@@ -12435,8 +12427,8 @@ IF @MinutesBack IS NOT NULL
 IF @SlowlySearchPlansFor IS NOT NULL
     BEGIN
     RAISERROR(N'Setting string search for @SlowlySearchPlansFor, so remember, this is gonna be slow', 0, 1) WITH NOWAIT;
-    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE((@SlowlySearchPlansFor), N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
-    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE ''%' + @SlowlySearchPlansFor + '%'' ' + @nl;
+    SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE(@SlowlySearchPlansFor, N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
+    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE N''%' + @SlowlySearchPlansFor + N'%'' ' + @nl;
     END
 
 
@@ -16576,6 +16568,7 @@ RAISERROR('Beginning all sort loop', 0, 1) WITH NOWAIT;
 
 IF (
      @Top > 10
+	 AND @SkipAnalysis = 0
      AND @BringThePain = 0
    )
    BEGIN
@@ -17286,7 +17279,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.91', @VersionDate = '20191202';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -18733,7 +18726,7 @@ BEGIN
                 s.[host_name] AS HostName,
                 r.[database_id] AS DatabaseID,
                 DB_NAME(r.database_id) AS DatabaseName,
-                0 AS OpenTransactionCount
+                0 AS OpenTransactionCount,
                 r.query_hash
             FROM sys.dm_os_waiting_tasks tBlocked
 	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
@@ -21374,7 +21367,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9', @VersionDate = '20191024';
+SELECT @Version = '7.91', @VersionDate = '20191202';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -23531,6 +23524,15 @@ BEGIN
 			sz.page_io_latch_wait_count,
 			CONVERT(VARCHAR(10), (sz.page_io_latch_wait_in_ms / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_io_latch_wait_in_ms / 1000), 0), 108) AS page_io_latch_wait_time,
             ct.create_tsql,
+            CASE 
+                WHEN s.is_primary_key = 1 AND s.index_definition <> '[HEAP]'
+                THEN N'--ALTER TABLE ' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
+                        + N' DROP CONSTRAINT ' + QUOTENAME(s.index_name) + N';'
+                WHEN s.is_primary_key = 0 AND s.index_definition <> '[HEAP]'
+                    THEN N'--DROP INDEX '+ QUOTENAME(s.index_name) + N' ON ' + 
+                        QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name]) + N';'
+                ELSE N''
+            END AS drop_tsql,
             1 AS display_order
         FROM #IndexSanity s
         LEFT JOIN #IndexSanitySize sz ON 
@@ -23546,7 +23548,7 @@ BEGIN
                 N'SQL Server First Responder Kit' ,   
                 N'http://FirstResponderKit.org' ,
                 N'From Your Community Volunteers',
-                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                NULL,@DaysUptimeInsertValue,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
                 0 AS display_order
     )
     SELECT 
@@ -23571,7 +23573,8 @@ BEGIN
 			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
 			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
 			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
-            create_tsql AS [Create TSQL]
+            create_tsql AS [Create TSQL],
+            drop_tsql AS [Drop TSQL]
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
     OPTION    ( RECOMPILE );                        
@@ -25895,12 +25898,12 @@ BEGIN;
 											[schema_name] NVARCHAR(128), 
 											[table_name] NVARCHAR(128), 
 											[index_name] NVARCHAR(128),
-                                            [Drop_Tsql] NVARCHAR(4000),
-                                            [Create_Tsql] NVARCHAR(4000), 
+                                            [Drop_Tsql] NVARCHAR(MAX),
+                                            [Create_Tsql] NVARCHAR(MAX), 
 											[index_id] INT, 
 											[db_schema_object_indexid] NVARCHAR(500), 
 											[object_type] NVARCHAR(15), 
-											[index_definition] NVARCHAR(4000), 
+											[index_definition] NVARCHAR(MAX), 
 											[key_column_names_with_sort_order] NVARCHAR(MAX), 
 											[count_key_columns] INT, 
 											[include_column_names] NVARCHAR(MAX), 
@@ -26378,7 +26381,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.9', @VersionDate = '20191024';
+SELECT @Version = '2.91', @VersionDate = '20191202';
 
 
 IF(@VersionCheckMode = 1)
@@ -27646,7 +27649,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.9', @VersionDate = '20191024';
+SELECT @Version = '3.91', @VersionDate = '20191202';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -33372,7 +33375,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.9', @VersionDate = '20191024';
+	SELECT @Version = '7.91', @VersionDate = '20191202';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
