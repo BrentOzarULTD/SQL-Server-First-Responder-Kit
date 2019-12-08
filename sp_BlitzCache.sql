@@ -5723,7 +5723,7 @@ BEGIN
 				INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
 				SELECT 
 				@@SPID,
-				999,
+				997,
 				200,
 				'Database Level Statistics',
 				'The database ' + sa.[Database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.LastUpdate))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.ModificationCount)) + ' modifications on average.' AS [Finding],
@@ -5872,7 +5872,7 @@ BEGIN
 								+ '% created in the past 4 hours, and ' 
 								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_1, 0)) 
 								+ '% created in the past 1 hour.',
-                    '',
+                    'https://www.brentozar.com/archive/2018/07/tsql2sday-how-much-plan-cache-history-do-you-have/',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
 		

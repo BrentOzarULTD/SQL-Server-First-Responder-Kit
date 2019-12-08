@@ -9,7 +9,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 CURRENT HIGH CHECKID: 62
 If you want to add a new check, start at 63
 
-| Priority | FindingsGroup | Finding | URL | CheckID | Expert Mode | 
+| Priority | FindingsGroup | Finding | URL | CheckID | Expert Mode |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|-------------|
 | 100 | Execution Pattern | Frequently Executed Queries | http://brentozar.com/blitzcache/frequently-executed-queries/ | 1 | No |
 | 50 | Parameterization | Parameter Sniffing | http://brentozar.com/blitzcache/parameter-sniffing/ | 2 | No |
@@ -67,7 +67,7 @@ If you want to add a new check, start at 63
 | 150 | Index Spools Many Rows | You have an index spool that spools more rows than the query returns | https://www.brentozar.com/blitzcache/eager-index-spools/ | 55 | No |
 | 100 | Potentially bad cardinality estimates | Estimated rows are different from average rows by a factor of 10000 | https://www.brentozar.com/blitzcache/bad-estimates/ | 56 | Yes |
 | 200 | Is Paul White Electric? | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 998 | Yes |
-| 200 | Database Level Statistics | Database has stats updated 7 days ago with more than 100k modifications | https://www.brentozar.com/blitzcache/stale-statistics/ | 999 | No |
+| 200 | Database Level Statistics | Database has stats updated 7 days ago with more than 100k modifications | https://www.brentozar.com/blitzcache/stale-statistics/ | 997 | No |
 | 200 | Row Goals | This query had row goals introduced | https://www.brentozar.com/go/rowgoals/ | 58 | Yes |
 | 100 | tempdb Spills | This query spills >500mb to tempdb on average | https://www.brentozar.com/blitzcache/tempdb-spills/ | 59 | No |
 | 100 | MSTVFs | These have many of the same problems scalar UDFs have | http://brentozar.com/blitzcache/tvf-join/ | 60 | No |
