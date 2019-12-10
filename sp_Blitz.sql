@@ -3539,12 +3539,13 @@ AS
                             AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
 							BEGIN
 
-							IF (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
-							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 4001) OR
+							IF (@ProductVersionMajor = 15 AND @ProductVersionMinor < 2000) OR
+							   (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
+							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 5026) OR
 							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 5000) OR
 							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 7001) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 6000) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor < 6000) OR
+							   (@ProductVersionMajor = 10.5 /*AND @ProductVersionMinor < 6000*/) OR
+							   (@ProductVersionMajor = 10 /*AND @ProductVersionMinor < 6000*/) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
 								BEGIN
 								
@@ -3552,10 +3553,10 @@ AS
 								
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									VALUES(128, 20, 'Reliability', 'Unsupported Build of SQL Server', 'https://BrentOzar.com/go/unsupported',
-										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' +
-										CASE WHEN @ProductVersionMajor > 9 THEN
-										CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.'
-										ELSE ' is no longer support by Microsoft. You should be making plans to upgrade to a modern version of SQL Server.' END);
+										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + 
+										CASE WHEN @ProductVersionMajor >= 11 THEN
+										'.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.'
+										ELSE ' is no longer supported by Microsoft. You should be making plans to upgrade to a modern version of SQL Server.' END);
 								END;
 
 							END;
