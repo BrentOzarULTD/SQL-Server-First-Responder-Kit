@@ -1288,29 +1288,29 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
-                                os.leaf_insert_count, 
-                                os.leaf_delete_count, 
-                                os.leaf_update_count, 
-                                os.range_scan_count, 
-                                os.singleton_lookup_count,  
-                                os.forwarded_fetch_count,
-                                os.lob_fetch_in_pages, 
-                                os.lob_fetch_in_bytes, 
-                                os.row_overflow_fetch_in_pages,
-                                os.row_overflow_fetch_in_bytes, 
-                                os.row_lock_count, 
-                                os.row_lock_wait_count,
-                                os.row_lock_wait_in_ms, 
-                                os.page_lock_count, 
-                                os.page_lock_wait_count, 
-                                os.page_lock_wait_in_ms,
-                                os.index_lock_promotion_attempt_count, 
-                                os.index_lock_promotion_count, 
-								os.page_latch_wait_count,
-								os.page_latch_wait_in_ms,
-								os.page_io_latch_wait_count,								
-								os.page_io_latch_wait_in_ms,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN 'par.data_compression_desc ' ELSE 'null as data_compression_desc' END + '
+                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
+                                SUM(os.leaf_insert_count), 
+                                SUM(os.leaf_delete_count), 
+                                SUM(os.leaf_update_count), 
+                                SUM(os.range_scan_count), 
+                                SUM(os.singleton_lookup_count),  
+                                SUM(os.forwarded_fetch_count),
+                                SUM(os.lob_fetch_in_pages), 
+                                SUM(os.lob_fetch_in_bytes), 
+                                SUM(os.row_overflow_fetch_in_pages),
+                                SUM(os.row_overflow_fetch_in_bytes), 
+                                SUM(os.row_lock_count), 
+                                SUM(os.row_lock_wait_count),
+                                SUM(os.row_lock_wait_in_ms), 
+                                SUM(os.page_lock_count), 
+                                SUM(os.page_lock_wait_count), 
+                                SUM(os.page_lock_wait_in_ms),
+                                SUM(os.index_lock_promotion_attempt_count), 
+                                SUM(os.index_lock_promotion_count), 
+								SUM(os.page_latch_wait_count),
+								SUM(os.page_latch_wait_in_ms),
+								SUM(os.page_io_latch_wait_count),								
+								SUM(os.page_io_latch_wait_in_ms)
                     FROM    ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_partition_stats AS ps  
                     JOIN ' + QUOTENAME(@DatabaseName) + '.sys.partitions AS par on ps.partition_id=par.partition_id
                     JOIN ' + QUOTENAME(@DatabaseName) + '.sys.objects AS so ON ps.object_id = so.object_id
@@ -1323,7 +1323,16 @@ BEGIN TRY
                     WHERE 1=1 
                     ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
                     ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
-            ORDER BY ps.object_id,  ps.index_id, ps.partition_number
+            GROUP BY ps.object_id, 
+								s.name,
+                                ps.index_id, 
+                                ps.partition_number, 
+                                ps.row_count,
+                                ps.reserved_page_count,
+                                ps.lob_reserved_page_count,
+                                ps.row_overflow_reserved_page_count,
+                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
             OPTION    ( RECOMPILE );
             ';
         END;
@@ -1342,29 +1351,29 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
-                                os.leaf_insert_count, 
-                                os.leaf_delete_count, 
-                                os.leaf_update_count, 
-                                os.range_scan_count, 
-                                os.singleton_lookup_count,  
-                                os.forwarded_fetch_count,
-                                os.lob_fetch_in_pages, 
-                                os.lob_fetch_in_bytes, 
-                                os.row_overflow_fetch_in_pages,
-                                os.row_overflow_fetch_in_bytes, 
-                                os.row_lock_count, 
-                                os.row_lock_wait_count,
-                                os.row_lock_wait_in_ms, 
-                                os.page_lock_count, 
-                                os.page_lock_wait_count, 
-                                os.page_lock_wait_in_ms,
-                                os.index_lock_promotion_attempt_count, 
-                                os.index_lock_promotion_count,
-								os.page_latch_wait_count,
-								os.page_latch_wait_in_ms,
-								os.page_io_latch_wait_count,								
-								os.page_io_latch_wait_in_ms, 
-                                ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N'
+                                ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N',
+                                SUM(os.leaf_insert_count), 
+                                SUM(os.leaf_delete_count), 
+                                SUM(os.leaf_update_count), 
+                                SUM(os.range_scan_count), 
+                                SUM(os.singleton_lookup_count),  
+                                SUM(os.forwarded_fetch_count),
+                                SUM(os.lob_fetch_in_pages), 
+                                SUM(os.lob_fetch_in_bytes), 
+                                SUM(os.row_overflow_fetch_in_pages),
+                                SUM(os.row_overflow_fetch_in_bytes), 
+                                SUM(os.row_lock_count), 
+                                SUM(os.row_lock_wait_count),
+                                SUM(os.row_lock_wait_in_ms), 
+                                SUM(os.page_lock_count), 
+                                SUM(os.page_lock_wait_count), 
+                                SUM(os.page_lock_wait_in_ms),
+                                SUM(os.index_lock_promotion_attempt_count), 
+                                SUM(os.index_lock_promotion_count),
+								SUM(os.page_latch_wait_count),
+								SUM(os.page_latch_wait_in_ms),
+								SUM(os.page_io_latch_wait_count),								
+								SUM(os.page_io_latch_wait_in_ms)
                         FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions AS par on ps.partition_id=par.partition_id
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so ON ps.object_id = so.object_id
@@ -1376,7 +1385,16 @@ BEGIN TRY
                         WHERE 1=1 
                         ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
                         ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
-                ORDER BY ps.object_id,  ps.index_id, ps.partition_number
+	            GROUP BY ps.object_id, 
+								s.name,
+                                ps.index_id, 
+                                ps.partition_number, 
+                                ps.row_count,
+                                ps.reserved_page_count,
+                                ps.lob_reserved_page_count,
+                                ps.row_overflow_reserved_page_count,
+                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
                 OPTION    ( RECOMPILE );
                 ';
         END;       
@@ -1406,7 +1424,8 @@ BEGIN TRY
                                           row_count, 
                                           reserved_MB,
                                           reserved_LOB_MB, 
-                                          reserved_row_overflow_MB, 
+                                          reserved_row_overflow_MB,										   
+                                          data_compression_desc, 
                                           leaf_insert_count,
                                           leaf_delete_count, 
                                           leaf_update_count, 
@@ -1428,8 +1447,7 @@ BEGIN TRY
 								          page_latch_wait_count,
 								          page_latch_wait_in_ms,
 								          page_io_latch_wait_count,								
-								          page_io_latch_wait_in_ms,										   
-                                          data_compression_desc )
+								          page_io_latch_wait_in_ms)
                 EXEC sp_executesql @dsql;
         
 		END; --End Check For @SkipPartitions = 0
