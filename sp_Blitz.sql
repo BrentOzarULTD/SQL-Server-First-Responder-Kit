@@ -4118,6 +4118,14 @@ AS
 						  FROM sys.all_columns
 						  WHERE name = 'is_trustworthy_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_broker_enabled', 0, 230, 210, 'Broker Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns
+						  WHERE name = 'is_broker_enabled' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_honor_broker_priority_on', 0, 231, 210, 'Honor Broker Priority Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns
+						  WHERE name = 'is_honor_broker_priority_on' AND object_id = OBJECT_ID('sys.databases');
+						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'https://BrentOzar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
