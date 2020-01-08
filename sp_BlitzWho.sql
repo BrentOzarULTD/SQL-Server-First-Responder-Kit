@@ -889,7 +889,11 @@ IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
 						WHERE object_name LIKE '%:Memory Manager%'
 						AND counter_name LIKE 'Target Server Memory (KB)%')
 	BEGIN
-		SET @StringToExecute = @StringToExecute + N' OPTION (MAX_GRANT_PERCENT = 5) ';
+		SET @StringToExecute = @StringToExecute + N' OPTION (MAX_GRANT_PERCENT = 1, RECOMPILE) ';
+	END
+ELSE
+	BEGIN
+		SET @StringToExecute = @StringToExecute + N' OPTION (RECOMPILE) ';
 	END
 
 /* Be good: */
