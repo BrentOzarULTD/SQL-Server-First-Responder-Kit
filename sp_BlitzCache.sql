@@ -212,8 +212,12 @@ CREATE TABLE ##BlitzCacheProcs (
 		is_adaptive BIT,
 		index_spool_cost FLOAT,
 		index_spool_rows FLOAT,
+		table_spool_cost FLOAT,
+		table_spool_rows FLOAT,
 		is_spool_expensive BIT,
 		is_spool_more_rows BIT,
+		is_table_spool_expensive BIT,
+		is_table_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
@@ -1006,8 +1010,12 @@ BEGIN
 		is_adaptive BIT,
 		index_spool_cost FLOAT,
 		index_spool_rows FLOAT,
+		table_spool_cost FLOAT,
+		table_spool_rows FLOAT,
 		is_spool_expensive BIT,
 		is_spool_more_rows BIT,
+		is_table_spool_expensive BIT,
+		is_table_spool_more_rows BIT,
 		estimated_rows FLOAT,
 		is_bad_estimate BIT, 
 		is_paul_white_electric BIT,
@@ -3342,6 +3350,33 @@ JOIN spools sp
 ON sp.QueryHash = b.QueryHash
 OPTION (RECOMPILE);
 
+RAISERROR('Checking for wonky Table Spools', 0, 1) WITH NOWAIT;
+WITH XMLNAMESPACES (
+    'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+, selects
+AS ( SELECT s.QueryHash
+     FROM   #statements AS s
+     WHERE  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 )
+, spools
+AS ( SELECT DISTINCT r.QueryHash,
+	   c.n.value('@EstimateRows', 'FLOAT') AS estimated_rows,
+       c.n.value('@EstimateIO', 'FLOAT') AS estimated_io,
+       c.n.value('@EstimateCPU', 'FLOAT') AS estimated_cpu,
+       c.n.value('@EstimateRebinds', 'FLOAT') AS estimated_rebinds
+FROM   #relop AS r
+JOIN   selects AS s
+ON s.QueryHash = r.QueryHash
+CROSS APPLY r.relop.nodes('/p:RelOp') AS c(n)
+WHERE  r.relop.exist('/p:RelOp[@PhysicalOp="Table Spool" and @LogicalOp="Lazy Spool"]') = 1
+)
+UPDATE b
+		SET b.table_spool_rows = (sp.estimated_rows * sp.estimated_rebinds),
+			b.table_spool_cost = ((sp.estimated_io * sp.estimated_cpu * sp.estimated_rows) * CASE WHEN sp.estimated_rebinds < 1 THEN 1 ELSE sp.estimated_rebinds END)
+FROM ##BlitzCacheProcs b
+JOIN spools sp
+ON sp.QueryHash = b.QueryHash
+OPTION (RECOMPILE);
+
 RAISERROR('Checking for selects that cause non-spill and index spool writes', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
@@ -3352,6 +3387,8 @@ AS ( SELECT s.QueryHash
 	 ON s.QueryHash = b.QueryHash
 	 WHERE b.index_spool_rows IS NULL
 	 AND   b.index_spool_cost IS NULL
+	 AND   b.table_spool_cost IS NULL
+	 AND   b.table_spool_rows IS NULL
 	 AND   b.is_big_spills IS NULL
 	 AND   b.AverageWrites > 1024.
      AND  s.statement.exist('/p:StmtSimple/@StatementType[.="SELECT"]') = 1 
@@ -4370,6 +4407,8 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
 	   low_cost_high_cpu = CASE WHEN QueryPlanCost <= 10 AND AverageCPU > 5000. THEN 1 END,
 	   is_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 5) AND index_spool_cost >= QueryPlanCost * .1 THEN 1 END,
 	   is_spool_more_rows = CASE WHEN index_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
+	   is_table_spool_expensive = CASE WHEN QueryPlanCost > (@ctp / 5) AND table_spool_cost >= QueryPlanCost / 4 THEN 1 END,
+	   is_table_spool_more_rows = CASE WHEN table_spool_rows >= (AverageReturnedRows / ISNULL(NULLIF(ExecutionCount, 0), 1)) THEN 1 END,
 	   is_bad_estimate = CASE WHEN AverageReturnedRows > 0 AND (estimated_rows * 1000 < AverageReturnedRows OR estimated_rows > AverageReturnedRows * 1000) THEN 1 END,
 	   is_big_spills = CASE WHEN (AvgSpills / 128.) > 499. THEN 1 END
 WHERE SPID = @@SPID
@@ -4479,6 +4518,8 @@ SET    Warnings = SUBSTRING(
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
+				  CASE WHEN is_table_spool_expensive = 1 THEN + ', Expensive Table Spool' ELSE '' END +
+				  CASE WHEN is_table_spool_more_rows = 1 THEN + ', Many Rows Table Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
@@ -4558,6 +4599,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_adaptive = 1 THEN + ', Adaptive Joins' ELSE '' END +
 				  CASE WHEN is_spool_expensive = 1 THEN + ', Expensive Index Spool' ELSE '' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
+				  CASE WHEN is_table_spool_expensive = 1 THEN + ', Expensive Table Spool' ELSE '' END +
+				  CASE WHEN is_table_spool_more_rows = 1 THEN + ', Many Rows Table Spool' ELSE '' END +
 				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
@@ -4848,6 +4891,8 @@ BEGIN
 				  CASE WHEN is_adaptive = 1 THEN '', 53'' ELSE '''' END	+
 				  CASE WHEN is_spool_expensive = 1 THEN + '', 54'' ELSE '''' END +
 				  CASE WHEN is_spool_more_rows = 1 THEN + '', 55'' ELSE '''' END  +
+				  CASE WHEN is_table_spool_expensive = 1 THEN + '', 67'' ELSE '''' END +
+				  CASE WHEN is_table_spool_more_rows = 1 THEN + '', 68'' ELSE '''' END  +
 				  CASE WHEN is_bad_estimate = 1 THEN + '', 56'' ELSE '''' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN '', 57'' ELSE '''' END + 
 				  CASE WHEN is_row_goal = 1 THEN '', 58'' ELSE '''' END + 
@@ -5854,6 +5899,33 @@ BEGIN
                      'Read queries are causing writes',
                      'https://dba.stackexchange.com/questions/191825/',
 					 'This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools.');
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##BlitzCacheProcs p
+                    WHERE  p.is_table_spool_expensive = 1
+  					)
+             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     54,
+                     150,
+                     'Expensive Table Spool',
+                     'You have a table spool, this is usually a sign that queries are doing unnecessary work',
+                     'https://sqlperformance.com/2019/09/sql-performance/nested-loops-joins-performance-spools',
+                     'Check for non-SARGable predicates, or a lot of work being done inside a nested loops join') ;	
+
+        IF EXISTS (SELECT 1/0
+                    FROM   ##BlitzCacheProcs p
+                    WHERE  p.is_table_spool_more_rows = 1
+  					)
+             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+             VALUES (@@SPID,
+                     55,
+                     150,
+                     'Table Spools Many Rows',
+                     'You have a table spool that spools more rows than the query returns',
+                     'https://sqlperformance.com/2019/09/sql-performance/nested-loops-joins-performance-spools',
+                     'Check for non-SARGable predicates, or a lot of work being done inside a nested loops join');
+
 
         IF EXISTS (SELECT 1/0
                    FROM   #plan_creation p
