@@ -153,9 +153,6 @@ SELECT
     /* @OutputTableNameBlitzCache = QUOTENAME(@OutputTableNameBlitzCache),  We purposely don't sanitize this because sp_BlitzCache will */
     /* @OutputTableNameBlitzWho = QUOTENAME(@OutputTableNameBlitzWho),  We purposely don't sanitize this because sp_BlitzWho will */
     @LineFeed = CHAR(13) + CHAR(10),
-    @StartSampleTime = SYSDATETIMEOFFSET(),
-    @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
-	@FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE()),
     @OurSessionID = @@SPID,
     @OutputType                     = UPPER(@OutputType);
 
@@ -195,7 +192,7 @@ IF @LogMessage IS NOT NULL
 		RETURN;
         END;
     IF @LogMessageCheckDate IS NULL
-        SET @LogMessageCheckDate = @StartSampleTime;
+        SET @LogMessageCheckDate = SYSDATETIMEOFFSET();
     SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
         + @OutputDatabaseName
         + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
@@ -218,23 +215,6 @@ IF @LogMessage IS NOT NULL
 IF @SinceStartup = 1
     SELECT @Seconds = 0, @ExpertMode = 1;
 
-IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
-	WITH WaitTimes AS (
-        SELECT wait_type, wait_time_ms,
-            NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
-            FROM sys.dm_os_wait_stats w
-            WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
-                                'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
-    )
-    SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
-        FROM WaitTimes
-        WHERE grouper = 2;
-ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
-    SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
-        FROM sys.databases
-        WHERE database_id = 2;
-ELSE
-    SELECT @StartSampleTime = SYSDATETIMEOFFSET(), @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET());
 
 IF @OutputType = 'SCHEMA'
 BEGIN
@@ -279,7 +259,27 @@ BEGIN
 			EXEC (@BlitzWho);
 		END;
     END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
-     
+
+    /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
+    IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
+        WITH WaitTimes AS (
+            SELECT wait_type, wait_time_ms,
+                NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
+                FROM sys.dm_os_wait_stats w
+                WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
+                                    'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
+        )
+        SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
+            FROM WaitTimes
+            WHERE grouper = 2;
+    ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
+        SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
+            FROM sys.databases
+            WHERE database_id = 2;
+    ELSE
+        SELECT @StartSampleTime = SYSDATETIMEOFFSET(),
+                @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
+                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
 
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
