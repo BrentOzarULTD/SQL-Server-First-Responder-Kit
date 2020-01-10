@@ -2526,6 +2526,26 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.counter_name = 'Forwarded Records/sec'
         AND ps.value_delta > (100 * @Seconds); /* Ignore servers sitting idle */
 
+	/* Check for temp objects with high forwarded fetches.
+		This has to be done as dynamic SQL because we have to execute OBJECT_NAME inside TempDB. */
+	IF @@ROWCOUNT > 0
+		BEGIN
+		SET @StringToExecute = N'USE tempdb;
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+		SELECT TOP 10 29 AS CheckID,
+			40 AS Priority,
+			''Table Problems'' AS FindingGroup,
+			''Forwarded Fetches/Sec High: Temp Table'' AS Finding,
+			''https://BrentOzar.com/go/fetch/'' AS URL,
+			CAST(COALESCE(os.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on temp table '' + COALESCE(OBJECT_NAME(os.object_id), ''Unknown'') AS Details,
+			''Look through your source code to find the object creating these temp tables, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
+		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID(''tempdb''), NULL, NULL, NULL) os
+		WHERE os.database_id = DB_ID(''tempdb'')
+			AND os.forwarded_fetch_count > 100
+		ORDER BY os.forwarded_fetch_count DESC;'
+
+		EXECUTE sp_executesql @StringToExecute;
+		END
 
     /* In-Memory OLTP - Garbage Collection in Progress - CheckID 31 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
