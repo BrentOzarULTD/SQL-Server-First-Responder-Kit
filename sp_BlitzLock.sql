@@ -185,8 +185,11 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
+		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
 		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+		SET @OutputTableFindings = '[BlitzLockFindings]'
+		SET @ServerName = (select @@ServerName)
 		if(@OutputDatabaseName is not null)
 		BEGIN --if databaseName is set do some sanity checks and put [] around def.
 			if( (select name from sys.databases where name=@OutputDatabaseName) is null ) --if database is invalid raiserror and set bitcheck
@@ -208,6 +211,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					if(@r is null) --if it is null there is no table, create it from above execution
 					BEGIN
 						select @StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableName + ' (
+							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
 							Database_Name NVARCHAR(256),
@@ -252,18 +256,34 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							BEGIN
 								select @OutputTableFindings=N'[BlitzLockFindings]',
 								@StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableFindings + ' (
+								ServerName NVARCHAR(256),
 								check_id INT, 
 								database_name NVARCHAR(256), 
 								object_name NVARCHAR(1000), 
 								finding_group NVARCHAR(100), 
 								finding NVARCHAR(4000))',
 								@StringToExecuteParams = N'@OutputDatabaseName NVARCHAR(200),@OutputSchemaName NVARCHAR(100),@OutputTableFindings NVARCHAR(200)'
-								
-								RAISERROR('create table statement %s', 0, 1, @StringToExecute) WITH NOWAIT;
 								exec sp_executesql @StringToExecute, @StringToExecuteParams, @OutputDatabaseName,@OutputSchemaName,@OutputTableFindings
+					
 							END
 
 					END
+							--create synonym for deadlockfindings.
+							if((select name from sys.objects where name='DeadlockFindings' and type_desc='SYNONYM')IS NOT NULL)
+							BEGIN
+								RAISERROR('found synonym', 0, 1) WITH NOWAIT;
+								drop synonym DeadlockFindings;
+							END
+							set @StringToExecute = 'CREATE SYNONYM DeadlockFindings FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableFindings; 
+							exec sp_executesql @StringToExecute
+							
+							--create synonym for deadlock table.
+							if((select name from sys.objects where name='DeadLockTbl' and type_desc='SYNONYM') IS NOT NULL)
+							BEGIN	
+								drop SYNONYM DeadLockTbl;
+							END
+							set @StringToExecute = 'CREATE SYNONYM DeadLockTbl FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableName; 
+							exec sp_executesql @StringToExecute
 					
 				END
 		END
@@ -1125,8 +1145,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
 	IF(@OutputDatabaseCheck = 0)
 	BEGIN
-		set @StringToExecute = 'CREATE SYNONYM DeadLockTbl FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableName; 
-		exec sp_executesql @StringToExecute
+		
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
@@ -1232,6 +1251,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			 WHERE dp.victim_id IS NULL
 			 AND dp.login_name IS NOT NULL)
 		insert into DeadLockTbl (
+			ServerName,
 			deadlock_type,
 			event_date,
 			database_name,
@@ -1266,7 +1286,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			waiter_waiting_to_close,
 			deadlock_graph
 			)
-		SELECT d.deadlock_type,
+		SELECT @ServerName,
+			   d.deadlock_type,
 			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
 		       'Deadlock #' 
@@ -1320,16 +1341,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		
 		drop SYNONYM DeadLockTbl; --done insert into blitzlock table going to insert into findings table first create synonym.
 
-
-		set @StringToExecute = 'CREATE SYNONYM DeadlockFindings FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableFindings ; 
-		exec sp_executesql @StringToExecute, N'@OutputDatabaseName NVARCHAR(200),@OutputSchemaName NVARCHAR(100), @OutputTableFindings NVARCHAR(200)',
-		@OutputDatabaseName,@OutputSchemaName,@OutputTableFindings
+		--	RAISERROR('att deadlock findings', 0, 1) WITH NOWAIT;
+	
 
 		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
 
-		Insert into DeadlockFindings
-		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
+		Insert into DeadlockFindings (ServerName,check_id,database_name,object_name,finding_group,finding)
+		SELECT @ServerName,df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
