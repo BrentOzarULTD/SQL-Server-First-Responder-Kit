@@ -30,8 +30,10 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3257, 'RTM CU18', 'https://support.microsoft.com/en-us/help/4527377', '2019-12-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 18'),
     (14, 3238, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
     (14, 3228, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
     (14, 3223, 'RTM CU16', 'https://support.microsoft.com/en-us/help/4508218', '2019-08-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 16'),
@@ -51,6 +53,7 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5492, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
     (13, 5492, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
     (13, 5479, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
     (13, 5426, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
