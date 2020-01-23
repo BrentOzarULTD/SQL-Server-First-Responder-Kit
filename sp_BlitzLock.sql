@@ -30,7 +30,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.91', @VersionDate = '20191202';
+SELECT @Version = '2.92', @VersionDate = '20200123';
 
 
 IF(@VersionCheckMode = 1)
@@ -76,7 +76,7 @@ END;
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - Only 2012+ is supported (2008 and 2008R2 are kaput in 2019, so I''m not putting time into them)
+	 - Only SQL Server 2012 and newer is supported
 	 - If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references) you may get errors trying to parse the XML.
 	   I took a long look at this one, and:
 		1) Trying to account for all the weird places these could crop up is a losing effort. 
@@ -92,7 +92,7 @@ END;
 
     MIT License
 	   
-	Copyright (c) 2019 Brent Ozar Unlimited
+	Copyright (c) 2020 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
