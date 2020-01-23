@@ -1515,7 +1515,6 @@ BEGIN
                 r.[database_id] AS DatabaseID,
                 DB_NAME(r.database_id) AS DatabaseName,
                 0 AS OpenTransactionCount,
-                0 AS OpenTransactionCount
                 r.query_hash
             FROM sys.dm_os_waiting_tasks tBlocked
 	        INNER JOIN sys.dm_exec_sessions s ON tBlocked.blocking_session_id = s.session_id
