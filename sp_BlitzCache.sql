@@ -6702,7 +6702,7 @@ BEGIN
 		  AvgSpills MONEY,
 		  QueryPlanCost FLOAT,
           JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-          CONSTRAINT [PK_' +CAST(NEWID() AS NCHAR(36)) + '] PRIMARY KEY CLUSTERED(ID))';
+          CONSTRAINT [PK_' +REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC))';
 
     		IF @Debug = 1
 			BEGIN
