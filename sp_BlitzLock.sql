@@ -18,7 +18,10 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@Help BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+	@OutputDatabaseName NVARCHAR(256) = NULL ,
+    @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --dito as below
+    @OutputTableName NVARCHAR(256) = 'BlitzLock'  --put a standard here no need to check later in the script
 )
 WITH RECOMPILE
 AS
@@ -27,7 +30,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.91', @VersionDate = '20191202';
+SELECT @Version = '2.92', @VersionDate = '20200123';
 
 
 IF(@VersionCheckMode = 1)
@@ -64,14 +67,16 @@ END;
 
 		@EventSessionPath: If you want to point this at an XE session rather than the system health session.
 	
-	
+		@OutputDatabaseName: If you want to output information to a specific database
+		@OutputSchemaName: Specify a schema name to output information to a specific Schema
+		@OutputTableName: Specify table name to to output information to a specific table
 	
 	To learn more, visit http://FirstResponderKit.org where you can download new
 	versions for free, watch training videos on how it works, get more info on
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - Only 2012+ is supported (2008 and 2008R2 are kaput in 2019, so I''m not putting time into them)
+	 - Only SQL Server 2012 and newer is supported
 	 - If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references) you may get errors trying to parse the XML.
 	   I took a long look at this one, and:
 		1) Trying to account for all the weird places these could crop up is a losing effort. 
@@ -87,7 +92,7 @@ END;
 
     MIT License
 	   
-	Copyright (c) 2019 Brent Ozar Unlimited
+	Copyright (c) 2020 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -179,8 +184,110 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding_group NVARCHAR(100),
 			finding NVARCHAR(4000)
 		);
+		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
+		DECLARE @ServerName NVARCHAR(256)
+		DECLARE @OutputDatabaseCheck BIT;
+		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+		SET @OutputTableFindings = '[BlitzLockFindings]'
+		SET @ServerName = (select @@ServerName)
+		if(@OutputDatabaseName is not null)
+		BEGIN --if databaseName is set do some sanity checks and put [] around def.
+			if( (select name from sys.databases where name=@OutputDatabaseName) is null ) --if database is invalid raiserror and set bitcheck
+				BEGIN
+					RAISERROR('Database Name for output of table is invalid please correct, Output to Table will not be preformed', 0, 1, @d) WITH NOWAIT;	
+					set @OutputDatabaseCheck = -1 -- -1 invalid/false, 0 = good/true
+				END
+			ELSE
+				BEGIN
+					set @OutputDatabaseCheck = 0
+					select @StringToExecute = N'select @r = name from ' + '' + @OutputDatabaseName + 
+					'' + '.sys.objects where type_desc=''USER_TABLE'' and name=' + '''' + @OutputTableName + '''',
+					@StringToExecuteParams = N'@OutputDatabaseName NVARCHAR(200),@OutputTableName NVARCHAR(200),@r NVARCHAR(200) OUTPUT'
+					exec sp_executesql @StringToExecute,@StringToExecuteParams,@OutputDatabaseName,@OutputTableName,@r OUTPUT
+					--put covers around all before.
+					SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+					@OutputTableName = QUOTENAME(@OutputTableName), 
+					@OutputSchemaName = QUOTENAME(@OutputSchemaName) 
+					if(@r is null) --if it is null there is no table, create it from above execution
+					BEGIN
+						select @StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableName + ' (
+							ServerName NVARCHAR(256),
+							deadlock_type NVARCHAR(256),
+							event_date datetime,
+							Database_Name NVARCHAR(256),
+							deadlock_group NVARCHAR(256),
+							query XML,
+							object_names XML,
+							isolation_level NVARCHAR(256),
+							owner_mode NVARCHAR(256),
+							waiter_mode NVARCHAR(256),
+							transaction_count bigint,
+							login_name NVARCHAR(256),
+							host_name NVARCHAR(256),
+							client_app NVARCHAR(256),
+							wait_time BIGINT,
+							priority smallint,
+							log_used BIGINT,
+							last_tran_started datetime,
+							last_batch_started datetime,
+							last_batch_completed datetime,
+							transaction_name NVARCHAR(256),
+							owner_waiter_type NVARCHAR(256),
+							owner_activity NVARCHAR(256),
+							owner_waiter_activity NVARCHAR(256),
+							owner_merging NVARCHAR(256),
+							owner_spilling NVARCHAR(256),
+							owner_waiting_to_close NVARCHAR(256),
+							waiter_waiter_type NVARCHAR(256),
+							waiter_owner_activity NVARCHAR(256),
+							waiter_waiter_activity NVARCHAR(256),
+							waiter_merging NVARCHAR(256),
+							waiter_spilling NVARCHAR(256),
+							waiter_waiting_to_close NVARCHAR(256),
+							deadlock_graph XML)',
+							@StringToExecuteParams = N'@OutputDatabaseName NVARCHAR(200),@OutputSchemaName NVARCHAR(100),@OutputTableName NVARCHAR(200)'
+							exec sp_executesql @StringToExecute, @StringToExecuteParams,@OutputDatabaseName,@OutputSchemaName,@OutputTableName
+							--table created.
+							select @StringToExecute = N'select @r = name from ' + '' + @OutputDatabaseName + 
+								'' + '.sys.objects where type_desc=''USER_TABLE'' and name=''BlitzLockFindings''',
+							@StringToExecuteParams = N'@OutputDatabaseName NVARCHAR(200),@r NVARCHAR(200) OUTPUT'
+							exec sp_executesql @StringToExecute,@StringToExecuteParams,@OutputDatabaseName,@r OUTPUT
+							if(@r is null) --if table does not excist
+							BEGIN
+								select @OutputTableFindings=N'[BlitzLockFindings]',
+								@StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableFindings + ' (
+								ServerName NVARCHAR(256),
+								check_id INT, 
+								database_name NVARCHAR(256), 
+								object_name NVARCHAR(1000), 
+								finding_group NVARCHAR(100), 
+								finding NVARCHAR(4000))',
+								@StringToExecuteParams = N'@OutputDatabaseName NVARCHAR(200),@OutputSchemaName NVARCHAR(100),@OutputTableFindings NVARCHAR(200)'
+								exec sp_executesql @StringToExecute, @StringToExecuteParams, @OutputDatabaseName,@OutputSchemaName,@OutputTableFindings
+					
+							END
 
-        DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000);
+					END
+							--create synonym for deadlockfindings.
+							if((select name from sys.objects where name='DeadlockFindings' and type_desc='SYNONYM')IS NOT NULL)
+							BEGIN
+								RAISERROR('found synonym', 0, 1) WITH NOWAIT;
+								drop synonym DeadlockFindings;
+							END
+							set @StringToExecute = 'CREATE SYNONYM DeadlockFindings FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableFindings; 
+							exec sp_executesql @StringToExecute
+							
+							--create synonym for deadlock table.
+							if((select name from sys.objects where name='DeadLockTbl' and type_desc='SYNONYM') IS NOT NULL)
+							BEGIN	
+								drop SYNONYM DeadLockTbl;
+							END
+							set @StringToExecute = 'CREATE SYNONYM DeadLockTbl FOR ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableName; 
+							exec sp_executesql @StringToExecute
+					
+				END
+		END
+        
 
         CREATE TABLE #t (id INT NOT NULL);
 
@@ -1036,7 +1143,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_process (event_date, id);
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_resource_parallel (event_date, owner_id);
         --CREATE CLUSTERED INDEX cx_whatever ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
-
+	IF(@OutputDatabaseCheck = 0)
+	BEGIN
+		
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
 		WITH deadlocks
@@ -1141,7 +1250,44 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 			 WHERE dp.victim_id IS NULL
 			 AND dp.login_name IS NOT NULL)
-		SELECT d.deadlock_type,
+		insert into DeadLockTbl (
+			ServerName,
+			deadlock_type,
+			event_date,
+			database_name,
+			deadlock_group,
+			query,
+			object_names,
+			isolation_level,
+			owner_mode,
+			waiter_mode,
+			transaction_count,
+			login_name,
+			host_name,
+			client_app,
+			wait_time,
+			priority,
+			log_used,
+			last_tran_started,
+			last_batch_started,
+			last_batch_completed,
+			transaction_name,
+			owner_waiter_type,
+			owner_activity,
+			owner_waiter_activity,
+			owner_merging,
+			owner_spilling,
+			owner_waiting_to_close,
+			waiter_waiter_type,
+			waiter_owner_activity,
+			waiter_waiter_activity,
+			waiter_merging,
+			waiter_spilling,
+			waiter_waiting_to_close,
+			deadlock_graph
+			)
+		SELECT @ServerName,
+			   d.deadlock_type,
 			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
 		       'Deadlock #' 
@@ -1192,17 +1338,192 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (d.login_name = @LoginName OR @LoginName IS NULL)
 		ORDER BY d.event_date, is_victim DESC
 		OPTION ( RECOMPILE );
+		
+		drop SYNONYM DeadLockTbl; --done insert into blitzlock table going to insert into findings table first create synonym.
 
+		--	RAISERROR('att deadlock findings', 0, 1) WITH NOWAIT;
+	
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
-		SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
+
+		Insert into DeadlockFindings (ServerName,check_id,database_name,object_name,finding_group,finding)
+		SELECT @ServerName,df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
 		FROM #deadlock_findings AS df
 		ORDER BY df.check_id
 		OPTION ( RECOMPILE );
 
-        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
-        RAISERROR('Done %s', 0, 1, @d) WITH NOWAIT;
+		drop SYNONYM DeadlockFindings; --done with inserting.
+END
+ELSE  --Output to database is not set output to client app
+	BEGIN
+			SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+			RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
+			WITH deadlocks
+			AS ( SELECT N'Regular Deadlock' AS deadlock_type,
+						dp.event_date,
+						dp.id,
+						dp.victim_id,
+						dp.database_id,
+						dp.priority,
+						dp.log_used,
+						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
+						CONVERT(
+							XML,
+							STUFF((   SELECT DISTINCT NCHAR(10) 
+											+ N' <object>' 
+											+ ISNULL(c.object_name, N'') 
+											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+									FROM   #deadlock_owner_waiter AS c
+									WHERE  (dp.id = c.owner_id
+									OR		dp.victim_id = c.waiter_id)
+									AND	    dp.event_date = c.event_date
+									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+								1, 1, N'')) AS object_names,
+						dp.wait_time,
+						dp.transaction_name,
+						dp.last_tran_started,
+						dp.last_batch_started,
+						dp.last_batch_completed,
+						dp.lock_mode,
+						dp.transaction_count,
+						dp.client_app,
+						dp.host_name,
+						dp.login_name,
+						dp.isolation_level,
+						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						dp.is_victim,
+						ISNULL(dp.owner_mode, '-') AS owner_mode,
+						NULL AS owner_waiter_type,
+						NULL AS owner_activity,
+						NULL AS owner_waiter_activity,
+						NULL AS owner_merging,
+						NULL AS owner_spilling,
+						NULL AS owner_waiting_to_close,
+						ISNULL(dp.waiter_mode, '-') AS waiter_mode,
+						NULL AS waiter_waiter_type,
+						NULL AS waiter_owner_activity,
+						NULL AS waiter_waiter_activity,
+						NULL AS waiter_merging,
+						NULL AS waiter_spilling,
+						NULL AS waiter_waiting_to_close,
+						dp.deadlock_graph
+				FROM   #deadlock_process AS dp 
+				WHERE dp.victim_id IS NOT NULL
+				
+				UNION ALL
+				
+				SELECT N'Parallel Deadlock' AS deadlock_type,
+						dp.event_date,
+						dp.id,
+						dp.victim_id,
+						dp.database_id,
+						dp.priority,
+						dp.log_used,
+						dp.wait_resource COLLATE DATABASE_DEFAULT,
+						CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
+						dp.wait_time,
+						dp.transaction_name,
+						dp.last_tran_started,
+						dp.last_batch_started,
+						dp.last_batch_completed,
+						dp.lock_mode,
+						dp.transaction_count,
+						dp.client_app,
+						dp.host_name,
+						dp.login_name,
+						dp.isolation_level,
+						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
+						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						NULL AS is_victim,
+						cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
+						cao.waiter_type AS owner_waiter_type,
+						cao.owner_activity AS owner_activity,
+						cao.waiter_activity	AS owner_waiter_activity,
+						cao.merging	AS owner_merging,
+						cao.spilling AS owner_spilling,
+						cao.waiting_to_close AS owner_waiting_to_close,
+						caw.wait_type COLLATE DATABASE_DEFAULT AS waiter_mode,
+						caw.waiter_type AS waiter_waiter_type,
+						caw.owner_activity AS waiter_owner_activity,
+						caw.waiter_activity	AS waiter_waiter_activity,
+						caw.merging	AS waiter_merging,
+						caw.spilling AS waiter_spilling,
+						caw.waiting_to_close AS waiter_waiting_to_close,
+						dp.deadlock_graph
+				FROM   #deadlock_process AS dp 
+				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
+				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
+				WHERE dp.victim_id IS NULL
+				AND dp.login_name IS NOT NULL)
+				SELECT d.deadlock_type,
+				d.event_date,
+				DB_NAME(d.database_id) AS database_name,
+				'Deadlock #' 
+				+ CONVERT(NVARCHAR(10), d.en)
+				+ ', Query #' 
+				+ CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
+				+ CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
+				AS deadlock_group, 
+				CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>') AS query,
+				d.object_names,
+				d.isolation_level,
+				d.owner_mode,
+				d.waiter_mode,
+				d.transaction_count,
+				d.login_name,
+				d.host_name,
+				d.client_app,
+				d.wait_time,
+				d.priority,
+				d.log_used,
+				d.last_tran_started,
+				d.last_batch_started,
+				d.last_batch_completed,
+				d.transaction_name,
+				/*These columns will be NULL for regular (non-parallel) deadlocks*/
+				d.owner_waiter_type,
+				d.owner_activity,
+				d.owner_waiter_activity,
+				d.owner_merging,
+				d.owner_spilling,
+				d.owner_waiting_to_close,
+				d.waiter_waiter_type,
+				d.waiter_owner_activity,
+				d.waiter_waiter_activity,
+				d.waiter_merging,
+				d.waiter_spilling,
+				d.waiter_waiting_to_close,
+				d.deadlock_graph
+			FROM   deadlocks AS d
+			WHERE  d.dn = 1
+			AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
+			AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+			AND (d.event_date >= @StartDate OR @StartDate IS NULL)
+			AND (d.event_date < @EndDate OR @EndDate IS NULL)
+			AND (CONVERT(NVARCHAR(MAX), d.object_names) LIKE '%' + @ObjectName + '%' OR @ObjectName IS NULL)
+			AND (d.client_app = @AppName OR @AppName IS NULL)
+			AND (d.host_name = @HostName OR @HostName IS NULL)
+			AND (d.login_name = @LoginName OR @LoginName IS NULL)
+			ORDER BY d.event_date, is_victim DESC
+			OPTION ( RECOMPILE );
+			
+			SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+			RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
+			SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
+			FROM #deadlock_findings AS df
+			ORDER BY df.check_id
+			OPTION ( RECOMPILE );
+
+			SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+			RAISERROR('Done %s', 0, 1, @d) WITH NOWAIT;
+		END --done with output to client app.
+
 
 
         IF @Debug = 1

@@ -28,7 +28,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.91', @VersionDate = '20191202';
+	SELECT @Version = '7.92', @VersionDate = '20200123';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -55,7 +55,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2019 Brent Ozar Unlimited
+Copyright (c) 2020 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -763,7 +763,7 @@ IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @M
 	END
 
 SET @StringToExecute += 	
-	N' ORDER BY 2 DESC;
+	N' ORDER BY 2 DESC
 	';
 
 
@@ -876,6 +876,26 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	END
 ELSE
 	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
+
+/* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
+IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
+	OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
+	OR (@ProductVersionMajor >= 13 )
+	AND 50000000 < (SELECT cntr_value 			
+						FROM sys.dm_os_performance_counters 
+						WHERE object_name LIKE '%:Memory Manager%'
+						AND counter_name LIKE 'Target Server Memory (KB)%')
+	BEGIN
+		SET @StringToExecute = @StringToExecute + N' OPTION (MAX_GRANT_PERCENT = 1, RECOMPILE) ';
+	END
+ELSE
+	BEGIN
+		SET @StringToExecute = @StringToExecute + N' OPTION (RECOMPILE) ';
+	END
+
+/* Be good: */
+SET @StringToExecute = @StringToExecute + N' ; ';
+
 
 IF @Debug = 1
 	BEGIN
