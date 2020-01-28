@@ -682,7 +682,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
             IF @ExistingDBAction IN (2, 3)
             BEGIN
@@ -701,7 +701,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
                 IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'KILL', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
             IF @ExistingDBAction = 3
             BEGIN
@@ -714,7 +714,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
         END
         ELSE
@@ -768,7 +768,7 @@ BEGIN
 		END;
 			
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
     -- We already loaded #Headers above
 
@@ -888,7 +888,7 @@ BEGIN
 			PRINT @sql;
 		END;  
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
@@ -1129,7 +1129,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					END; 
 				
 					IF @Debug IN (0, 1) AND @Execute = 'Y'
-						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+						EXECUTE master.sys.sp_executesql @stmt = @sql;
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -1157,7 +1157,7 @@ IF @RunRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;
 
 -- Ensure simple recovery model
@@ -1172,7 +1172,7 @@ IF @ForceSimpleRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;	    
 
  -- Run checkdb against this database
@@ -1187,7 +1187,7 @@ IF @RunCheckDB = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'INTEGRITY CHECK', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;
 
 
@@ -1224,7 +1224,7 @@ IF @TestRestore = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
 	END;
 GO
