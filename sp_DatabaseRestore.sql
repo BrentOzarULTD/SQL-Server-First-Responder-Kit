@@ -1178,7 +1178,7 @@ IF @ForceSimpleRecovery = 1
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
-		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
+		SET @sql = N'DBCC CHECKDB (' + @RestoreDatabaseName + N') WITH NO_INFOMSGS, ALL_ERRORMSGS, DATA_PURITY;';
 			
 			IF @Debug = 1 OR @Execute = 'N'
 			BEGIN
