@@ -38,7 +38,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.91', @VersionDate = '20191202';
+SELECT @Version = '7.92', @VersionDate = '20200123';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -70,7 +70,7 @@ BEGIN
 		
 		MIT License
 			
-		Copyright (c) 2019 Brent Ozar Unlimited
+		Copyright (c) 2020 Brent Ozar Unlimited
 		
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -682,7 +682,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
             IF @ExistingDBAction IN (2, 3)
             BEGIN
@@ -701,7 +701,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
                 IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'KILL', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
             IF @ExistingDBAction = 3
             BEGIN
@@ -714,7 +714,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
         END
         ELSE
@@ -768,7 +768,7 @@ BEGIN
 		END;
 			
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
     -- We already loaded #Headers above
 
@@ -888,7 +888,7 @@ BEGIN
 			PRINT @sql;
 		END;  
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
@@ -1129,7 +1129,7 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 					END; 
 				
 					IF @Debug IN (0, 1) AND @Execute = 'Y'
-						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+						EXECUTE master.sys.sp_executesql @stmt = @sql;
 			END;
 			
 			FETCH NEXT FROM BackupFiles INTO @BackupFile;
@@ -1157,7 +1157,7 @@ IF @RunRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;
 
 -- Ensure simple recovery model
@@ -1172,13 +1172,13 @@ IF @ForceSimpleRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;	    
 
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
-		SET @sql = N'EXECUTE [dbo].[DatabaseIntegrityCheck] @Databases = ' + @RestoreDatabaseName + N', @LogToTable = ''Y''' + NCHAR(13);
+		SET @sql = N'DBCC CHECKDB (' + @RestoreDatabaseName + N') WITH NO_INFOMSGS, ALL_ERRORMSGS, DATA_PURITY;';
 			
 			IF @Debug = 1 OR @Execute = 'N'
 			BEGIN
@@ -1187,7 +1187,7 @@ IF @RunCheckDB = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'INTEGRITY CHECK', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 	END;
 
 
@@ -1224,7 +1224,7 @@ IF @TestRestore = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
 	END;
 GO

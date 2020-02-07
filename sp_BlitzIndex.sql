@@ -41,7 +41,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.91', @VersionDate = '20191202';
+SELECT @Version = '7.92', @VersionDate = '20200123';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -82,7 +82,7 @@ Unknown limitations of this version:
 
 MIT License
 
-Copyright (c) 2019 Brent Ozar Unlimited
+Copyright (c) 2020 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -788,9 +788,14 @@ ELSE
                     ELSE @DatabaseName END;
                END;
 
-SET @NumDatabases = @@ROWCOUNT;
+SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList);
+SET @msg = N'Number of databases to examine: ' + CAST(@NumDatabases AS NVARCHAR(50));
+RAISERROR (@msg,0,1) WITH NOWAIT;
+
+
 
 /* Running on 50+ databases can take a reaaallly long time, so we want explicit permission to do so (and only after warning about it) */
+
 
 BEGIN TRY
         IF @NumDatabases >= 50 AND @BringThePain != 1 AND @TableName IS NULL

@@ -15,6 +15,7 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @user_only           bit = 0,
   @name_pattern        nvarchar(300)  = N'%', 
   @database_list       nvarchar(max)  = NULL,
+  @exclude_pattern     nvarchar(300)  = NULL,
   @exclude_list        nvarchar(max)  = NULL,
   @recovery_model_desc nvarchar(120)  = NULL,
   @compatibility_level tinyint        = NULL,
@@ -33,7 +34,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.91', @VersionDate = '20191202';
+  SELECT @Version = '2.92', @VersionDate = '20200123';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -153,6 +154,7 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
   WHERE (@system_only = 1 AND id NOT IN (1,2,3,4))
      OR (@user_only   = 1 AND id     IN (1,2,3,4))
      OR name NOT LIKE @name_pattern
+     OR name LIKE @exclude_pattern
      OR EXISTS
      (
        SELECT 1 
