@@ -1210,15 +1210,15 @@ BEGIN TRY
                              ELSE N''''
                         END AS filter_definition' ELSE N''''' AS filter_definition' END + N'
                         , ISNULL(us.user_seeks, 0),
-						ISNULL(us.user_scans, 0),
+                        ISNULL(us.user_scans, 0),
                         ISNULL(us.user_lookups, 0),
-						ISNULL(us.user_updates, 0),
-						us.last_user_seek,
-						us.last_user_scan,
+                        ISNULL(us.user_updates, 0),
+                        us.last_user_seek,
+                        us.last_user_scan,
                         us.last_user_lookup,
-						us.last_user_update,
+                        us.last_user_update,
                         so.create_date,
-						so.modify_date
+                        so.modify_date
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si WITH (NOLOCK)
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
                                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
@@ -1230,12 +1230,12 @@ BEGIN TRY
                 WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
                 /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
                 CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
-				CASE WHEN ( @IncludeInactiveIndexes = 0
-				            OR @Mode NOT IN (0, 4)
-						    OR @TableName IS NOT NULL )
-				     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
-					 ELSE N''
-			    END
+                CASE WHEN ( @IncludeInactiveIndexes = 0
+                            OR @Mode NOT IN (0, 4)
+                            OR @TableName IS NOT NULL )
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     ELSE N''
+                END
         + N'OPTION    ( RECOMPILE );
         ';
         IF @dsql IS NULL 
