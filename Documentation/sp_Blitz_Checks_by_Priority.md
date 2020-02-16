@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 231.
-If you want to add a new one, start at 232.
+CURRENT HIGH CHECKID: 232.
+If you want to add a new one, start at 233.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -284,6 +284,7 @@ If you want to add a new one, start at 232.
 | 250 | Server Info | Agent is Currently Offline |  | 167 |
 | 250 | Server Info | Azure Managed Instance | https://www.BrenOzar.com/go/azurevm | 222 |
 | 250 | Server Info | Container | https://www.BrentOzar.com/go/virtual | 214 |
+| 250 | Server Info | Data Size |  | 232 |
 | 250 | Server Info | Default Trace Contents | https://www.BrentOzar.com/go/trace | 106 |
 | 250 | Server Info | Drive Space |  | 92 |
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
