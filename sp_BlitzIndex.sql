@@ -2835,7 +2835,12 @@ BEGIN;
                                 N'Unused NC index with High Writes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-                                N'0 reads: ' + i.db_schema_object_indexid AS details, 
+                                N'Reads: 0,'
+								+ N' Writes: ' 
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.user_updates) AS MONEY), 1), N'.00', N'')
+								+ N' on: '
+								+ i.db_schema_object_indexid
+								AS details, 
                                 i.index_definition, 
                                 i.secret_columns, 
                                 i.index_usage_summary,
