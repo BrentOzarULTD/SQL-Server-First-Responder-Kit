@@ -1120,6 +1120,7 @@ BEGIN TRY
             is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
                 EXEC sp_executesql @dsql;
 
+
         --insert columns for nonclustered indexes
         --this uses a full join to sys.index_columns
         --We don't collect info on identity columns here. They may be in NC indexes, but we just analyze identities in the base table.
@@ -1915,7 +1916,15 @@ UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
-                            + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
                                 AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
@@ -1951,8 +1960,16 @@ FROM    #IndexSanity si
                             WHEN 1 THEN N' DESC'
                             ELSE N''
 							END
-                        + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
-                            AS col_definition
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
+                                AS col_definition
                     FROM    #IndexColumns c
                     WHERE    c.database_id= si.database_id
 							AND c.schema_name = si.schema_name
