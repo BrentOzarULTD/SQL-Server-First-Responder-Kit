@@ -1231,8 +1231,8 @@ BEGIN TRY
                 /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
                 CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
                 CASE WHEN ( @IncludeInactiveIndexes = 0
-                            OR @Mode NOT IN (0, 4)
-                            OR @TableName IS NOT NULL )
+                            AND @Mode IN (0, 4)
+                            AND @TableName IS NULL )
                      THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
                      ELSE N''
                 END
