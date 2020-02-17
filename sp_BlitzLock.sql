@@ -13,14 +13,15 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@AppName NVARCHAR(256) = NULL,
 	@HostName NVARCHAR(256) = NULL,
 	@LoginName NVARCHAR(256) = NULL,
-	@EventSessionPath VARCHAR(256) = 'system_health*.xel', 
+	@EventSessionPath VARCHAR(256) = 'system_health*.xel',
+	@VictimsOnly BIT = 0,
 	@Debug BIT = 0, 
 	@Help BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
 	@OutputDatabaseName NVARCHAR(256) = NULL ,
-    @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --dito as below
+    @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --ditto as below
     @OutputTableName NVARCHAR(256) = 'BlitzLock'  --put a standard here no need to check later in the script
 )
 WITH RECOMPILE
@@ -30,7 +31,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.92', @VersionDate = '20200123';
+SELECT @Version = '2.93', @VersionDate = '20200217';
 
 
 IF(@VersionCheckMode = 1)
@@ -184,6 +185,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding_group NVARCHAR(100),
 			finding NVARCHAR(4000)
 		);
+
 		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
 		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
@@ -296,7 +298,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NULL
-	        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+		   BEGIN
+		       UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+           END
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -342,7 +346,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ISNULL(ca2.ib.query('.'), '') AS input_buffer
         INTO        #deadlock_process
         FROM        (   SELECT      dd.deadlock_xml,
-                                    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
+                                    CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
                                     dd.victim_id,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
@@ -373,7 +377,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
         AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
         AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
         ) AS q
-        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
+		OPTION ( RECOMPILE );
 
 
 		/*Parse execution stack XML*/
@@ -550,6 +555,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
+		UPDATE d
+		    SET	d.index_name = d.object_name
+							   + '.HEAP'
+		FROM #deadlock_owner_waiter AS d
+		WHERE index_name IS NULL
+		OPTION(RECOMPILE);
 
 		/*Parse parallel deadlocks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -600,7 +611,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		         FROM   #deadlock_resource_parallel AS drp
 		     )
 		DELETE FROM c
-		WHERE c.rn > 1;
+		WHERE c.rn > 1
+		OPTION ( RECOMPILE );
 
 
 		/*Get rid of nonsense*/
@@ -666,7 +678,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                              ) AS step_id
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE 'SQLAgent - %'
-        ) AS x;
+        ) AS x
+		OPTION ( RECOMPILE );
 
 
         ALTER TABLE #agent_job ADD job_name NVARCHAR(256),
@@ -682,7 +695,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                         ON j.job_id = s.job_id
                     JOIN #agent_job AS aj
                         ON  aj.job_id_guid = j.job_id
-                        AND aj.step_id = s.step_id;';
+                        AND aj.step_id = s.step_id
+						OPTION ( RECOMPILE );';
             EXEC(@StringToExecute);
             END
 
@@ -699,7 +713,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
         JOIN #agent_job AS aj
         ON dp.event_date = aj.event_date
         AND dp.victim_id = aj.victim_id
-        AND dp.id = aj.id;
+        AND dp.id = aj.id
+		OPTION ( RECOMPILE );
 
 		/*Begin checks based on parsed values*/
 
@@ -1067,7 +1082,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
 				INSERT #deadlock_findings WITH (TABLOCKX) 
-         ( check_id, database_name, object_name, finding_group, finding ) 
+                ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
@@ -1124,7 +1139,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                'Agent Job Deadlocks',
                RTRIM(COUNT(*)) + ' deadlocks from this Agent Job and Step'
         FROM #agent_job AS aj
-        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name;
+        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name
+		OPTION ( RECOMPILE );
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings WITH (TABLOCKX) 
@@ -1159,14 +1175,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 		            CONVERT(
 		                XML,
-		                STUFF((   SELECT DISTINCT NCHAR(10) 
+		                STUFF(( SELECT DISTINCT NCHAR(10) 
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
 										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 		                        FROM   #deadlock_owner_waiter AS c
-		                        WHERE  (dp.id = c.owner_id
-								OR		dp.victim_id = c.waiter_id)
-								AND	    dp.event_date = c.event_date
+								WHERE  ( dp.id = c.owner_id
+								         OR dp.victim_id = c.waiter_id )
+								AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 		                    1, 1, N'')) AS object_names,
 		            dp.wait_time,
@@ -1229,7 +1245,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
-					NULL AS is_victim,
+					1 AS is_victim,
 					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
 					cao.owner_activity AS owner_activity,
@@ -1328,6 +1344,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
+		AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
 		AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
@@ -1370,14 +1387,14 @@ ELSE  --Output to database is not set output to client app
 						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 						CONVERT(
 							XML,
-							STUFF((   SELECT DISTINCT NCHAR(10) 
+							STUFF(( SELECT DISTINCT NCHAR(10) 
 											+ N' <object>' 
 											+ ISNULL(c.object_name, N'') 
 											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 									FROM   #deadlock_owner_waiter AS c
-									WHERE  (dp.id = c.owner_id
-									OR		dp.victim_id = c.waiter_id)
-									AND	    dp.event_date = c.event_date
+									WHERE  ( dp.id = c.owner_id
+									         OR dp.victim_id = c.waiter_id )
+									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
 									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 								1, 1, N'')) AS object_names,
 						dp.wait_time,
@@ -1440,7 +1457,7 @@ ELSE  --Output to database is not set output to client app
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
-						NULL AS is_victim,
+						1 AS is_victim,
 						cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 						cao.waiter_type AS owner_waiter_type,
 						cao.owner_activity AS owner_activity,
@@ -1460,7 +1477,8 @@ ELSE  --Output to database is not set output to client app
 				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 				WHERE dp.victim_id IS NULL
-				AND dp.login_name IS NOT NULL)
+				AND dp.login_name IS NOT NULL
+				)
 				SELECT d.deadlock_type,
 				d.event_date,
 				DB_NAME(d.database_id) AS database_name,
@@ -1502,6 +1520,7 @@ ELSE  --Output to database is not set output to client app
 				d.deadlock_graph
 			FROM   deadlocks AS d
 			WHERE  d.dn = 1
+			AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
 			AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 			AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 			AND (d.event_date >= @StartDate OR @StartDate IS NULL)

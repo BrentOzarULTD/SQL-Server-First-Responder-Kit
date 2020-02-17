@@ -276,7 +276,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.93', @VersionDate = '20200217';
 
 
 IF(@VersionCheckMode = 1)
@@ -3382,7 +3382,10 @@ RAISERROR('Checking for selects that cause non-spill and index spool writes', 0,
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 , selects
-AS ( SELECT s.QueryHash
+AS ( SELECT CONVERT(BINARY(8), 
+                RIGHT('0000000000000000' 
+				    + SUBSTRING(s.statement.value('(/p:StmtSimple/@QueryHash)[1]', 'VARCHAR(18)'), 
+					    3, 18), 16), 2) AS QueryHash
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
@@ -3398,7 +3401,8 @@ UPDATE b
    SET b.select_with_writes = 1
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
-ON s.QueryHash = b.QueryHash;
+ON s.QueryHash = b.QueryHash
+AND b.AverageWrites > 1024.;
 
 /* 2012+ only */
 IF @v >= 11
@@ -4396,7 +4400,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                       AND MinReturnedRows < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1
                                  WHEN ExecutionCount > 3 AND AverageReads > @parameter_sniffing_io_threshold
                                       AND MaxReturnedRows > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1 END ,
-       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
+       near_parallel = CASE WHEN is_parallel <> 1 AND QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
        long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
