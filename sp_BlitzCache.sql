@@ -3382,7 +3382,10 @@ RAISERROR('Checking for selects that cause non-spill and index spool writes', 0,
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 , selects
-AS ( SELECT s.QueryHash
+AS ( SELECT CONVERT(BINARY(8), 
+                RIGHT('0000000000000000' 
+				    + SUBSTRING(s.statement.value('(/p:StmtSimple/@QueryHash)[1]', 'VARCHAR(18)'), 
+					    3, 18), 16), 2) AS QueryHash
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
@@ -3398,7 +3401,8 @@ UPDATE b
    SET b.select_with_writes = 1
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
-ON s.QueryHash = b.QueryHash;
+ON s.QueryHash = b.QueryHash
+AND b.AverageWrites > 1024.;
 
 /* 2012+ only */
 IF @v >= 11
