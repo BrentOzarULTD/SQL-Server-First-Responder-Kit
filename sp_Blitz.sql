@@ -180,6 +180,7 @@ AS
             ,@CurrentComponentVersionCheckModeOK     BIT
             ,@canExitLoop                            BIT
             ,@frkIsConsistent                        BIT
+			,@NeedToTurnNumericRoundabortBackOn      BIT;
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -194,7 +195,25 @@ AS
 		
 		IF @DaysUptime = 0
 		    SET @DaysUptime = .01;
-		
+
+		/* 
+		Set the session state of Numeric_RoundAbort to off if any databases have Numeric Round-Abort enabled.  
+		Stops arithmetic overflow errors during data conversion. See Github issue #2302 for more info.
+		*/
+		IF ( (8192 & @@OPTIONS) = 8192 ) /* Numeric RoundAbort is currently on, so we may need to turn it off temporarily */
+			BEGIN
+			IF EXISTS (SELECT 1 
+							FROM sys.databases
+							WHERE is_numeric_roundabort_on = 1) /* A database has it turned on */
+				BEGIN
+				SET @NeedToTurnNumericRoundabortBackOn = 1;
+				SET NUMERIC_ROUNDABORT OFF;
+				END;
+			END;
+	
+
+
+
 		/*
 		--TOURSTOP01--
 		See https://www.BrentOzar.com/go/blitztour for a guided tour.
@@ -9024,6 +9043,13 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							 END DESC;
 
 	END; /* ELSE -- IF @OutputType = 'SCHEMA' */
+
+	/*
+	Reset the Nmumeric_RoundAbort session state back to enabled if it was disabled earlier. 
+	See Github issue #2302 for more info.
+	*/
+	IF @NeedToTurnNumericRoundabortBackOn = 1
+		SET NUMERIC_ROUNDABORT ON;
 
     SET NOCOUNT OFF;
 GO
