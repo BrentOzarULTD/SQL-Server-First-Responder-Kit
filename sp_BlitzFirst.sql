@@ -996,8 +996,9 @@ BEGIN
                 WHERE CHARINDEX(',', @FilterPlansByDatabase, t + 1) > 0
                 )
             INSERT #FilterPlansByDatabase (DatabaseID)
-                SELECT SUBSTRING(@FilterPlansByDatabase, f, t - f)
+                SELECT DISTINCT db.database_id
                 FROM a
+                INNER JOIN sys.databases db ON LTRIM(RTRIM(SUBSTRING(@FilterPlansByDatabase, a.f, a.t - a.f))) = db.name
                 WHERE SUBSTRING(@FilterPlansByDatabase, f, t - f) IS NOT NULL
                 OPTION (MAXRECURSION 0);
             END;
