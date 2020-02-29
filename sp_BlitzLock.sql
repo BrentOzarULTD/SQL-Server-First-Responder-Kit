@@ -686,6 +686,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                    step_name NVARCHAR(256);
 
         IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
+		  AND NOT (LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'   /* Neither does Amazon RDS Express Edition */
+					AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND db_id('rdsadmin') IS NOT NULL
+					AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   		)
             BEGIN
             SET @StringToExecute = N'UPDATE aj
                     SET  aj.job_name = j.name, 
