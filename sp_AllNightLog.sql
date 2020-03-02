@@ -30,7 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '3.92', @VersionDate = '20200123';
+SELECT @Version = '3.93', @VersionDate = '20200217';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -804,6 +804,7 @@ LogShamer:
 												AND bw.is_completed = 1
 												AND bw.last_log_backup_start_time < DATEADD(SECOND, (@rpo * -1), GETDATE()) 
                                                 AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
+												AND bw.ignore_database = 0
 											  )
 										OR    
 											  (		/*This section picks up newly added databases by Pollster*/
@@ -812,6 +813,7 @@ LogShamer:
 											  	AND bw.last_log_backup_start_time = '1900-01-01 00:00:00.000'
 											  	AND bw.last_log_backup_finish_time = '9999-12-31 00:00:00.000'
                                                 AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
+												AND bw.ignore_database = 0
 											  )
 										ORDER BY bw.last_log_backup_start_time ASC, bw.last_log_backup_finish_time ASC, bw.database_name ASC;
 	

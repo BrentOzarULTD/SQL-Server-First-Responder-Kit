@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.92', @VersionDate = '20200123';
+	SELECT @Version = '7.93', @VersionDate = '20200217';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3542,7 +3542,7 @@ AS
 							IF (@ProductVersionMajor = 15 AND @ProductVersionMinor < 2000) OR
 							   (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
 							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 5026) OR
-							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 5000) OR
+							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 6024) OR
 							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 7001) OR
 							   (@ProductVersionMajor = 10.5 /*AND @ProductVersionMinor < 6000*/) OR
 							   (@ProductVersionMajor = 10 /*AND @ProductVersionMinor < 6000*/) OR
@@ -8515,6 +8515,46 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                  END;
                             END;
 
+                        /* CheckID 232 - Server Info - Data Size */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 232 )
+							BEGIN
+								
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 232) WITH NOWAIT;
+                                
+								IF OBJECT_ID('tempdb..#MasterFiles') IS NOT NULL
+									DROP TABLE #MasterFiles;
+								CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
+								/* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
+								IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
+									 AND (OBJECT_ID('sys.master_files') IS NULL))
+									SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
+								ELSE
+									SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT database_id, file_id, type_desc, name, physical_name, size FROM sys.master_files;';
+								EXEC(@StringToExecute);
+
+
+								INSERT  INTO #BlitzResults
+								    	( CheckID ,
+								    		Priority ,
+								    		FindingsGroup ,
+								    		Finding ,
+											URL ,
+								    		Details
+								    	)
+								    	SELECT  232 AS CheckID
+								    			,250 AS Priority
+								    			,'Server Info' AS FindingsGroup
+								    			,'Data Size' AS Finding
+												,'' AS URL
+								    			,CAST(COUNT(DISTINCT database_id) AS NVARCHAR(100)) + N' databases, ' + CAST(CAST(SUM (CAST(size AS BIGINT)*8./1024./1024.) AS MONEY) AS VARCHAR(100)) + ' GB total file size' as Details
+										FROM #MasterFiles
+										WHERE database_id > 4;
+
+                            END;
+
+
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
@@ -9023,7 +9063,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.92', @VersionDate = '20200123';
+	SELECT @Version = '3.93', @VersionDate = '20200217';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10800,7 +10840,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.93', @VersionDate = '20200217';
 
 
 IF(@VersionCheckMode = 1)
@@ -13906,7 +13946,10 @@ RAISERROR('Checking for selects that cause non-spill and index spool writes', 0,
 WITH XMLNAMESPACES (
     'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
 , selects
-AS ( SELECT s.QueryHash
+AS ( SELECT CONVERT(BINARY(8), 
+                RIGHT('0000000000000000' 
+				    + SUBSTRING(s.statement.value('(/p:StmtSimple/@QueryHash)[1]', 'VARCHAR(18)'), 
+					    3, 18), 16), 2) AS QueryHash
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
@@ -13922,7 +13965,8 @@ UPDATE b
    SET b.select_with_writes = 1
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
-ON s.QueryHash = b.QueryHash;
+ON s.QueryHash = b.QueryHash
+AND b.AverageWrites > 1024.;
 
 /* 2012+ only */
 IF @v >= 11
@@ -14920,7 +14964,7 @@ SET    frequent_execution = CASE WHEN ExecutionsPerMinute > @execution_threshold
                                       AND MinReturnedRows < ((1.0 - (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1
                                  WHEN ExecutionCount > 3 AND AverageReads > @parameter_sniffing_io_threshold
                                       AND MaxReturnedRows > ((1.0 + (@parameter_sniffing_warning_pct / 100.0)) * AverageReturnedRows) THEN 1 END ,
-       near_parallel = CASE WHEN QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
+       near_parallel = CASE WHEN is_parallel <> 1 AND QueryPlanCost BETWEEN @ctp * (1 - (@ctp_threshold_pct / 100.0)) AND @ctp THEN 1 END,
        long_running = CASE WHEN AverageDuration > @long_running_query_warning_seconds THEN 1
                            WHEN max_worker_time > @long_running_query_warning_seconds THEN 1
                            WHEN max_elapsed_time > @long_running_query_warning_seconds THEN 1 END,
@@ -17378,7 +17422,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.93', @VersionDate = '20200217';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -21500,6 +21544,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
+	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -21510,7 +21555,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.93', @VersionDate = '20200217';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21975,9 +22020,9 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               is_replicated BIT NULL,
               is_sparse BIT NULL,
               is_filestream BIT NULL,
-              seed_value BIGINT NULL,
-              increment_value INT NULL ,
-              last_value BIGINT NULL,
+              seed_value DECIMAL(38,0) NULL,
+              increment_value DECIMAL(38,0) NULL ,
+              last_value DECIMAL(38,0) NULL,
               is_not_for_replication BIT NULL
             );
         CREATE CLUSTERED INDEX CLIX_database_id_object_id_index_id ON #IndexColumns
@@ -22016,7 +22061,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
                         ELSE N''
                     END,
-                [create_tsql] AS N'CREATE INDEX [IX_' 
+                [create_tsql] AS N'CREATE INDEX [' 
                     + REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
@@ -22540,9 +22585,9 @@ BEGIN TRY
                     c.is_replicated,
                     ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_sparse' ELSE N'NULL as is_sparse' END + N',
                     ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_filestream' ELSE N'NULL as is_filestream' END + N',
-                    CAST(ic.seed_value AS BIGINT),
-                    CAST(ic.increment_value AS INT),
-                    CAST(ic.last_value AS BIGINT),
+                    CAST(ic.seed_value AS DECIMAL(38,0)),
+                    CAST(ic.increment_value AS DECIMAL(38,0)),
+                    CAST(ic.last_value AS DECIMAL(38,0)),
                     ic.is_not_for_replication
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes si
                 JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON
@@ -22587,6 +22632,7 @@ BEGIN TRY
             column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
             is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
                 EXEC sp_executesql @dsql;
+
 
         --insert columns for nonclustered indexes
         --this uses a full join to sys.index_columns
@@ -22677,10 +22723,16 @@ BEGIN TRY
                         CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
                              ELSE N''''
                         END AS filter_definition' ELSE N''''' AS filter_definition' END + N'
-                        , ISNULL(us.user_seeks, 0), ISNULL(us.user_scans, 0),
-                        ISNULL(us.user_lookups, 0), ISNULL(us.user_updates, 0), us.last_user_seek, us.last_user_scan,
-                        us.last_user_lookup, us.last_user_update,
-                        so.create_date, so.modify_date
+                        , ISNULL(us.user_seeks, 0),
+                        ISNULL(us.user_scans, 0),
+                        ISNULL(us.user_lookups, 0),
+                        ISNULL(us.user_updates, 0),
+                        us.last_user_seek,
+                        us.last_user_scan,
+                        us.last_user_lookup,
+                        us.last_user_update,
+                        so.create_date,
+                        so.modify_date
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si WITH (NOLOCK)
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
                                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
@@ -22691,8 +22743,14 @@ BEGIN TRY
                                                                        AND us.database_id = ' + CAST(@DatabaseID AS NVARCHAR(10)) + N'
                 WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
                 /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
-                CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END + 
-        N'OPTION    ( RECOMPILE );
+                CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
+                CASE WHEN ( @IncludeInactiveIndexes = 0
+                            AND @Mode IN (0, 4)
+                            AND @TableName IS NULL )
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     ELSE N''
+                END
+        + N'OPTION    ( RECOMPILE );
         ';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -23371,7 +23429,15 @@ UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
-                            + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
                                 AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
@@ -23407,8 +23473,16 @@ FROM    #IndexSanity si
                             WHEN 1 THEN N' DESC'
                             ELSE N''
 							END
-                        + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
-                            AS col_definition
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
+                                AS col_definition
                     FROM    #IndexColumns c
                     WHERE    c.database_id= si.database_id
 							AND c.schema_name = si.schema_name
@@ -24304,7 +24378,12 @@ BEGIN;
                                 N'Unused NC index with High Writes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'http://BrentOzar.com/go/IndexHoarder' AS URL,
-                                N'0 reads: ' + i.db_schema_object_indexid AS details, 
+                                N'Reads: 0,'
+								+ N' Writes: ' 
+								+ REPLACE(CONVERT(NVARCHAR(30), CAST((i.user_updates) AS MONEY), 1), N'.00', N'')
+								+ N' on: '
+								+ i.db_schema_object_indexid
+								AS details, 
                                 i.index_definition, 
                                 i.secret_columns, 
                                 i.index_usage_summary,
@@ -25375,14 +25454,15 @@ BEGIN;
                                 i.db_schema_object_name + N'.' +  QUOTENAME(ic.column_name)
                                     + N' is an identity with type ' + ic.system_type_name 
                                     + N', last value of ' 
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.last_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', seed of '
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.seed_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
                                     + N', and range of ' +
                                         CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
                                             WHEN 'smallint' THEN N'+/- 32,768'
                                             WHEN 'tinyint' THEN N'0 to 255'
+                                            ELSE 'unknown'
                                         END
                                         AS details,
                                 i.index_definition,
@@ -25429,14 +25509,15 @@ BEGIN;
                                 i.db_schema_object_name + N'.' +  QUOTENAME(ic.column_name)
                                     + N' is an identity with type ' + ic.system_type_name 
                                     + N', last value of ' 
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.last_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', seed of '
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.seed_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
                                     + N', and range of ' +
                                         CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
                                             WHEN 'smallint' THEN N'+/- 32,768'
                                             WHEN 'tinyint' THEN N'0 to 255'
+                                            ELSE 'unknown'
                                         END
                                         AS details,
                                 i.index_definition,
@@ -26638,14 +26719,15 @@ ALTER PROCEDURE dbo.sp_BlitzLock
 	@AppName NVARCHAR(256) = NULL,
 	@HostName NVARCHAR(256) = NULL,
 	@LoginName NVARCHAR(256) = NULL,
-	@EventSessionPath VARCHAR(256) = 'system_health*.xel', 
+	@EventSessionPath VARCHAR(256) = 'system_health*.xel',
+	@VictimsOnly BIT = 0,
 	@Debug BIT = 0, 
 	@Help BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
 	@OutputDatabaseName NVARCHAR(256) = NULL ,
-    @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --dito as below
+    @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --ditto as below
     @OutputTableName NVARCHAR(256) = 'BlitzLock'  --put a standard here no need to check later in the script
 )
 WITH RECOMPILE
@@ -26655,7 +26737,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.92', @VersionDate = '20200123';
+SELECT @Version = '2.93', @VersionDate = '20200217';
 
 
 IF(@VersionCheckMode = 1)
@@ -26809,6 +26891,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding_group NVARCHAR(100),
 			finding NVARCHAR(4000)
 		);
+
 		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
 		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
@@ -26921,7 +27004,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NULL
-	        UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+		   BEGIN
+		       UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+           END
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -26967,7 +27052,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ISNULL(ca2.ib.query('.'), '') AS input_buffer
         INTO        #deadlock_process
         FROM        (   SELECT      dd.deadlock_xml,
-                                    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
+                                    CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
                                     dd.victim_id,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
@@ -26998,7 +27083,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
         AND   (ca.dp.value('@hostname', 'NVARCHAR(256)') = @HostName OR @HostName IS NULL) 
         AND   (ca.dp.value('@loginname', 'NVARCHAR(256)') = @LoginName OR @LoginName IS NULL) 
         ) AS q
-        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib);
+        CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
+		OPTION ( RECOMPILE );
 
 
 		/*Parse execution stack XML*/
@@ -27175,6 +27261,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
         CROSS APPLY ca.dr.nodes('//owner-list/owner') AS o(l)
 		OPTION ( RECOMPILE );
 
+		UPDATE d
+		    SET	d.index_name = d.object_name
+							   + '.HEAP'
+		FROM #deadlock_owner_waiter AS d
+		WHERE index_name IS NULL
+		OPTION(RECOMPILE);
 
 		/*Parse parallel deadlocks*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -27225,7 +27317,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		         FROM   #deadlock_resource_parallel AS drp
 		     )
 		DELETE FROM c
-		WHERE c.rn > 1;
+		WHERE c.rn > 1
+		OPTION ( RECOMPILE );
 
 
 		/*Get rid of nonsense*/
@@ -27291,7 +27384,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                              ) AS step_id
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE 'SQLAgent - %'
-        ) AS x;
+        ) AS x
+		OPTION ( RECOMPILE );
 
 
         ALTER TABLE #agent_job ADD job_name NVARCHAR(256),
@@ -27307,7 +27401,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                         ON j.job_id = s.job_id
                     JOIN #agent_job AS aj
                         ON  aj.job_id_guid = j.job_id
-                        AND aj.step_id = s.step_id;';
+                        AND aj.step_id = s.step_id
+						OPTION ( RECOMPILE );';
             EXEC(@StringToExecute);
             END
 
@@ -27324,7 +27419,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
         JOIN #agent_job AS aj
         ON dp.event_date = aj.event_date
         AND dp.victim_id = aj.victim_id
-        AND dp.id = aj.id;
+        AND dp.id = aj.id
+		OPTION ( RECOMPILE );
 
 		/*Begin checks based on parsed values*/
 
@@ -27692,7 +27788,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				GROUP BY PARSENAME(dow.object_name, 3), dow.object_name
 						)
 				INSERT #deadlock_findings WITH (TABLOCKX) 
-         ( check_id, database_name, object_name, finding_group, finding ) 
+                ( check_id, database_name, object_name, finding_group, finding ) 
 				SELECT 10 AS check_id,
 						cs.database_name,
 						cs.object_name,
@@ -27749,7 +27845,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                'Agent Job Deadlocks',
                RTRIM(COUNT(*)) + ' deadlocks from this Agent Job and Step'
         FROM #agent_job AS aj
-        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name;
+        GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name
+		OPTION ( RECOMPILE );
 
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings WITH (TABLOCKX) 
@@ -27784,14 +27881,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 		            CONVERT(
 		                XML,
-		                STUFF((   SELECT DISTINCT NCHAR(10) 
+		                STUFF(( SELECT DISTINCT NCHAR(10) 
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
 										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 		                        FROM   #deadlock_owner_waiter AS c
-		                        WHERE  (dp.id = c.owner_id
-								OR		dp.victim_id = c.waiter_id)
-								AND	    dp.event_date = c.event_date
+								WHERE  ( dp.id = c.owner_id
+								         OR dp.victim_id = c.waiter_id )
+								AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
 		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 		                    1, 1, N'')) AS object_names,
 		            dp.wait_time,
@@ -27854,7 +27951,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
-					NULL AS is_victim,
+					1 AS is_victim,
 					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
 					cao.owner_activity AS owner_activity,
@@ -27953,6 +28050,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_graph
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
+		AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
 		AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
@@ -27995,14 +28093,14 @@ ELSE  --Output to database is not set output to client app
 						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
 						CONVERT(
 							XML,
-							STUFF((   SELECT DISTINCT NCHAR(10) 
+							STUFF(( SELECT DISTINCT NCHAR(10) 
 											+ N' <object>' 
 											+ ISNULL(c.object_name, N'') 
 											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
 									FROM   #deadlock_owner_waiter AS c
-									WHERE  (dp.id = c.owner_id
-									OR		dp.victim_id = c.waiter_id)
-									AND	    dp.event_date = c.event_date
+									WHERE  ( dp.id = c.owner_id
+									         OR dp.victim_id = c.waiter_id )
+									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
 									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
 								1, 1, N'')) AS object_names,
 						dp.wait_time,
@@ -28065,7 +28163,7 @@ ELSE  --Output to database is not set output to client app
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
-						NULL AS is_victim,
+						1 AS is_victim,
 						cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 						cao.waiter_type AS owner_waiter_type,
 						cao.owner_activity AS owner_activity,
@@ -28085,7 +28183,8 @@ ELSE  --Output to database is not set output to client app
 				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 				WHERE dp.victim_id IS NULL
-				AND dp.login_name IS NOT NULL)
+				AND dp.login_name IS NOT NULL
+				)
 				SELECT d.deadlock_type,
 				d.event_date,
 				DB_NAME(d.database_id) AS database_name,
@@ -28127,6 +28226,7 @@ ELSE  --Output to database is not set output to client app
 				d.deadlock_graph
 			FROM   deadlocks AS d
 			WHERE  d.dn = 1
+			AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
 			AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 			AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 			AND (d.event_date >= @StartDate OR @StartDate IS NULL)
@@ -28213,7 +28313,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.92', @VersionDate = '20200123';
+	SELECT @Version = '7.93', @VersionDate = '20200217';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
