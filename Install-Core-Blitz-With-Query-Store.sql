@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.93', @VersionDate = '20200217';
+	SELECT @Version = '7.94', @VersionDate = '20200324';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -180,6 +180,7 @@ AS
             ,@CurrentComponentVersionCheckModeOK     BIT
             ,@canExitLoop                            BIT
             ,@frkIsConsistent                        BIT
+			,@NeedToTurnNumericRoundabortBackOn      BIT;
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -194,7 +195,25 @@ AS
 		
 		IF @DaysUptime = 0
 		    SET @DaysUptime = .01;
-		
+
+		/* 
+		Set the session state of Numeric_RoundAbort to off if any databases have Numeric Round-Abort enabled.  
+		Stops arithmetic overflow errors during data conversion. See Github issue #2302 for more info.
+		*/
+		IF ( (8192 & @@OPTIONS) = 8192 ) /* Numeric RoundAbort is currently on, so we may need to turn it off temporarily */
+			BEGIN
+			IF EXISTS (SELECT 1 
+							FROM sys.databases
+							WHERE is_numeric_roundabort_on = 1) /* A database has it turned on */
+				BEGIN
+				SET @NeedToTurnNumericRoundabortBackOn = 1;
+				SET NUMERIC_ROUNDABORT OFF;
+				END;
+			END;
+	
+
+
+
 		/*
 		--TOURSTOP01--
 		See https://www.BrentOzar.com/go/blitztour for a guided tour.
@@ -854,7 +873,7 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 1) WITH NOWAIT;
 
-                        IF SERVERPROPERTY('EngineName') <> 8 /* Azure Managed Instances need a special query */
+                        IF SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances need a special query */
                             BEGIN
 						    INSERT  INTO #BlitzResults
 								    ( CheckID ,
@@ -9025,6 +9044,13 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 	END; /* ELSE -- IF @OutputType = 'SCHEMA' */
 
+	/*
+	Reset the Nmumeric_RoundAbort session state back to enabled if it was disabled earlier. 
+	See Github issue #2302 for more info.
+	*/
+	IF @NeedToTurnNumericRoundabortBackOn = 1
+		SET NUMERIC_ROUNDABORT ON;
+
     SET NOCOUNT OFF;
 GO
 
@@ -9063,7 +9089,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.93', @VersionDate = '20200217';
+	SELECT @Version = '3.94', @VersionDate = '20200324';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10840,7 +10866,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.93', @VersionDate = '20200217';
+SELECT @Version = '7.94', @VersionDate = '20200324';
 
 
 IF(@VersionCheckMode = 1)
@@ -12110,7 +12136,7 @@ SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans,
 	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -15585,6 +15611,77 @@ IF @Debug = 1
 
 EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
 
+
+/*
+
+This section will check if:
+ * >= 30% of plans were created in the last hour
+ * Check on the memory_clerks DMV for space used by TokenAndPermUserStore
+ * Compare that to the size of the buffer pool
+ * If it's >10%, 
+*/
+IF EXISTS
+(
+    SELECT 1/0
+    FROM #plan_creation AS pc
+    WHERE pc.percent_1 >= 30
+)
+BEGIN
+
+DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
+DECLARE @user_perm_gb_out DECIMAL(10,2);
+DECLARE @common_version DECIMAL(10,2);
+DECLARE @buffer_pool_memory_gb DECIMAL(10,2);
+DECLARE @user_perm_percent DECIMAL(10,2);
+DECLARE @is_tokenstore_big BIT = 0;
+
+
+SELECT @buffer_pool_memory_gb = ( COUNT_BIG(*) * 8.0 ) / 1024. / 1024.
+                                  FROM sys.dm_os_buffer_descriptors;
+
+SELECT @common_version =
+           CONVERT(DECIMAL(10,2), c.common_version)
+FROM #checkversion AS c;
+
+IF @common_version >= 11
+BEGIN
+    SET @user_perm_sql += N'
+    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
+    			                    ELSE 0 
+    		                   END
+    	FROM sys.dm_os_memory_clerks
+    	WHERE type = ''USERSTORE_TOKENPERM''
+    	AND   name = ''TokenAndPermUserStore'';';
+END;
+
+IF @common_version < 11
+BEGIN
+    SET @user_perm_sql += N'
+    	SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
+    			                    ELSE 0 
+    		                   END
+    	FROM sys.dm_os_memory_clerks
+    	WHERE type = ''USERSTORE_TOKENPERM''
+    	AND   name = ''TokenAndPermUserStore'';';
+END;
+
+EXEC sys.sp_executesql @user_perm_sql, 
+                       N'@user_perm_gb DECIMAL(10,2) OUTPUT', 
+					   @user_perm_gb = @user_perm_gb_out OUTPUT;
+
+
+IF (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100. >= 10
+    BEGIN
+        SET @is_tokenstore_big = 1;
+        SET @user_perm_percent = (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100.;
+    END
+
+END
+
+
+
 IF @HideSummary = 0 AND @ExportToExcel = 0
 BEGIN
     IF @Reanalyze = 0
@@ -16527,7 +16624,18 @@ BEGIN
                     'https://www.brentozar.com/archive/2018/07/tsql2sday-how-much-plan-cache-history-do-you-have/',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
-		
+
+        IF @is_tokenstore_big = 1
+		INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT @@SPID,
+		       69,
+			   10,
+			   N'Large USERSTORE_TOKENPERM cache: ' + CONVERT(NVARCHAR(11), @user_perm_gb_out) + N'GB',
+			   N'The USERSTORE_TOKENPERM is taking up ' + CONVERT(NVARCHAR(11), @user_perm_percent)
+			                                            + N'% of the buffer pool, and your plan cache seems to be unstable',
+			   N'https://brentozar.com/go/userstore',
+			   N'A growing USERSTORE_TOKENPERM cache can cause the plan cache to clear out'
+
 		IF @v >= 11
 		BEGIN	
         IF EXISTS (SELECT 1/0
@@ -17422,7 +17530,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.93', @VersionDate = '20200217';
+SELECT @Version = '7.94', @VersionDate = '20200324';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -18374,8 +18482,9 @@ BEGIN
                 WHERE CHARINDEX(',', @FilterPlansByDatabase, t + 1) > 0
                 )
             INSERT #FilterPlansByDatabase (DatabaseID)
-                SELECT SUBSTRING(@FilterPlansByDatabase, f, t - f)
+                SELECT DISTINCT db.database_id
                 FROM a
+                INNER JOIN sys.databases db ON LTRIM(RTRIM(SUBSTRING(@FilterPlansByDatabase, a.f, a.t - a.f))) = db.name
                 WHERE SUBSTRING(@FilterPlansByDatabase, f, t - f) IS NOT NULL
                 OPTION (MAXRECURSION 0);
             END;
@@ -21555,7 +21664,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.93', @VersionDate = '20200217';
+SELECT @Version = '7.94', @VersionDate = '20200324';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -26737,7 +26846,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.93', @VersionDate = '20200217';
+SELECT @Version = '2.94', @VersionDate = '20200324';
 
 
 IF(@VersionCheckMode = 1)
@@ -27392,6 +27501,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                    step_name NVARCHAR(256);
 
         IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
+		  AND NOT (LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'   /* Neither does Amazon RDS Express Edition */
+					AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND db_id('rdsadmin') IS NOT NULL
+					AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   		)
             BEGIN
             SET @StringToExecute = N'UPDATE aj
                     SET  aj.job_name = j.name, 
@@ -28180,8 +28295,8 @@ ELSE  --Output to database is not set output to client app
 						caw.waiting_to_close AS waiter_waiting_to_close,
 						dp.deadlock_graph
 				FROM   #deadlock_process AS dp 
-				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
-				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 				WHERE dp.victim_id IS NULL
 				AND dp.login_name IS NOT NULL
 				)
@@ -28341,7 +28456,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.93', @VersionDate = '20200217';
+SELECT @Version = '3.94', @VersionDate = '20200324';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -34067,7 +34182,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.93', @VersionDate = '20200217';
+	SELECT @Version = '7.94', @VersionDate = '20200324';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -34349,11 +34464,7 @@ BEGIN
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SET @StringToExecute = N'COALESCE(
-							    CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
-							    CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
-								    + CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
-								    ) AS [elapsed_time] ,
+    SET @StringToExecute = N'COALESCE( CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
@@ -34542,11 +34653,7 @@ IF @ProductVersionMajor >= 11
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SELECT @StringToExecute = N' COALESCE(
-							    CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, (r.total_elapsed_time / 1000), 0), 114) ,
-							    CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':''
-								    + CONVERT(VARCHAR(20), DATEADD(SECOND,  DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114)
-								    ) AS [elapsed_time] ,
+    SELECT @StringToExecute = N'COALESCE( CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
