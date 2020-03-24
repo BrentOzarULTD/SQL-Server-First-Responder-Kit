@@ -1546,7 +1546,7 @@ SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans,
 	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
-OPTION (RECOMPILE) ;
+OPTION (RECOMPILE);
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -5021,6 +5021,77 @@ IF @Debug = 1
 
 EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
 
+
+/*
+
+This section will check if:
+ * >= 30% of plans were created in the last hour
+ * Check on the memory_clerks DMV for space used by TokenAndPermUserStore
+ * Compare that to the size of the buffer pool
+ * If it's >10%, 
+*/
+IF EXISTS
+(
+    SELECT 1/0
+    FROM #plan_creation AS pc
+    WHERE pc.percent_1 >= 30
+)
+BEGIN
+
+DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
+DECLARE @user_perm_gb_out DECIMAL(10,2);
+DECLARE @common_version DECIMAL(10,2);
+DECLARE @buffer_pool_memory_gb DECIMAL(10,2);
+DECLARE @user_perm_percent DECIMAL(10,2);
+DECLARE @is_tokenstore_big BIT = 0;
+
+
+SELECT @buffer_pool_memory_gb = ( COUNT_BIG(*) * 8.0 ) / 1024. / 1024.
+                                  FROM sys.dm_os_buffer_descriptors;
+
+SELECT @common_version =
+           CONVERT(DECIMAL(10,2), c.common_version)
+FROM #checkversion AS c;
+
+IF @common_version >= 11
+BEGIN
+    SET @user_perm_sql += N'
+    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
+    			                    ELSE 0 
+    		                   END
+    	FROM sys.dm_os_memory_clerks
+    	WHERE type = ''USERSTORE_TOKENPERM''
+    	AND   name = ''TokenAndPermUserStore'';';
+END;
+
+IF @common_version < 11
+BEGIN
+    SET @user_perm_sql += N'
+    	SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
+    			                    ELSE 0 
+    		                   END
+    	FROM sys.dm_os_memory_clerks
+    	WHERE type = ''USERSTORE_TOKENPERM''
+    	AND   name = ''TokenAndPermUserStore'';';
+END;
+
+EXEC sys.sp_executesql @user_perm_sql, 
+                       N'@user_perm_gb DECIMAL(10,2) OUTPUT', 
+					   @user_perm_gb = @user_perm_gb_out OUTPUT;
+
+
+IF (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100. >= 10
+    BEGIN
+        SET @is_tokenstore_big = 1;
+        SET @user_perm_percent = (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100.;
+    END
+
+END
+
+
+
 IF @HideSummary = 0 AND @ExportToExcel = 0
 BEGIN
     IF @Reanalyze = 0
@@ -5963,7 +6034,18 @@ BEGIN
                     'https://www.brentozar.com/archive/2018/07/tsql2sday-how-much-plan-cache-history-do-you-have/',
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
-		
+
+        IF @is_tokenstore_big = 1
+		INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT @@SPID,
+		       69,
+			   10,
+			   N'Large USERSTORE_TOKENPERM cache: ' + CONVERT(NVARCHAR(11), @user_perm_gb_out) + N'GB',
+			   N'The USERSTORE_TOKENPERM is taking up ' + CONVERT(NVARCHAR(11), @user_perm_percent)
+			                                            + N'% of the buffer pool, and your plan cache seems to be unstable',
+			   N'https://brentozar.com/go/userstore',
+			   N'A growing USERSTORE_TOKENPERM cache can cause the plan cache to clear out'
+
 		IF @v >= 11
 		BEGIN	
         IF EXISTS (SELECT 1/0
