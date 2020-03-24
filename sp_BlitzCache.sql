@@ -6043,7 +6043,7 @@ BEGIN
 			   N'Large USERSTORE_TOKENPERM cache: ' + CONVERT(NVARCHAR(11), @user_perm_gb_out) + N'GB',
 			   N'The USERSTORE_TOKENPERM is taking up ' + CONVERT(NVARCHAR(11), @user_perm_percent)
 			                                            + N'% of the buffer pool, and your plan cache seems to be unstable',
-			   N'TBD',
+			   N'https://brentozar.com/go/userstore',
 			   N'A growing USERSTORE_TOKENPERM cache can cause the plan cache to clear out'
 
 		IF @v >= 11
