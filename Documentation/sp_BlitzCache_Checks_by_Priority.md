@@ -27,7 +27,7 @@ If you want to add a new check, start at 70
 | 50 | Performance | Implicit Conversions | http://brentozar.com/go/implicit | 14 | No |
 | 50 | Performance | Long Running Query | http://brentozar.com/blitzcache/long-running-queries/ | 9 | No |
 | 50 | Performance | Missing Indexes | http://brentozar.com/blitzcache/missing-index-request/ | 10 | No |
-| 50 | Selects w/ Writes | Read queries are causing writes | https://dba.stackexchange.com/questions/191825/ | This is thrown when reads cause writes that are not already flagged as big spills (2016+) or index spools | No |
+| 50 | Selects w/ Writes | Read queries are causing writes | https://dba.stackexchange.com/questions/191825/ | 66 | No |
 | 100 | Complexity | Many to Many Merge | Blog not published yet | 61 | Yes |
 | 100 | Complexity | Row Estimate Mismatch | https://www.brentozar.com/blitzcache/bad-estimates/ | 56 | Yes |
 | 100 | Compute Scalar That References A CLR Function | Calls CLR Functions |  https://www.brentozar.com/blitzcache/compute-scalar-functions/| 31 | Yes |
