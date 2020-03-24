@@ -5082,7 +5082,6 @@ EXEC sys.sp_executesql @user_perm_sql,
 					   @user_perm_gb = @user_perm_gb_out OUTPUT;
 
 
-BEGIN
 IF (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100. >= 10
     BEGIN
         SET @is_tokenstore_big = 1;
