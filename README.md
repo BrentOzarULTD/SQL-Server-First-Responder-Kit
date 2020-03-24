@@ -289,7 +289,7 @@ Parameters you can use:
 * @StartDate: The date you want to start searching on.
 * @EndDate: The date you want to stop searching on.
 * @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
-* @StoredProcName: If you want to search for a single stored proc.
+* @StoredProcName: If you want to search for a single stored procedure. Don't specify a schema or database name - just a stored procedure name alone is all you need, and if it exists in any schema (or multiple schemas), we'll find it.
 * @AppName: If you want to filter to a specific application.
 * @HostName: If you want to filter to a specific host.
 * @LoginName: If you want to filter to a specific login.

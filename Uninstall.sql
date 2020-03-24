@@ -61,7 +61,7 @@ BEGIN
         FROM ' + @dbname + N'.sys.procedures P
         JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT';
 
-        EXEC sp_executeSQL @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
+        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
 
         FETCH NEXT FROM c INTO @dbname;
     
