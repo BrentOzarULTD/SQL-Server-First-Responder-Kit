@@ -5081,6 +5081,7 @@ BEGIN;
 					sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
 					sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
 					sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
+                    sz.forwarded_fetches AS [Forwarded Fetches],
 					sz.data_compression_desc AS [Data Compression],
 					i.create_date AS [Create Date],
 					i.modify_date AS [Modify Date],
