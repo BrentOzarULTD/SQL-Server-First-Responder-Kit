@@ -35,9 +35,9 @@ If you want to add a new one, start at 234.
 | 10 | Performance | Auto-Shrink Ran Recently| https://www.BrentOzar.com/go/autoshrink | 206 |
 | 10 | Performance | CPU Schedulers Offline | https://www.BrentOzar.com/go/schedulers | 101 |
 | 10 | Performance | CPU w/Odd Number of Cores | https://www.BrentOzar.com/go/oddity | 198 |
-| 10 | Performance | DBCC DROPCLEANBUFFERS Ran Recently | | 207 |
-| 10 | Performance | DBCC FREEPROCCACHE Ran Recently | | 208 |
-| 10 | Performance | DBCC SHRINK% Ran Recently | | 210 |
+| 10 | Performance | DBCC DROPCLEANBUFFERS Ran Recently | https://www.BrentOzar.com/go/dbcc | 207 |
+| 10 | Performance | DBCC FREEPROCCACHE Ran Recently | https://www.BrentOzar.com/go/dbcc | 208 |
+| 10 | Performance | DBCC SHRINK% Ran Recently | https://www.BrentOzar.com/go/dbcc | 210 |
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
@@ -62,7 +62,7 @@ If you want to add a new one, start at 234.
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Performance | Wait Stats Cleared Recently| | 205 |
 | 50 | Reliability | Database Snapshot Online | https://www.BrentOzar.com/go/snapshot | 77 |
-| 50 | Reliability | DBCC WRITEPAGE Used Recently | | 209 |
+| 50 | Reliability | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
 | 50 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |

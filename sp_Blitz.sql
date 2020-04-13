@@ -5483,7 +5483,7 @@ IF @ProductVersionMajor >= 10
 					        10 AS Priority ,
 					        'Performance' AS FindingsGroup ,
 					        'DBCC DROPCLEANBUFFERS Ran Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
 							AS Details
@@ -5514,7 +5514,7 @@ IF @ProductVersionMajor >= 10
 					        10 AS Priority ,
 					        'DBCC Events' AS FindingsGroup ,
 					        'DBCC FREEPROCCACHE Ran Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
 							AS Details
@@ -5545,7 +5545,7 @@ IF @ProductVersionMajor >= 10
 					        50 AS Priority ,
 					        'Performance' AS FindingsGroup ,
 					        'Wait Stats Cleared Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. Why are you clearing wait stats? What are you hiding?'
 							AS Details
@@ -5576,7 +5576,7 @@ IF @ProductVersionMajor >= 10
 						        50 AS Priority ,
 						        'Reliability' AS FindingsGroup ,
 						        'DBCC WRITEPAGE Used Recently' AS Finding ,
-						        '' AS URL ,
+						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 								'. So, uh, are they trying to fix corruption, or cause corruption?'
 								AS Details
@@ -5607,7 +5607,7 @@ IF @ProductVersionMajor >= 10
 						        10 AS Priority ,
 						        'Performance' AS FindingsGroup ,
 						        'DBCC SHRINK% Ran Recently' AS Finding ,
-						        '' AS URL ,
+						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 								'. So, uh, are they trying cause bad performance on purpose?'
 								AS Details
