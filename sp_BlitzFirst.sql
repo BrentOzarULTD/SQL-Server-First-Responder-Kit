@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.94', @VersionDate = '20200324';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -132,7 +132,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @BlitzCacheMinutesBack INT,
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
-    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
+    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
+    @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128));
 
 /* Sanitize our inputs */
 SELECT
@@ -205,7 +206,7 @@ IF @LogMessage IS NOT NULL
 
     EXECUTE sp_executesql @StringToExecute,
         N'@SrvName NVARCHAR(128), @LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
-        @@SERVERNAME, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+        @LocalServerName, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
 
     RAISERROR('LogMessage saved to table. We have made a note of your activity. Keep up the good work.',10,1) WITH NOWAIT;
 
@@ -996,8 +997,9 @@ BEGIN
                 WHERE CHARINDEX(',', @FilterPlansByDatabase, t + 1) > 0
                 )
             INSERT #FilterPlansByDatabase (DatabaseID)
-                SELECT SUBSTRING(@FilterPlansByDatabase, f, t - f)
+                SELECT DISTINCT db.database_id
                 FROM a
+                INNER JOIN sys.databases db ON LTRIM(RTRIM(SUBSTRING(@FilterPlansByDatabase, a.f, a.t - a.f))) = db.name
                 WHERE SUBSTRING(@FilterPlansByDatabase, f, t - f) IS NOT NULL
                 OPTION (MAXRECURSION 0);
             END;
@@ -2888,7 +2890,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate;';
                 EXEC sp_executesql @StringToExecute,
 					N'@SrvName NVARCHAR(128), @CheckDate date',
-					@@SERVERNAME, @OutputTableCleanupDate;
+					@LocalServerName, @OutputTableCleanupDate;
 
 
             END;
@@ -2991,7 +2993,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3005,7 +3007,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -3046,7 +3048,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
     BEGIN
@@ -3187,7 +3189,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3201,7 +3203,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
@@ -3235,7 +3237,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
     BEGIN
@@ -3494,7 +3496,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3508,7 +3510,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
 
 
@@ -3538,7 +3540,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
     BEGIN
@@ -3679,7 +3681,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3693,7 +3695,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
@@ -3717,7 +3719,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
     BEGIN
@@ -3934,7 +3936,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))

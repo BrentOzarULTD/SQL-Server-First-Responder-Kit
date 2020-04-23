@@ -40,11 +40,12 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 The First Responder Kit runs on:
 
-* SQL Server 2008, 2008R2, 2012, 2014, 2016, 2017, 2019 on Windows - yes, fully supported
-* SQL Server 2017, 2019 on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux
-* SQL Server 2000, 2005 - not supported by Microsoft anymore, so we don't either
-* Amazon RDS SQL Server - fully supported
-* Azure SQL DB - It's a dice roll. Microsoft changes DMV contents in here without warning, so no guarantees.
+* SQL Server 2012, 2014, 2016, 2017, 2019 on Windows - fully supported.
+* SQL Server 2017, 2019 on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux.
+* SQL Server 2008, 200R2 - not officially supported since it's out of Microsoft support, but we try not to make changes that would break functionality here.
+* SQL Server 2000, 2005 - not supported at all.
+* Amazon RDS SQL Server - fully supported.
+* Azure SQL DB - not supported. Some of the procedures work, but some don't, and Microsoft has a tendency to change DMVs in Azure without warning, so we don't put any effort into supporting it. If it works, great! If not, any changes to make it work would be on you. [See the contributing.md file](CONTRIBUTING.md) for how to do that.
 
 
 ## How to Get Support
@@ -207,6 +208,7 @@ You can log sp_BlitzFirst performance data to tables and then analyze the result
 * @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats'
 * @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
 * @OutputTableNameBlitzCache = 'BlitzCache' 
+* @OutputTableNameBlitzWho = 'BlitzWho' 
 
 All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
 
@@ -287,7 +289,7 @@ Parameters you can use:
 * @StartDate: The date you want to start searching on.
 * @EndDate: The date you want to stop searching on.
 * @ObjectName: If you want to filter to a specific table. The object name has to be fully qualified 'Database.Schema.Table'
-* @StoredProcName: If you want to search for a single stored proc.
+* @StoredProcName: If you want to search for a single stored procedure. Don't specify a schema or database name - just a stored procedure name alone is all you need, and if it exists in any schema (or multiple schemas), we'll find it.
 * @AppName: If you want to filter to a specific application.
 * @HostName: If you want to filter to a specific host.
 * @LoginName: If you want to filter to a specific login.
@@ -297,7 +299,7 @@ Parameters you can use:
 [*Back to top*](#header1)
 
 
-## sp_BlitzQueryStore: Query Store Sale
+## sp_BlitzQueryStore: How Has a Query Plan Changed Over Time
 
 Analyzes data in Query Store schema (2016+ only) in many similar ways to what sp_BlitzCache does for the plan cache.
 

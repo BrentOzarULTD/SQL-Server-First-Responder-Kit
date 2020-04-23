@@ -31,6 +31,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
+	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -41,7 +42,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.92', @VersionDate = '20200123';
+SELECT @Version = '7.94', @VersionDate = '20200324';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -506,9 +507,9 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               is_replicated BIT NULL,
               is_sparse BIT NULL,
               is_filestream BIT NULL,
-              seed_value BIGINT NULL,
-              increment_value INT NULL ,
-              last_value BIGINT NULL,
+              seed_value DECIMAL(38,0) NULL,
+              increment_value DECIMAL(38,0) NULL ,
+              last_value DECIMAL(38,0) NULL,
               is_not_for_replication BIT NULL
             );
         CREATE CLUSTERED INDEX CLIX_database_id_object_id_index_id ON #IndexColumns
@@ -547,7 +548,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
                         ELSE N''
                     END,
-                [create_tsql] AS N'CREATE INDEX [IX_' 
+                [create_tsql] AS N'CREATE INDEX [' 
                     + REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
@@ -1071,9 +1072,9 @@ BEGIN TRY
                     c.is_replicated,
                     ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_sparse' ELSE N'NULL as is_sparse' END + N',
                     ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_filestream' ELSE N'NULL as is_filestream' END + N',
-                    CAST(ic.seed_value AS BIGINT),
-                    CAST(ic.increment_value AS INT),
-                    CAST(ic.last_value AS BIGINT),
+                    CAST(ic.seed_value AS DECIMAL(38,0)),
+                    CAST(ic.increment_value AS DECIMAL(38,0)),
+                    CAST(ic.last_value AS DECIMAL(38,0)),
                     ic.is_not_for_replication
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes si
                 JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON
@@ -1118,6 +1119,7 @@ BEGIN TRY
             column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
             is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
                 EXEC sp_executesql @dsql;
+
 
         --insert columns for nonclustered indexes
         --this uses a full join to sys.index_columns
@@ -1208,10 +1210,16 @@ BEGIN TRY
                         CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
                              ELSE N''''
                         END AS filter_definition' ELSE N''''' AS filter_definition' END + N'
-                        , ISNULL(us.user_seeks, 0), ISNULL(us.user_scans, 0),
-                        ISNULL(us.user_lookups, 0), ISNULL(us.user_updates, 0), us.last_user_seek, us.last_user_scan,
-                        us.last_user_lookup, us.last_user_update,
-                        so.create_date, so.modify_date
+                        , ISNULL(us.user_seeks, 0),
+                        ISNULL(us.user_scans, 0),
+                        ISNULL(us.user_lookups, 0),
+                        ISNULL(us.user_updates, 0),
+                        us.last_user_seek,
+                        us.last_user_scan,
+                        us.last_user_lookup,
+                        us.last_user_update,
+                        so.create_date,
+                        so.modify_date
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si WITH (NOLOCK)
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so WITH (NOLOCK) ON si.object_id = so.object_id
                                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
@@ -1222,8 +1230,14 @@ BEGIN TRY
                                                                        AND us.database_id = ' + CAST(@DatabaseID AS NVARCHAR(10)) + N'
                 WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
                 /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
-                CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END + 
-        N'OPTION    ( RECOMPILE );
+                CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
+                CASE WHEN ( @IncludeInactiveIndexes = 0
+                            AND @Mode IN (0, 4)
+                            AND @TableName IS NULL )
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     ELSE N''
+                END
+        + N'OPTION    ( RECOMPILE );
         ';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -1902,7 +1916,15 @@ UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
-                            + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
                                 AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
@@ -1938,8 +1960,16 @@ FROM    #IndexSanity si
                             WHEN 1 THEN N' DESC'
                             ELSE N''
 							END
-                        + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
-                            AS col_definition
+                            + N' {' + system_type_name + N' ' +
+							CASE max_length WHEN -1 THEN N'(max)' ELSE
+								CASE  
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE '' 
+								END
+							END
+							+ N'}'
+                                AS col_definition
                     FROM    #IndexColumns c
                     WHERE    c.database_id= si.database_id
 							AND c.schema_name = si.schema_name
@@ -3911,14 +3941,15 @@ BEGIN;
                                 i.db_schema_object_name + N'.' +  QUOTENAME(ic.column_name)
                                     + N' is an identity with type ' + ic.system_type_name 
                                     + N', last value of ' 
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.last_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', seed of '
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.seed_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
                                     + N', and range of ' +
                                         CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
                                             WHEN 'smallint' THEN N'+/- 32,768'
                                             WHEN 'tinyint' THEN N'0 to 255'
+                                            ELSE 'unknown'
                                         END
                                         AS details,
                                 i.index_definition,
@@ -3965,14 +3996,15 @@ BEGIN;
                                 i.db_schema_object_name + N'.' +  QUOTENAME(ic.column_name)
                                     + N' is an identity with type ' + ic.system_type_name 
                                     + N', last value of ' 
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.last_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.last_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', seed of '
-                                        + ISNULL(REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(ic.seed_value AS BIGINT) AS MONEY), 1), '.00', ''),N'NULL')
+                                        + ISNULL((CONVERT(NVARCHAR(256),CAST(ic.seed_value AS DECIMAL(38,0)), 1)),N'NULL')
                                     + N', increment of ' + CAST(ic.increment_value AS NVARCHAR(256)) 
                                     + N', and range of ' +
                                         CASE ic.system_type_name WHEN 'int' THEN N'+/- 2,147,483,647'
                                             WHEN 'smallint' THEN N'+/- 32,768'
                                             WHEN 'tinyint' THEN N'0 to 255'
+                                            ELSE 'unknown'
                                         END
                                         AS details,
                                 i.index_definition,
@@ -5049,6 +5081,7 @@ BEGIN;
 					sz.page_latch_wait_in_ms AS [Page Latch Wait ms],
 					sz.page_io_latch_wait_count AS [Page IO Latch Wait Count],								
 					sz.page_io_latch_wait_in_ms as [Page IO Latch Wait ms],
+                    sz.total_forwarded_fetch_count AS [Forwarded Fetches],
 					sz.data_compression_desc AS [Data Compression],
 					i.create_date AS [Create Date],
 					i.modify_date AS [Modify Date],

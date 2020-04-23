@@ -31,7 +31,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.92', @VersionDate = '20200123';
+SELECT @Version = '2.94', @VersionDate = '20200324';
 
 
 IF(@VersionCheckMode = 1)
@@ -686,6 +686,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                    step_name NVARCHAR(256);
 
         IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
+		  AND NOT (LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'   /* Neither does Amazon RDS Express Edition */
+					AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND db_id('rdsadmin') IS NOT NULL
+					AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   		)
             BEGIN
             SET @StringToExecute = N'UPDATE aj
                     SET  aj.job_name = j.name, 
@@ -1474,8 +1480,8 @@ ELSE  --Output to database is not set output to client app
 						caw.waiting_to_close AS waiter_waiting_to_close,
 						dp.deadlock_graph
 				FROM   #deadlock_process AS dp 
-				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
-				CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
 				WHERE dp.victim_id IS NULL
 				AND dp.login_name IS NOT NULL
 				)
