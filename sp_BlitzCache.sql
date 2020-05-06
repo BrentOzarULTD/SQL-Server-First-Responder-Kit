@@ -3997,7 +3997,7 @@ SELECT spi.SPID,
 								ELSE @nl + N' We could not find any cached parameter values for this stored proc. ' 
 						  END
 						+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
-							   THEN @nl + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+							   THEN @nl + N'More info on possible reasons: https://BrentOzar.com/go/noplans '
 							   WHEN spi2.compile_time_value = N'NULL' 
 							   THEN spi2.compile_time_value 
 							   ELSE RTRIM(spi2.compile_time_value)
@@ -4040,7 +4040,7 @@ SELECT spi.SPID,
 								ELSE @nl + N' We could not find any cached parameter values for this stored proc. ' 
 						  END
 						+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
-							   THEN @nl + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+							   THEN @nl + N' More info on possible reasons: https://BrentOzar.com/go/noplans '
 							   WHEN spi2.compile_time_value = N'NULL' 
 							   THEN spi2.compile_time_value 
 							   ELSE RTRIM(spi2.compile_time_value)
@@ -4644,7 +4644,7 @@ FROM ##BlitzCacheProcs b
 )
 UPDATE b
 SET Warnings = ISNULL('Your query plan is >128 levels of nested nodes, and can''t be converted to XML. Use SELECT * FROM sys.dm_exec_text_query_plan('+ CONVERT(VARCHAR(128), ph.PlanHandle, 1) + ', 0, -1) to get more information' 
-                        , 'We couldn''t find a plan for this query. Possible reasons for this include dynamic SQL, RECOMPILE hints, and encrypted code.')
+                        , 'We couldn''t find a plan for this query. More info on possible reasons: https://BrentOzar.com/go/noplans')
 FROM ##BlitzCacheProcs b
 LEFT JOIN plan_handle ph ON
 b.PlanHandle = ph.PlanHandle
