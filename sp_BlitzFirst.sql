@@ -163,6 +163,9 @@ BEGIN
     RETURN;
 END;
 
+IF UPPER(@OutputType) LIKE 'TOP 10%' SET @OutputType = 'Top10';
+IF @OutputType = 'Top10' SET @SinceStartup = 1;
+
 IF @LogMessage IS NOT NULL
     BEGIN
 
@@ -3827,7 +3830,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     SELECT MAX(SampleTime) AS SampleTime
                     FROM #WaitStats
                 )
-                SELECT
+                SELECT TOP 10
                     CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
