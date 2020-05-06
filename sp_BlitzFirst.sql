@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.94', @VersionDate = '20200324';
+SELECT @Version = '7.95', @VersionDate = '20200506';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -132,7 +132,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @BlitzCacheMinutesBack INT,
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
-    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ;
+    @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
+    @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128));
 
 /* Sanitize our inputs */
 SELECT
@@ -161,6 +162,9 @@ BEGIN
     RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
     RETURN;
 END;
+
+IF UPPER(@OutputType) LIKE 'TOP 10%' SET @OutputType = 'Top10';
+IF @OutputType = 'Top10' SET @SinceStartup = 1;
 
 IF @LogMessage IS NOT NULL
     BEGIN
@@ -205,7 +209,7 @@ IF @LogMessage IS NOT NULL
 
     EXECUTE sp_executesql @StringToExecute,
         N'@SrvName NVARCHAR(128), @LogMessageCheckID INT, @LogMessagePriority TINYINT, @LogMessageFindingsGroup VARCHAR(50), @LogMessageFinding VARCHAR(200), @LogMessage NVARCHAR(4000), @LogMessageCheckDate DATETIMEOFFSET, @LogMessageURL VARCHAR(200)',
-        @@SERVERNAME, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
+        @LocalServerName, @LogMessageCheckID, @LogMessagePriority, @LogMessageFindingsGroup, @LogMessageFinding, @LogMessage, @LogMessageCheckDate, @LogMessageURL;
 
     RAISERROR('LogMessage saved to table. We have made a note of your activity. Keep up the good work.',10,1) WITH NOWAIT;
 
@@ -1424,6 +1428,7 @@ BEGIN
     WHERE r.command LIKE 'DBCC%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
 	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
@@ -2889,7 +2894,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     + ' WHERE ServerName = @SrvName AND CheckDate < @CheckDate;';
                 EXEC sp_executesql @StringToExecute,
 					N'@SrvName NVARCHAR(128), @CheckDate date',
-					@@SERVERNAME, @OutputTableCleanupDate;
+					@LocalServerName, @OutputTableCleanupDate;
 
 
             END;
@@ -2992,7 +2997,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3006,7 +3011,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -3047,7 +3052,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
     BEGIN
@@ -3188,7 +3193,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3202,7 +3207,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
@@ -3236,7 +3241,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
     BEGIN
@@ -3495,7 +3500,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3509,7 +3514,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
 
 
@@ -3539,7 +3544,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
     BEGIN
@@ -3680,7 +3685,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
 
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3694,7 +3699,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate date',
-			@@SERVERNAME, @OutputTableCleanupDate;
+			@LocalServerName, @OutputTableCleanupDate;
 
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
@@ -3718,7 +3723,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql @StringToExecute,
 			N'@SrvName NVARCHAR(128), @CheckDate datetimeoffset',
-			@@SERVERNAME, @StartSampleTime;
+			@LocalServerName, @StartSampleTime;
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
     BEGIN
@@ -3817,6 +3822,40 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     END DESC,
                     Finding,
                     Details;
+        END;
+        ELSE IF @OutputType = 'Top10'
+            BEGIN
+                /* Measure waits in hours */
+                ;WITH max_batch AS (
+                    SELECT MAX(SampleTime) AS SampleTime
+                    FROM #WaitStats
+                )
+                SELECT TOP 10
+                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
+                    wd1.wait_type,
+					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
+                    CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
+                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    THEN
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
+                    ELSE 0 END AS [Avg ms Per Wait]
+                FROM  max_batch b
+                JOIN #WaitStats wd2 ON
+                    wd2.SampleTime =b.SampleTime
+                JOIN #WaitStats wd1 ON
+                    wd1.wait_type=wd2.wait_type AND
+                    wd2.SampleTime > wd1.SampleTime
+                CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
+                CROSS APPLY (SELECT
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
+                WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    AND wd2.wait_time_ms-wd1.wait_time_ms > 0
+                ORDER BY [Wait Time (Seconds)] DESC;
         END;
         ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
@@ -3935,7 +3974,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / 60 / 60 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))

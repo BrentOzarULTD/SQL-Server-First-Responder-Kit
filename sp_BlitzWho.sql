@@ -28,7 +28,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.94', @VersionDate = '20200324';
+	SELECT @Version = '7.95', @VersionDate = '20200506';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -345,7 +345,10 @@ BEGIN
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,
-			       s.program_name
+			       program_name = COALESCE((
+SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
+),s.program_name)
 						    '
 						
     IF @ExpertMode = 1
@@ -541,7 +544,10 @@ IF @ProductVersionMajor >= 11
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,
-			       s.program_name 
+			       program_name = COALESCE((
+SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
+),s.program_name) 
 						    '	   
     IF @ExpertMode = 1 /* We show more columns in expert mode, so the SELECT gets longer */
     BEGIN

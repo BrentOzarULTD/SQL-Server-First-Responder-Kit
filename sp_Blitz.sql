@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.94', @VersionDate = '20200324';
+	SELECT @Version = '7.95', @VersionDate = '20200506';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -5483,7 +5483,7 @@ IF @ProductVersionMajor >= 10
 					        10 AS Priority ,
 					        'Performance' AS FindingsGroup ,
 					        'DBCC DROPCLEANBUFFERS Ran Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC DROPCLEANBUFFERS ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. If this is a production box, know that you''re clearing all data out of memory when this happens. What kind of monster would do that?'
 							AS Details
@@ -5514,7 +5514,7 @@ IF @ProductVersionMajor >= 10
 					        10 AS Priority ,
 					        'DBCC Events' AS FindingsGroup ,
 					        'DBCC FREEPROCCACHE Ran Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC FREEPROCCACHE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. This has bad idea jeans written all over its butt, like most other bad idea jeans.'
 							AS Details
@@ -5545,7 +5545,7 @@ IF @ProductVersionMajor >= 10
 					        50 AS Priority ,
 					        'Performance' AS FindingsGroup ,
 					        'Wait Stats Cleared Recently' AS Finding ,
-					        '' AS URL ,
+					        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 					        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC SQLPERF(''SYS.DM_OS_WAIT_STATS'',CLEAR) ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 							'. Why are you clearing wait stats? What are you hiding?'
 							AS Details
@@ -5576,7 +5576,7 @@ IF @ProductVersionMajor >= 10
 						        50 AS Priority ,
 						        'Reliability' AS FindingsGroup ,
 						        'DBCC WRITEPAGE Used Recently' AS Finding ,
-						        '' AS URL ,
+						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run DBCC WRITEPAGE ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 								'. So, uh, are they trying to fix corruption, or cause corruption?'
 								AS Details
@@ -5607,7 +5607,7 @@ IF @ProductVersionMajor >= 10
 						        10 AS Priority ,
 						        'Performance' AS FindingsGroup ,
 						        'DBCC SHRINK% Ran Recently' AS Finding ,
-						        '' AS URL ,
+						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
 								'. So, uh, are they trying cause bad performance on purpose?'
 								AS Details
@@ -5712,7 +5712,7 @@ IF @ProductVersionMajor >= 10
 								WHERE   DatabaseName IS NULL AND CheckID = 221 )
 					BEGIN
 						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 221) WITH NOWAIT;
 						
 							WITH reboot_airhorn
 							    AS
@@ -5750,7 +5750,7 @@ IF @ProductVersionMajor >= 10
 						AND CAST(SERVERPROPERTY('Edition') AS NVARCHAR(4000)) LIKE '%Evaluation%'
 					BEGIN
 						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 216) WITH NOWAIT;
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 229) WITH NOWAIT;
 						
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -5770,6 +5770,106 @@ IF @ProductVersionMajor >= 10
 							WHERE sid = 0x010100000000000512000000; 						
 						
 					END;
+
+
+
+
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 233 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 233) WITH NOWAIT;
+						
+
+						IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
+							BEGIN
+							/* SQL 2012+ version */
+							SET @StringToExecute = N'
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 233 AS CheckID,
+							       50 AS Priority,
+							       ''Performance'' AS FindingsGroup,
+							       ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+							       ''https://www.BrentOzar.com/go/userstore'' AS URL,
+							       N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+								   		+ N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+								   AS details
+							FROM sys.dm_os_memory_clerks
+							HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / SUM(pages_kb) >= 0.1					
+							  AND SUM(pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+							EXEC sp_executesql @StringToExecute;
+							END
+						ELSE
+							BEGIN
+							/* Antiques Roadshow SQL 2008R2 - version */
+							SET @StringToExecute = N'
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 233 AS CheckID,
+							       50 AS Priority,
+							       ''Performance'' AS FindingsGroup,
+							       ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+							       ''https://www.BrentOzar.com/go/userstore'' AS URL,
+							       N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+								   		+ N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+								   AS details
+							FROM sys.dm_os_memory_clerks
+							HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / SUM(single_pages_kb + multi_pages_kb) >= 0.1
+							  AND SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+							EXEC sp_executesql @StringToExecute;
+							END
+
+					END;
+
+
+
+
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 234 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 234) WITH NOWAIT;
+						
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  DatabaseName ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 234 AS CheckID,
+							       100 AS Priority,
+								   db_name(f.database_id) AS DatabaseName,
+							       'Reliability' AS FindingsGroup,
+							       'SQL Server Update May Fail' AS Finding,
+							       'https://desertdba.com/failovers-cant-serve-two-masters/' AS URL,
+							       'This database has a file with a logical name of ''master'', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.' AS details
+							FROM master.sys.master_files f
+							WHERE (f.name = N'master')
+							  AND f.database_id > 4
+							  AND db_name(f.database_id) <> 'master'; /* Thanks Michaels3 for catching this */
+					END;
+
+
 
 
 				IF @CheckUserDatabaseObjects = 1
