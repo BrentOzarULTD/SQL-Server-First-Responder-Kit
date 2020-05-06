@@ -4410,7 +4410,7 @@ BEGIN;
 				'Obsessive Constraintive' AS findings_group,
 				'Serial Forcer' AS finding,
 				cc.database_name,
-				'' AS URL,
+				'https://www.brentozar.com/archive/2016/01/another-reason-why-scalar-functions-in-computed-columns-is-a-bad-idea/' AS URL,
 				'The check constraint ' + QUOTENAME(cc.constraint_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is based on ' + cc.definition 
 				+ '. That indicates it may reference a scalar function, or a CLR function with data access, which can cause all queries and maintenance to run serially.' AS details,
 				cc.column_definition,
