@@ -5047,8 +5047,9 @@ DECLARE @user_perm_percent DECIMAL(10,2);
 DECLARE @is_tokenstore_big BIT = 0;
 
 
-SELECT @buffer_pool_memory_gb = ( COUNT_BIG(*) * 8.0 ) / 1024. / 1024.
-                                  FROM sys.dm_os_buffer_descriptors;
+SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.  
+    FROM sys.dm_os_memory_clerks 
+    WHERE type = 'MEMORYCLERK_SQLBUFFERPOOL';
 
 SELECT @common_version =
            CONVERT(DECIMAL(10,2), c.common_version)
