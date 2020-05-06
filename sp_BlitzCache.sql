@@ -1061,7 +1061,7 @@ IF @DurationFilter IS NOT NULL
 RAISERROR(N'Checking database validity', 0, 1) WITH NOWAIT;
 SET @DatabaseName = LTRIM(RTRIM(@DatabaseName)) ;
 
-IF SERVERPROPERTY('EngineEdition') IN (5, 6, 8) AND DB_NAME() <> @DatabaseName
+IF SERVERPROPERTY('EngineEdition') IN (5, 6) AND DB_NAME() <> @DatabaseName
 BEGIN
    RAISERROR('You specified a database name other than the current database, but Azure SQL DB does not allow you to change databases. Execute sp_BlitzCache from the database you want to analyze.', 16, 1);
    RETURN;
