@@ -1425,6 +1425,7 @@ BEGIN
     WHERE r.command LIKE 'DBCC%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
 	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 
 
