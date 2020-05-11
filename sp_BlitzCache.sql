@@ -5047,9 +5047,20 @@ DECLARE @user_perm_percent DECIMAL(10,2);
 DECLARE @is_tokenstore_big BIT = 0;
 
 
-SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.  
-    FROM sys.dm_os_memory_clerks 
-    WHERE type = 'MEMORYCLERK_SQLBUFFERPOOL';
+IF @common_version >= 11
+	SET @user_perm_sql += N'
+	SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.
+	FROM sys.dm_os_memory_clerks
+	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
+ELSE
+	SET @user_perm_sql += N'
+	SELECT @buffer_pool_memory_gb = SUM(single_pages_kb + multi_pages_kb)/ 1024. / 1024.
+	FROM sys.dm_os_memory_clerks
+	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
+
+EXEC sys.sp_executesql @user_perm_sql,
+	N'@user_perm_gb DECIMAL(10,2) OUTPUT',
+	@user_perm_gb = @user_perm_gb_out OUTPUT;
 
 SELECT @common_version =
            CONVERT(DECIMAL(10,2), c.common_version)
