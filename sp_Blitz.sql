@@ -5864,7 +5864,7 @@ IF @ProductVersionMajor >= 10
 							       'https://desertdba.com/failovers-cant-serve-two-masters/' AS URL,
 							       'This database has a file with a logical name of ''master'', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.' AS details
 							FROM master.sys.master_files f
-							WHERE (f.name = N'master')
+							WHERE (f.name = N'master')
 							  AND f.database_id > 4
 							  AND db_name(f.database_id) <> 'master'; /* Thanks Michaels3 for catching this */
 					END;
