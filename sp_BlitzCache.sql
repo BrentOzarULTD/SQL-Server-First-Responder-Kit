@@ -1038,8 +1038,15 @@ DECLARE @DurationFilter_i INT,
         @msg NVARCHAR(4000),
 		@NoobSaibot BIT = 0,
 		@VersionShowsAirQuoteActualPlans BIT,
-        @ObjectFullName NVARCHAR(2000)
-;
+        @ObjectFullName NVARCHAR(2000),
+        @user_perm_sql NVARCHAR(MAX) = N'',
+        @user_perm_gb_out DECIMAL(10,2),
+        @common_version DECIMAL(10,2),
+        @buffer_pool_memory_gb DECIMAL(10,2),
+        @user_perm_percent DECIMAL(10,2),
+        @is_tokenstore_big BIT = 0;
+
+
 
 
 IF @SortOrder = 'sp_BlitzIndex'
@@ -5038,14 +5045,6 @@ IF EXISTS
     WHERE pc.percent_1 >= 30
 )
 BEGIN
-
-DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
-DECLARE @user_perm_gb_out DECIMAL(10,2);
-DECLARE @common_version DECIMAL(10,2);
-DECLARE @buffer_pool_memory_gb DECIMAL(10,2);
-DECLARE @user_perm_percent DECIMAL(10,2);
-DECLARE @is_tokenstore_big BIT = 0;
-
 
 IF @common_version >= 11
 	SET @user_perm_sql += N'
