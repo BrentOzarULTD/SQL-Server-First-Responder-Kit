@@ -42,7 +42,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.94', @VersionDate = '20200324';
+SELECT @Version = '7.95', @VersionDate = '20200506';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -2178,7 +2178,7 @@ SELECT
             CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
             ELSE 
                 CASE WHEN is_primary_key=1 THEN
-                    N'ALTER TABLE ' + QUOTENAME([schema_name]) +
+                    N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
                         N'.' + QUOTENAME([object_name]) + 
                         N' ADD CONSTRAINT [' +
                         index_name + 
@@ -2186,7 +2186,7 @@ SELECT
                         CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
                         key_column_names_with_sort_order_no_types + N' )' 
                     WHEN is_CX_columnstore= 1 THEN
-                            N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name])
+                            N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
                 ELSE /*Else not a PK or cx columnstore */ 
                     N'CREATE ' + 
                     CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
@@ -2195,7 +2195,8 @@ SELECT
                     ELSE N'' END +
                     N'INDEX ['
                             + index_name + N'] ON ' + 
-                        QUOTENAME([schema_name]) + '.' + QUOTENAME([object_name]) + 
+                        QUOTENAME([database_name]) + N'.' + 
+                        QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) + 
                             CASE WHEN is_NC_columnstore=1 THEN 
                                 N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
                             ELSE /*Else not colunnstore */ 
@@ -2358,10 +2359,10 @@ BEGIN
             ct.create_tsql,
             CASE 
                 WHEN s.is_primary_key = 1 AND s.index_definition <> '[HEAP]'
-                THEN N'--ALTER TABLE ' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
+                THEN N'--ALTER TABLE ' + QUOTENAME(s.[database_name]) + N'.' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
                         + N' DROP CONSTRAINT ' + QUOTENAME(s.index_name) + N';'
                 WHEN s.is_primary_key = 0 AND s.index_definition <> '[HEAP]'
-                    THEN N'--DROP INDEX '+ QUOTENAME(s.index_name) + N' ON ' + 
+                    THEN N'--DROP INDEX '+ QUOTENAME(s.index_name) + N' ON ' + QUOTENAME(s.[database_name]) + N'.' + 
                         QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name]) + N';'
                 ELSE N''
             END AS drop_tsql,
@@ -4409,7 +4410,7 @@ BEGIN;
 				'Obsessive Constraintive' AS findings_group,
 				'Serial Forcer' AS finding,
 				cc.database_name,
-				'' AS URL,
+				'https://www.brentozar.com/archive/2016/01/another-reason-why-scalar-functions-in-computed-columns-is-a-bad-idea/' AS URL,
 				'The check constraint ' + QUOTENAME(cc.constraint_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is based on ' + cc.definition 
 				+ '. That indicates it may reference a scalar function, or a CLR function with data access, which can cause all queries and maintenance to run serially.' AS details,
 				cc.column_definition,
@@ -4921,10 +4922,10 @@ BEGIN;
 										ISNULL(i.index_name, '''') AS [Index Name],
                                         CASE 
 						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
-							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[database_name]) + N''.'' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
 							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
 						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
-						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + 
+						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + QUOTENAME(i.[database_name]) + N''.'' +
 							                         QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) + N'';''
 						                ELSE N''''
 						                END AS [Drop TSQL],
@@ -5088,10 +5089,10 @@ BEGIN;
 					more_info AS [More Info],
                     CASE 
 						 WHEN i.is_primary_key = 1 AND i.index_definition <> '[HEAP]'
-							THEN N'--ALTER TABLE ' + QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name])
+							THEN N'--ALTER TABLE ' + QUOTENAME(i.[database_name]) + N'.' + QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name])
 							     + N' DROP CONSTRAINT ' + QUOTENAME(i.index_name) + N';'
 						 WHEN i.is_primary_key = 0 AND i.index_definition <> '[HEAP]'
-						     THEN N'--DROP INDEX '+ QUOTENAME(i.index_name) + N' ON ' + 
+						     THEN N'--DROP INDEX '+ QUOTENAME(i.index_name) + N' ON ' + QUOTENAME(i.[database_name]) + N'.' + 
 							     QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name]) + N';'
 						 ELSE N''
 						 END AS [Drop TSQL],
