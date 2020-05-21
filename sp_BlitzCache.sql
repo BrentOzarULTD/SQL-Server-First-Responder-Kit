@@ -5048,11 +5048,13 @@ BEGIN
 
 IF @common_version >= 11
 	SET @user_perm_sql += N'
+	SET @buffer_pool_memory_gb = 0;
 	SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.
 	FROM sys.dm_os_memory_clerks
 	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
 ELSE
 	SET @user_perm_sql += N'
+	SET @buffer_pool_memory_gb = 0;
 	SELECT @buffer_pool_memory_gb = SUM(single_pages_kb + multi_pages_kb)/ 1024. / 1024.
 	FROM sys.dm_os_memory_clerks
 	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
@@ -5093,12 +5095,14 @@ EXEC sys.sp_executesql @user_perm_sql,
                        N'@user_perm_gb DECIMAL(10,2) OUTPUT', 
 					   @user_perm_gb = @user_perm_gb_out OUTPUT;
 
-
-IF (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100. >= 10
-    BEGIN
-        SET @is_tokenstore_big = 1;
-        SET @user_perm_percent = (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100.;
-    END
+IF @buffer_pool_memory_gb > 0
+	BEGIN
+	IF (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100. >= 10
+		BEGIN
+			SET @is_tokenstore_big = 1;
+			SET @user_perm_percent = (@user_perm_gb_out / (1. * @buffer_pool_memory_gb)) * 100.;
+		END
+	END
 
 END
 
