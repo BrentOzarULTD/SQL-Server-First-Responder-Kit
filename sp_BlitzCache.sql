@@ -2047,7 +2047,7 @@ SELECT TOP (@Top)
             END AS WritesPerMinute,
        qs.cached_time AS PlanCreationTime,
        qs.last_execution_time AS LastExecutionTime,
-	   DATEADD(MILLISECOND, (x.last_elapsed_time / 1000.), x.last_execution_time) AS LastCompletionTime,
+	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
        NULL AS MinReturnedRows,
@@ -2157,7 +2157,7 @@ BEGIN
                 END AS WritesPerMinute,
            qs.creation_time AS PlanCreationTime,
            qs.last_execution_time AS LastExecutionTime,
-		   DATEADD(MILLISECOND, (x.last_elapsed_time / 1000.), x.last_execution_time) AS LastCompletionTime,
+		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
            qs.statement_end_offset AS StatementEndOffset, ';
     
