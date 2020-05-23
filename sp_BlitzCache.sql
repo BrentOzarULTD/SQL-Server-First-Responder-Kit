@@ -41,7 +41,7 @@ CREATE TABLE ##BlitzCacheResults (
     CheckID INT,
     Priority TINYINT,
     FindingsGroup VARCHAR(50),
-    Finding VARCHAR(200),
+    Finding VARCHAR(500),
     URL VARCHAR(200),
     Details VARCHAR(4000) 
 );
@@ -1249,6 +1249,9 @@ IF OBJECT_ID('tempdb..#index_spool_ugly') IS NOT NULL
 IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
 	DROP TABLE #ReadableDBs;	
 
+IF OBJECT_ID('tempdb..#plan_usage') IS NOT NULL 
+	DROP TABLE #plan_usage;	
+
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
@@ -1531,6 +1534,18 @@ CREATE TABLE #ReadableDBs
 database_id INT
 );
 
+
+CREATE TABLE #plan_usage
+(
+    duplicate_plan_handles BIGINT NULL,
+    percent_duplicate NUMERIC(7, 2) NULL,
+    single_use_plan_count BIGINT NULL,
+    percent_single NUMERIC(7, 2) NULL,
+    total_plans BIGINT NULL,
+	spid INT
+);
+
+
 IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
@@ -1554,6 +1569,48 @@ SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans,
 	   @@SPID AS SPID
 FROM x
 OPTION (RECOMPILE);
+
+
+RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
+WITH total_plans AS 
+(
+    SELECT COUNT_BIG(*) AS total_plans
+    FROM sys.dm_exec_query_stats AS deqs
+),
+     many_plans AS 
+(
+    SELECT SUM(x.duplicate_plan_handles) AS duplicate_plan_handles
+    FROM (
+        SELECT COUNT_BIG(DISTINCT plan_handle) AS duplicate_plan_handles
+        FROM sys.dm_exec_query_stats qs
+            CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+        WHERE pa.attribute = N'dbid'
+        GROUP BY qs.query_hash, pa.value
+        HAVING COUNT_BIG(DISTINCT plan_handle) > 5
+    ) AS x
+),
+     single_use_plans AS 
+(
+    SELECT COUNT_BIG(*) AS single_use_plan_count
+    FROM sys.dm_exec_cached_plans AS cp
+    WHERE cp.usecounts = 1
+    AND   cp.objtype = N'Adhoc'
+    AND   EXISTS ( SELECT 1/0
+                   FROM sys.configurations AS c
+                   WHERE c.name = N'optimize for ad hoc workloads'
+                   AND   c.value_in_use = 0 )
+    HAVING COUNT_BIG(*) > 1
+)
+INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
+SELECT m.duplicate_plan_handles, 
+       CONVERT(DECIMAL(3,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
+       s.single_use_plan_count, 
+       CONVERT(DECIMAL(3,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
+       t.total_plans,
+	   @@SPID
+FROM   many_plans AS m, 
+       single_use_plans AS s, 
+       total_plans AS t;
 
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
@@ -6051,6 +6108,44 @@ BEGIN
                     'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
 
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage p
+                   WHERE  p.percent_duplicate > 5
+				   AND spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT spid,
+                    999,
+					254,
+					'Plan Cache Information',
+					'You have ' + CONVERT(NVARCHAR(10), p.total_plans)
+					            + ' plans in your cache, and '
+								+ CONVERT(NVARCHAR(10), p.percent_duplicate)
+								+ '% are duplicates with more than 5 entries'
+								+ ', meaning similar queries are generating the same plan repeatedly.'
+								+ ' Forced Parameterization may fix the issue.',
+					'https://www.brentozar.com/archive/2018/03/why-multiple-plans-for-one-query-are-bad/',
+					'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
+			FROM #plan_usage AS p ;
+
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage p
+                   WHERE  p.percent_single > 5
+				   AND spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT spid,
+                    999,
+					254,
+					'Plan Cache Information',
+					'You have ' + CONVERT(NVARCHAR(10), p.total_plans)
+					            + ' in your cache, and '
+								+ CONVERT(NVARCHAR(10), p.percent_single)
+								+ '% are single use plans'
+								+ ', meaning SQL Server thinks it''s seeing a lot of "new" queries and creating plans for them.'
+								+ ' Forced Parameterization and Optimize For Ad Hoc Workloads may fix the issue.',
+					'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
+					'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''recent compilations''; '
+			FROM #plan_usage AS p ;
+
         IF @is_tokenstore_big = 1
 		INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		SELECT @@SPID,
@@ -6138,15 +6233,15 @@ IF @Debug = 1
 		FROM   ##BlitzCacheProcs
 		OPTION ( RECOMPILE );
 		
-		SELECT '#statements' AS table_name,  *
+		SELECT '#statements' AS table_name, *
 		FROM #statements AS s
 		OPTION (RECOMPILE);
 
-		SELECT '#query_plan' AS table_name,  *
+		SELECT '#query_plan' AS table_name, *
 		FROM #query_plan AS qp
 		OPTION (RECOMPILE);
 		
-		SELECT '#relop' AS table_name,  *
+		SELECT '#relop' AS table_name, *
 		FROM #relop AS r
 		OPTION (RECOMPILE);
 
@@ -6228,6 +6323,10 @@ IF @Debug = 1
 		
 		SELECT '#trace_flags' AS table_name, *
 		FROM   #trace_flags
+		OPTION ( RECOMPILE );
+
+		SELECT '#plan_usage' AS table_name, *
+		FROM   #plan_usage
 		OPTION ( RECOMPILE );
 
     END;
