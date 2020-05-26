@@ -5109,30 +5109,30 @@ IF EXISTS
 )
 BEGIN
 
+SELECT @common_version =
+           CONVERT(DECIMAL(10,2), c.common_version)
+FROM #checkversion AS c;
+
 IF @common_version >= 11
-	SET @user_perm_sql += N'
+	SET @user_perm_sql = N'
 	SET @buffer_pool_memory_gb = 0;
 	SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.
 	FROM sys.dm_os_memory_clerks
 	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
 ELSE
-	SET @user_perm_sql += N'
+	SET @user_perm_sql = N'
 	SET @buffer_pool_memory_gb = 0;
 	SELECT @buffer_pool_memory_gb = SUM(single_pages_kb + multi_pages_kb)/ 1024. / 1024.
 	FROM sys.dm_os_memory_clerks
 	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
 
 EXEC sys.sp_executesql @user_perm_sql,
-	N'@user_perm_gb DECIMAL(10,2) OUTPUT',
-	@user_perm_gb = @user_perm_gb_out OUTPUT;
-
-SELECT @common_version =
-           CONVERT(DECIMAL(10,2), c.common_version)
-FROM #checkversion AS c;
+	N'@buffer_pool_memory_gb DECIMAL(10,2) OUTPUT',
+	@buffer_pool_memory_gb = @buffer_pool_memory_gb OUTPUT;
 
 IF @common_version >= 11
 BEGIN
-    SET @user_perm_sql += N'
+    SET @user_perm_sql = N'
     	SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
     			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
     			                    ELSE 0 
@@ -5144,7 +5144,7 @@ END;
 
 IF @common_version < 11
 BEGIN
-    SET @user_perm_sql += N'
+    SET @user_perm_sql = N'
     	SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
     			                    THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
     			                    ELSE 0 
@@ -6102,6 +6102,8 @@ BEGIN
                     999,
                     CASE WHEN ISNULL(p.percent_24, 0) > 75 THEN 1 ELSE 254 END AS Priority,
                     'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_24, 0) > 75 THEN 'Plan Cache Instability' ELSE 'Plan Cache Stability' END AS Finding,
+                    'https://www.brentozar.com/archive/2018/07/tsql2sday-how-much-plan-cache-history-do-you-have/',
                     'You have ' + CONVERT(NVARCHAR(10), ISNULL(p.total_plans, 0)) 
 								+ ' total plans in your cache, with ' 
 								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_24, 0)) 
@@ -6109,9 +6111,8 @@ BEGIN
 								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_4, 0)) 
 								+ '% created in the past 4 hours, and ' 
 								+ CONVERT(NVARCHAR(10), ISNULL(p.percent_1, 0)) 
-								+ '% created in the past 1 hour.',
-                    'https://www.brentozar.com/archive/2018/07/tsql2sday-how-much-plan-cache-history-do-you-have/',
-                    'If these percentages are high, it may be a sign of memory pressure or plan cache instability.'
+								+ '% created in the past 1 hour. '
+								+ 'When these percentages are high, it may be a sign of memory pressure or plan cache instability.'
 			FROM   #plan_creation p	;
 
         IF EXISTS (SELECT 1/0
@@ -6121,16 +6122,16 @@ BEGIN
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT spid,
                     999,
-					254,
-					'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75 THEN 1 ELSE 254 END AS Priority,
+                    'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75 THEN 'Many Duplicate Plans' ELSE 'Duplicate Plans' END AS Finding,
+					'https://www.brentozar.com/archive/2018/03/why-multiple-plans-for-one-query-are-bad/',
 					'You have ' + CONVERT(NVARCHAR(10), p.total_plans)
 					            + ' plans in your cache, and '
 								+ CONVERT(NVARCHAR(10), p.percent_duplicate)
 								+ '% are duplicates with more than 5 entries'
 								+ ', meaning similar queries are generating the same plan repeatedly.'
-								+ ' Forced Parameterization may fix the issue.',
-					'https://www.brentozar.com/archive/2018/03/why-multiple-plans-for-one-query-are-bad/',
-					'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
+								+ ' Forced Parameterization may fix the issue. To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
 			FROM #plan_usage AS p ;
 
         IF EXISTS (SELECT 1/0
