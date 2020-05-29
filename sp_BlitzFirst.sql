@@ -133,7 +133,8 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @UnquotedOutputServerName NVARCHAR(256) = @OutputServerName ,
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
-    @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128));
+    @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)),
+	@dm_exec_query_statistics_xml BIT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -1023,6 +1024,35 @@ BEGIN
 		
 	END
 
+    DECLARE	@v DECIMAL(6,2),
+		@build INT,
+		@memGrantSortSupported BIT = 1;
+
+	RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
+
+	INSERT INTO #checkversion (version)
+	SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
+	OPTION (RECOMPILE);
+
+
+	SELECT @v = common_version ,
+			@build = build
+	FROM   #checkversion
+	OPTION (RECOMPILE);
+
+	IF (@v < 11)
+	OR (@v = 11 AND @build < 6020) 
+	OR (@v = 12 AND @build < 5000) 
+	OR (@v = 13 AND @build < 1601)
+		SET @memGrantSortSupported = 0;
+
+	IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_statistics_xml')
+		AND ((@v = 13 AND @build >= 5337)	/* This DMF causes assertion errors: https://support.microsoft.com/en-us/help/4490136/fix-assertion-error-occurs-when-you-use-sys-dm-exec-query-statistics-x */
+				OR (@v = 14 AND @build >= 3162) 
+				OR (@v >= 15)
+				OR (@v <= 12)) /* Azure */
+		SET @dm_exec_query_statistics_xml = 1;
+
 
     SET @StockWarningHeader = '<?ClickToSeeCommmand -- ' + @LineFeed + @LineFeed
         + 'WARNING: Running this command may result in data loss or an outage.' + @LineFeed
@@ -1795,6 +1825,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                        ON r.session_id = s.session_id
                    WHERE s.host_name IS NOT NULL
                    AND r.total_elapsed_time > 5000 )
+			BEGIN
 
                    SET @StringToExecute = N'
                    DECLARE @bad_estimate TABLE 
@@ -1818,6 +1849,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                      ELSE 0
                                 END AS estimate_inaccuracy
                          FROM   sys.dm_exec_query_profiles AS deqp
+						 WHERE deqp.session_id <> @@SPID
                    ) AS x
                    WHERE x.estimate_inaccuracy = 1
                    GROUP BY x.session_id, 
@@ -1878,6 +1910,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                          	       			   AS node_dop
                          	       FROM sys.dm_exec_query_profiles AS deqp
                          	       WHERE deqp.thread_id > 0
+								   AND deqp.session_id <> @@SPID
                          	       AND EXISTS 
                          	       	(
                          	       		SELECT 1/0
@@ -1899,7 +1932,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
                    */
                    INSERT INTO #BlitzFirstResults 
-                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash)
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 42 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
@@ -1920,21 +1953,34 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           DB_NAME(r.database_id),
                           dest.text,
                           s.open_transaction_count,
-                          r.query_hash
+                          r.query_hash, ';
+
+				IF @dm_exec_query_statistics_xml = 1
+					SET @StringToExecute = @StringToExecute + N' COALESCE(qs_live.query_plan, qp.query_plan) AS query_plan ';
+				ELSE
+					SET @StringToExecute = @StringToExecute + N' qp.query_plan ';
+
+				SET @StringToExecute = @StringToExecute + N'
                   FROM @bad_estimate AS b
                   JOIN sys.dm_exec_requests AS r
                   ON r.session_id = b.session_id
                   AND r.request_id = b.request_id
                   JOIN sys.dm_exec_sessions AS s
                   ON s.session_id = b.session_id
-                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest;
+                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest
+				  CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp ';
 
+				IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_statistics_xml')
+					SET @StringToExecute = @StringToExecute + N' OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live ';
+				  
+				  
+				SET @StringToExecute = @StringToExecute + N';
 
                    /*
                    CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
                    */
                    INSERT INTO #BlitzFirstResults 
-                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash)
+                   (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 43 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
@@ -1955,17 +2001,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           DB_NAME(r.database_id),
                           dest.text,
                           s.open_transaction_count,
-                          r.query_hash
+                          r.query_hash, ';
+
+				IF @dm_exec_query_statistics_xml = 1
+					SET @StringToExecute = @StringToExecute + N' COALESCE(qs_live.query_plan, qp.query_plan) AS query_plan ';
+				ELSE
+					SET @StringToExecute = @StringToExecute + N' qp.query_plan ';
+
+				SET @StringToExecute = @StringToExecute + N'
                   FROM @parallelism_skew AS p
                   JOIN sys.dm_exec_requests AS r
                   ON r.session_id = p.session_id
                   AND r.request_id = p.request_id
                   JOIN sys.dm_exec_sessions AS s
                   ON s.session_id = p.session_id
-                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest;
-                   ';
-                   
-           EXECUTE sp_executesql @StringToExecute;
+                  CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS dest
+				  CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp ';
+
+				IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_statistics_xml')
+					SET @StringToExecute = @StringToExecute + N' OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live ';
+				  
+				  
+				SET @StringToExecute = @StringToExecute + N';';
+
+	          EXECUTE sp_executesql @StringToExecute;
+			END
    
         END
     END
@@ -2854,27 +2914,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                      FROM   sys.databases
                      WHERE  QUOTENAME([name]) = @OutputDatabaseName)
     BEGIN
-    	DECLARE	@v DECIMAL(6,2),
-			@build INT,
-			@memGrantSortSupported BIT = 1;
 
-		RAISERROR (N'Determining SQL Server version.',0,1) WITH NOWAIT;
-
-		INSERT INTO #checkversion (version)
-		SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
-		OPTION (RECOMPILE);
-
-
-		SELECT @v = common_version ,
-			   @build = build
-		FROM   #checkversion
-		OPTION (RECOMPILE);
-
-		IF (@v < 11)
-		OR (@v = 11 AND @build < 6020) 
-		OR (@v = 12 AND @build < 5000) 
-		OR (@v = 13 AND @build < 1601)
-			SET @memGrantSortSupported = 0;
 
 		RAISERROR('Calling sp_BlitzCache',10,1) WITH NOWAIT;
 
