@@ -6141,16 +6141,17 @@ BEGIN
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT spid,
                     999,
-					254,
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 1 ELSE 254 END AS Priority,
 					'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 'Many Single-Use Plans' ELSE 'Single-Use Plans' END AS Finding,
+					'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
 					'You have ' + CONVERT(NVARCHAR(10), p.total_plans)
-					            + ' in your cache, and '
+					            + ' plans in your cache, and '
 								+ CONVERT(NVARCHAR(10), p.percent_single)
 								+ '% are single use plans'
 								+ ', meaning SQL Server thinks it''s seeing a lot of "new" queries and creating plans for them.'
-								+ ' Forced Parameterization and Optimize For Ad Hoc Workloads may fix the issue.',
-					'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
-					'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''recent compilations''; '
+								+ ' Forced Parameterization and/or Optimize For Ad Hoc Workloads may fix the issue.'
+					            + 'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
 			FROM #plan_usage AS p ;
 
         IF @is_tokenstore_big = 1
