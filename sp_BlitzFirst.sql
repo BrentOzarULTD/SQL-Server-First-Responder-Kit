@@ -2111,23 +2111,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
+	CREATE TABLE #UpdatedStats (Details NVARCHAR(4000), RowsForSorting BIGINT);
 	EXEC sp_MSforeachdb N'USE [?];
-	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-	SELECT 44 AS CheckId,
-			50 AS Priority,
-			''Query Problems'' AS FindingGroup,
-			''Statistics Updated Recently'' AS Finding,
-			''http://www.BrentOzar.com/go/stats'' AS URL,
-			Details = 
+	INSERT INTO #UpdatedStats(Details, RowsForSorting)
+	SELECT Details = 
 				QUOTENAME(DB_NAME()) + N''.'' +
 				QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-				QUOTENAME(obj.name) + NCHAR(13) + NCHAR(10) +
-				N''statistic '' + QUOTENAME(stat.name) + NCHAR(13) + NCHAR(10) +
-				N''was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + NCHAR(13) + NCHAR(10) + 
-				N''had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-				CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  NCHAR(13) + NCHAR(10) +
-				N''producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'' +  NCHAR(13) + NCHAR(10) +
-				N''This invalidated plans in the cache for this object, causing plan compiles and parameter sniffing.''
+				QUOTENAME(obj.name) +
+				N'' statistic '' + QUOTENAME(stat.name) + 
+				N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+				N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+				CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled, '' +  
+				N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+		sp.rows
 	FROM sys.objects AS obj   
 	INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
 	CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
@@ -2135,7 +2131,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	  AND obj.is_ms_shipped = 0
 	  AND ''[?]'' <> ''[tempdb]'';';
 
-
+	IF EXISTS (SELECT * FROM #UpdatedStats)
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		SELECT 44 AS CheckId,
+				50 AS Priority,
+				'Query Problems' AS FindingGroup,
+				'Statistics Updated Recently' AS Finding,
+				'http://www.BrentOzar.com/go/stats' AS URL,
+				Details = (SELECT (SELECT Details + NCHAR(10))
+					FROM #UpdatedStats
+					ORDER BY RowsForSorting DESC
+					FOR XML PATH(''));
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
