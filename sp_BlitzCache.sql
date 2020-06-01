@@ -6932,11 +6932,11 @@ BEGIN
 
 	EXEC sp_executesql @insert_sql ;
 
-    /* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+    /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
     SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
     SET @insert_sql = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-        ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''LastCompletionTime'')
+        ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
     EXEC(@insert_sql);
     
 
