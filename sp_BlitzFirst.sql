@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.95', @VersionDate = '20200506';
+SELECT @Version = '7.96', @VersionDate = '20200602';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2112,25 +2112,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
 	CREATE TABLE #UpdatedStats (Details NVARCHAR(4000), RowsForSorting BIGINT);
-	EXEC sp_MSforeachdb N'USE [?];
-	INSERT INTO #UpdatedStats(Details, RowsForSorting)
-	SELECT Details = 
-				QUOTENAME(DB_NAME()) + N''.'' +
-				QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-				QUOTENAME(obj.name) +
-				N'' statistic '' + QUOTENAME(stat.name) + 
-				N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-				N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-				CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled, '' +  
-				N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-		sp.rows
-	FROM sys.objects AS obj   
-	INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
-	CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-	WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-	  AND obj.is_ms_shipped = 0
-	  AND ''[?]'' <> ''[tempdb]'';';
-
+    IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
+    BEGIN
+        EXEC sp_MSforeachdb N'USE [?];
+        INSERT INTO #UpdatedStats(Details, RowsForSorting)
+        SELECT Details = 
+                    QUOTENAME(DB_NAME()) + N''.'' +
+                    QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+                    QUOTENAME(obj.name) +
+                    N'' statistic '' + QUOTENAME(stat.name) + 
+                    N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+                    N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+                    CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled, '' +  
+                    N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+            sp.rows
+        FROM sys.objects AS obj   
+        INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
+        CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+        WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+        AND obj.is_ms_shipped = 0
+        AND ''[?]'' <> ''[tempdb]'';';
+    END;
+    
 	IF EXISTS (SELECT * FROM #UpdatedStats)
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		SELECT 44 AS CheckId,
