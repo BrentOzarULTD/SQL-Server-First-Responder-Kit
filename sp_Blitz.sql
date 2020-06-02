@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.95', @VersionDate = '20200506';
+	SELECT @Version = '7.96', @VersionDate = '20200602';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -319,6 +319,16 @@ AS
 			  ServerName NVARCHAR(128)
 			);
 		CREATE CLUSTERED INDEX IX_CheckID_DatabaseName ON #SkipChecks(CheckID, DatabaseName);
+
+        IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
+        BEGIN
+            EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
+        END;
+								 
+		CREATE TABLE #InvalidLogins (
+			LoginSID    varbinary(85),
+			LoginName   VARCHAR(256)
+		);
 
 		IF @SkipChecksTable IS NOT NULL
 			AND @SkipChecksSchema IS NOT NULL
@@ -1297,7 +1307,35 @@ AS
 										AND l.name <> 'l_certSignSmDetach'; /* Added in SQL 2016 */
 					END;
 
-				IF NOT EXISTS ( SELECT  1
+                    IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   CheckID = 2301 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2301) WITH NOWAIT;
+						
+                        INSERT INTO #InvalidLogins
+                        EXEC sp_validatelogins 
+                        ;
+                        
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  2301 AS CheckID ,
+										230 AS Priority ,
+										'Security' AS FindingsGroup ,
+										'Invalid login defined with Windows Authentication' AS Finding ,
+										'https://docs.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-validatelogins-transact-sql' AS URL ,
+										( 'Windows user or group ' + QUOTENAME(LoginName) + ' is mapped to a SQL Server principal but no longer exists in the Windows environment.') AS Details
+                                FROM #InvalidLogins
+                                ;
+                    END;
+				    IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 5 )
 					BEGIN
@@ -5863,8 +5901,8 @@ IF @ProductVersionMajor >= 10
 							       'SQL Server Update May Fail' AS Finding,
 							       'https://desertdba.com/failovers-cant-serve-two-masters/' AS URL,
 							       'This database has a file with a logical name of ''master'', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.' AS details
-							FROM master.sys.master_files f
-							WHERE (f.name = N'master')
+							FROM master.sys.master_files f
+							WHERE (f.name = N'master')
 							  AND f.database_id > 4
 							  AND db_name(f.database_id) <> 'master'; /* Thanks Michaels3 for catching this */
 					END;
@@ -9143,6 +9181,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							 END DESC;
 
 	END; /* ELSE -- IF @OutputType = 'SCHEMA' */
+
+    /*
+	   Cleanups - drop temporary tables that have been created by this SP.													 
+    */
+																 
+	IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
+	BEGIN
+		EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
+	END;
 
 	/*
 	Reset the Nmumeric_RoundAbort session state back to enabled if it was disabled earlier. 

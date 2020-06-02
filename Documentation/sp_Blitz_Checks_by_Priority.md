@@ -278,6 +278,7 @@ If you want to add a new one, start at 235.
 | 230 | Security | SQL Agent Job Runs at Startup | https://www.BrentOzar.com/go/startup | 57 |
 | 230 | Security | Stored Procedure Runs at Startup | https://www.BrentOzar.com/go/startup | 7 |
 | 230 | Security | Sysadmins | https://www.BrentOzar.com/go/sa | 4 |
+| 230 | Security | Invalid Active Directory Accounts | | 2301|
 | 240 | Wait Stats | No Significant Waits Detected | https://www.BrentOzar.com/go/waits | 153 |
 | 240 | Wait Stats | Top Wait Stats | https://www.BrentOzar.com/go/waits | 152 |
 | 240 | Wait Stats | Wait Stats Have Been Cleared | https://www.BrentOzar.com/go/waits | 185 |
