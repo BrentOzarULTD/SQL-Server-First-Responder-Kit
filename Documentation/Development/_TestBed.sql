@@ -23,6 +23,7 @@ EXEC dbo.sp_BlitzFirst @SinceStartup = 1;
 
 EXEC dbo.sp_BlitzFirst @Seconds = 5, @ExpertMode = 1, @ShowSleepingSPIDs = 1;
 
+CREATE DATABASE DBAtools;
 
 EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
                        @OutputSchemaName = 'dbo',
@@ -31,7 +32,15 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
                        @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats',
                        @OutputTableNameWaitStats = 'BlitzFirst_WaitStats',
                        @OutputTableNameBlitzCache = 'BlitzCache',
-                       @OutputTableRetentionDays = 14;
+                       @OutputTableNameBlitzWho = 'BlitzWho';
+
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzFirst ORDER BY 1 DESC;
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzFirst_FileStats ORDER BY 1 DESC;
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzFirst_PerfmonStats ORDER BY 1 DESC;
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzFirst_WaitStats ORDER BY 1 DESC;
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzCache ORDER BY 1 DESC;
+SELECT TOP 100 * FROM DBAtools.dbo.BlitzWho ORDER BY 1 DESC;
+
 
 /*BlitzIndex*/
 EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 4;
