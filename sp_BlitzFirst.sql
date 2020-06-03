@@ -2141,10 +2141,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				'Query Problems' AS FindingGroup,
 				'Statistics Updated Recently' AS Finding,
 				'http://www.BrentOzar.com/go/stats' AS URL,
-				Details = (SELECT (SELECT Details + NCHAR(10))
+				Details = LEFT((SELECT (SELECT Details + NCHAR(10))
 					FROM #UpdatedStats
 					ORDER BY RowsForSorting DESC
-					FOR XML PATH(''));
+					FOR XML PATH('')),4000);
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
