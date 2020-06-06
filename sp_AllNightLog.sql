@@ -30,7 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '3.95', @VersionDate = '20200602';
+SELECT @Version = '3.95', @VersionDate = '20200606';
 
 IF(@VersionCheckMode = 1)
 BEGIN

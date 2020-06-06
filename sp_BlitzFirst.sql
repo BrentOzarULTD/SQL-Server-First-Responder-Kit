@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200602';
+SELECT @Version = '7.96', @VersionDate = '20200606';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2111,19 +2111,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
-	CREATE TABLE #UpdatedStats (Details NVARCHAR(4000), RowsForSorting BIGINT);
+	CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
     IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
     BEGIN
         EXEC sp_MSforeachdb N'USE [?];
-        INSERT INTO #UpdatedStats(Details, RowsForSorting)
-        SELECT Details = 
+        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+        SELECT HowToStopIt = 
                     QUOTENAME(DB_NAME()) + N''.'' +
                     QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
                     QUOTENAME(obj.name) +
                     N'' statistic '' + QUOTENAME(stat.name) + 
                     N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
                     N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-                    CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled, '' +  
+                    CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
                     N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
             sp.rows
         FROM sys.objects AS obj   
@@ -2135,13 +2135,18 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     
 	IF EXISTS (SELECT * FROM #UpdatedStats)
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 		SELECT 44 AS CheckId,
 				50 AS Priority,
 				'Query Problems' AS FindingGroup,
 				'Statistics Updated Recently' AS Finding,
 				'http://www.BrentOzar.com/go/stats' AS URL,
-				Details = (SELECT (SELECT Details + NCHAR(10))
+                'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
+                    + 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
+                    + 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
+                    + 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
+                    + 'Be on the lookout for sudden parameter sniffing issues after this time range.',
+				HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
 					FROM #UpdatedStats
 					ORDER BY RowsForSorting DESC
 					FOR XML PATH(''));
