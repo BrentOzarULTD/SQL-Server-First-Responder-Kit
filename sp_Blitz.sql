@@ -7925,8 +7925,7 @@ IF @ProductVersionMajor >= 10
 										WHEN [owi].[windows_release] = '5' THEN 'You''re running Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running Windows Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] = '6.2' THEN 'You''re running Windows Server 2012 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] = '6.3' THEN 'You''re running Windows Server 2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] >= '6.2' AND [owi].[windows_release] <= '6.3' THEN 'You''re running Windows Server 2012/2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										WHEN [owi].[windows_release] = '10.0' THEN 'You''re running Windows Server 2016/2019 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										ELSE 'You''re running Windows Server, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										END
