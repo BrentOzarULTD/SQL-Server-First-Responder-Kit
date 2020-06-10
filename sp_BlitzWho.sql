@@ -151,7 +151,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	  + @OutputTableName + N''') CREATE TABLE '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
-	  + N'(
+	  + N'(';
+	SET @StringToExecute = @StringToExecute + N'
 	ID INT IDENTITY(1,1) NOT NULL,
 	ServerName NVARCHAR(128) NOT NULL,
 	CheckDate DATETIMEOFFSET NOT NULL,
