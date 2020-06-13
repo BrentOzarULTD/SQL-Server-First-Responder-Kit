@@ -2200,7 +2200,8 @@ AS
 										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0
-                                  AND   name NOT IN ('CommandLog','SqlServerVersions');
+                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty');
+								  /* That last one is the Dynamics NAV licensing table: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2426 */
 					END;
 
 				IF NOT EXISTS ( SELECT  1
