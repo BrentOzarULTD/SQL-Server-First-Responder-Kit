@@ -346,7 +346,7 @@ BEGIN
 					     s.nt_domain ,
 			       s.host_name ,
 			       s.login_name ,
-			       s.nt_user_name '
+			       s.nt_user_name ,'
 		IF @Platform = 'NonAzure'
 		BEGIN
 		SET @StringToExecute +=
@@ -552,7 +552,7 @@ IF @ProductVersionMajor >= 11
 					     s.nt_domain ,
 			       s.host_name ,
 			       s.login_name ,
-			       s.nt_user_name '
+			       s.nt_user_name ,'
 		IF @Platform = 'NonAzure'
 		BEGIN
 		SET @StringToExecute +=
