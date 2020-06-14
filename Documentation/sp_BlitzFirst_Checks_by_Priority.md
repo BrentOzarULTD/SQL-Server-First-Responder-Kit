@@ -34,7 +34,6 @@ If you want to add a new check, start at 45
 | 50 | Query Problems | Statistics Updated Recently | https://BrentOzar.com/go/stats | 44 |
 | 50 | Server Performance | High CPU Utilization | https://BrentOzar.com/go/cpu | 24 |
 | 50 | Server Performance | High CPU Utilization - Non SQL Processes | https://BrentOzar.com/go/cpu | 28 |
-| 50 | Server Performance | Page Life Expectancy Low | https://BrentOzar.com/go/ple | 10 |
 | 50 | Server Performance | Slow Data File Reads | https://BrentOzar.com/go/slow | 11 |
 | 50 | Server Performance | Slow Log File Writes | https://BrentOzar.com/go/slow | 12 |
 | 50 | Server Performance | Too Much Free Memory | https://BrentOzar.com/go/freememory | 34 |

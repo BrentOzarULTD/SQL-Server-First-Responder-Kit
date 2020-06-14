@@ -1690,22 +1690,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE r.status = 'rollback';
 
 
-    /* Server Performance - Page Life Expectancy Low - CheckID 10 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-    SELECT 10 AS CheckID,
-        50 AS Priority,
-        'Server Performance' AS FindingGroup,
-        'Page Life Expectancy Low' AS Finding,
-        'http://www.BrentOzar.com/askbrent/page-life-expectancy/' AS URL,
-        'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed
-            + 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed
-            + 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
-        'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' AS HowToStopIt
-    FROM sys.dm_os_performance_counters c
-    WHERE object_name LIKE 'SQLServer:Buffer Manager%'
-    AND counter_name LIKE 'Page life expectancy%'
-    AND cntr_value < 300;
-
     /* Server Performance - Too Much Free Memory - CheckID 34 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 34 AS CheckID,
