@@ -9,7 +9,7 @@ ForEach-Object { Get-Content $_.FullName } |
 Set-Content -Path "$FilePath\Install-Core-Blitz-No-Query-Store.sql" -Force
 #append script to (re-)create SqlServerVersions Table (https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2429)
 if ( test-path "$SqlVersionsPath")
-	{ Add-Content -Path "$FilePath\Install-All-Scripts.sql" -Value (Get-Content -Path "$SqlVersionsPath")}
+	{ Add-Content -Path "$FilePath\Install-Core-Blitz-No-Query-Store.sql" -Value (Get-Content -Path "$SqlVersionsPath")}
 
 
 #All Core Blitz With sp_BlitzQueryStore
@@ -19,7 +19,7 @@ ForEach-Object { Get-Content $_.FullName } |
 Set-Content -Path "$FilePath\Install-Core-Blitz-With-Query-Store.sql" -Force
 #append script to (re-)create SqlServerVersions Table (https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2429)
 if ( test-path "$SqlVersionsPath")
-	{ Add-Content -Path "$FilePath\Install-All-Scripts.sql" -Value (Get-Content -Path "$SqlVersionsPath")}
+	{ Add-Content -Path "$FilePath\Install-Core-Blitz-With-Query-Store.sql" -Value (Get-Content -Path "$SqlVersionsPath")}
 
 
 #All Scripts
