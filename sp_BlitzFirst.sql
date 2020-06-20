@@ -1828,8 +1828,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                 deqp.request_id,
                                 CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
                                      THEN 1
-                                     WHEN deqp.row_count < ( deqp.estimate_row_count * 10000 )
-                                     THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
                          FROM   sys.dm_exec_query_profiles AS deqp
