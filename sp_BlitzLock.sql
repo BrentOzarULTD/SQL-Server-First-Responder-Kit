@@ -216,7 +216,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
-							Database_Name NVARCHAR(256),
+							database_name NVARCHAR(256),
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,
