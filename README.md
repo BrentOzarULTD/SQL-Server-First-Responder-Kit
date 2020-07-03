@@ -247,6 +247,15 @@ Common parameters include:
 * @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
 * @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
 
+sp_BlitzIndex focuses on mainstream index types. Other index types have varying amounts of support:
+
+* Fully supported: rowstore indexes, columnstore indexes, temporal tables.
+* Columnstore indexes: fully supported. Key columns are shown as includes rather than keys since they're not in a specific order.
+* In-Memory OLTP (Hekaton): unsupported. These objects show up in the results, but for more info, you'll want to use sp_BlitzInMemoryOLTP instead.
+* Graph tables: unsupported. These objects show up in the results, but we don't do anything special with 'em, like call out that they're graph tables.
+* Spatial indexes: unsupported. We call out that they're spatial, but we don't do any special handling for them.
+* XML indexes: unsupported. These objects show up in the results, but we don't include the index's columns or sizes.
+
 
 [*Back to top*](#header1)
 
