@@ -1060,6 +1060,22 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 		OPEN BackupFiles;
 	END;
 
+IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NOT NULL)	
+	BEGIN
+		DECLARE BackupFiles CURSOR FOR
+			SELECT BackupFile
+			FROM @FileList
+			WHERE BackupFile LIKE N'%.trn'
+			  AND BackupFile LIKE N'%' + @Database + N'%'
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
+			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
+			  ORDER BY BackupFile;
+		
+		OPEN BackupFiles;
+	END;
+
+
 IF (@StandbyMode = 1)
 	BEGIN
 		IF (@StandbyUndoPath IS NULL)
