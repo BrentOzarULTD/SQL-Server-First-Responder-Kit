@@ -34,7 +34,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.96', @VersionDate = '20200602';
+  SELECT @Version = '2.97', @VersionDate = '20200703';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -48,7 +48,7 @@ IF @Help = 1
 		/*
 			sp_ineachdb from http://FirstResponderKit.org
 			
-			This script will restore a database from a given file path.
+			This script will execute a command against multiple databases.
 		
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on

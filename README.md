@@ -247,6 +247,15 @@ Common parameters include:
 * @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
 * @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
 
+sp_BlitzIndex focuses on mainstream index types. Other index types have varying amounts of support:
+
+* Fully supported: rowstore indexes, columnstore indexes, temporal tables.
+* Columnstore indexes: fully supported. Key columns are shown as includes rather than keys since they're not in a specific order.
+* In-Memory OLTP (Hekaton): unsupported. These objects show up in the results, but for more info, you'll want to use sp_BlitzInMemoryOLTP instead.
+* Graph tables: unsupported. These objects show up in the results, but we don't do anything special with 'em, like call out that they're graph tables.
+* Spatial indexes: unsupported. We call out that they're spatial, but we don't do any special handling for them.
+* XML indexes: unsupported. These objects show up in the results, but we don't include the index's columns or sizes.
+
 
 [*Back to top*](#header1)
 
@@ -295,6 +304,10 @@ Parameters you can use:
 * @LoginName: If you want to filter to a specific login.
 * @EventSessionPath: If you want to point this at an XE session rather than the system health session.
 
+Known issues:
+
+* If your database has periods in the name, the deadlock report itself doesn't report the database name correctly. [More info in closed issue 2452.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2452)
+
 
 [*Back to top*](#header1)
 
@@ -340,10 +353,7 @@ Parameters include:
 * @HoursBack -- How many hours into backup history you want to go. Should be a negative number (we're going back in time, after all). But if you enter a positive number, we'll make it negative for you. You're welcome.
 * @MSDBName -- if you need to prefix dbo.backupset with an alternate database name. 
 * @AGName -- If you have more than 1 AG on the server, and you don't know the listener name, specify the name of the AG you want to use the listener for, to push backup data. This may get used during analysis in a future release for filtering.
-* @RestoreSpeedFullMBps --[FIXFIX] Brent can word this better than I can
-* @RestoreSpeedDiffMBps -- Nothing yet
-* @RestoreSpeedLogMBps -- Nothing yet
-
+* @RestoreSpeedFullMBps, @RestoreSpeedDiffMBps, @RestoreSpeedLogMBps -- if you know your restore speeds, you can input them here to better calculate your worst-case RPO times. Otherwise, we assume that your restore speed will be the same as your backup speed. That isn't likely true - your restore speed will likely be worse - but these numbers already scare the pants off people.
 * @PushBackupHistoryToListener -- Turn this to 1 to skip analysis and use sp_BlitzBackups to push backup data from msdb to a centralized location (more the mechanics of this to follow)
 * @WriteBackupsToListenerName -- This is the name of the AG listener, and **MUST** have a linked server configured pointing to it. Yes, that means you need to create a linked server that points to the AG Listener, with the appropriate permissions to write data.  
 * @WriteBackupsToDatabaseName -- This can't be 'msdb' if you're going to use the backup data pushing mechanism. We can't write to your actual msdb tables.

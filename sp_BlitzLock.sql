@@ -31,7 +31,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.96', @VersionDate = '20200606';
+SELECT @Version = '2.97', @VersionDate = '20200703';
 
 
 IF(@VersionCheckMode = 1)
@@ -216,7 +216,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
-							Database_Name NVARCHAR(256),
+							database_name NVARCHAR(256),
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,

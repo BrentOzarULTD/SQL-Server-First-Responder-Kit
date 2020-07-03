@@ -44,7 +44,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -158,7 +158,7 @@ SELECT
     @OurSessionID = @@SPID,
     @OutputType                     = UPPER(@OutputType);
 
-IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
 BEGIN
     RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
     RETURN;
@@ -253,7 +253,7 @@ END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSche
 ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -263,7 +263,7 @@ BEGIN
 		BEGIN
 			EXEC (@BlitzWho);
 		END;
-    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
     IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
@@ -293,7 +293,7 @@ BEGIN
     We start by creating #BlitzFirstResults. It's a temp table that will store
     the results from our checks. Throughout the rest of this stored procedure,
     we're running a series of checks looking for dangerous things inside the SQL
-    Server. When we find a problem, we insert rows into #BlitzResults. At the
+    Server. When we find a problem, we insert rows into the temp table. At the
     end, we return these results to the end user.
 
     #BlitzFirstResults has a CheckID field, but there's no Check table. As we do
@@ -1690,22 +1690,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE r.status = 'rollback';
 
 
-    /* Server Performance - Page Life Expectancy Low - CheckID 10 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-    SELECT 10 AS CheckID,
-        50 AS Priority,
-        'Server Performance' AS FindingGroup,
-        'Page Life Expectancy Low' AS Finding,
-        'http://www.BrentOzar.com/askbrent/page-life-expectancy/' AS URL,
-        'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed
-            + 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed
-            + 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
-        'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' AS HowToStopIt
-    FROM sys.dm_os_performance_counters c
-    WHERE object_name LIKE 'SQLServer:Buffer Manager%'
-    AND counter_name LIKE 'Page life expectancy%'
-    AND cntr_value < 300;
-
     /* Server Performance - Too Much Free Memory - CheckID 34 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 34 AS CheckID,
@@ -1811,6 +1795,46 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
+    IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
+        BEGIN
+        /* SQL 2012+ version */
+        SET @StringToExecute = N'
+        INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
+        SELECT 45 AS CheckID,
+                50 AS Priority,
+                ''Query Problems'' AS FindingsGroup,
+                ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+                N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+                    + N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+                AS details,
+                ''https://www.BrentOzar.com/go/userstore'' AS URL
+        FROM sys.dm_os_memory_clerks
+        HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / SUM(pages_kb) >= 0.1					
+            AND SUM(pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+        EXEC sp_executesql @StringToExecute;
+        END
+    ELSE
+        BEGIN
+        /* Antiques Roadshow SQL 2008R2 - version */
+        SET @StringToExecute = N'
+        INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
+        SELECT 45 AS CheckID,
+                50 AS Priority,
+                ''Performance'' AS FindingsGroup,
+                ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+                N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+                    + N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+                AS details,
+                ''https://www.BrentOzar.com/go/userstore'' AS URL
+        FROM sys.dm_os_memory_clerks
+        HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / SUM(single_pages_kb + multi_pages_kb) >= 0.1
+            AND SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+        EXEC sp_executesql @StringToExecute;
+        END
+
+
+
     IF @Seconds > 0
     BEGIN
 
@@ -1843,8 +1867,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                          SELECT deqp.session_id,
                                 deqp.request_id,
                                 CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
-                                     THEN 1
-                                     WHEN deqp.row_count < ( deqp.estimate_row_count * 10000 )
                                      THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
@@ -2109,47 +2131,50 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
         END; /* IF @Seconds < 30 */
 
-
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
-	CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
-    IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
-    BEGIN
-        EXEC sp_MSforeachdb N'USE [?];
-        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-        SELECT HowToStopIt = 
-                    QUOTENAME(DB_NAME()) + N''.'' +
-                    QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-                    QUOTENAME(obj.name) +
-                    N'' statistic '' + QUOTENAME(stat.name) + 
-                    N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-                    N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-                    CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-                    N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-            sp.rows
-        FROM sys.objects AS obj   
-        INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
-        CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-        WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-        AND obj.is_ms_shipped = 0
-        AND ''[?]'' <> ''[tempdb]'';';
-    END;
+	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
+	BEGIN
+		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
+		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
+		BEGIN
+			EXEC sp_MSforeachdb N'USE [?];
+			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+			SELECT HowToStopIt = 
+						QUOTENAME(DB_NAME()) + N''.'' +
+						QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+						QUOTENAME(obj.name) +
+						N'' statistic '' + QUOTENAME(stat.name) + 
+						N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+						N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
+						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+				sp.rows
+			FROM sys.objects AS obj   
+			INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
+			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+			AND obj.is_ms_shipped = 0
+			AND ''[?]'' <> ''[tempdb]'';';
+		END;
     
-	IF EXISTS (SELECT * FROM #UpdatedStats)
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-		SELECT 44 AS CheckId,
-				50 AS Priority,
-				'Query Problems' AS FindingGroup,
-				'Statistics Updated Recently' AS Finding,
-				'http://www.BrentOzar.com/go/stats' AS URL,
-                'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
-                    + 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
-                    + 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
-                    + 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
-                    + 'Be on the lookout for sudden parameter sniffing issues after this time range.',
-				HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
-					FROM #UpdatedStats
-					ORDER BY RowsForSorting DESC
-					FOR XML PATH(''));
+		IF EXISTS (SELECT * FROM #UpdatedStats)
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+			SELECT 44 AS CheckId,
+					50 AS Priority,
+					'Query Problems' AS FindingGroup,
+					'Statistics Updated Recently' AS Finding,
+					'http://www.BrentOzar.com/go/stats' AS URL,
+					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
+						+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
+						+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
+						+ 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
+						+ 'Be on the lookout for sudden parameter sniffing issues after this time range.',
+					HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
+						FROM #UpdatedStats
+						ORDER BY RowsForSorting DESC
+						FOR XML PATH(''));
+
+	END
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
@@ -3939,7 +3964,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -3961,7 +3986,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -3983,7 +4008,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1
+        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -4220,8 +4245,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
-IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -4231,7 +4255,7 @@ IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
 		BEGIN
 			EXEC (@BlitzWho);
 		END;
-    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
 END; /* IF @LogMessage IS NULL */
 END; /* ELSE IF @OutputType = 'SCHEMA' */

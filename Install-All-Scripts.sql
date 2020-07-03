@@ -30,7 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '3.95', @VersionDate = '20200606';
+SELECT @Version = '3.96', @VersionDate = '20200703';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1524,7 +1524,7 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SELECT @Version = '3.95', @VersionDate = '20200606';
+SELECT @Version = '3.96', @VersionDate = '20200703';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2848,7 +2848,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.96', @VersionDate = '20200606';
+	SELECT @Version = '7.97', @VersionDate = '20200703';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -5011,7 +5011,8 @@ AS
 										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0
-                                  AND   name NOT IN ('CommandLog','SqlServerVersions');
+                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty');
+								  /* That last one is the Dynamics NAV licensing table: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2426 */
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -10699,12 +10700,8 @@ IF @ProductVersionMajor >= 10
 							) AS [URL] ,
 							( CASE
 								WHEN [ohi].[host_platform] = 'Linux' THEN 'You''re running the ' + CAST([ohi].[host_distribution] AS VARCHAR(35)) + ' distribution of ' + CAST([ohi].[host_platform] AS VARCHAR(35)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] > '5' AND [ohi].[host_release] < '6' THEN 'You''re running a really old version: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] >= '6' AND [ohi].[host_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '6.2' THEN 'You''re running a rather modern version of Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
-								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] > '6.3' THEN 'Hot dog! You''re living in the future! You''re running ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] = '5' THEN 'You''re running Windows 2000, version ' + CAST([ohi].[host_release] AS VARCHAR(5))
+								WHEN [ohi].[host_platform] = 'Windows' AND [ohi].[host_release] > '5' THEN 'You''re running ' + CAST([ohi].[host_distribution] AS VARCHAR(50)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
 								ELSE 'You''re running ' + CAST([ohi].[host_distribution] AS VARCHAR(35)) + ', version ' + CAST([ohi].[host_release] AS VARCHAR(5))
 								END
 							   ) AS [Details]
@@ -10737,13 +10734,12 @@ IF @ProductVersionMajor >= 10
 									'Windows Version' AS [Finding] ,
 									'https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions' AS [URL] ,
 									( CASE
-										WHEN [owi].[windows_release] = '5' THEN 'You''re running a really old version: Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running a really old version: Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running a pretty old version: Windows: Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] = '6.2' THEN 'You''re running a rather modern version of Windows: Server 2012 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] = '6.3' THEN 'You''re running a pretty modern version of Windows: Server 2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										WHEN [owi].[windows_release] = '10.0' THEN 'You''re running a pretty modern version of Windows: Server 2016 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
-										ELSE 'Hot dog! You''re living in the future! You''re running version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] = '5' THEN 'You''re running Windows 2000, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] > '5' AND [owi].[windows_release] < '6' THEN 'You''re running Windows Server 2003/2003R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] >= '6' AND [owi].[windows_release] <= '6.1' THEN 'You''re running Windows Server 2008/2008R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] >= '6.2' AND [owi].[windows_release] <= '6.3' THEN 'You''re running Windows Server 2012/2012R2 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										WHEN [owi].[windows_release] = '10.0' THEN 'You''re running Windows Server 2016/2019 era, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
+										ELSE 'You''re running Windows Server, version ' + CAST([owi].[windows_release] AS VARCHAR(5))
 										END
 									   ) AS [Details]
 									 FROM [sys].[dm_os_windows_info] [owi];
@@ -12047,7 +12043,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.96', @VersionDate = '20200606';
+	SELECT @Version = '3.97', @VersionDate = '20200703';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13825,7 +13821,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 
 
 IF(@VersionCheckMode = 1)
@@ -15112,9 +15108,9 @@ SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THE
 FROM sys.dm_exec_query_stats AS deqs
 )
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
+SELECT CONVERT(DECIMAL(5,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
@@ -15153,9 +15149,9 @@ WITH total_plans AS
 )
 INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
 SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(3,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
+       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
        s.single_use_plan_count, 
-       CONVERT(DECIMAL(3,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
+       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
        t.total_plans,
 	   @@SPID
 FROM   many_plans AS m, 
@@ -20614,7 +20610,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -20728,7 +20724,7 @@ SELECT
     @OurSessionID = @@SPID,
     @OutputType                     = UPPER(@OutputType);
 
-IF(@OutputType = 'NONE' AND @ExpertMode = 0 AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
 BEGIN
     RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
     RETURN;
@@ -20823,7 +20819,7 @@ END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSche
 ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -20833,7 +20829,7 @@ BEGIN
 		BEGIN
 			EXEC (@BlitzWho);
 		END;
-    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
     IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
@@ -20863,7 +20859,7 @@ BEGIN
     We start by creating #BlitzFirstResults. It's a temp table that will store
     the results from our checks. Throughout the rest of this stored procedure,
     we're running a series of checks looking for dangerous things inside the SQL
-    Server. When we find a problem, we insert rows into #BlitzResults. At the
+    Server. When we find a problem, we insert rows into the temp table. At the
     end, we return these results to the end user.
 
     #BlitzFirstResults has a CheckID field, but there's no Check table. As we do
@@ -22260,22 +22256,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE r.status = 'rollback';
 
 
-    /* Server Performance - Page Life Expectancy Low - CheckID 10 */
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-    SELECT 10 AS CheckID,
-        50 AS Priority,
-        'Server Performance' AS FindingGroup,
-        'Page Life Expectancy Low' AS Finding,
-        'http://www.BrentOzar.com/askbrent/page-life-expectancy/' AS URL,
-        'SQL Server Buffer Manager:Page life expectancy is ' + CAST(c.cntr_value AS NVARCHAR(10)) + ' seconds.' + @LineFeed
-            + 'This means SQL Server can only keep data pages in memory for that many seconds after reading those pages in from storage.' + @LineFeed
-            + 'This is a symptom, not a cause - it indicates very read-intensive queries that need an index, or insufficient server memory.' AS Details,
-        'Add more memory to the server, or find the queries reading a lot of data, and make them more efficient (or fix them with indexes).' AS HowToStopIt
-    FROM sys.dm_os_performance_counters c
-    WHERE object_name LIKE 'SQLServer:Buffer Manager%'
-    AND counter_name LIKE 'Page life expectancy%'
-    AND cntr_value < 300;
-
     /* Server Performance - Too Much Free Memory - CheckID 34 */
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 34 AS CheckID,
@@ -22381,6 +22361,46 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
+    IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
+        BEGIN
+        /* SQL 2012+ version */
+        SET @StringToExecute = N'
+        INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
+        SELECT 45 AS CheckID,
+                50 AS Priority,
+                ''Query Problems'' AS FindingsGroup,
+                ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+                N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+                    + N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+                AS details,
+                ''https://www.BrentOzar.com/go/userstore'' AS URL
+        FROM sys.dm_os_memory_clerks
+        HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / SUM(pages_kb) >= 0.1					
+            AND SUM(pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+        EXEC sp_executesql @StringToExecute;
+        END
+    ELSE
+        BEGIN
+        /* Antiques Roadshow SQL 2008R2 - version */
+        SET @StringToExecute = N'
+        INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
+        SELECT 45 AS CheckID,
+                50 AS Priority,
+                ''Performance'' AS FindingsGroup,
+                ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
+                N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+                    + N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
+                AS details,
+                ''https://www.BrentOzar.com/go/userstore'' AS URL
+        FROM sys.dm_os_memory_clerks
+        HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / SUM(single_pages_kb + multi_pages_kb) >= 0.1
+            AND SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
+        EXEC sp_executesql @StringToExecute;
+        END
+
+
+
     IF @Seconds > 0
     BEGIN
 
@@ -22413,8 +22433,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                          SELECT deqp.session_id,
                                 deqp.request_id,
                                 CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
-                                     THEN 1
-                                     WHEN deqp.row_count < ( deqp.estimate_row_count * 10000 )
                                      THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
@@ -22679,47 +22697,50 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
         END; /* IF @Seconds < 30 */
 
-
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
-	CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
-    IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
-    BEGIN
-        EXEC sp_MSforeachdb N'USE [?];
-        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-        SELECT HowToStopIt = 
-                    QUOTENAME(DB_NAME()) + N''.'' +
-                    QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-                    QUOTENAME(obj.name) +
-                    N'' statistic '' + QUOTENAME(stat.name) + 
-                    N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-                    N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-                    CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-                    N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-            sp.rows
-        FROM sys.objects AS obj   
-        INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
-        CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-        WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-        AND obj.is_ms_shipped = 0
-        AND ''[?]'' <> ''[tempdb]'';';
-    END;
+	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
+	BEGIN
+		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
+		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
+		BEGIN
+			EXEC sp_MSforeachdb N'USE [?];
+			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+			SELECT HowToStopIt = 
+						QUOTENAME(DB_NAME()) + N''.'' +
+						QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+						QUOTENAME(obj.name) +
+						N'' statistic '' + QUOTENAME(stat.name) + 
+						N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+						N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
+						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+				sp.rows
+			FROM sys.objects AS obj   
+			INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
+			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+			AND obj.is_ms_shipped = 0
+			AND ''[?]'' <> ''[tempdb]'';';
+		END;
     
-	IF EXISTS (SELECT * FROM #UpdatedStats)
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-		SELECT 44 AS CheckId,
-				50 AS Priority,
-				'Query Problems' AS FindingGroup,
-				'Statistics Updated Recently' AS Finding,
-				'http://www.BrentOzar.com/go/stats' AS URL,
-                'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
-                    + 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
-                    + 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
-                    + 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
-                    + 'Be on the lookout for sudden parameter sniffing issues after this time range.',
-				HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
-					FROM #UpdatedStats
-					ORDER BY RowsForSorting DESC
-					FOR XML PATH(''));
+		IF EXISTS (SELECT * FROM #UpdatedStats)
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+			SELECT 44 AS CheckId,
+					50 AS Priority,
+					'Query Problems' AS FindingGroup,
+					'Statistics Updated Recently' AS Finding,
+					'http://www.BrentOzar.com/go/stats' AS URL,
+					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
+						+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
+						+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
+						+ 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
+						+ 'Be on the lookout for sudden parameter sniffing issues after this time range.',
+					HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
+						FROM #UpdatedStats
+						ORDER BY RowsForSorting DESC
+						FOR XML PATH(''));
+
+	END
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
@@ -24509,7 +24530,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -24531,7 +24552,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -24553,7 +24574,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1
+        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -24790,8 +24811,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
-IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -24801,7 +24821,7 @@ IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1
 		BEGIN
 			EXEC (@BlitzWho);
 		END;
-    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1   -   What's running right now? This is the first and last result set. */
+    END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
 END; /* IF @LogMessage IS NULL */
 END; /* ELSE IF @OutputType = 'SCHEMA' */
@@ -24872,7 +24892,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -25088,6 +25108,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
+              is_in_memory_oltp BIT NOT NULL ,
               is_disabled BIT NOT NULL ,
               is_hypothetical BIT NOT NULL ,
               is_padded BIT NOT NULL ,
@@ -25128,6 +25149,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
                     ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
                     ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
+                    ELSE N'' END + CASE WHEN is_in_memory_oltp = 1 THEN N'[IN-MEMORY] '
                     ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
                     ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
                     ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
@@ -25158,8 +25180,12 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     ELSE N' ' END 
                 + N'Writes:' + 
                 REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), N'.00', N''),
-            [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
-                N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';'
+            [more_info] AS 
+                CASE WHEN is_in_memory_oltp = 1 
+                    THEN N'EXEC dbo.sp_BlitzInMemoryOLTP @dbName=' + QUOTENAME([database_name],N'''') + 
+                    N', @tableName=' + QUOTENAME([object_name],N'''') + N';'
+                ELSE N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
+                    N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';' END
 		);
         RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
         IF NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE name='uq_database_id_object_id_index_id') 
@@ -26032,6 +26058,7 @@ BEGIN TRY
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
+                        CASE when si.data_space_id = 0 then 1 else 0 end as is_in_memory_oltp,
                         si.is_disabled,
                         si.is_hypothetical, 
                         si.is_padded, 
@@ -26087,7 +26114,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -26998,55 +27025,49 @@ INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
 SELECT
     index_sanity_id,
     ISNULL (
-    /* Script drops for disabled non-clustered indexes*/
-    CASE WHEN is_disabled = 1 AND index_id <> 1
-         THEN N'--DROP INDEX ' + QUOTENAME([index_name]) + N' ON '
-            + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
-    ELSE
-        CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
+    CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
+    ELSE 
+        CASE WHEN is_XML = 1 OR is_spatial = 1 OR is_in_memory_oltp = 1 THEN N'' /* Not even trying for these just yet...*/
         ELSE 
-            CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
-            ELSE 
-                CASE WHEN is_primary_key=1 THEN
-                    N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
-                        N'.' + QUOTENAME([object_name]) + 
-                        N' ADD CONSTRAINT [' +
-                        index_name + 
-                        N'] PRIMARY KEY ' + 
-                        CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
-                        key_column_names_with_sort_order_no_types + N' )' 
-                    WHEN is_CX_columnstore= 1 THEN
-                            N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
-                ELSE /*Else not a PK or cx columnstore */ 
-                    N'CREATE ' + 
-                    CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
-                    CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
-                    CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' 
-                    ELSE N'' END +
-                    N'INDEX ['
-                            + index_name + N'] ON ' + 
-                        QUOTENAME([database_name]) + N'.' + 
-                        QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) + 
-                            CASE WHEN is_NC_columnstore=1 THEN 
-                                N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
-                            ELSE /*Else not colunnstore */ 
-                                N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
-                                + CASE WHEN include_column_names_no_types IS NOT NULL THEN 
-                                    N' INCLUDE (' + include_column_names_no_types + N')' 
-                                    ELSE N'' 
-                                END
-                            END /*End non-colunnstore case */ 
-                        + CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
-                    END /*End Non-PK index CASE */ 
-                + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
-                    N' WITH (' 
-                        + N'FILLFACTOR=' + CASE fill_factor WHEN 0 THEN N'100' ELSE CAST(fill_factor AS NVARCHAR(5)) END + ', '
-                        + N'ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?'
-                    + N')'
-                ELSE N'' END
-                + N';'
-                END /*End non-spatial and non-xml CASE */ 
-        END
+            CASE WHEN is_primary_key=1 THEN
+                N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
+                    N'.' + QUOTENAME([object_name]) + 
+                    N' ADD CONSTRAINT [' +
+                    index_name + 
+                    N'] PRIMARY KEY ' + 
+                    CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+                    key_column_names_with_sort_order_no_types + N' )' 
+                WHEN is_CX_columnstore= 1 THEN
+                        N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
+            ELSE /*Else not a PK or cx columnstore */ 
+                N'CREATE ' + 
+                CASE WHEN is_unique=1 THEN N'UNIQUE ' ELSE N'' END +
+                CASE WHEN index_id=1 THEN N'CLUSTERED ' ELSE N'' END +
+                CASE WHEN is_NC_columnstore=1 THEN N'NONCLUSTERED COLUMNSTORE ' 
+                ELSE N'' END +
+                N'INDEX ['
+                        + index_name + N'] ON ' + 
+                    QUOTENAME([database_name]) + N'.' + 
+                    QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) + 
+                        CASE WHEN is_NC_columnstore=1 THEN 
+                            N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
+                        ELSE /*Else not columnstore */ 
+                            N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
+                            + CASE WHEN include_column_names_no_types IS NOT NULL THEN 
+                                N' INCLUDE (' + include_column_names_no_types + N')' 
+                                ELSE N'' 
+                            END
+                        END /*End non-columnstore case */ 
+                    + CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
+                END /*End Non-PK index CASE */ 
+            + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
+                N' WITH (' 
+                    + N'FILLFACTOR=' + CASE fill_factor WHEN 0 THEN N'100' ELSE CAST(fill_factor AS NVARCHAR(5)) END + ', '
+                    + N'ONLINE=?, SORT_IN_TEMPDB=?, DATA_COMPRESSION=?'
+                + N')'
+            ELSE N'' END
+            + N';'
+            END /*End non-spatial and non-xml CASE */ 
     END, '[Unknown Error]')
         AS create_tsql
 FROM #IndexSanity;
@@ -28993,6 +29014,27 @@ BEGIN;
                     OPTION    ( RECOMPILE );
 				END;
 
+            RAISERROR(N'check_id 73: In-Memory OLTP', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                    SELECT  73 AS check_id, 
+                            i.index_sanity_id,
+                            150 AS Priority,
+                            N'Abnormal Psychology' AS findings_group,
+                            N'In-Memory OLTP' AS finding,
+                            [database_name] AS [Database Name], 
+                            N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
+                            i.db_schema_object_indexid AS details, 
+                            i.index_definition,
+                            i.secret_columns,
+                            i.index_usage_summary,
+                            ISNULL(sz.index_size_summary,'') AS index_size_summary
+                    FROM    #IndexSanity AS i
+                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    WHERE i.is_in_memory_oltp = 1
+					AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
+					OPTION    ( RECOMPILE );
+
     END;
 
          ----------------------------------------
@@ -29588,6 +29630,7 @@ BEGIN;
 											[is_spatial] BIT, 
 											[is_NC_columnstore] BIT, 
 											[is_CX_columnstore] BIT, 
+											[is_in_memory_oltp] BIT, 
 											[is_disabled] BIT, 
 											[is_hypothetical] BIT, 
 											[is_padded] BIT, 
@@ -29697,6 +29740,7 @@ BEGIN;
 											[is_spatial], 
 											[is_NC_columnstore], 
 											[is_CX_columnstore], 
+                                            [is_in_memory_oltp],
 											[is_disabled], 
 											[is_hypothetical], 
 											[is_padded], 
@@ -29782,6 +29826,7 @@ BEGIN;
 										is_spatial AS [Is Spatial],
 										is_NC_columnstore AS [Is NC Columnstore],
 										is_CX_columnstore AS [Is CX Columnstore],
+										is_in_memory_oltp AS [Is In-Memory OLTP],
 										is_disabled AS [Is Disabled], 
 										is_hypothetical AS [Is Hypothetical],
 										is_padded AS [Is Padded], 
@@ -29874,6 +29919,7 @@ BEGIN;
 					is_spatial AS [Is Spatial],
 					is_NC_columnstore AS [Is NC Columnstore],
 					is_CX_columnstore AS [Is CX Columnstore],
+					is_in_memory_oltp AS [Is In-Memory OLTP],
 					is_disabled AS [Is Disabled], 
 					is_hypothetical AS [Is Hypothetical],
 					is_padded AS [Is Padded], 
@@ -30056,7 +30102,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.96', @VersionDate = '20200606';
+SELECT @Version = '2.97', @VersionDate = '20200703';
 
 
 IF(@VersionCheckMode = 1)
@@ -30241,7 +30287,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
-							Database_Name NVARCHAR(256),
+							database_name NVARCHAR(256),
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,
@@ -31693,7 +31739,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.96', @VersionDate = '20200606';
+SELECT @Version = '3.97', @VersionDate = '20200703';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -37419,7 +37465,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.96', @VersionDate = '20200606';
+	SELECT @Version = '7.97', @VersionDate = '20200703';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -37471,6 +37517,7 @@ SOFTWARE.
 DECLARE  @ProductVersion NVARCHAR(128)
 		,@ProductVersionMajor DECIMAL(10,2)
 		,@ProductVersionMinor DECIMAL(10,2)
+		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
 		,@StringToSelect NVARCHAR(MAX)
@@ -37542,7 +37589,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	  + @OutputTableName + N''') CREATE TABLE '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
-	  + N'(
+	  + N'(';
+	SET @StringToExecute = @StringToExecute + N'
 	ID INT IDENTITY(1,1) NOT NULL,
 	ServerName NVARCHAR(128) NOT NULL,
 	CheckDate DATETIMEOFFSET NOT NULL,
@@ -37735,12 +37783,19 @@ BEGIN
 					     s.nt_domain ,
 			       s.host_name ,
 			       s.login_name ,
-			       s.nt_user_name ,
-			       program_name = COALESCE((
-SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
-FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
-),s.program_name)
-						    '
+			       s.nt_user_name ,'
+		IF @Platform = 'NonAzure'
+		BEGIN
+		SET @StringToExecute +=
+				   N'program_name = COALESCE((
+					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+					FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
+					),s.program_name)'
+		END
+		ELSE
+		BEGIN
+		SET @StringToExecute += N's.program_name'
+		END
 						
     IF @ExpertMode = 1
     BEGIN
@@ -37934,12 +37989,20 @@ IF @ProductVersionMajor >= 11
 					     s.nt_domain ,
 			       s.host_name ,
 			       s.login_name ,
-			       s.nt_user_name ,
-			       program_name = COALESCE((
-SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
-FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
-),s.program_name) 
-						    '	   
+			       s.nt_user_name ,'
+		IF @Platform = 'NonAzure'
+		BEGIN
+		SET @StringToExecute +=
+				   N'program_name = COALESCE((
+					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+					FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
+					),s.program_name)'
+		END
+		ELSE
+		BEGIN
+		SET @StringToExecute += N's.program_name'
+		END
+
     IF @ExpertMode = 1 /* We show more columns in expert mode, so the SELECT gets longer */
     BEGIN
         SET @StringToExecute += 						
@@ -38338,7 +38401,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -38453,6 +38516,16 @@ BEGIN
 		@ContinueLogs = 1, 
 		@RunRecovery = 0,
 		@Debug = 0;
+
+	-- Restore from stripped backup set when multiple paths are used. This example will restore stripped full backup set along with stripped transactional logs set from multiple backup paths
+	EXEC dbo.sp_DatabaseRestore 
+		@Database = ''DBA'', 
+		@BackupPathFull = ''D:\Backup1\DBA\FULL,D:\Backup2\DBA\FULL'', 
+		@BackupPathLog = ''D:\Backup1\DBA\LOG,D:\Backup2\DBA\LOG'', 
+		@StandbyMode = 0,
+		@ContinueLogs = 1, 
+		@RunRecovery = 0,
+		@Debug = 0;
 		
 	--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will execute and print debug information.
 	EXEC dbo.sp_DatabaseRestore 
@@ -38513,11 +38586,12 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@LogRecoveryOption AS NVARCHAR(MAX) = N'', --Holds the option to cause logs to be restored in standby mode or with no recovery
 		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
 		@i TINYINT = 1,  --Maintains loop to continue logs
+		@LogRestoreRanking SMALLINT = 1, --Holds Log iteration # when multiple paths & backup files are being stripped
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
-		@BackupParameters nvarchar(500) = N'', --Used to save BlockSize, MaxTransferSize and BufferCount
-        @RestoreDatabaseID smallint;    --Holds DB_ID of @RestoreDatabaseName
+		@BackupParameters NVARCHAR(500) = N'', --Used to save BlockSize, MaxTransferSize and BufferCount
+        @RestoreDatabaseID SMALLINT;    --Holds DB_ID of @RestoreDatabaseName
 
 DECLARE @FileListSimple TABLE (
     BackupFile NVARCHAR(255) NOT NULL, 
@@ -38526,14 +38600,21 @@ DECLARE @FileListSimple TABLE (
 );
 
 DECLARE @FileList TABLE (
+	BackupPath NVARCHAR(255) NULL,
     BackupFile NVARCHAR(255) NULL
 );
+
+DECLARE @PathItem TABLE (
+	PathItem NVARCHAR(512)
+);
+
+
 IF OBJECT_ID(N'tempdb..#FileListParameters') IS NOT NULL DROP TABLE #FileListParameters;
 CREATE TABLE #FileListParameters
 (
     LogicalName NVARCHAR(128) NOT NULL,
     PhysicalName NVARCHAR(260) NOT NULL,
-    Type CHAR(1) NOT NULL,
+    [Type] CHAR(1) NOT NULL,
     FileGroupName NVARCHAR(120) NULL,
     Size NUMERIC(20, 0) NOT NULL,
     MaxSize NUMERIC(20, 0) NOT NULL,
@@ -38578,7 +38659,7 @@ CREATE TABLE #Headers
     BackupStartDate NVARCHAR(256),
     BackupFinishDate NVARCHAR(256),
     SortOrder NVARCHAR(256),
-    CodePage NVARCHAR(256),
+    [CodePage] NVARCHAR(256),
     UnicodeLocaleId NVARCHAR(256),
     UnicodeComparisonStyle NVARCHAR(256),
     CompatibilityLevel NVARCHAR(256),
@@ -38769,83 +38850,115 @@ SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
 IF @BackupPathFull IS NOT NULL
 BEGIN
-    IF @SimpleFolderEnumeration = 1
-    BEGIN    -- Get list of files 
-        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathFull, 1, 1;
-        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
-    END
-    ELSE
-    BEGIN
-        SET @cmd = N'DIR /b "' + @BackupPathFull + N'"';
+	DECLARE @CurrentBackupPathFull NVARCHAR(255);
+
+	 -- Split CSV string logic has taken from Ola Hallengren's :) 
+	WITH BackupPaths (
+	StartPosition, EndPosition, PathItem
+	)
+	AS (
+		   SELECT 1																															   AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathFull, 1 ), 0 ), LEN( @BackupPathFull ) + 1 )									   AS EndPosition,
+				  SUBSTRING( @BackupPathFull, 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathFull, 1 ), 0 ), LEN( @BackupPathFull ) + 1 ) - 1 ) AS PathItem
+		   WHERE @BackupPathFull IS NOT NULL
+		   UNION ALL
+		   SELECT CAST( EndPosition AS INT ) + 1																																		 AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathFull, EndPosition + 1 ), 0 ), LEN( @BackupPathFull ) + 1 )																	 AS EndPosition,
+				  SUBSTRING( @BackupPathFull, EndPosition + 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathFull, EndPosition + 1 ), 0 ), LEN( @BackupPathFull ) + 1 ) - EndPosition - 1 ) AS PathItem
+		   FROM BackupPaths
+		   WHERE EndPosition < LEN( @BackupPathFull ) + 1
+	 )
+	INSERT INTO @PathItem
+	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+
+	WHILE 1 = 1
+	BEGIN
+
+		SELECT TOP 1 @CurrentBackupPathFull = PathItem FROM @PathItem
+		WHERE PathItem > COALESCE( @CurrentBackupPathFull, '' ) ORDER BY PathItem;
+		IF @@rowcount = 0 BREAK;
+
+		IF @SimpleFolderEnumeration = 1
+		BEGIN    -- Get list of files 
+			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathFull, 1, 1;
+			INSERT @FileList (BackupPath,BackupFile) SELECT @CurrentBackupPathFull, BackupFile FROM @FileListSimple;
+			DELETE FROM @FileListSimple;
+		END
+		ELSE
+		BEGIN
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathFull + N'"';
+			IF @Debug = 1
+			BEGIN
+				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathFull';
+				PRINT @cmd;
+			END;  
+			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
+			UPDATE @FileList SET BackupPath = @CurrentBackupPathFull
+			WHERE BackupPath IS NULL;
+		END;
+    
 		IF @Debug = 1
 		BEGIN
-			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathFull';
-			PRINT @cmd;
-		END;  
-        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
-    END;
-    
-    IF @Debug = 1
-    BEGIN
-	    SELECT BackupFile FROM @FileList;
-    END;
-    IF @SimpleFolderEnumeration = 1
-    BEGIN
-        /*Check what we can*/
-        IF NOT EXISTS (SELECT * FROM @FileList)
-	    BEGIN
-		    RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-            RETURN;
-	    END;
-    END
-    ELSE
-    BEGIN
-        /*Full Sanity check folders*/
-        IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		    OR fl.BackupFile = 'File Not Found'
-		    ) = 1
-	    BEGIN
-		    RAISERROR('(FULL) No rows or bad value for path %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-            RETURN;
-	    END;
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'Access is denied.'
-		    ) = 1
-	    BEGIN
-		    RAISERROR('(FULL) Access is denied to %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-            RETURN;
-	    END;
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    ) = 1
-	        AND 
-            (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 							
-		    WHERE fl.BackupFile IS NULL
-		    ) = 1
-		    BEGIN
-			    RAISERROR('(FULL) Empty directory %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-			    RETURN;
-		    END
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
-		    ) = 1
-		    BEGIN
-			    RAISERROR('(FULL) Incorrect user name or password for %s', 16, 1, @BackupPathFull) WITH NOWAIT;
-                RETURN;
-		    END;
-    END;
-    /*End folder sanity check*/
-
+			SELECT BackupPath, BackupFile FROM @FileList;
+		END;
+		IF @SimpleFolderEnumeration = 1
+		BEGIN
+			/*Check what we can*/
+			IF NOT EXISTS (SELECT * FROM @FileList)
+			BEGIN
+				RAISERROR('(FULL) No rows were returned for that database in path %s', 16, 1, @CurrentBackupPathFull) WITH NOWAIT;
+				RETURN;
+			END;
+		END
+		ELSE
+		BEGIN
+			/*Full Sanity check folders*/
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'The system cannot find the path specified.'
+				OR fl.BackupFile = 'File Not Found'
+				) = 1
+			BEGIN
+				RAISERROR('(FULL) No rows or bad value for path %s', 16, 1, @CurrentBackupPathFull) WITH NOWAIT;
+				RETURN;
+			END;
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'Access is denied.'
+				) = 1
+			BEGIN
+				RAISERROR('(FULL) Access is denied to %s', 16, 1, @CurrentBackupPathFull) WITH NOWAIT;
+				RETURN;
+			END;
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				) = 1
+				AND 
+				(
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 							
+				WHERE fl.BackupFile IS NULL
+				) = 1
+				BEGIN
+					RAISERROR('(FULL) Empty directory %s', 16, 1, @CurrentBackupPathFull) WITH NOWAIT;
+					RETURN;
+				END
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'The user name or password is incorrect.'
+				) = 1
+				BEGIN
+					RAISERROR('(FULL) Incorrect user name or password for %s', 16, 1, @CurrentBackupPathFull) WITH NOWAIT;
+					RETURN;
+				END;
+		END;
+	END
+	/*End folder sanity check*/
+	
     -- Find latest full backup 
     SELECT @LastFullBackup = MAX(BackupFile)
     FROM @FileList
@@ -38853,7 +38966,7 @@ BEGIN
         AND
         BackupFile LIKE N'%' + @Database + N'%'
 	    AND
-	    (@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
+	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( @LastFullBackup, RIGHT( @LastFullBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastFullBackup ) ) ), '' ), 16 ), '_', '' ) <= @StopAt);
 
     /*	To get all backups that belong to the same set we can do two things:
 		    1.	RESTORE HEADERONLY of ALL backup files in the folder and look for BackupSetGUID.
@@ -38871,11 +38984,11 @@ BEGIN
         RETURN;
     END;
 
-    SELECT BackupFile
-    INTO #SplitBackups
-    FROM @FileList
-    WHERE LEFT(BackupFile,LEN(BackupFile)-PATINDEX('%[_]%',REVERSE(BackupFile))) = LEFT(@LastFullBackup,LEN(@LastFullBackup)-PATINDEX('%[_]%',REVERSE(@LastFullBackup)))
-    AND PATINDEX('%[_]%',REVERSE(@LastFullBackup)) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Olla only supports up to 64 file split.
+	SELECT BackupPath, BackupFile INTO #SplitFullBackups
+	FROM @FileList
+	WHERE LEFT( BackupFile, LEN( BackupFile ) - PATINDEX( '%[_]%', REVERSE( BackupFile ) ) ) = LEFT( @LastFullBackup, LEN( @LastFullBackup ) - PATINDEX( '%[_]%', REVERSE( @LastFullBackup ) ) )
+	AND PATINDEX( '%[_]%', REVERSE( @LastFullBackup ) ) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Ola only supports up to 64 file split.
+	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC; 
 
     -- File list can be obtained by running RESTORE FILELISTONLY of any file from the given BackupSet therefore we do not have to cater for split backups when building @FileListParamSQL
 
@@ -38893,7 +39006,13 @@ BEGIN
     SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
     SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
 
-    SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+	-- get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
+	SELECT TOP 1 @CurrentBackupPathFull = BackupPath, @LastFullBackup = BackupFile
+	FROM @FileList
+	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
+
+    SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @CurrentBackupPathFull + @LastFullBackup);
+
     IF @Debug = 1
     BEGIN
 	    IF @sql IS NULL PRINT '@sql is NULL for INSERT to #FileListParameters: @BackupPathFull + @LastFullBackup';
@@ -38903,12 +39022,13 @@ BEGIN
     EXEC (@sql);
     IF @Debug = 1
     BEGIN
-	    SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters
-	    SELECT '#SplitBackups' AS table_name, * FROM #SplitBackups
+	    SELECT '#FileListParameters' AS table_name, * FROM #FileListParameters;
+	    SELECT '@FileList' AS table_name, BackupPath, BackupFile FROM @FileList WHERE BackupFile IS NOT NULL;
     END
 
     --get the backup completed data so we can apply tlogs from that point forwards                                                   
-    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathFull + @LastFullBackup);
+    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathFull + @LastFullBackup);
+
     IF @Debug = 1
     BEGIN
 	    IF @sql IS NULL PRINT '@sql is NULL for get backup completed data: @BackupPathFull, @LastFullBackup';
@@ -38968,7 +39088,7 @@ BEGIN
     END;
 
     /*Process @ExistingDBAction flag */
-    IF @ExistingDBAction BETWEEN 1 AND 3
+    IF @ExistingDBAction BETWEEN 1 AND 4
     BEGIN
         IF @RestoreDatabaseID IS NOT NULL
         BEGIN
@@ -38983,6 +39103,8 @@ BEGIN
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 			        EXECUTE master.sys.sp_executesql @stmt = @sql;
+		        IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
+			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
             END
             IF @ExistingDBAction IN (2, 3)
             BEGIN
@@ -39016,6 +39138,21 @@ BEGIN
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
+			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+            END
+			IF @ExistingDBAction = 4
+			BEGIN
+				RAISERROR ('Offlining database', 0, 1) WITH NOWAIT;
+
+				SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + SPACE( 1 ) + 'SET OFFLINE WITH ROLLBACK IMMEDIATE';
+				IF @Debug = 1 OR @Execute = 'N'
+				BEGIN
+					IF @sql IS NULL PRINT '@sql is NULL for Offline database';
+					PRINT @sql;
+				END;
+				IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
+				EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
+			END;
         END
         ELSE
             RAISERROR('@ExistingDBAction > 0, but no existing @RestoreDatabaseName', 0, 1) WITH NOWAIT;
@@ -39028,27 +39165,23 @@ BEGIN
 	    IF @Execute = 'Y' RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
 	
 	    /* now take split backups into account */
-	    IF (SELECT COUNT(*) FROM #SplitBackups) > 0
+	    IF (SELECT COUNT(*) FROM #SplitFullBackups) > 0
         BEGIN
             RAISERROR('Split backups found', 0, 1) WITH NOWAIT;
 
-            SELECT
-                @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
                        + STUFF(
-                             (SELECT
-                                  CHAR(10) + ',DISK=''' + @BackupPathFull + BackupFile + ''''
-                              FROM
-                                  #SplitBackups
-                              ORDER BY
-                                  BackupFile
-                             FOR XML PATH('')),
+                             (SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
+							  FROM #SplitFullBackups
+							  ORDER BY BackupFile
+							  FOR XML PATH ('')),
                              1,
                              2,
-                             '') + N' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13);
+                             '') + N' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
         END;
 	    ELSE
 		BEGIN
-			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13);
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathFull + @LastFullBackup + N''' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
 		END
 	    IF (@StandbyMode = 1)
 	    BEGIN
@@ -39056,9 +39189,13 @@ BEGIN
 			BEGIN
 			    IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
 			END
-	        ELSE
+	        ELSE IF (SELECT COUNT(*) FROM #SplitFullBackups) > 0
+			BEGIN
+				SET @sql = @sql + ', STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
+			END
+			ELSE
 	        BEGIN
-		        SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathFull + @LastFullBackup + N''' WITH  REPLACE' + @BackupParameters + @MoveOption + N' , STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13);
+		        SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathFull + @LastFullBackup + N''' WITH  REPLACE' + @BackupParameters + @MoveOption + N' , STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
 	        END
         END;
 		IF @Debug = 1 OR @Execute = 'N'
@@ -39070,10 +39207,10 @@ BEGIN
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
-    -- We already loaded #Headers above
+		-- We already loaded #Headers above
 
 	    --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
-		SET @BackupDateTime = REPLACE(LEFT(RIGHT(@LastFullBackup, 19),15), '_', '');
+		SET @BackupDateTime = REPLACE( RIGHT( REPLACE( @LastFullBackup, RIGHT( @LastFullBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastFullBackup ) ) ), '' ), 16 ), '_', '' );
 	    
 		SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
 		IF @Debug = 1
@@ -39108,27 +39245,58 @@ IF @BackupPathDiff IS NOT NULL
 BEGIN 
     DELETE FROM @FileList;
     DELETE FROM @FileListSimple;
-    IF @SimpleFolderEnumeration = 1
-    BEGIN    -- Get list of files 
-        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathDiff, 1, 1;
-        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
-    END
-    ELSE
-    BEGIN
-        SET @cmd = N'DIR /b "' + @BackupPathDiff + N'"';
+	DELETE FROM @PathItem;
+
+	DECLARE @CurrentBackupPathDiff NVARCHAR(512);
+	-- Split CSV string logic has taken from Ola Hallengren's :) 
+	WITH BackupPaths (
+	StartPosition, EndPosition, PathItem
+	)
+	AS (
+		   SELECT 1																															   AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathDiff, 1 ), 0 ), LEN( @BackupPathDiff ) + 1 )									   AS EndPosition,
+				  SUBSTRING( @BackupPathDiff, 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathDiff, 1 ), 0 ), LEN( @BackupPathDiff ) + 1 ) - 1 ) AS PathItem
+		   WHERE @BackupPathDiff IS NOT NULL
+		   UNION ALL
+		   SELECT CAST( EndPosition AS INT ) + 1																																		 AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathDiff, EndPosition + 1 ), 0 ), LEN( @BackupPathDiff ) + 1 )																	 AS EndPosition,
+				  SUBSTRING( @BackupPathDiff, EndPosition + 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathDiff, EndPosition + 1 ), 0 ), LEN( @BackupPathDiff ) + 1 ) - EndPosition - 1 ) AS PathItem
+		   FROM BackupPaths
+		   WHERE EndPosition < LEN( @BackupPathDiff ) + 1
+	 )
+	INSERT INTO @PathItem
+	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+
+	WHILE 1 = 1
+	BEGIN
+
+		SELECT TOP 1 @CurrentBackupPathDiff = PathItem FROM @PathItem
+		WHERE PathItem > COALESCE( @CurrentBackupPathDiff, '' ) ORDER BY PathItem;
+		IF @@rowcount = 0 BREAK;
+
+		IF @SimpleFolderEnumeration = 1
+		BEGIN    -- Get list of files 
+			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathDiff, 1, 1;
+			INSERT @FileList (BackupPath,BackupFile) SELECT @CurrentBackupPathDiff, BackupFile FROM @FileListSimple;
+			DELETE FROM @FileListSimple;
+		END
+		ELSE
+		BEGIN
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathDiff + N'"';
+			IF @Debug = 1
+			BEGIN
+				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathDiff';
+				PRINT @cmd;
+			END;  
+			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
+			UPDATE @FileList SET BackupPath = @CurrentBackupPathDiff WHERE BackupPath IS NULL;
+		END;
+    
 		IF @Debug = 1
 		BEGIN
-			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathDiff';
-			PRINT @cmd;
-		END;  
-        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
-    END;
-    
-    IF @Debug = 1
-    BEGIN
-	    SELECT BackupFile FROM @FileList;
-    END;
-    IF @SimpleFolderEnumeration = 0
+			SELECT BackupPath,BackupFile FROM @FileList WHERE BackupFile IS NOT NULL;
+		END;
+		IF @SimpleFolderEnumeration = 0
     BEGIN
         /*Full Sanity check folders*/
         IF (
@@ -39137,7 +39305,7 @@ BEGIN
 		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
 		    ) = 1
 	    BEGIN
-		    RAISERROR('(DIFF) Bad value for path %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+		    RAISERROR('(DIFF) Bad value for path %s', 16, 1, @CurrentBackupPathDiff) WITH NOWAIT;
             RETURN;
 	    END;
 	    IF (
@@ -39146,7 +39314,7 @@ BEGIN
 		    WHERE fl.BackupFile = 'Access is denied.'
 		    ) = 1
 	    BEGIN
-		    RAISERROR('(DIFF) Access is denied to %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+		    RAISERROR('(DIFF) Access is denied to %s', 16, 1, @CurrentBackupPathDiff) WITH NOWAIT;
             RETURN;
 	    END;
 	    IF (
@@ -39155,10 +39323,11 @@ BEGIN
 		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
 		    ) = 1
 		    BEGIN
-			    RAISERROR('(DIFF) Incorrect user name or password for %s', 16, 1, @BackupPathDiff) WITH NOWAIT;
+			    RAISERROR('(DIFF) Incorrect user name or password for %s', 16, 1, @CurrentBackupPathDiff) WITH NOWAIT;
                 RETURN;
 		    END;
     END;
+	END
     /*End folder sanity check*/
     -- Find latest diff backup 
     SELECT @LastDiffBackup = MAX(BackupFile)
@@ -39167,20 +39336,51 @@ BEGIN
         AND
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
-	    (@StopAt IS NULL OR REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt);
+	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( @LastDiffBackup, RIGHT( @LastDiffBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastDiffBackup ) ) ), '' ), 16 ), '_', '' ) <= @StopAt);
+
+	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
+	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
+	 FROM @FileList
+	 WHERE LEFT( BackupFile, LEN( BackupFile ) - PATINDEX( '%[_]%', REVERSE( BackupFile ) ) ) = LEFT( @LastDiffBackup, LEN( @LastDiffBackup ) - PATINDEX( '%[_]%', REVERSE( @LastDiffBackup ) ) )
+	 AND PATINDEX( '%[_]%', REVERSE( @LastDiffBackup ) ) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Olla only supports up to 64 file split.
+	 ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
+
     --No file = no backup to restore
-	SET @LastDiffBackupDateTime = REPLACE(LEFT(RIGHT(@LastDiffBackup, 19),15), '_', '');
+	SET @LastDiffBackupDateTime = REPLACE( RIGHT( REPLACE( @LastDiffBackup, RIGHT( @LastDiffBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastDiffBackup ) ) ), '' ), 16 ), '_', '' );
+
+	-- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as non-split backups
+	SELECT TOP 1 @CurrentBackupPathDiff = BackupPath, @LastDiffBackup = BackupFile FROM @FileList
+	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
+
     IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + @BackupParameters + NCHAR(13);
+
+	    IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
+		BEGIN
+			RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
+									   + STUFF(
+											 (SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
+											 FROM #SplitDiffBackups
+											 ORDER BY BackupFile
+											 FOR XML PATH ('')),
+									   1,
+									   2,
+									   '' ) + N' WITH NORECOVERY, REPLACE' +  @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
+		END;
+		ELSE
+			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathDiff + @LastDiffBackup + N''' WITH NORECOVERY' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
+
 	    IF (@StandbyMode = 1)
 		BEGIN
 		    IF (@StandbyUndoPath IS NULL)
 			    BEGIN
 				    IF @Execute = 'Y' OR @Debug = 1 RAISERROR('The file path of the undo file for standby mode was not specified. The database will not be restored in standby mode.', 0, 1) WITH NOWAIT;
 			    END
-		    ELSE
-			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + @BackupParameters + NCHAR(13);
+		    ELSE IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
+				SET @sql = @sql + ', STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
+			ELSE 
+			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
 	    END;
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
@@ -39191,23 +39391,27 @@ BEGIN
 			EXECUTE master.sys.sp_executesql @stmt = @sql;
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
-		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathDiff + @LastDiffBackup);
+		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathDiff + @LastDiffBackup);
 		
 		IF @Debug = 1
 		BEGIN
-			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @BackupPathDiff, @LastDiffBackup';
+			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @CurrentBackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
 		END;  
 		
 		EXECUTE (@sql);
 		IF @Debug = 1
 		BEGIN
-			SELECT '#Headers' AS table_name, @LastDiffBackup AS DiffbackupFile, * FROM #Headers AS h
+			SELECT '#Headers' AS table_name, @LastDiffBackup AS DiffbackupFile, * FROM #Headers AS h WHERE h.BackupType = 5;
 		END
 		
 		--set the @BackupDateTime to the date time on the most recent differential	
-		SET @BackupDateTime = @LastDiffBackupDateTime;
-		
+		SET @BackupDateTime = ISNULL( @LastDiffBackupDateTime, @BackupDateTime );
+		IF @Debug = 1
+		BEGIN
+			IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastDiffBackupDateTime';
+			PRINT @BackupDateTime;
+		END; 
 		SELECT @DiffLastLSN = CAST(LastLSN AS NUMERIC(25, 0))
 		FROM #Headers 
 		WHERE BackupType = 5;                                                  
@@ -39224,83 +39428,118 @@ IF @BackupPathLog IS NOT NULL
 BEGIN
     DELETE FROM @FileList;
     DELETE FROM @FileListSimple;
+	DELETE FROM @PathItem;
 
-    IF @SimpleFolderEnumeration = 1
-    BEGIN    -- Get list of files 
-        INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
-        INSERT @FileList (BackupFile) SELECT BackupFile FROM @FileListSimple;
-    END
-    ELSE
-    BEGIN
-        SET @cmd = N'DIR /b "' + @BackupPathLog + N'"';
-		IF @Debug = 1
+	DECLARE @CurrentBackupPathLog NVARCHAR(512);
+	-- Split CSV string logic has taken from Ola Hallengren's :) 
+	WITH BackupPaths (
+	StartPosition, EndPosition, PathItem
+	)
+	AS (
+		   SELECT 1																															 AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathLog, 1 ), 0 ), LEN( @BackupPathLog ) + 1 )									     AS EndPosition,
+				  SUBSTRING( @BackupPathLog, 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathLog, 1 ), 0 ), LEN( @BackupPathLog ) + 1 ) - 1 )  AS PathItem
+		   WHERE @BackupPathLog IS NOT NULL
+		   UNION ALL
+		   SELECT CAST( EndPosition AS INT ) + 1																																		 AS StartPosition,
+				  ISNULL( NULLIF( CHARINDEX( ',', @BackupPathLog, EndPosition + 1 ), 0 ), LEN( @BackupPathLog ) + 1 )																	 AS EndPosition,
+				  SUBSTRING( @BackupPathLog, EndPosition + 1, ISNULL( NULLIF( CHARINDEX( ',', @BackupPathLog, EndPosition + 1 ), 0 ), LEN( @BackupPathLog ) + 1 ) - EndPosition - 1 )    AS PathItem
+		   FROM BackupPaths
+		   WHERE EndPosition < LEN( @BackupPathLog ) + 1
+	 )
+	INSERT INTO @PathItem
+	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+
+	WHILE 1 = 1
+	BEGIN
+		SELECT TOP 1 @CurrentBackupPathLog = PathItem FROM @PathItem
+		WHERE PathItem > COALESCE( @CurrentBackupPathLog, '' ) ORDER BY PathItem;
+		IF @@rowcount = 0 BREAK;
+
+		IF @SimpleFolderEnumeration = 1
+		BEGIN    -- Get list of files 
+			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
+			INSERT @FileList (BackupPath, BackupFile) SELECT @CurrentBackupPathLog, BackupFile FROM @FileListSimple;
+			DELETE FROM @FileListSimple;
+		END
+		ELSE
 		BEGIN
-			IF @cmd IS NULL PRINT '@cmd is NULL for @BackupPathLog';
-			PRINT @cmd;
-		END;  
-        INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd; 
-    END;
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathLog + N'"';
+			IF @Debug = 1
+			BEGIN
+				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathLog';
+				PRINT @cmd;
+			END;  
+			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
+			UPDATE @FileList SET BackupPath = @CurrentBackupPathLog
+			WHERE BackupPath IS NULL;
+		END;
     
-    IF @SimpleFolderEnumeration = 1
-    BEGIN
-        /*Check what we can*/
-        IF NOT EXISTS (SELECT * FROM @FileList)
-	    BEGIN
-		    RAISERROR('(LOG) No rows were returned for that database %s in path %s', 16, 1, @Database, @BackupPathLog) WITH NOWAIT;
-            RETURN;
-	    END;
-    END
-    ELSE
-    BEGIN
-        /*Full Sanity check folders*/
-        IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
-		    OR fl.BackupFile = 'File Not Found'
-		    ) = 1
-	    BEGIN
-		    RAISERROR('(LOG) No rows or bad value for path %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-            RETURN;
-	    END;
+		IF @SimpleFolderEnumeration = 1
+		BEGIN
+			/*Check what we can*/
+			IF NOT EXISTS (SELECT * FROM @FileList)
+			BEGIN
+				RAISERROR('(LOG) No rows were returned for that database %s in path %s', 16, 1, @Database, @CurrentBackupPathLog) WITH NOWAIT;
+				RETURN;
+			END;
+		END
+		ELSE
+		BEGIN
+			/*Full Sanity check folders*/
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'The system cannot find the path specified.'
+				OR fl.BackupFile = 'File Not Found'
+				) = 1
+			BEGIN
+				RAISERROR('(LOG) No rows or bad value for path %s', 16, 1, @CurrentBackupPathLog) WITH NOWAIT;
+				RETURN;
+			END;
 
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'Access is denied.'
-		    ) = 1
-	    BEGIN
-		    RAISERROR('(LOG) Access is denied to %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-            RETURN;
-	    END;
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'Access is denied.'
+				) = 1
+			BEGIN
+				RAISERROR('(LOG) Access is denied to %s', 16, 1, @CurrentBackupPathLog) WITH NOWAIT;
+				RETURN;
+			END;
 
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    ) = 1
-	        AND 
-            (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 							
-		    WHERE fl.BackupFile IS NULL
-		    ) = 1
-		    BEGIN
-			    RAISERROR('(LOG) Empty directory %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-			    RETURN;
-		    END
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				) = 1
+				AND 
+				(
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 							
+				WHERE fl.BackupFile IS NULL
+				) = 1
+				BEGIN
+					RAISERROR('(LOG) Empty directory %s', 16, 1, @CurrentBackupPathLog) WITH NOWAIT;
+					RETURN;
+				END
 
-	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
-		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
-		    ) = 1
-		    BEGIN
-			    RAISERROR('(LOG) Incorrect user name or password for %s', 16, 1, @BackupPathLog) WITH NOWAIT;
-                RETURN;
-		    END;
-    END;
+			IF (
+				SELECT COUNT(*) 
+				FROM @FileList AS fl 
+				WHERE fl.BackupFile = 'The user name or password is incorrect.'
+				) = 1
+				BEGIN
+					RAISERROR('(LOG) Incorrect user name or password for %s', 16, 1, @CurrentBackupPathLog) WITH NOWAIT;
+					RETURN;
+				END;
+		END;
+	END 
     /*End folder sanity check*/
 
+	IF @Debug = 1
+	BEGIN 
+		SELECT * FROM @FileList WHERE BackupFile IS NOT NULL;
+	END
 
 IF (@OnlyLogsAfter IS NOT NULL)
 BEGIN
@@ -39311,7 +39550,7 @@ BEGIN
 	FROM @FileList AS fl
 	WHERE BackupFile LIKE N'%.trn'
 	AND BackupFile LIKE N'%' + @Database + N'%' 
-	AND REPLACE(LEFT(RIGHT(fl.BackupFile, 19), 15),'_','') < @OnlyLogsAfter
+	AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) < @OnlyLogsAfter;
 	
 END
 
@@ -39320,33 +39559,33 @@ END
 -- Check for log backups
 IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
 	BEGIN 
-		DECLARE BackupFiles CURSOR FOR
-			SELECT BackupFile
-			FROM @FileList
-			WHERE BackupFile LIKE N'%.trn'
-			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime))
-			  ORDER BY BackupFile;
-		
-		OPEN BackupFiles;
+		DELETE FROM @FileList
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%'
+		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime));
 	END;
 
 
 IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
 	BEGIN
-		DECLARE BackupFiles CURSOR FOR
-			SELECT BackupFile
-			FROM @FileList
-			WHERE BackupFile LIKE N'%.trn'
-			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
-			  ORDER BY BackupFile;
-		
-		OPEN BackupFiles;
-	END
+		DELETE FROM @FileList
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%'
+		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @OnlyLogsAfter));
+	END;
 
 
 IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
+	BEGIN
+		DELETE FROM @FileList
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%'
+		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
+		AND NOT ((@ContinueLogs = 1 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
+
+	END;
+
+IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NOT NULL)	
 	BEGIN
 		DECLARE BackupFiles CURSOR FOR
 			SELECT BackupFile
@@ -39355,10 +39594,12 @@ IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)
 			  AND BackupFile LIKE N'%' + @Database + N'%'
 			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
 			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
+			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
 			  ORDER BY BackupFile;
 		
 		OPEN BackupFiles;
 	END;
+
 
 IF (@StandbyMode = 1)
 	BEGIN
@@ -39375,56 +39616,77 @@ IF (@LogRecoveryOption = N'')
 		SET @LogRecoveryOption = N'NORECOVERY';
 	END;
 
+ -- Group Ordering based on Backup File Name excluding Index {#} to construct coma separated string in "Restore Log" Command
+SELECT BackupPath,BackupFile,DENSE_RANK() OVER (ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' )) AS DenseRank INTO #SplitLogBackups
+FROM @FileList
+WHERE BackupFile IS NOT NULL;
+
 -- Loop through all the files for the database  
-FETCH NEXT FROM BackupFiles INTO @BackupFile;
-	WHILE @@FETCH_STATUS = 0
+	WHILE 1 = 1
 		BEGIN
+
+			-- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement   
+			SELECT TOP 1 @CurrentBackupPathLog = BackupPath, @BackupFile = BackupFile FROM #SplitLogBackups WHERE DenseRank = @LogRestoreRanking;
+			IF @@rowcount = 0 BREAK;
+
 			IF @i = 1
 			
 			BEGIN
-		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @BackupPathLog + @BackupFile);
+		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathLog + @BackupFile);
 			
 				IF @Debug = 1
 				BEGIN
-					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @BackupPathLog, @BackupFile';
+					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @CurrentBackupPathLog, @BackupFile';
 					PRINT @sql;
 				END; 
 			
 			EXECUTE (@sql);
 				
-				SELECT @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), 
-					   @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) 
-					   FROM #Headers 
-					   WHERE BackupType = 2;
+			SELECT TOP 1 @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), 
+				   @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) 
+			FROM #Headers 
+			WHERE BackupType = 2;
 		
-				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
-					SET @i = 2;
+			IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
+				SET @i = 2;
+			
+			IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
+				SET @i = 2;
 				
-				IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
-					SET @i = 2;
-				
-				DELETE FROM #Headers WHERE BackupType = 2;
+			DELETE FROM #Headers WHERE BackupType = 2;
 
 
 			END;
 
 			IF @i = 1
 				BEGIN
-
 					IF @Debug = 1 RAISERROR('No Log to Restore', 0, 1) WITH NOWAIT;
-
 				END
 
 			IF @i = 2
 			BEGIN
-
 				IF @Execute = 'Y' RAISERROR('@i set to 2, restoring logs', 0, 1) WITH NOWAIT;
-				
-				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + NCHAR(13);
+
+				IF (SELECT COUNT( * ) FROM #SplitLogBackups WHERE DenseRank = @LogRestoreRanking) > 1
+				BEGIN
+					RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+					SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM '
+							   + STUFF(
+									(SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
+									 FROM #SplitLogBackups 
+									 WHERE DenseRank = @LogRestoreRanking
+									 ORDER BY BackupFile
+									 FOR XML PATH ('')),
+								1,
+								2,
+								'' ) + N' WITH ' + @LogRecoveryOption + NCHAR(13) + NCHAR(10);
+				END;
+				ELSE
+				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + NCHAR(13) + NCHAR(10);
 				
 					IF @Debug = 1 OR @Execute = 'N'
 					BEGIN
-						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @BackupPathLog, @BackupFile';
+						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @CurrentBackupPathLog, @BackupFile';
 						PRINT @sql;
 					END; 
 				
@@ -39432,16 +39694,13 @@ FETCH NEXT FROM BackupFiles INTO @BackupFile;
 						EXECUTE master.sys.sp_executesql @stmt = @sql;
 			END;
 			
-			FETCH NEXT FROM BackupFiles INTO @BackupFile;
+			SET @LogRestoreRanking += 1;
 		END;
-	
-	CLOSE BackupFiles;
 
-    DEALLOCATE BackupFiles;  
 
 	IF @Debug = 1
 	BEGIN
-		SELECT '#Headers' AS table_name, * FROM #Headers AS h
+	    SELECT '#SplitLogBackups' AS table_name, BackupPath, BackupFile FROM #SplitLogBackups;
 	END
 END
 
@@ -39527,6 +39786,11 @@ IF @TestRestore = 1
 			EXECUTE master.sys.sp_executesql @stmt = @sql;
 
 	END;
+
+-- Clean-Up Tempdb Objects
+IF OBJECT_ID( 'tempdb..#SplitFullBackups' ) IS NOT NULL DROP TABLE #SplitFullBackups;
+IF OBJECT_ID( 'tempdb..#SplitDiffBackups' ) IS NOT NULL DROP TABLE #SplitDiffBackups;
+IF OBJECT_ID( 'tempdb..#SplitLogBackups' ) IS NOT NULL DROP TABLE #SplitLogBackups;
 GO
 IF OBJECT_ID('dbo.sp_ineachdb') IS NULL
     EXEC ('CREATE PROCEDURE dbo.sp_ineachdb AS RETURN 0')
@@ -39564,7 +39828,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.96', @VersionDate = '20200602';
+  SELECT @Version = '2.97', @VersionDate = '20200703';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -39578,7 +39842,7 @@ IF @Help = 1
 		/*
 			sp_ineachdb from http://FirstResponderKit.org
 			
-			This script will restore a database from a given file path.
+			This script will execute a command against multiple databases.
 		
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on
@@ -39802,4 +40066,359 @@ if @SQLVersion >= 11
   CLOSE dbs; 
   DEALLOCATE dbs;
 END
+GO
+
+IF (OBJECT_ID('dbo.SqlServerVersions') IS NULL)
+BEGIN
+
+    CREATE TABLE dbo.SqlServerVersions
+    (
+        MajorVersionNumber tinyint not null,
+        MinorVersionNumber smallint not null,
+        Branch varchar(34) not null,
+        [Url] varchar(99) not null,
+        ReleaseDate date not null,
+        MainstreamSupportEndDate date not null,
+        ExtendedSupportEndDate date not null,
+        MajorVersionName varchar(19) not null,
+        MinorVersionName varchar(67) not null,
+
+        CONSTRAINT PK_SqlServerVersions PRIMARY KEY CLUSTERED
+        (
+            MajorVersionNumber ASC,
+            MinorVersionNumber ASC,
+            ReleaseDate ASC
+        )
+    );
+
+END;
+GO
+
+DELETE FROM dbo.SqlServerVersions;
+
+INSERT INTO dbo.SqlServerVersions
+    (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
+VALUES
+    (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
+    (15, 4023, 'CU3', 'https://support.microsoft.com/en-us/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
+    (15, 4013, 'CU2', 'https://support.microsoft.com/en-us/help/4536075', '2020-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 2 '),
+    (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
+    (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
+    (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3335, 'RTM CU21', 'https://support.microsoft.com/en-us/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),
+    (14, 3294, 'RTM CU20', 'https://support.microsoft.com/en-us/help/4541283', '2020-04-07', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 20'),
+    (14, 3257, 'RTM CU19', 'https://support.microsoft.com/en-us/help/4535007', '2020-02-05', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 19'),
+    (14, 3257, 'RTM CU18', 'https://support.microsoft.com/en-us/help/4527377', '2019-12-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 18'),
+    (14, 3238, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
+    (14, 3228, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
+    (14, 3223, 'RTM CU16', 'https://support.microsoft.com/en-us/help/4508218', '2019-08-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 16'),
+    (14, 3162, 'RTM CU15', 'https://support.microsoft.com/en-us/help/4498951', '2019-05-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 15'),
+    (14, 3076, 'RTM CU14', 'https://support.microsoft.com/en-us/help/4484710', '2019-03-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 14'),
+    (14, 3048, 'RTM CU13', 'https://support.microsoft.com/en-us/help/4466404', '2018-12-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 13'),
+    (14, 3045, 'RTM CU12', 'https://support.microsoft.com/en-us/help/4464082', '2018-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 12'),
+    (14, 3038, 'RTM CU11', 'https://support.microsoft.com/en-us/help/4462262', '2018-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 11'),
+    (14, 3037, 'RTM CU10', 'https://support.microsoft.com/en-us/help/4524334', '2018-08-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 10'),
+    (14, 3030, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4515435', '2018-07-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 9'),
+    (14, 3029, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4338363', '2018-06-21', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 8'),
+    (14, 3026, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
+    (14, 3025, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4101464', '2018-04-17', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 6'),
+    (14, 3023, 'RTM CU5', 'https://support.microsoft.com/en-us/help/4092643', '2018-03-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 5'),
+    (14, 3022, 'RTM CU4', 'https://support.microsoft.com/en-us/help/4056498', '2018-02-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 4'),
+    (14, 3015, 'RTM CU3', 'https://support.microsoft.com/en-us/help/4052987', '2018-01-04', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 3'),
+    (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
+    (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
+    (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5820, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4549825', '2020-05-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 13'),
+    (13, 5698, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4536648', '2020-02-25', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 12'),
+    (13, 5492, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
+    (13, 5492, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
+    (13, 5479, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
+    (13, 5426, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
+    (13, 5426, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
+    (13, 5426, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/4505830', '2019-07-31', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 8'),
+    (13, 5337, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/4495256', '2019-05-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 7'),
+    (13, 5292, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/4488536', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 6'),
+    (13, 5264, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/4475776', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 5'),
+    (13, 5233, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/4464106', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 4'),
+    (13, 5216, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/4458871', '2018-09-20', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 3'),
+    (13, 5201, 'SP2 CU2 + Security Update', 'https://support.microsoft.com/en-us/help/4458621', '2018-08-21', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2 + Security Update'),
+    (13, 5153, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/4340355', '2018-07-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2'),
+    (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
+    (13, 5026, 'SP2 ', 'https://support.microsoft.com/en-us/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
+    (13, 4574, 'SP1 CU15', 'https://support.microsoft.com/en-us/help/4495257', '2019-05-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 15'),
+    (13, 4560, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/4488535', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 14'),
+    (13, 4550, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/4475775', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 13'),
+    (13, 4541, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/4464343', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 12'),
+    (13, 4528, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/4459676', '2018-09-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 11'),
+    (13, 4514, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/4341569', '2018-07-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10'),
+    (13, 4502, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/4100997', '2018-05-30', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 9'),
+    (13, 4474, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/4077064', '2018-03-19', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 8'),
+    (13, 4466, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/4057119', '2018-01-04', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 7'),
+    (13, 4457, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/4037354', '2017-11-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 6'),
+    (13, 4451, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/4024305', '2017-09-18', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 5'),
+    (13, 4446, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/4024305', '2017-08-08', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 4'),
+    (13, 4435, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/4019916', '2017-05-15', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 3'),
+    (13, 4422, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/4013106', '2017-03-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 2'),
+    (13, 4411, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/3208177', '2017-01-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 1'),
+    (13, 4224, 'SP1 CU10 + Security Update', 'https://support.microsoft.com/en-us/help/4458842', '2018-08-22', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10 + Security Update'),
+    (13, 4001, 'SP1 ', 'https://support.microsoft.com/en-us/help/3182545 ', '2016-11-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 '),
+    (13, 2216, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4037357', '2017-11-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 9'),
+    (13, 2213, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4024304', '2017-09-18', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 8'),
+    (13, 2210, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4024304', '2017-08-08', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 7'),
+    (13, 2204, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4019914', '2017-05-15', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 6'),
+    (13, 2197, 'RTM CU5', 'https://support.microsoft.com/en-us/help/4013105', '2017-03-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 5'),
+    (13, 2193, 'RTM CU4', 'https://support.microsoft.com/en-us/help/3205052 ', '2017-01-17', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 4'),
+    (13, 2186, 'RTM CU3', 'https://support.microsoft.com/en-us/help/3205413 ', '2016-11-16', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 3'),
+    (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
+    (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
+    (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    (12, 6329, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/4500181', '2019-07-29', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4'),
+    (12, 6259, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/4491539', '2019-04-16', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 3'),
+    (12, 6214, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/4482960', '2019-02-19', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 2'),
+    (12, 6205, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/4470220', '2018-12-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 1'),
+    (12, 6024, 'SP3 ', 'https://support.microsoft.com/en-us/help/4022619', '2018-10-30', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 '),
+    (12, 5687, 'SP2 CU18', 'https://support.microsoft.com/en-us/help/4500180', '2019-07-29', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 18'),
+    (12, 5632, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/4491540', '2019-04-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 17'),
+    (12, 5626, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/4482967', '2019-02-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 16'),
+    (12, 5605, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4469137', '2018-12-12', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 15'),
+    (12, 5600, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4459860', '2018-10-15', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 14'),
+    (12, 5590, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4456287', '2018-08-27', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 13'),
+    (12, 5589, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4130489', '2018-06-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 12'),
+    (12, 5579, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4077063', '2018-03-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 11'),
+    (12, 5571, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4052725', '2018-01-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 10'),
+    (12, 5563, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4055557', '2017-12-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 9'),
+    (12, 5557, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/4037356', '2017-10-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 8'),
+    (12, 5556, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/4032541', '2017-08-28', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 7'),
+    (12, 5553, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/4019094', '2017-08-08', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 6'),
+    (12, 5546, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/4013098', '2017-04-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 5'),
+    (12, 5540, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/4010394', '2017-02-21', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 4'),
+    (12, 5538, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/3204388 ', '2016-12-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 3'),
+    (12, 5522, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/3188778 ', '2016-10-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 2'),
+    (12, 5511, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/3178925 ', '2016-08-25', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 1'),
+    (12, 5000, 'SP2 ', 'https://support.microsoft.com/en-us/help/3171021 ', '2016-07-11', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 '),
+    (12, 4522, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/4019099', '2017-08-08', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 13'),
+    (12, 4511, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/4017793', '2017-04-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 12'),
+    (12, 4502, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/4010392', '2017-02-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 11'),
+    (12, 4491, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/3204399 ', '2016-12-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 10'),
+    (12, 4474, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/3186964 ', '2016-10-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 9'),
+    (12, 4468, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/3174038 ', '2016-08-15', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 8'),
+    (12, 4459, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/3162659 ', '2016-06-20', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 7'),
+    (12, 4457, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/3167392 ', '2016-05-30', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
+    (12, 4449, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/3144524', '2016-04-18', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
+    (12, 4438, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/3130926', '2016-02-22', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 5'),
+    (12, 4436, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/3106660', '2015-12-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 4'),
+    (12, 4427, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/3094221', '2015-10-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 3'),
+    (12, 4422, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/3075950', '2015-08-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 2'),
+    (12, 4416, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/3067839', '2015-06-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 1'),
+    (12, 4213, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3070446', '2015-07-14', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 MS15-058: GDR Security Update'),
+    (12, 4100, 'SP1 ', 'https://support.microsoft.com/en-us/help/3058865', '2015-05-04', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 '),
+    (12, 2569, 'RTM CU14', 'https://support.microsoft.com/en-us/help/3158271 ', '2016-06-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 14'),
+    (12, 2568, 'RTM CU13', 'https://support.microsoft.com/en-us/help/3144517', '2016-04-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 13'),
+    (12, 2564, 'RTM CU12', 'https://support.microsoft.com/en-us/help/3130923', '2016-02-22', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 12'),
+    (12, 2560, 'RTM CU11', 'https://support.microsoft.com/en-us/help/3106659', '2015-12-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 11'),
+    (12, 2556, 'RTM CU10', 'https://support.microsoft.com/en-us/help/3094220', '2015-10-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 10'),
+    (12, 2553, 'RTM CU9', 'https://support.microsoft.com/en-us/help/3075949', '2015-08-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 9'),
+    (12, 2548, 'RTM MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045323', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: QFE Security Update'),
+    (12, 2546, 'RTM CU8', 'https://support.microsoft.com/en-us/help/3067836', '2015-06-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 8'),
+    (12, 2495, 'RTM CU7', 'https://support.microsoft.com/en-us/help/3046038', '2015-04-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 7'),
+    (12, 2480, 'RTM CU6', 'https://support.microsoft.com/en-us/help/3031047', '2015-02-16', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 6'),
+    (12, 2456, 'RTM CU5', 'https://support.microsoft.com/en-us/help/3011055', '2014-12-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 5'),
+    (12, 2430, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2999197', '2014-10-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 4'),
+    (12, 2402, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2984923', '2014-08-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 3'),
+    (12, 2381, 'RTM MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2977316', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: QFE Security Update'),
+    (12, 2370, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2967546', '2014-06-27', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 2'),
+    (12, 2342, 'RTM CU1', 'https://support.microsoft.com/en-us/help/2931693', '2014-04-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 1'),
+    (12, 2269, 'RTM MS15-058: GDR Security Update ', 'https://support.microsoft.com/en-us/help/3045324', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: GDR Security Update '),
+    (12, 2254, 'RTM MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977315', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: GDR Security Update'),
+    (12, 2000, 'RTM ', '', '2014-04-01', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM '),
+    (11, 7001, 'SP4 ', 'https://support.microsoft.com/en-us/help/4018073', '2017-10-02', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 '),
+    (11, 6607, 'SP3 CU10', 'https://support.microsoft.com/en-us/help/4025925', '2017-08-08', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 10'),
+    (11, 6598, 'SP3 CU9', 'https://support.microsoft.com/en-us/help/4016762', '2017-05-15', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 9'),
+    (11, 6594, 'SP3 CU8', 'https://support.microsoft.com/en-us/help/3205051 ', '2017-03-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 8'),
+    (11, 6579, 'SP3 CU7', 'https://support.microsoft.com/en-us/help/3205051 ', '2017-01-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 7'),
+    (11, 6567, 'SP3 CU6', 'https://support.microsoft.com/en-us/help/3194992 ', '2016-11-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 6'),
+    (11, 6544, 'SP3 CU5', 'https://support.microsoft.com/en-us/help/3180915 ', '2016-09-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 5'),
+    (11, 6540, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/3165264 ', '2016-07-18', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 4'),
+    (11, 6537, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/3152635 ', '2016-05-16', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 3'),
+    (11, 6523, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/3137746', '2016-03-21', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 2'),
+    (11, 6518, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/3123299', '2016-01-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 1'),
+    (11, 6020, 'SP3 ', 'https://support.microsoft.com/en-us/help/3072779', '2015-11-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 '),
+    (11, 5678, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 16'),
+    (11, 5676, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 15'),
+    (11, 5657, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/3180914 ', '2016-09-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 14'),
+    (11, 5655, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/3165266 ', '2016-07-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 13'),
+    (11, 5649, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/3152637 ', '2016-05-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 12'),
+    (11, 5646, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/3137745', '2016-03-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 11'),
+    (11, 5644, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/3120313', '2016-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 10'),
+    (11, 5641, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/3098512', '2015-11-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 9'),
+    (11, 5634, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/3082561', '2015-09-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 8'),
+    (11, 5623, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/3072100', '2015-07-20', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 7'),
+    (11, 5613, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045319', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: QFE Security Update'),
+    (11, 5592, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/3052468', '2015-05-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 6'),
+    (11, 5582, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/3037255', '2015-03-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 5'),
+    (11, 5569, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/3007556', '2015-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 4'),
+    (11, 5556, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/3002049', '2014-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 3'),
+    (11, 5548, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2983175', '2014-09-15', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 2'),
+    (11, 5532, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2976982', '2014-07-23', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 1'),
+    (11, 5343, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045321', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: GDR Security Update'),
+    (11, 5058, 'SP2 ', 'https://support.microsoft.com/en-us/help/2958429', '2014-06-10', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 '),
+    (11, 3513, 'SP1 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045317', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: QFE Security Update'),
+    (11, 3482, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/3002044', '2014-11-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 13'),
+    (11, 3470, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2991533', '2014-09-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 12'),
+    (11, 3460, 'SP1 MS14-044: QFE Security Update ', 'https://support.microsoft.com/en-us/help/2977325', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: QFE Security Update '),
+    (11, 3449, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2975396', '2014-07-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 11'),
+    (11, 3431, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2954099', '2014-05-19', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 10'),
+    (11, 3412, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2931078', '2014-03-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 9'),
+    (11, 3401, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/2917531', '2014-01-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 8'),
+    (11, 3393, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/2894115', '2013-11-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 7'),
+    (11, 3381, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/2874879', '2013-09-16', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 6'),
+    (11, 3373, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/2861107', '2013-07-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 5'),
+    (11, 3368, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/2833645', '2013-05-30', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 4'),
+    (11, 3349, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/2812412', '2013-03-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 3'),
+    (11, 3339, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/2790947', '2013-01-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 2'),
+    (11, 3321, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/2765331', '2012-11-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 1'),
+    (11, 3156, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045318', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: GDR Security Update'),
+    (11, 3153, 'SP1 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977326', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: GDR Security Update'),
+    (11, 3000, 'SP1 ', 'https://support.microsoft.com/en-us/help/2674319', '2012-11-07', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 '),
+    (11, 2424, 'RTM CU11', 'https://support.microsoft.com/en-us/help/2908007', '2013-12-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 11'),
+    (11, 2420, 'RTM CU10', 'https://support.microsoft.com/en-us/help/2891666', '2013-10-21', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 10'),
+    (11, 2419, 'RTM CU9', 'https://support.microsoft.com/en-us/help/2867319', '2013-08-20', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 9'),
+    (11, 2410, 'RTM CU8', 'https://support.microsoft.com/en-us/help/2844205', '2013-06-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 8'),
+    (11, 2405, 'RTM CU7', 'https://support.microsoft.com/en-us/help/2823247', '2013-04-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 7'),
+    (11, 2401, 'RTM CU6', 'https://support.microsoft.com/en-us/help/2728897', '2013-02-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 6'),
+    (11, 2395, 'RTM CU5', 'https://support.microsoft.com/en-us/help/2777772', '2012-12-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 5'),
+    (11, 2383, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2758687', '2012-10-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 4'),
+    (11, 2376, 'RTM MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716441', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: QFE Security Update'),
+    (11, 2332, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2723749', '2012-08-31', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 3'),
+    (11, 2325, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2703275', '2012-06-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 2'),
+    (11, 2316, 'RTM CU1', 'https://support.microsoft.com/en-us/help/2679368', '2012-04-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 1'),
+    (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
+    (11, 2100, 'RTM ', '', '2012-03-06', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM '),
+    (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6000, 'SP3 ', 'https://support.microsoft.com/en-us/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),
+    (10, 4339, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045312', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: QFE Security Update'),
+    (10, 4321, 'SP2 MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2977319', '2014-08-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: QFE Security Update'),
+    (10, 4319, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/2967540', '2014-06-30', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 13'),
+    (10, 4305, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/2938478', '2014-04-21', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 12'),
+    (10, 4302, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/2926028', '2014-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 11'),
+    (10, 4297, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/2908087', '2013-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 10'),
+    (10, 4295, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/2887606', '2013-10-28', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 9'),
+    (10, 4290, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/2871401', '2013-08-22', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 8'),
+    (10, 4285, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/2844090', '2013-06-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 7'),
+    (10, 4279, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/2830140', '2013-04-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 6'),
+    (10, 4276, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/2797460', '2013-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 5'),
+    (10, 4270, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/2777358', '2012-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 4'),
+    (10, 4266, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/2754552', '2012-10-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 3'),
+    (10, 4263, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2740411', '2012-08-31', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 2'),
+    (10, 4260, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2720425', '2012-07-24', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 1'),
+    (10, 4042, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045313', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: GDR Security Update'),
+    (10, 4033, 'SP2 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977320', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: GDR Security Update'),
+    (10, 4000, 'SP2 ', 'https://support.microsoft.com/en-us/help/2630458', '2012-07-26', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 '),
+    (10, 2881, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/2868244', '2013-08-08', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 14'),
+    (10, 2876, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/2855792', '2013-06-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 13'),
+    (10, 2874, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2828727', '2013-04-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 12'),
+    (10, 2869, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2812683', '2013-02-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 11'),
+    (10, 2868, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2783135', '2012-12-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 10'),
+    (10, 2866, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2756574', '2012-10-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 9'),
+    (10, 2861, 'SP1 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716439', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: QFE Security Update'),
+    (10, 2822, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/2723743', '2012-08-31', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 8'),
+    (10, 2817, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/2703282', '2012-06-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 7'),
+    (10, 2811, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/2679367', '2012-04-16', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 6'),
+    (10, 2806, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/2659694', '2012-02-22', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 5'),
+    (10, 2796, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/2633146', '2011-12-19', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 4'),
+    (10, 2789, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/2591748', '2011-10-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 3'),
+    (10, 2772, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/2567714', '2011-08-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 2'),
+    (10, 2769, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/2544793', '2011-07-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 1'),
+    (10, 2550, 'SP1 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2754849', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: GDR Security Update'),
+    (10, 2500, 'SP1 ', 'https://support.microsoft.com/en-us/help/2528583', '2011-07-12', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 '),
+    (10, 1815, 'RTM CU13', 'https://support.microsoft.com/en-us/help/2679366', '2012-04-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 13'),
+    (10, 1810, 'RTM CU12', 'https://support.microsoft.com/en-us/help/2659692', '2012-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 12'),
+    (10, 1809, 'RTM CU11', 'https://support.microsoft.com/en-us/help/2633145', '2011-12-19', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 11'),
+    (10, 1807, 'RTM CU10', 'https://support.microsoft.com/en-us/help/2591746', '2011-10-17', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 10'),
+    (10, 1804, 'RTM CU9', 'https://support.microsoft.com/en-us/help/2567713', '2011-08-15', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 9'),
+    (10, 1797, 'RTM CU8', 'https://support.microsoft.com/en-us/help/2534352', '2011-06-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 8'),
+    (10, 1790, 'RTM MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494086', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: QFE Security Update'),
+    (10, 1777, 'RTM CU7', 'https://support.microsoft.com/en-us/help/2507770', '2011-04-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 7'),
+    (10, 1765, 'RTM CU6', 'https://support.microsoft.com/en-us/help/2489376', '2011-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 6'),
+    (10, 1753, 'RTM CU5', 'https://support.microsoft.com/en-us/help/2438347', '2010-12-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 5'),
+    (10, 1746, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2345451', '2010-10-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 4'),
+    (10, 1734, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2261464', '2010-08-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 3'),
+    (10, 1720, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2072493', '2010-06-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 2'),
+    (10, 1702, 'RTM CU1', 'https://support.microsoft.com/en-us/help/981355', '2010-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 1'),
+    (10, 1617, 'RTM MS11-049: GDR Security Update', 'https://support.microsoft.com/en-us/help/2494088', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: GDR Security Update'),
+    (10, 1600, 'RTM ', '', '2010-05-10', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM '),
+    (10, 6535, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045308', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6241, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045311', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
+    (10, 5890, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045303', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 5869, 'SP3 MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2984340, https://support.microsoft.com/en-us/help/2977322', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: QFE Security Update'),
+    (10, 5861, 'SP3 CU17', 'https://support.microsoft.com/en-us/help/2958696', '2014-05-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 17'),
+    (10, 5852, 'SP3 CU16', 'https://support.microsoft.com/en-us/help/2936421', '2014-03-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 16'),
+    (10, 5850, 'SP3 CU15', 'https://support.microsoft.com/en-us/help/2923520', '2014-01-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 15'),
+    (10, 5848, 'SP3 CU14', 'https://support.microsoft.com/en-us/help/2893410', '2013-11-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 14'),
+    (10, 5846, 'SP3 CU13', 'https://support.microsoft.com/en-us/help/2880350', '2013-09-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 13'),
+    (10, 5844, 'SP3 CU12', 'https://support.microsoft.com/en-us/help/2863205', '2013-07-15', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 12'),
+    (10, 5840, 'SP3 CU11', 'https://support.microsoft.com/en-us/help/2834048', '2013-05-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 11'),
+    (10, 5835, 'SP3 CU10', 'https://support.microsoft.com/en-us/help/2814783', '2013-03-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 10'),
+    (10, 5829, 'SP3 CU9', 'https://support.microsoft.com/en-us/help/2799883', '2013-01-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 9'),
+    (10, 5828, 'SP3 CU8', 'https://support.microsoft.com/en-us/help/2771833', '2012-11-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 8'),
+    (10, 5826, 'SP3 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716435', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: QFE Security Update'),
+    (10, 5794, 'SP3 CU7', 'https://support.microsoft.com/en-us/help/2738350', '2012-09-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 7'),
+    (10, 5788, 'SP3 CU6', 'https://support.microsoft.com/en-us/help/2715953', '2012-07-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 6'),
+    (10, 5785, 'SP3 CU5', 'https://support.microsoft.com/en-us/help/2696626', '2012-05-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 5'),
+    (10, 5775, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/2673383', '2012-03-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 4'),
+    (10, 5770, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/2648098', '2012-01-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 3'),
+    (10, 5768, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/2633143', '2011-11-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 2'),
+    (10, 5766, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/2617146', '2011-10-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 1'),
+    (10, 5538, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045305', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
+    (10, 5520, 'SP3 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977321', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: GDR Security Update'),
+    (10, 5512, 'SP3 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716436', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: GDR Security Update'),
+    (10, 5500, 'SP3 ', 'https://support.microsoft.com/en-us/help/2546951', '2011-10-06', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 '),
+    (10, 4371, 'SP2 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716433', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: QFE Security Update'),
+    (10, 4333, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/2715951', '2012-07-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 11'),
+    (10, 4332, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/2696625', '2012-05-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 10'),
+    (10, 4330, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/2673382', '2012-03-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 9'),
+    (10, 4326, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/2648096', '2012-01-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 8'),
+    (10, 4323, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/2617148', '2011-11-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 7'),
+    (10, 4321, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/2582285', '2011-09-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 6'),
+    (10, 4316, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/2555408', '2011-07-18', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 5'),
+    (10, 4311, 'SP2 MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494094', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: QFE Security Update'),
+    (10, 4285, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/2527180', '2011-05-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 4'),
+    (10, 4279, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/2498535', '2011-03-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 3'),
+    (10, 4272, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2467239', '2011-01-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 2'),
+    (10, 4266, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2289254', '2010-11-15', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 1'),
+    (10, 4067, 'SP2 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716434', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: GDR Security Update'),
+    (10, 4064, 'SP2 MS11-049: GDR Security Update', 'https://support.microsoft.com/en-us/help/2494089', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: GDR Security Update'),
+    (10, 4000, 'SP2 ', 'https://support.microsoft.com/en-us/help/2285068', '2010-09-29', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 '),
+    (10, 2850, 'SP1 CU16', 'https://support.microsoft.com/en-us/help/2582282', '2011-09-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 16'),
+    (10, 2847, 'SP1 CU15', 'https://support.microsoft.com/en-us/help/2555406', '2011-07-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 15'),
+    (10, 2841, 'SP1 MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494100', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: QFE Security Update'),
+    (10, 2821, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/2527187', '2011-05-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 14'),
+    (10, 2816, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/2497673', '2011-03-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 13'),
+    (10, 2808, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2467236', '2011-01-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 12'),
+    (10, 2804, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2413738', '2010-11-15', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 11'),
+    (10, 2799, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2279604', '2010-09-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 10'),
+    (10, 2789, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2083921', '2010-07-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 9'),
+    (10, 2775, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/981702', '2010-05-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 8'),
+    (10, 2766, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/979065', '2010-03-26', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 7'),
+    (10, 2757, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/977443', '2010-01-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 6'),
+    (10, 2746, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/975977', '2009-11-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 5'),
+    (10, 2734, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/973602', '2009-09-21', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 4'),
+    (10, 2723, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/971491', '2009-07-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 3'),
+    (10, 2714, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/970315', '2009-05-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 2'),
+    (10, 2710, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/969099', '2009-04-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 1'),
+    (10, 2573, 'SP1 MS11-049: GDR Security update', 'https://support.microsoft.com/en-us/help/2494096', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: GDR Security update'),
+    (10, 2531, 'SP1 ', '', '2009-04-01', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 '),
+    (10, 1835, 'RTM CU10', 'https://support.microsoft.com/en-us/help/979064', '2010-03-15', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 10'),
+    (10, 1828, 'RTM CU9', 'https://support.microsoft.com/en-us/help/977444', '2010-01-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 9'),
+    (10, 1823, 'RTM CU8', 'https://support.microsoft.com/en-us/help/975976', '2009-11-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 8'),
+    (10, 1818, 'RTM CU7', 'https://support.microsoft.com/en-us/help/973601', '2009-09-21', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 7'),
+    (10, 1812, 'RTM CU6', 'https://support.microsoft.com/en-us/help/971490', '2009-07-20', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 6'),
+    (10, 1806, 'RTM CU5', 'https://support.microsoft.com/en-us/help/969531', '2009-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 5'),
+    (10, 1798, 'RTM CU4', 'https://support.microsoft.com/en-us/help/963036', '2009-03-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 4'),
+    (10, 1787, 'RTM CU3', 'https://support.microsoft.com/en-us/help/960484', '2009-01-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 3'),
+    (10, 1779, 'RTM CU2', 'https://support.microsoft.com/en-us/help/958186', '2008-11-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 2'),
+    (10, 1763, 'RTM CU1', 'https://support.microsoft.com/en-us/help/956717', '2008-09-22', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 1'),
+    (10, 1600, 'RTM ', '', '2008-08-06', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM ')
+;
 GO

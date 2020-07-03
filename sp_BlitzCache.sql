@@ -277,7 +277,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.96', @VersionDate = '20200606';
+SELECT @Version = '7.97', @VersionDate = '20200703';
 
 
 IF(@VersionCheckMode = 1)
@@ -1564,9 +1564,9 @@ SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THE
 FROM sys.dm_exec_query_stats AS deqs
 )
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
+SELECT CONVERT(DECIMAL(5,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
@@ -1605,9 +1605,9 @@ WITH total_plans AS
 )
 INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
 SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(3,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
+       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
        s.single_use_plan_count, 
-       CONVERT(DECIMAL(3,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
+       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
        t.total_plans,
 	   @@SPID
 FROM   many_plans AS m, 
