@@ -775,8 +775,6 @@ BEGIN
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 			        EXECUTE master.sys.sp_executesql @stmt = @sql;
             END
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @Database, @LogToTable = 'Y', @Execute = 'Y';
-            END
 			IF @ExistingDBAction = 4
 			BEGIN
 				RAISERROR ('Offlining database', 0, 1) WITH NOWAIT;
