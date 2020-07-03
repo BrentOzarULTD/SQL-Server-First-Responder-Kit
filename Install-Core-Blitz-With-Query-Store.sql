@@ -18048,7 +18048,7 @@ BEGIN
     We start by creating #BlitzFirstResults. It's a temp table that will store
     the results from our checks. Throughout the rest of this stored procedure,
     we're running a series of checks looking for dangerous things inside the SQL
-    Server. When we find a problem, we insert rows into #BlitzResults. At the
+    Server. When we find a problem, we insert rows into the temp table. At the
     end, we return these results to the end user.
 
     #BlitzFirstResults has a CheckID field, but there's no Check table. As we do
@@ -19573,7 +19573,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         BEGIN
         /* Antiques Roadshow SQL 2008R2 - version */
         SET @StringToExecute = N'
-        INSERT  INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
+        INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
         SELECT 45 AS CheckID,
                 50 AS Priority,
                 ''Performance'' AS FindingsGroup,
