@@ -2177,7 +2177,7 @@ SELECT
     ISNULL (
     CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
     ELSE 
-        CASE WHEN is_XML = 1 OR is_spatial=1 THEN N'' /* Not even trying for these just yet...*/
+        CASE WHEN is_XML = 1 OR is_spatial = 1 OR is_in_memory_oltp = 1 THEN N'' /* Not even trying for these just yet...*/
         ELSE 
             CASE WHEN is_primary_key=1 THEN
                 N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
@@ -2201,13 +2201,13 @@ SELECT
                     QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) + 
                         CASE WHEN is_NC_columnstore=1 THEN 
                             N' (' + ISNULL(include_column_names_no_types,'') +  N' )' 
-                        ELSE /*Else not colunnstore */ 
+                        ELSE /*Else not columnstore */ 
                             N' (' + ISNULL(key_column_names_with_sort_order_no_types,'') +  N' )' 
                             + CASE WHEN include_column_names_no_types IS NOT NULL THEN 
                                 N' INCLUDE (' + include_column_names_no_types + N')' 
                                 ELSE N'' 
                             END
-                        END /*End non-colunnstore case */ 
+                        END /*End non-columnstore case */ 
                     + CASE WHEN filter_definition <> N'' THEN N' WHERE ' + filter_definition ELSE N'' END
                 END /*End Non-PK index CASE */ 
             + CASE WHEN is_NC_columnstore=0 AND is_CX_columnstore=0 THEN
