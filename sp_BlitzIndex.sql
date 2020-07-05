@@ -1057,7 +1057,9 @@ BEGIN TRY
 
         --insert columns for clustered indexes and heaps
         --collect info on identity columns for this one
-        SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SET @dsql = N'/* sp_BlitzIndex */
+				SET LOCK_TIMEOUT 1000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
+				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',
 					s.name,    
                     si.object_id, 
@@ -1121,10 +1123,30 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 32000, 36000);
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
-        INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
-            column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
-            is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
-                EXEC sp_executesql @dsql;
+		BEGIN TRY
+			INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+				column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
+				is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
+					EXEC sp_executesql @dsql;
+		END TRY
+		BEGIN CATCH
+			RAISERROR (N'Failure inserting data into #IndexColumns for clustered indexes and heaps.', 0,1) WITH NOWAIT;
+
+			IF @dsql IS NOT NULL
+			BEGIN
+				SET @msg= 'Last @dsql: ' + @dsql;
+				RAISERROR(@msg, 0, 1) WITH NOWAIT;
+			END;
+
+			SELECT  @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(),
+				@ErrorSeverity = 0, @ErrorState = ERROR_STATE();
+			RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
+
+			WHILE @@trancount > 0 
+				ROLLBACK;
+
+			RETURN;
+		END CATCH;
 
 
         --insert columns for nonclustered indexes
