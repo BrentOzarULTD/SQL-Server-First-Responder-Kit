@@ -1503,10 +1503,81 @@ BEGIN TRY
 
 
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
-        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+
+		IF (SELECT LEFT(@SQLServerProductVersion,
+              CHARINDEX('.',@SQLServerProductVersion,0)-1
+              )) >= 13
+		BEGIN
+			SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT index_handle, object_id, STRING_AGG(ColumnName + '' '' + rawdata.dataType, '', '') AS ReplaceColumnNames, rawdata.IndexColumnType
+								FROM(SELECT DISTINCT id.index_handle, id.object_id,cn.ColumnName,cn.IndexColumnType,N'' {'' +
+									CASE
+										WHEN ty.name IN ( ''varchar'', ''char'' ) THEN
+											ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length AS VARCHAR(25))) + '')''
+										WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN
+											ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length / 2 AS VARCHAR(25))) + '')''
+										WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN
+											ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
+										WHEN ty.name IN ( ''datetime2'' ) THEN
+											ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
+										ELSE
+											ty.name
+									END + ''}'' AS dataType
+									FROM	sys.dm_db_missing_index_details AS id
+									CROSS APPLY
+											(
+												SELECT	LTRIM(RTRIM(value)) AS ColumnName, ''Equality'' AS IndexColumnType
+												FROM	STRING_SPLIT(id.equality_columns, '','')
+												UNION ALL
+												SELECT	LTRIM(RTRIM(value)) AS ColumnName, ''Inequality'' AS IndexColumnType
+												FROM	STRING_SPLIT(id.inequality_columns, '','')
+												UNION ALL
+												SELECT	LTRIM(RTRIM(value)) AS ColumnName, ''Included'' AS IndexColumnType
+												FROM	STRING_SPLIT(id.included_columns, '','')
+											)								AS cn
+									 JOIN	' + QUOTENAME(@DatabaseName) + '.sys.columns AS co
+									   ON	co.object_id = id.object_id
+									  AND	''['' + co.name + '']'' = cn.ColumnName
+
+									 JOIN	sys.types				  AS ty
+									   ON	ty.user_type_id = co.user_type_id
+								 )rawdata
+								GROUP BY rawdata.index_handle
+										,rawdata.object_id
+										,rawdata.IndexColumnType
+							)'
+			END
+			SET @dsql = @dsql + '
                 SELECT  id.database_id, id.object_id, @i_DatabaseName, sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
-                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
-                        id.inequality_columns,id.included_columns
+                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,'
+			IF (SELECT LEFT(@SQLServerProductVersion,
+              CHARINDEX('.',@SQLServerProductVersion,0)-1
+              )) >= 13
+			BEGIN
+				SET @dsql = @dsql + '(
+						SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+						FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+						AND ColumnNamesWithDataTypes.object_id = id.object_id
+						AND ColumnNamesWithDataTypes.IndexColumnType = ''Equality''
+					) AS equality_columns
+					,(
+						SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+						FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+						AND ColumnNamesWithDataTypes.object_id = id.object_id
+						AND ColumnNamesWithDataTypes.IndexColumnType = ''Inequality''
+					) AS inequality_columns
+					,(
+						SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+						FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+						AND ColumnNamesWithDataTypes.object_id = id.object_id
+						AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
+					) AS included_columns'
+			END
+			ELSE
+			BEGIN
+				SET @dsql = @dsql + 'id.equality_columns, id.inequality_columns,id.included_columns'
+			END
+            SET @dsql = @dsql + '
                 FROM    sys.dm_db_missing_index_groups ig
                         JOIN sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
                         JOIN sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
