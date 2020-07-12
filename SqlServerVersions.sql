@@ -30,6 +30,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
     (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
     (15, 4023, 'CU3', 'https://support.microsoft.com/en-us/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
     (15, 4013, 'CU2', 'https://support.microsoft.com/en-us/help/4536075', '2020-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 2 '),
