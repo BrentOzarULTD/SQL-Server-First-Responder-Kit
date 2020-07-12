@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.97', @VersionDate = '20200703';
+	SELECT @Version = '7.97', @VersionDate = '20200712';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -9232,7 +9232,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.97', @VersionDate = '20200703';
+	SELECT @Version = '3.97', @VersionDate = '20200712';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -11010,7 +11010,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200703';
+SELECT @Version = '7.97', @VersionDate = '20200712';
 
 
 IF(@VersionCheckMode = 1)
@@ -17799,7 +17799,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200703';
+SELECT @Version = '7.97', @VersionDate = '20200712';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -21719,7 +21719,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -22081,7 +22081,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200703';
+SELECT @Version = '7.97', @VersionDate = '20200712';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -23096,7 +23096,9 @@ BEGIN TRY
 
         --insert columns for clustered indexes and heaps
         --collect info on identity columns for this one
-        SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SET @dsql = N'/* sp_BlitzIndex */
+				SET LOCK_TIMEOUT 1000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
+				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',
 					s.name,    
                     si.object_id, 
@@ -23160,10 +23162,30 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 32000, 36000);
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
-        INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
-            column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
-            is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
-                EXEC sp_executesql @dsql;
+		BEGIN TRY
+			INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
+				column_name, system_type_name, max_length, precision, scale, collation_name, is_nullable, is_identity, is_computed,
+				is_replicated, is_sparse, is_filestream, seed_value, increment_value, last_value, is_not_for_replication )
+					EXEC sp_executesql @dsql;
+		END TRY
+		BEGIN CATCH
+			RAISERROR (N'Failure inserting data into #IndexColumns for clustered indexes and heaps.', 0,1) WITH NOWAIT;
+
+			IF @dsql IS NOT NULL
+			BEGIN
+				SET @msg= 'Last @dsql: ' + @dsql;
+				RAISERROR(@msg, 0, 1) WITH NOWAIT;
+			END;
+
+			SELECT  @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(),
+				@ErrorSeverity = 0, @ErrorState = ERROR_STATE();
+			RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
+
+			WHILE @@trancount > 0 
+				ROLLBACK;
+
+			RETURN;
+		END CATCH;
 
 
         --insert columns for nonclustered indexes
@@ -27291,7 +27313,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.97', @VersionDate = '20200703';
+SELECT @Version = '2.97', @VersionDate = '20200712';
 
 
 IF(@VersionCheckMode = 1)
@@ -28928,7 +28950,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.97', @VersionDate = '20200703';
+SELECT @Version = '3.97', @VersionDate = '20200712';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -34654,7 +34676,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.97', @VersionDate = '20200703';
+	SELECT @Version = '7.97', @VersionDate = '20200712';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -35582,6 +35604,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
     (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
     (15, 4023, 'CU3', 'https://support.microsoft.com/en-us/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
     (15, 4013, 'CU2', 'https://support.microsoft.com/en-us/help/4536075', '2020-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 2 '),

@@ -6,6 +6,7 @@
 [![issues badge]][issues]
 
 Navigation
+ - [How to Install the Scripts](#how-to-install-the-scripts)
  - [How to Get Support](#how-to-get-support)
  - Common Scripts:
    - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
@@ -46,6 +47,16 @@ The First Responder Kit runs on:
 * SQL Server 2000, 2005 - not supported at all.
 * Amazon RDS SQL Server - fully supported.
 * Azure SQL DB - not supported. Some of the procedures work, but some don't, and Microsoft has a tendency to change DMVs in Azure without warning, so we don't put any effort into supporting it. If it works, great! If not, any changes to make it work would be on you. [See the contributing.md file](CONTRIBUTING.md) for how to do that.
+
+## How to Install the Scripts
+
+There are three installation scripts. Choose the one that most suits your needs:
+
+* **Install-Core-Blitz-No-Query-Store.sql** - if you don't know which one to use, use this. This contains the most commonly used stored procedures. Open this script in SSMS or Azure Data Studio, switch to the database where you want to install the stored procedures, and run it. It will install the stored procedures if they don't already exist, or update them to the current version if they do exist. 
+* **Install-Core-Blitz-With-Query-Store.sql** - for SQL Server 2016 & newer only. Same as above, but adds sp_BlitzQueryStore.
+* **Install-All-Scripts.sql** - you're very clever (and also attractive), so as you may guess, this installs all of the scripts, including sp_DatabaseRestore and sp_AllNightLog, both of which depend on Ola Hallengren's Maintenance Solution. When running this script, you'll get warnings if you don't already have his scripts installed. To get those, go to https://ola.hallengren.com.
+
+We recommend installing these stored procedures in the master database, but if you want to use another one, that's totally fine - they're all supported in any database - but just be aware that you can run into problems if you have these procs in multiple databases. You may not keep them all up to date, and you may hit an issue when you're running an older version.
 
 
 ## How to Get Support
