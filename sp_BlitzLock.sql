@@ -739,12 +739,14 @@ You need to use an Azure storage account, and the path has to look like this: ht
 
 		/*Get each and every table of all databases*/
 		DECLARE @sysAssObjId AS TABLE (database_id bigint, partition_id bigint, schema_name varchar(255), table_name varchar(255));
-		INSERT into @sysAssObjId EXECUTE sp_ineachdb @COMMAND =
-		  N'SELECT DB_ID() as database_id, p.partition_id, s.name as schema_name, t.name as table_name
+		INSERT into @sysAssObjId EXECUTE sp_MSforeachdb
+		  N'USE [?];
+		    SELECT DB_ID() as database_id, p.partition_id, s.name as schema_name, t.name as table_name
 			FROM sys.partitions p
 			LEFT JOIN sys.tables t ON t.object_id = p.object_id 
 			LEFT JOIN sys.schemas s ON s.schema_id = t.schema_id 
 			WHERE s.name is not NULL AND t.name is not NULL';
+
 
 		/*Begin checks based on parsed values*/
 
