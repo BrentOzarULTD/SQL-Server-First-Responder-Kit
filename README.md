@@ -91,6 +91,10 @@ Commonly used parameters:
 * @CheckServerInfo = 1 - includes additional rows at priority 250 with server configuration details like service accounts. 
 * @IgnorePrioritiesAbove = 50 - if you want a daily bulletin of the most important warnings, set @IgnorePrioritiesAbove = 50 to only get the urgent stuff.
 
+Advanced tips:
+
+* [How to install, run, and centralize the data from sp_Blitz using PowerShell](https://garrybargsley.com/2020/07/14/sp_blitz-for-all-servers/)
+
 [*Back to top*](#header1)
 
 ### Advanced sp_Blitz Parameters
