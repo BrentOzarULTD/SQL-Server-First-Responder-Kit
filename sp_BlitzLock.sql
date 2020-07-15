@@ -31,7 +31,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.93', @VersionDate = '20200217';
+SELECT @Version = '2.97', @VersionDate = '20200712';
 
 
 IF(@VersionCheckMode = 1)
@@ -216,7 +216,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
-							Database_Name NVARCHAR(256),
+							database_name NVARCHAR(256),
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,
@@ -421,7 +421,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode,
+					N'OBJECT' AS lock_type
         INTO        #deadlock_owner_waiter
 		FROM (
         SELECT      dr.event_date,
@@ -453,7 +454,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode,
+					N'PAGE' AS lock_type
 		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
@@ -482,7 +484,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode,
+					N'KEY' AS lock_type
 		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
@@ -511,7 +514,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode,
+					N'RID' AS lock_type
 		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
@@ -540,7 +544,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
-                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode
+                    o.l.value('@mode', 'NVARCHAR(256)') AS owner_mode,
+					N'ROWGROUP' AS lock_type
 		FROM (
         SELECT      dr.event_date,
 					ca.dr.value('@dbid', 'BIGINT') AS database_id,
@@ -559,7 +564,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		    SET	d.index_name = d.object_name
 							   + '.HEAP'
 		FROM #deadlock_owner_waiter AS d
-		WHERE index_name IS NULL
+		WHERE lock_type IN (N'HEAP', N'RID')
 		OPTION(RECOMPILE);
 
 		/*Parse parallel deadlocks*/
@@ -686,6 +691,12 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                    step_name NVARCHAR(256);
 
         IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
+		  AND NOT (LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'   /* Neither does Amazon RDS Express Edition */
+					AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+					AND db_id('rdsadmin') IS NOT NULL
+					AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   		)
             BEGIN
             SET @StringToExecute = N'UPDATE aj
                     SET  aj.job_name = j.name, 
@@ -780,10 +791,32 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
-		AND dow.index_name IS NOT NULL
+		AND dow.lock_type NOT IN (N'HEAP', N'RID')
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
+
+		/*Check 2 continuation, number of locks per heap*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 2 heaps %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+         ( check_id, database_name, object_name, finding_group, finding ) 	
+		SELECT 2 AS check_id, 
+			   ISNULL(DB_NAME(dow.database_id), 'UNKNOWN') AS database_name, 
+			   dow.index_name AS index_name,
+			   'Total heap deadlocks' AS finding_group,
+			   'This heap was involved in ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT dow.event_date))
+				+ ' deadlock(s).'
+        FROM   #deadlock_owner_waiter AS dow
+		WHERE 1 = 1
+		AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+		AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+		AND dow.lock_type IN (N'HEAP', N'RID')
+		GROUP BY DB_NAME(dow.database_id), dow.index_name
+		OPTION ( RECOMPILE );
 		
 
 		/*Check 3 looks for Serializable locking*/
