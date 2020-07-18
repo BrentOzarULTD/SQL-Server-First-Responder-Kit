@@ -325,8 +325,10 @@ BEGIN
 			       derp.query_plan ,
 						    qmg.query_cost ,										   		   
 						    s.status ,
-			       COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), 
-						    blocked.waittime) + '')'' ) AS wait_info ,											
+							CASE
+								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+								ELSE NULL
+							END AS wait_info ,											
 						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							     THEN r.blocking_session_id
 							     WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
@@ -526,7 +528,10 @@ IF @ProductVersionMajor >= 11
 						    +' 
 			       qmg.query_cost ,
 			       s.status ,
-			       COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,'
+					CASE
+						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+						ELSE NULL
+					END AS wait_info ,'
 						    +
 						    CASE @SessionWaits
 							     WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
