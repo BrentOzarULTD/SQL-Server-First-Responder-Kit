@@ -752,6 +752,9 @@ BEGIN
 	RETURN;
 END;
 
+/* Lets get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = LOWER(@SortOrder);
+
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
 IF @SortOrder LIKE 'query hash%'
 	BEGIN
@@ -1088,7 +1091,6 @@ END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
-SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
 
 SET @SortOrder = CASE 
