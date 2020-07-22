@@ -277,7 +277,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.95', @VersionDate = '20200506';
+SELECT @Version = '7.97', @VersionDate = '20200712';
 
 
 IF(@VersionCheckMode = 1)
@@ -752,6 +752,9 @@ BEGIN
 	RETURN;
 END;
 
+/* Lets get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = LOWER(@SortOrder);
+
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
 IF @SortOrder LIKE 'query hash%'
 	BEGIN
@@ -840,7 +843,7 @@ BEGIN
         CheckID INT,
         Priority TINYINT,
         FindingsGroup VARCHAR(50),
-        Finding VARCHAR(200),
+        Finding VARCHAR(500),
         URL VARCHAR(200),
         Details VARCHAR(4000)
     );
@@ -1088,7 +1091,6 @@ END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
-SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
 
 SET @SortOrder = CASE 
@@ -1564,9 +1566,9 @@ SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THE
 FROM sys.dm_exec_query_stats AS deqs
 )
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(3,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
-	   CONVERT(DECIMAL(3,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
+SELECT CONVERT(DECIMAL(5,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
+	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
 	   x.total_plans,
 	   @@SPID AS SPID
 FROM x
@@ -1605,9 +1607,9 @@ WITH total_plans AS
 )
 INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
 SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(3,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
+       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
        s.single_use_plan_count, 
-       CONVERT(DECIMAL(3,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
+       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
        t.total_plans,
 	   @@SPID
 FROM   many_plans AS m, 
@@ -6141,16 +6143,17 @@ BEGIN
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             SELECT spid,
                     999,
-					254,
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 1 ELSE 254 END AS Priority,
 					'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 'Many Single-Use Plans' ELSE 'Single-Use Plans' END AS Finding,
+					'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
 					'You have ' + CONVERT(NVARCHAR(10), p.total_plans)
-					            + ' in your cache, and '
+					            + ' plans in your cache, and '
 								+ CONVERT(NVARCHAR(10), p.percent_single)
 								+ '% are single use plans'
 								+ ', meaning SQL Server thinks it''s seeing a lot of "new" queries and creating plans for them.'
-								+ ' Forced Parameterization and Optimize For Ad Hoc Workloads may fix the issue.',
-					'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
-					'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''recent compilations''; '
+								+ ' Forced Parameterization and/or Optimize For Ad Hoc Workloads may fix the issue.'
+					            + 'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
 			FROM #plan_usage AS p ;
 
         IF @is_tokenstore_big = 1
@@ -6931,11 +6934,11 @@ BEGIN
 
 	EXEC sp_executesql @insert_sql ;
 
-    /* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
+    /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
     SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
     SET @insert_sql = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-        ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''LastCompletionTime'')
+        ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
     EXEC(@insert_sql);
     
 

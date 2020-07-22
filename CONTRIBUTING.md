@@ -84,7 +84,7 @@ We know that's a pain, but that's the kind of thing we find out in the wild. Of 
 4. Make changes.
 
    Make changes to one or more of the files in the project.
-   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz%20Checks%20by%20Priority.md.
+   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz_Checks_by_Priority.md.
    You should modify the file `Documentation\sp_Blitz Checks by Priority.md` in the project by yourself.
 
 5. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
