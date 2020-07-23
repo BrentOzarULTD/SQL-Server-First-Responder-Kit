@@ -335,6 +335,16 @@ BEGIN
 							     THEN blocked.blocking_session_id
 							    ELSE NULL 
 						    END AS blocking_session_id , 
+			       COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), 
+						    blocked.waittime) + '')'' ) AS wait_info ,											
+				   CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
+							       THEN r.blocking_session_id
+							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+							       THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   THEN blocked.blocking_session_id
+							       ELSE NULL 
+						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 						    CASE WHEN EXISTS (  SELECT 1 
                FROM sys.dm_tran_active_transactions AS tat
@@ -542,6 +552,8 @@ IF @ProductVersionMajor >= 11
 							       THEN r.blocking_session_id
 							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
 							       THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   THEN blocked.blocking_session_id
 							       ELSE NULL 
 						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
