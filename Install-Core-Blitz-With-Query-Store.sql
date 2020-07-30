@@ -304,10 +304,6 @@ AS
 		want to skip. This part of the code checks those parameters, gets the list,
 		and then saves those in a temp table. As we run each check, we'll see if we
 		need to skip it.
-
-		Really anal-retentive users will note that the @SkipChecksServer parameter is
-		not used. YET. We added that parameter in so that we could avoid changing the
-		stored proc's surface area (interface) later.
 		*/
 		/* --TOURSTOP07-- */
 		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL
@@ -335,11 +331,16 @@ AS
 			AND @SkipChecksDatabase IS NOT NULL
 			BEGIN
 				
-				IF @Debug IN (1, 2) RAISERROR('Inserting SkipChecks', 0, 1) WITH NOWAIT;
+								IF @Debug IN (1, 2) RAISERROR('Inserting SkipChecks', 0, 1) WITH NOWAIT;
 				
 				SET @StringToExecute = 'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
 				SELECT DISTINCT DatabaseName, CheckID, ServerName
-				FROM ' + QUOTENAME(@SkipChecksDatabase) + '.' + QUOTENAME(@SkipChecksSchema) + '.' + QUOTENAME(@SkipChecksTable)
+				FROM '
+				IF @SkipChecksServer IS NOT NULL
+				BEGIN
+				SET @StringToExecute += QUOTENAME(@SkipChecksServer) + '.'
+				END
+				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + '.' + QUOTENAME(@SkipChecksSchema) + '.' + QUOTENAME(@SkipChecksTable)
 					+ ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
 				EXEC(@StringToExecute);
 			END;
