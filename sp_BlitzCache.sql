@@ -5135,8 +5135,8 @@ EXEC sys.sp_executesql @user_perm_sql,
 IF @common_version >= 11
 BEGIN
     SET @user_perm_sql = N'
-    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
-    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
+    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 1024.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 1024.0 / 1024.))
     			                    ELSE 0 
     		                   END
     	FROM sys.dm_os_memory_clerks
