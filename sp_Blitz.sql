@@ -3173,7 +3173,7 @@ AS
 								  Details
 								)
 								SELECT  100 AS CheckID ,
-										50 AS Priority ,
+										170 AS Priority ,
 										'Reliability' AS FindingGroup ,
 										'Remote DAC Disabled' AS Finding ,
 										'https://BrentOzar.com/go/dac' AS URL ,
@@ -3980,7 +3980,7 @@ AS
 				                        )
 				                        SELECT DISTINCT 150 AS CheckID ,
 					                            t.DatabaseName,
-						                        50 AS Priority ,
+						                        170 AS Priority ,
 						                        'Reliability' AS FindingsGroup ,
 						                        'Errors Logged Recently in the Default Trace' AS Finding ,
 						                        'https://BrentOzar.com/go/defaulttrace' AS URL ,
@@ -5612,7 +5612,7 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 						SELECT 209 AS CheckID ,
-						        50 AS Priority ,
+						        10 AS Priority ,
 						        'Reliability' AS FindingsGroup ,
 						        'DBCC WRITEPAGE Used Recently' AS Finding ,
 						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
@@ -6296,7 +6296,7 @@ IF @ProductVersionMajor >= 10
 			Details)
 		  SELECT DISTINCT 164,
 		  N''?'',
-		  20,
+		  100,
 		  ''Reliability'',
 		  ''Plan Guides Failing'',
 		  ''https://BrentOzar.com/go/misguided'',
@@ -7734,7 +7734,7 @@ IF @ProductVersionMajor >= 10
 								)
 								SELECT  77 AS CheckID ,
 										dSnap.[name] AS DatabaseName ,
-										50 AS Priority ,
+										170 AS Priority ,
 										'Reliability' AS FindingsGroup ,
 										'Database Snapshot Online' AS Finding ,
 										'https://BrentOzar.com/go/snapshot' AS URL ,

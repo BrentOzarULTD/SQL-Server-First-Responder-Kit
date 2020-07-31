@@ -38,6 +38,7 @@ If you want to add a new one, start at 235.
 | 10 | Performance | DBCC DROPCLEANBUFFERS Ran Recently | https://www.BrentOzar.com/go/dbcc | 207 |
 | 10 | Performance | DBCC FREEPROCCACHE Ran Recently | https://www.BrentOzar.com/go/dbcc | 208 |
 | 10 | Performance | DBCC SHRINK% Ran Recently | https://www.BrentOzar.com/go/dbcc | 210 |
+| 10 | Performance | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
@@ -47,7 +48,6 @@ If you want to add a new one, start at 235.
 | 20 | Reliability | Databases in Unusual States | https://www.BrentOzar.com/go/repair | 102 |
 | 20 | Reliability | Memory Dumps Have Occurred | https://www.BrentOzar.com/go/dump | 171 |
 | 20 | Reliability | No Failover Cluster Nodes Available | https://www.BrentOzar.com/go/node | 184 |
-| 20 | Reliability | Plan Guides Failing | https://www.BrentOzar.com/go/guides | 164 |
 | 20 | Reliability | Query Store Cleanup Disabled | https://www.BrentOzar.com/go/cleanup | 182 |
 | 20 | Reliability | Unsupported Build of SQL Server | https://www.BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | https://www.BrentOzar.com/go/cdrive | 26 |
@@ -61,13 +61,10 @@ If you want to add a new one, start at 235.
 | 50 | Performance | Poison Wait Detected: Serializable Locking | https://www.BrentOzar.com/go/serializable | 121 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Performance | Wait Stats Cleared Recently| | 205 |
-| 50 | Reliability | Database Snapshot Online | https://www.BrentOzar.com/go/snapshot | 77 |
 | 50 | Reliability | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
-| 50 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | https://www.BrentOzar.com/go/shipping | 111 |
-| 50 | Reliability | Remote Admin Connections Disabled | https://www.BrentOzar.com/go/dac | 100 |
 | 50 | Reliability | TempDB File Error | https://www.BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
 | 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
@@ -92,6 +89,7 @@ If you want to add a new one, start at 235.
 | 100 | Performance | Unusual SQL Server Edition | https://www.BrentOzar.com/go/workgroup | 97 |
 | 100 | Performance | Implicit Transactions | https://www.brentozar.com/go/ImplicitTransactions/ | 215 |
 | 100 | Reliability | Cumulative Update Available | https://SQLServerUpdates.com | 217 |
+| 100 | Reliability | Plan Guides Failing | https://www.BrentOzar.com/go/guides | 164 |
 | 100 | Reliability | SQL Server Update May Fail | https://desertdba.com/failovers-cant-serve-two-masters/ | 234 |
 | 110 | Performance | Active Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 38 |
 | 110 | Performance | Auto-Create Stats Disabled | https://www.BrentOzar.com/go/acs | 15 |
@@ -130,7 +128,10 @@ If you want to add a new one, start at 235.
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | https://www.BrentOzar.com/go/grow | 42 |
 | 170 | Reliability | Database Files on Network File Shares | https://www.BrentOzar.com/go/nas | 148 |
 | 170 | Reliability | Database Files Stored in Azure | https://www.BrentOzar.com/go/azurefiles | 149 |
+| 170 | Reliability | Database Snapshot Online | https://www.BrentOzar.com/go/snapshot | 77 |
+| 170 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
 | 170 | Reliability | Max File Size Set | https://www.BrentOzar.com/go/maxsize | 80 |
+| 170 | Reliability | Remote Admin Connections Disabled | https://www.BrentOzar.com/go/dac | 100 |
 | 200 | Backup | Backing Up Unneeded Database | https://www.BrentOzar.com/go/reportservertempdb | 127 |
 | 200 | Backup | MSDB Backup History Not Purged | https://www.BrentOzar.com/go/history | 3 |
 | 200 | Backup | MSDB Backup History Purged Too Frequently | https://www.BrentOzar.com/go/history | 186 |
