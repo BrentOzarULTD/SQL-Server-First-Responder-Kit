@@ -1579,7 +1579,8 @@ RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WI
 WITH total_plans AS 
 (
     SELECT COUNT_BIG(*) AS total_plans
-    FROM sys.dm_exec_query_stats AS deqs
+    FROM sys.dm_exec_cached_plans AS deqs
+    WHERE deqs.cacheobjtype = N'Compiled Plan'
 ),
      many_plans AS 
 (
