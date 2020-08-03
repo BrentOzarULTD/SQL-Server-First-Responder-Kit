@@ -333,15 +333,15 @@ AS
 				
 				IF @Debug IN (1, 2) RAISERROR('Inserting SkipChecks', 0, 1) WITH NOWAIT;
 				
-				SET @StringToExecute = 'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
+				SET @StringToExecute = N'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
 				SELECT DISTINCT DatabaseName, CheckID, ServerName
 				FROM '
-				IF @SkipChecksServer IS NOT NULL
-				BEGIN
-				SET @StringToExecute += QUOTENAME(@SkipChecksServer) + '.'
-				END
-				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + '.' + QUOTENAME(@SkipChecksSchema) + '.' + QUOTENAME(@SkipChecksTable)
-					+ ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
+				IF LTRIM(RTRIM(@SkipChecksServer)) <> ''
+					BEGIN
+					SET @StringToExecute += QUOTENAME(@SkipChecksServer) + N'.';
+					END
+				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + N'.' + QUOTENAME(@SkipChecksSchema) + N'.' + QUOTENAME(@SkipChecksTable)
+					+ N' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
 				EXEC(@StringToExecute);
 			END;
 
