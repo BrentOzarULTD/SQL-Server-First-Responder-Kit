@@ -551,13 +551,17 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                         + N'%; Avg query cost: '
                         + CAST(avg_total_user_cost AS NVARCHAR(30)),
                 [missing_index_details] AS
-                    CASE WHEN equality_columns_with_data_type IS NOT NULL THEN N'EQUALITY: ' + equality_columns_with_data_type + N' '
-                         ELSE N''
-                    END + CASE WHEN inequality_columns_with_data_type IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns_with_data_type + N' '
-                       ELSE N''
-                    END + CASE WHEN included_columns_with_data_type IS NOT NULL THEN N'INCLUDES: ' + included_columns_with_data_type + N' '
-                        ELSE N''
-                    END,
+                    CASE WHEN COALESCE(equality_columns_with_data_type,equality_columns) IS NOT NULL
+						THEN N'EQUALITY: ' + COALESCE(equality_columns_with_data_type,equality_columns) + N' '
+                         ELSE N'' END +
+
+                    CASE WHEN COALESCE(inequality_columns_with_data_type,inequality_columns) IS NOT NULL
+						THEN N'INEQUALITY: ' + COALESCE(inequality_columns_with_data_type,inequality_columns) + N' '
+                         ELSE N'' END +
+
+                    CASE WHEN COALESCE(included_columns_with_data_type,included_columns) IS NOT NULL
+						THEN N'INCLUDE: ' + COALESCE(included_columns_with_data_type,included_columns) + N' '
+                         ELSE N'' END,
                 [create_tsql] AS N'CREATE INDEX [' 
                     + REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
@@ -1515,7 +1519,7 @@ BEGIN TRY
 								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length / 2 AS VARCHAR(25))) + '')''
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
-								ELSE ty.name END + ''}''
+								ELSE ty.name END + ''} ''
 				FROM	sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
@@ -1531,8 +1535,8 @@ BEGIN TRY
 					CROSS APPLY n.nodes(''x'') node(v)
 			)AS cn_inner'
 		+ /*split the string otherwise dsql cuts some of it out*/
-		'		JOIN	StackOverflow.sys.columns AS co ON co.object_id = id_inner.object_id AND ''['' + co.name + '']'' = cn_inner.ColumnName
-				JOIN	sys.types AS ty ON ty.user_type_id = co.user_type_id 
+		'		JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.columns AS co ON co.object_id = id_inner.object_id AND ''['' + co.name + '']'' = cn_inner.ColumnName
+				JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.types AS ty ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
 				AND	id_inner.object_id = id.object_id
 				AND cn_inner.IndexColumnType = cn.IndexColumnType
@@ -5279,7 +5283,7 @@ BEGIN;
 				100000000000,
 				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL, 0 AS [Display Order], NULL AS is_low
+				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
 	  	END;
