@@ -535,9 +535,12 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             user_seeks BIGINT NOT NULL,
             user_scans BIGINT NOT NULL,
             unique_compiles BIGINT NULL,
-            equality_columns NVARCHAR(4000), 
+            equality_columns NVARCHAR(4000),
+            equality_columns_with_data_type NVARCHAR(4000),
             inequality_columns NVARCHAR(4000),
+            inequality_columns_with_data_type NVARCHAR(4000),
             included_columns NVARCHAR(4000),
+            included_columns_with_data_type NVARCHAR(4000),
 			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
@@ -548,11 +551,11 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                         + N'%; Avg query cost: '
                         + CAST(avg_total_user_cost AS NVARCHAR(30)),
                 [missing_index_details] AS
-                    CASE WHEN equality_columns IS NOT NULL THEN N'EQUALITY: ' + equality_columns + N' '
+                    CASE WHEN equality_columns_with_data_type IS NOT NULL THEN N'EQUALITY: ' + equality_columns_with_data_type + N' '
                          ELSE N''
-                    END + CASE WHEN inequality_columns IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns + N' '
+                    END + CASE WHEN inequality_columns_with_data_type IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns_with_data_type + N' '
                        ELSE N''
-                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
+                    END + CASE WHEN included_columns_with_data_type IS NOT NULL THEN N'INCLUDES: ' + included_columns_with_data_type + N' '
                         ELSE N''
                     END,
                 [create_tsql] AS N'CREATE INDEX [' 
@@ -1504,10 +1507,73 @@ BEGIN TRY
 
 
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
-        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+
+
+		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT cn_inner.ColumnName + '' '' +
+					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length AS VARCHAR(25))) + '')''
+								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length / 2 AS VARCHAR(25))) + '')''
+								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
+								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
+								ELSE ty.name END + ''}''
+				FROM	sys.dm_db_missing_index_details AS id_inner
+				CROSS APPLY(
+					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.equality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+				UNION ALL
+					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.inequality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+				UNION ALL
+					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.included_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+			)AS cn_inner'
+		+ /*split the string otherwise dsql cuts some of it out*/
+		'		JOIN	StackOverflow.sys.columns AS co ON co.object_id = id_inner.object_id AND ''['' + co.name + '']'' = cn_inner.ColumnName
+				JOIN	sys.types AS ty ON ty.user_type_id = co.user_type_id 
+                WHERE id_inner.index_handle = id.index_handle
+				AND	id_inner.object_id = id.object_id
+				AND cn_inner.IndexColumnType = cn.IndexColumnType
+				FOR XML PATH('''')
+			 ),1,0,'''') AS ReplaceColumnNames
+            FROM sys.dm_db_missing_index_details AS id
+           CROSS APPLY(
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.equality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+				    UNION ALL
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.inequality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+				    UNION ALL
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.included_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+					)AS cn
+				GROUP BY	id.index_handle,id.object_id,cn.IndexColumnType
+				)
                 SELECT  id.database_id, id.object_id, @i_DatabaseName, sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
-                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
-                        id.inequality_columns,id.included_columns
+                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles, id.equality_columns, id.inequality_columns, id.included_columns,
+				(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Equality''
+                ) AS equality_columns_with_data_type
+                ,(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Inequality''
+                ) AS inequality_columns_with_data_type
+                ,(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
+                ) AS included_columns_with_data_type
                 FROM    sys.dm_db_missing_index_groups ig
                         JOIN sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
                         JOIN sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
@@ -1538,7 +1604,8 @@ BEGIN TRY
             END;
         INSERT    #MissingIndexes ( [database_id], [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
-                                    inequality_columns, included_columns)
+                                    inequality_columns, included_columns, equality_columns_with_data_type, inequality_columns_with_data_type, 
+                                    included_columns_with_data_type)
         EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
         SET @dsql = N'
@@ -5184,10 +5251,13 @@ BEGIN;
 				mi.avg_user_impact AS [Est Index Improvement], 
 				mi.user_seeks AS [Seeks], 
 				mi.user_scans AS [Scans],
-				mi.unique_compiles AS [Compiles], 
-				mi.equality_columns AS [Equality Columns], 
-				mi.inequality_columns AS [Inequality Columns], 
-				mi.included_columns AS [Included Columns], 
+				mi.unique_compiles AS [Compiles],
+				mi.equality_columns AS [EC],
+				mi.equality_columns_with_data_type AS [Equality Columns],
+				mi.inequality_columns,
+				mi.inequality_columns_with_data_type AS [Inequality Columns],
+				mi.included_columns,
+				mi.included_columns_with_data_type AS [Included Columns], 
 				mi.index_estimated_impact AS [Estimated Impact], 
 				mi.create_tsql AS [Create TSQL], 
 				mi.more_info AS [More Info],
