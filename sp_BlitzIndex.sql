@@ -4581,7 +4581,7 @@ BEGIN;
                    N'Nice Work!',
                    N'http://FirstResponderKit.org', 
                    N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
-                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   N'The default Mode 0 only looks for very serious index issues.', 
                    @DaysUptimeInsertValue, N''
                     );
 
