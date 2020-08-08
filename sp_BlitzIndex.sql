@@ -536,11 +536,11 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             user_scans BIGINT NOT NULL,
             unique_compiles BIGINT NULL,
             equality_columns NVARCHAR(4000),
-            equality_columns_with_data_type NVARCHAR(4000),
+            equality_columns_with_data_type NVARCHAR(MAX),
             inequality_columns NVARCHAR(4000),
-            inequality_columns_with_data_type NVARCHAR(4000),
+            inequality_columns_with_data_type NVARCHAR(MAX),
             included_columns NVARCHAR(4000),
-            included_columns_with_data_type NVARCHAR(4000),
+            included_columns_with_data_type NVARCHAR(MAX),
 			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
