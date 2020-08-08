@@ -98,6 +98,7 @@ CREATE TABLE ##BlitzCacheProcs (
         QueryPlanHash BINARY(8),
         StatementStartOffset INT,
         StatementEndOffset INT,
+		PlanGenerationNum BIGINT,
         MinReturnedRows BIGINT,
         MaxReturnedRows BIGINT,
         AverageReturnedRows MONEY,
@@ -903,6 +904,7 @@ BEGIN
         QueryPlanHash BINARY(8),
         StatementStartOffset INT,
         StatementEndOffset INT,
+		PlanGenerationNum BIGINT,
         MinReturnedRows BIGINT,
         MaxReturnedRows BIGINT,
         AverageReturnedRows MONEY,
@@ -1903,7 +1905,7 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
-                    LastExecutionTime, LastCompletionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
+                    LastExecutionTime, LastCompletionTime, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
                     LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, 
 					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
@@ -2110,6 +2112,7 @@ SELECT TOP (@Top)
 	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
+	   NULL AS PlanGenerationNum, 
        NULL AS MinReturnedRows,
        NULL AS MaxReturnedRows,
        NULL AS AvgReturnedRows,
@@ -2219,7 +2222,8 @@ BEGIN
            qs.last_execution_time AS LastExecutionTime,
 		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
-           qs.statement_end_offset AS StatementEndOffset, ';
+           qs.statement_end_offset AS StatementEndOffset,
+		   qs.plan_generation_num AS PlanGenerationNum, ';
     
     IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
     BEGIN
@@ -4795,6 +4799,7 @@ BEGIN
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
             StatementEndOffset,
+			PlanGenerationNum,
 			PlanHandle AS [Plan Handle],  
 			SqlHandle AS [SQL Handle],  
             QueryHash,
@@ -5039,6 +5044,7 @@ BEGIN
         QueryPlanHash AS [Query Plan Hash],
         StatementStartOffset,
         StatementEndOffset,
+		PlanGenerationNum,
 		[Remove Plan Handle From Cache],
 		[Remove SQL Handle From Cache]';
 END;
@@ -6897,6 +6903,7 @@ BEGIN
           QueryPlanHash binary(8),
           StatementStartOffset int,
           StatementEndOffset int,
+		  PlanGenerationNum bigint,
           MinReturnedRows bigint,
           MaxReturnedRows bigint,
           AverageReturnedRows money,
@@ -6942,7 +6949,13 @@ BEGIN
         ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
     EXEC(@insert_sql);
     
-
+    /* If the table doesn't have the new PlanGenerationNum column, add it. See Github #2514. */
+    SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+    SET @insert_sql = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''PlanGenerationNum'')
+        ALTER TABLE ' + @ObjectFullName + N' ADD PlanGenerationNum BIGINT NULL;';
+    EXEC(@insert_sql);
+    
     IF @CheckDateOverride IS NULL
         BEGIN
         SET @CheckDateOverride = SYSDATETIMEOFFSET();
@@ -6960,14 +6973,14 @@ BEGIN
           + @OutputTableName
           + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
           + N'SELECT TOP (@Top) '
           + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
           + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
           + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
           + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
           + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
           + N' FROM ##BlitzCacheProcs '
 		  + N' WHERE 1=1 ';
