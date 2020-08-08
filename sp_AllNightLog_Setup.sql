@@ -36,7 +36,7 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SELECT @Version = '3.96', @VersionDate = '20200712';
+SELECT @Version = '3.97', @VersionDate = '20200808';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -100,7 +100,7 @@ BEGIN
 		  @RunSetup	BIT, defaults to 0. When this is set to 1, it will run the setup portion to create database, tables, and worker jobs.
 		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO/RTO and database backup/restore paths.
 		  @RPOSeconds BIGINT, defaults to 30. Value in seconds you want to use to determine if a new log backup needs to be taken.
-		  @BackupPath NVARCHAR(MAX), defaults to = ''D:\Backup''. You 99.99999% will need to change this path to something else. This tells Ola''s job where to put backups.
+		  @BackupPath NVARCHAR(MAX), This is REQUIRED if @Runsetup=1. This tells Ola''s job where to put backups.
 		  @Debug BIT, defaults to 0. Whent this is set to 1, it prints out dynamic SQL commands
 	
 	    Sample call:
@@ -287,6 +287,14 @@ IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRest
 Basic path sanity checks
 
 */
+
+IF @RunSetup = 1 and @BackupPath is NULL
+		BEGIN
+	
+				RAISERROR('@BackupPath is required during setup', 0, 1) WITH NOWAIT;
+				
+				RETURN;
+		END
 
 IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A or B drives
 AND (@BackupPath NOT LIKE '\\[a-zA-Z0-9]%\%') --UNC path

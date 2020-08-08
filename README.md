@@ -91,6 +91,10 @@ Commonly used parameters:
 * @CheckServerInfo = 1 - includes additional rows at priority 250 with server configuration details like service accounts. 
 * @IgnorePrioritiesAbove = 50 - if you want a daily bulletin of the most important warnings, set @IgnorePrioritiesAbove = 50 to only get the urgent stuff.
 
+Advanced tips:
+
+* [How to install, run, and centralize the data from sp_Blitz using PowerShell](https://garrybargsley.com/2020/07/14/sp_blitz-for-all-servers/)
+
 [*Back to top*](#header1)
 
 ### Advanced sp_Blitz Parameters
@@ -440,7 +444,7 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 * @Help = 1 - returns a result set or prints messages explaining the stored procedure's input and output. Make sure to check the Messages tab in SSMS to read it.
 * @ExpertMode = 1 - turns on more details useful for digging deeper into results.
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist.
-* @OutputServerName - not functional yet. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
+* @OutputServerName - works in sp_Blitz, but not functional yet in the rest of the stored procedures. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
 
 [*Back to top*](#header1)
 

@@ -31,7 +31,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.97', @VersionDate = '20200712';
+SELECT @Version = '2.98', @VersionDate = '20200808';
 
 
 IF(@VersionCheckMode = 1)
@@ -418,6 +418,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -430,6 +431,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
@@ -451,6 +453,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -462,6 +465,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
@@ -481,6 +485,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -492,6 +497,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
@@ -511,6 +517,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -522,6 +529,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
@@ -541,6 +549,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -552,6 +561,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/rowgrouplock') AS ca(dr)
@@ -726,6 +736,17 @@ You need to use an Azure storage account, and the path has to look like this: ht
         AND dp.victim_id = aj.victim_id
         AND dp.id = aj.id
 		OPTION ( RECOMPILE );
+
+		/*Get each and every table of all databases*/
+		DECLARE @sysAssObjId AS TABLE (database_id bigint, partition_id bigint, schema_name varchar(255), table_name varchar(255));
+		INSERT into @sysAssObjId EXECUTE sp_MSforeachdb
+		  N'USE [?];
+		    SELECT DB_ID() as database_id, p.partition_id, s.name as schema_name, t.name as table_name
+			FROM sys.partitions p
+			LEFT JOIN sys.tables t ON t.object_id = p.object_id 
+			LEFT JOIN sys.schemas s ON s.schema_id = t.schema_id 
+			WHERE s.name is not NULL AND t.name is not NULL';
+
 
 		/*Begin checks based on parsed values*/
 
@@ -1065,23 +1086,24 @@ You need to use an Azure storage account, and the path has to look like this: ht
         RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
 		WITH bi AS (
 				SELECT  DISTINCT
-						dow.object_name,
-						PARSENAME(dow.object_name, 3) AS database_name,
-						PARSENAME(dow.object_name, 2) AS schema_name,
-						PARSENAME(dow.object_name, 1) AS table_name
+					dow.object_name,
+					DB_NAME(dow.database_id) as database_name,
+					a.schema_name AS schema_name,
+					a.table_name AS table_name
 				FROM #deadlock_owner_waiter AS dow
+				LEFT JOIN @sysAssObjId a ON a.database_id=dow.database_id AND a.partition_id = dow.associatedObjectId
 				WHERE 1 = 1
 				AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 				AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 				AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 				AND dow.object_name IS NOT NULL
-					)
+		)
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
 				bi.database_name,
-				bi.schema_name + '.' + bi.table_name,
+				bi.object_name,
 				'More Info - Table' AS finding_group,
 				'EXEC sp_BlitzIndex ' + 
 				'@DatabaseName = ' + QUOTENAME(bi.database_name, '''') + 
