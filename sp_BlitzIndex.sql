@@ -43,7 +43,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200712';
+SELECT @Version = '7.98', @VersionDate = '20200808';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -536,11 +536,11 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             user_scans BIGINT NOT NULL,
             unique_compiles BIGINT NULL,
             equality_columns NVARCHAR(4000),
-            equality_columns_with_data_type NVARCHAR(4000),
+            equality_columns_with_data_type NVARCHAR(MAX),
             inequality_columns NVARCHAR(4000),
-            inequality_columns_with_data_type NVARCHAR(4000),
+            inequality_columns_with_data_type NVARCHAR(MAX),
             included_columns NVARCHAR(4000),
-            included_columns_with_data_type NVARCHAR(4000),
+            included_columns_with_data_type NVARCHAR(MAX),
 			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
@@ -1517,6 +1517,9 @@ BEGIN TRY
 		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT '', '' + cn_inner.ColumnName + '' '' +
 					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length AS VARCHAR(25))) + '')''
 								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length / 2 AS VARCHAR(25))) + '')''
+		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT cn_inner.ColumnName + '' '' +
+					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
+								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length / 2 AS VARCHAR(25)) END + '')''
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
 								ELSE ty.name END + ''}''
@@ -4581,7 +4584,7 @@ BEGIN;
                    N'Nice Work!',
                    N'http://FirstResponderKit.org', 
                    N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
-                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   N'The default Mode 0 only looks for very serious index issues.', 
                    @DaysUptimeInsertValue, N''
                     );
 

@@ -72,6 +72,9 @@ BEGIN
 
 END
 
+IF OBJECT_ID('dbo.SqlServerVersions') IS NOT NULL
+    DROP TABLE dbo.SqlServerVersions;
+
 PRINT @SQL;
 
 IF(@printOnly = 0)

@@ -34,13 +34,14 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.97', @VersionDate = '20200712';
+  SELECT @Version = '2.98', @VersionDate = '20200808';
   
-IF(@VersionCheckMode = 1)
-BEGIN
+  IF(@VersionCheckMode = 1)
+  BEGIN
 	RETURN;
-END;
-IF @Help = 1
+  END;
+  
+  IF @Help = 1
 
 	BEGIN
 	
@@ -98,12 +99,11 @@ IF @Help = 1
           @dbq    sysname,
           @cmd    nvarchar(max),
           @thisdb sysname,
-          @cr     char(2) = CHAR(13) + CHAR(10);
+          @cr     char(2) = CHAR(13) + CHAR(10),
+		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017)
+		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')); -- Stores the SQL Server Instance name.
 
-DECLARE @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff		-- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017))
-DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) -- Stores the SQL Server Instance name.
-
-  CREATE TABLE #ineachdb(id int, name nvarchar(512));
+  CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
 
   IF @database_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
@@ -117,15 +117,15 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
       WHERE n <= LEN(@database_list)
         AND SUBSTRING(N',' + @database_list, n, 1) = N','
     ) 
-    INSERT #ineachdb(id,name) 
-    SELECT d.database_id, d.name
+    INSERT #ineachdb(id,name,is_distributor) 
+    SELECT d.database_id, d.name, d.is_distributor
       FROM sys.databases AS d
       WHERE EXISTS (SELECT 1 FROM names WHERE name = d.name)
       OPTION (MAXRECURSION 0);
   END
   ELSE
   BEGIN
-    INSERT #ineachdb(id,name) SELECT database_id, name FROM sys.databases;
+    INSERT #ineachdb(id,name,is_distributor) SELECT database_id, name, is_distributor FROM sys.databases;
   END
 
   -- first, let's delete any that have been explicitly excluded
@@ -151,8 +151,8 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
 
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
-  WHERE (@system_only = 1 AND id NOT IN (1,2,3,4))
-     OR (@user_only   = 1 AND id     IN (1,2,3,4))
+  WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))
+     OR (@user_only   = 1 AND (id     IN (1,2,3,4) OR  is_distributor =  1))
      OR name NOT LIKE @name_pattern
      OR name LIKE @exclude_pattern
      OR EXISTS
@@ -198,11 +198,12 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
       )
   );
 
--- from Andy Mallon / First Responders Kit. Make sure that if we're an 
--- AG secondary, we skip any database where allow connections is off
-if @SQLVersion >= 11
-  DELETE dbs FROM #ineachdb AS dbs
-  WHERE EXISTS
+  -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
+  -- AG secondary, we skip any database where allow connections is off
+  IF @SQLVersion >= 11
+  BEGIN
+    DELETE dbs FROM #ineachdb AS dbs
+    WHERE EXISTS
           (
             SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
               INNER JOIN sys.availability_replicas AS ar
@@ -212,7 +213,8 @@ if @SQLVersion >= 11
               WHERE drs.database_id = dbs.id
               AND ar.secondary_role_allow_connections = 0
               AND ags.primary_replica <> @ServerName
-  );
+          );
+  END
 
   -- Well, if we deleted them all...
   IF NOT EXISTS (SELECT 1 FROM #ineachdb)
