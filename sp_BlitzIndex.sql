@@ -1517,9 +1517,6 @@ BEGIN TRY
 		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT '', '' + cn_inner.ColumnName + '' '' +
 					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length AS VARCHAR(25))) + '')''
 								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + IIF(co.max_length = -1, ''max'', CAST(co.max_length / 2 AS VARCHAR(25))) + '')''
-		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT cn_inner.ColumnName + '' '' +
-					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
-								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length / 2 AS VARCHAR(25)) END + '')''
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
 								ELSE ty.name END + ''}''
