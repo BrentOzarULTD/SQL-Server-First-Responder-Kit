@@ -5279,7 +5279,7 @@ BEGIN;
 				N'http://FirstResponderKit.org' ,
 				100000000000,
 				@DaysUptimeInsertValue,
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
