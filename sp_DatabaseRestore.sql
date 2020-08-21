@@ -433,7 +433,8 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "/"', 0, 1) WITH NOWAIT;
 	SET @StandbyUndoPath += N'/';
 END;
-IF @RestoreDatabaseName IS NULL
+
+IF @RestoreDatabaseName IS NULL OR @RestoreDatabaseName = N''
 BEGIN
 	SET @RestoreDatabaseName = @Database;
 END;
