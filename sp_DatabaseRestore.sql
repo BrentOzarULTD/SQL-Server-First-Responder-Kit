@@ -434,7 +434,7 @@ BEGIN
 	SET @StandbyUndoPath += N'/';
 END;
 
-IF @RestoreDatabaseName IS NULL OR @RestoreDatabaseName = N''
+IF @RestoreDatabaseName IS NULL OR @RestoreDatabaseName LIKE N'' /*use LIKE instead of =, otherwise N'' = N' '. See: https://www.brentozar.com/archive/2017/04/surprising-behavior-trailing-spaces/ */
 BEGIN
 	SET @RestoreDatabaseName = @Database;
 END;
