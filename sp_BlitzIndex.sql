@@ -1523,15 +1523,15 @@ BEGIN TRY
 				FROM	sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.equality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id_inner.equality_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 				UNION ALL
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.inequality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id_inner.inequality_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 				UNION ALL
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id_inner.included_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id_inner.included_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 			)AS cn_inner'
 		+ /*split the string otherwise dsql cuts some of it out*/
@@ -1545,15 +1545,15 @@ BEGIN TRY
             FROM sys.dm_db_missing_index_details AS id
            CROSS APPLY(
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.equality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id.equality_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 				    UNION ALL
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.inequality_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id.inequality_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 				    UNION ALL
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, ''<x>'' + REPLACE(id.included_columns, '','', ''</x><x>'')+''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, ''<x>'' + CAST(REPLACE(id.included_columns, '','', ''</x><x>'') AS NVARCHAR(MAX)) + ''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 					)AS cn
 				GROUP BY	id.index_handle,id.object_id,cn.IndexColumnType
