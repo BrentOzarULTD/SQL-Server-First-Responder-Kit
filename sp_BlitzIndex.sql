@@ -1514,12 +1514,12 @@ BEGIN TRY
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 
 
-		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT cn_inner.ColumnName + '' '' +
-					N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
+		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT '', '' + cn_inner.ColumnName + '' '' +
+			N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
 								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length / 2 AS VARCHAR(25)) END + '')''
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
-								ELSE ty.name END + ''} ''
+								ELSE ty.name END + ''}''
 				FROM	sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
@@ -1541,7 +1541,7 @@ BEGIN TRY
 				AND	id_inner.object_id = id.object_id
 				AND cn_inner.IndexColumnType = cn.IndexColumnType
 				FOR XML PATH('''')
-			 ),1,0,'''') AS ReplaceColumnNames
+			 ),1,1,'''') AS ReplaceColumnNames
             FROM sys.dm_db_missing_index_details AS id
            CROSS APPLY(
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
@@ -5256,11 +5256,8 @@ BEGIN;
 				mi.user_seeks AS [Seeks], 
 				mi.user_scans AS [Scans],
 				mi.unique_compiles AS [Compiles],
-				mi.equality_columns AS [EC],
 				mi.equality_columns_with_data_type AS [Equality Columns],
-				mi.inequality_columns,
 				mi.inequality_columns_with_data_type AS [Inequality Columns],
-				mi.included_columns,
 				mi.included_columns_with_data_type AS [Included Columns], 
 				mi.index_estimated_impact AS [Estimated Impact], 
 				mi.create_tsql AS [Create TSQL], 
@@ -5282,7 +5279,7 @@ BEGIN;
 				N'http://FirstResponderKit.org' ,
 				100000000000,
 				@DaysUptimeInsertValue,
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,
 				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
