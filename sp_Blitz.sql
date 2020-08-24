@@ -6040,7 +6040,7 @@ IF @ProductVersionMajor >= 10
 		                              (''Query store state in master metadata and database specific metadata not in sync.'')
 		                              FROM [?].sys.database_query_store_options dqso
 										join master.sys.databases D on D.name = N''?''
-									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state = 1 AND D.is_query_store_on = 0))
+									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state <> 0 AND D.is_query_store_on = 0))
 									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
