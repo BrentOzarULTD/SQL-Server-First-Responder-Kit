@@ -5978,7 +5978,7 @@ IF @ProductVersionMajor >= 10
 							END;
 
 						
-							IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
+						IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
 											 FROM    #SkipChecks
 											 WHERE   DatabaseName IS NULL AND CheckID = 182 )
