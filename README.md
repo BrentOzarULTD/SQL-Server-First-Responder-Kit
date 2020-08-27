@@ -443,8 +443,7 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 
 * @Help = 1 - returns a result set or prints messages explaining the stored procedure's input and output. Make sure to check the Messages tab in SSMS to read it.
 * @ExpertMode = 1 - turns on more details useful for digging deeper into results.
-* @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist.
-* @OutputServerName - works in sp_Blitz, but not functional yet in the rest of the stored procedures. To track (or help!) implementation status: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/293
+* @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist. @OutputServerName will push the data to a linked server as long as you configure the linked server first and enable RPC OUT calls.
 
 [*Back to top*](#header1)
 
