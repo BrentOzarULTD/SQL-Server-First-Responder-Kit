@@ -1619,6 +1619,10 @@ FROM   many_plans AS m,
        total_plans AS t;
 
 
+UPDATE #plan_usage
+	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
+	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
 SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
