@@ -2137,7 +2137,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
 		BEGIN
-			EXEC sp_MSforeachdb N'USE [?];
+			EXEC sp_MSforeachdb N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
+			USE [?];
 			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
 			SELECT HowToStopIt = 
 						QUOTENAME(DB_NAME()) + N''.'' +
@@ -2149,8 +2150,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
 						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
 				sp.rows
-			FROM sys.objects AS obj   
-			INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
+			FROM sys.objects obj WITH (NOLOCK) 
+			INNER JOIN sys.stats stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
 			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
 			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
 			AND obj.is_ms_shipped = 0
