@@ -56,7 +56,7 @@ We know that's a pain, but that's the kind of thing we find out in the wild. Of 
 
 Rather than give you step-by-step instructions here, we'd rather link you to the work of others:
 
-* [How to fork a GitHub repository and contribute to an open source project]: https://sqldbawithabeard.com/2019/11/29/how-to-fork-a-github-repository-and-contribute-to-an-open-source-project/
+* [How to fork a GitHub repository and contribute to an open source project](https://sqldbawithabeard.com/2019/11/29/how-to-fork-a-github-repository-and-contribute-to-an-open-source-project/)
 
 
 
