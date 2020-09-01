@@ -8346,7 +8346,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												CASE WHEN i.total_MB IS NULL THEN
 													CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
 													+ ' MB free on ' + i.drive
-													+ ' drive (Does not containt SQL Server data files)'
+													+ ' drive (Does not contain SQL Server data files)'
 													ELSE CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
 													+ ' MB free on ' + i.drive
 													+ ' drive (' + i.logical_volume_name
