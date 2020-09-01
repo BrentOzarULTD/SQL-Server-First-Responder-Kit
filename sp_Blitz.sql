@@ -620,8 +620,11 @@ AS
 			DROP TABLE #driveInfo;
 		CREATE TABLE #driveInfo
 			(
-			  drive NVARCHAR ,
-			  SIZE DECIMAL(18, 2)
+			  drive NVARCHAR,
+              logical_volume_name NVARCHAR(32), --Limit is 32 for NTFS, 11 for FAT
+			  available_MB DECIMAL(18, 0),
+              total_MB DECIMAL(18, 0),
+              used_percent DECIMAL(18, 2)
 			);
 
 		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
@@ -8301,9 +8304,32 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 92) WITH NOWAIT;
 								
 								INSERT  INTO #driveInfo
-										( drive, SIZE )
+										( drive, available_MB )
 										EXEC master..xp_fixeddrives;
 								
+								IF @ProductVersionMajor > 10 OR (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 2500)
+								BEGIN
+									Update #driveInfo
+									SET
+									logical_volume_name = v.logical_volume_name,
+									total_MB = v.total_MB,
+									used_percent = v.used_percent
+									FROM
+									#driveInfo
+									inner join (
+												SELECT DISTINCT
+													SUBSTRING(volume_mount_point, 1, 1) AS volume_mount_point
+													,logical_volume_name
+													,total_bytes/1024/1024 AS total_MB
+													,available_bytes/1024/1024 AS available_MB
+													,(CONVERT(DECIMAL(4,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
+												FROM
+													sys.master_files AS f
+												CROSS APPLY
+													sys.dm_os_volume_stats(f.database_id, f.file_id)
+									) as v on #driveInfo.drive = v.volume_mount_point;
+								END;
+
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -8317,9 +8343,16 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Server Info' AS FindingsGroup ,
 												'Drive ' + i.drive + ' Space' AS Finding ,
 												'' AS URL ,
-												CAST(i.SIZE AS VARCHAR(30))
-												+ 'MB free on ' + i.drive
-												+ ' drive' AS Details
+												CASE WHEN i.total_MB IS NULL THEN
+													CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
+													+ ' MB free on ' + i.drive
+													+ ' drive (Does not containt SQL Server data files)'
+													ELSE CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
+													+ ' MB free on ' + i.drive
+													+ ' drive (' + i.logical_volume_name
+													+ ') out of ' + CAST(FORMAT(i.total_MB,'N') AS VARCHAR(30))
+													+ ' MB total (' + CAST(i.used_percent AS VARCHAR(30)) + '%)' END
+												 AS Details
 										FROM    #driveInfo AS i;
 								DROP TABLE #driveInfo;
 							END;
