@@ -8344,13 +8344,13 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Drive ' + i.drive + ' Space' AS Finding ,
 												'' AS URL ,
 												CASE WHEN i.total_MB IS NULL THEN
-													CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
+													CAST(i.available_MB AS VARCHAR(30))
 													+ ' MB free on ' + i.drive
-													+ ' drive (Does not contain SQL Server data files)'
-													ELSE CAST(FORMAT(i.available_MB,'N') AS VARCHAR(30))
+													+ ' drive'
+													ELSE CAST(i.available_MB AS VARCHAR(30))
 													+ ' MB free on ' + i.drive
 													+ ' drive (' + i.logical_volume_name
-													+ ') out of ' + CAST(FORMAT(i.total_MB,'N') AS VARCHAR(30))
+													+ ') out of ' + CAST(i.total_MB AS VARCHAR(30))
 													+ ' MB total (' + CAST(i.used_percent AS VARCHAR(30)) + '%)' END
 												 AS Details
 										FROM    #driveInfo AS i;
