@@ -8307,7 +8307,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										( drive, available_MB )
 										EXEC master..xp_fixeddrives;
 								
-								IF @ProductVersionMajor > 10 OR (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 2500)
+								IF @ProductVersionMajor > 10.5 OR (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 2500)
 								BEGIN
 									Update #driveInfo
 									SET
