@@ -1614,9 +1614,9 @@ SELECT m.duplicate_plan_handles,
        CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
        t.total_plans,
 	   @@SPID
-FROM   many_plans AS m, 
-       single_use_plans AS s, 
-       total_plans AS t;
+FROM   	many_plans AS m
+		CROSS APPLY single_use_plans AS s 
+		CROSS APPLY total_plans AS t;
 
 
 UPDATE #plan_usage
