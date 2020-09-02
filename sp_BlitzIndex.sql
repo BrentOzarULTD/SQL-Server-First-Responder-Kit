@@ -563,12 +563,12 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 						THEN N'INCLUDE: ' + COALESCE(CAST(included_columns_with_data_type AS NVARCHAR(MAX)), CAST(included_columns AS NVARCHAR(MAX))) + N' '
                          ELSE N'' END,
                 [create_tsql] AS N'CREATE INDEX [' 
-                    + REPLACE(REPLACE(REPLACE(REPLACE(
+                    + LEFT(REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
                         + ISNULL(inequality_columns,''),',','')
                         ,'[',''),']',''),' ','_') 
-                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END + N'] ON ' 
+                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END, 128) + N'] ON ' 
                     + [statement] + N' (' + ISNULL(equality_columns,N'')
                     + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
                     + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
