@@ -2137,28 +2137,59 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
 		BEGIN
-			EXEC sp_MSforeachdb N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
-			USE [?];
-			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-			SELECT HowToStopIt = 
-						QUOTENAME(DB_NAME()) + N''.'' +
-						QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-						QUOTENAME(obj.name) +
-						N'' statistic '' + QUOTENAME(stat.name) + 
-						N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-						N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-				sp.rows
-			FROM sys.objects obj WITH (NOLOCK) 
-			INNER JOIN sys.stats stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
-			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-			AND obj.is_ms_shipped = 0
-			AND ''[?]'' <> ''[tempdb]'';';
+			/* We don't want to hang around to obtain locks */
+			SET LOCK_TIMEOUT 0;
+
+			EXEC sp_MSforeachdb N'USE [?];
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
+			BEGIN TRY
+				INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+				SELECT HowToStopIt = 
+							QUOTENAME(DB_NAME()) + N''.'' +
+							QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+							QUOTENAME(obj.name) +
+							N'' statistic '' + QUOTENAME(stat.name) + 
+							N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+							N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+							CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
+							N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+					sp.rows
+				FROM sys.objects AS obj WITH (NOLOCK)
+				INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
+				CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+				WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+				AND obj.is_ms_shipped = 0
+				AND ''[?]'' <> ''[tempdb]'';
+			END TRY
+			BEGIN CATCH
+				IF (ERROR_NUMBER() = 1222)
+				BEGIN 
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as the lock timeout was exceeded,''+
+								N''  this is likely due to an Index operation in Progress'',
+						-1
+				END
+				ELSE
+				BEGIN
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as a result of error: ''+
+								CAST(ERROR_NUMBER() AS NVARCHAR(10)) +
+								N'' with message: ''+
+								CAST(ERROR_MESSAGE() AS NVARCHAR(128)),
+						-1
+				END
+			END CATCH';
+
+			/* Set timeout back to a default value of -1 */
+			SET LOCK_TIMEOUT -1;
 		END;
-    
-		IF EXISTS (SELECT * FROM #UpdatedStats)
+		
+		/* We mark timeout exceeded with a -1 so only show these IF there is statistics info that succeeded */
+		IF EXISTS (SELECT * FROM #UpdatedStats WHERE RowsForSorting > -1)
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 			SELECT 44 AS CheckId,
 					50 AS Priority,
