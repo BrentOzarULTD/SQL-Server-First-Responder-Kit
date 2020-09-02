@@ -43,7 +43,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.98', @VersionDate = '20200808';
+SELECT @Version = '7.99', @VersionDate = '20200901';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -378,7 +378,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 			  page_latch_wait_count BIGINT NULL,
 			  page_latch_wait_in_ms BIGINT NULL,
 			  page_io_latch_wait_count BIGINT NULL,
-			  page_io_latch_wait_in_ms BIGINT NULL
+			  page_io_latch_wait_in_ms BIGINT NULL,
+              lock_escalation_desc nvarchar(60) NULL
             );
 
         CREATE TABLE #IndexSanitySize
@@ -412,6 +413,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 			  page_latch_wait_in_ms BIGINT NULL,
 			  page_io_latch_wait_count BIGINT NULL,
 			  page_io_latch_wait_in_ms BIGINT NULL,
+              lock_escalation_desc nvarchar(60) NULL,
               index_size_summary AS ISNULL(
                 CASE WHEN partition_count > 1
                         THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
@@ -449,7 +451,10 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                 ), N'Table metadata not in memory'),
             index_lock_wait_summary AS ISNULL(
                 CASE WHEN total_row_lock_wait_count = 0 AND  total_page_lock_wait_count = 0 AND
-                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits.'
+                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits; '
+                    + CASE WHEN lock_escalation_desc = N'DISABLE' THEN N'Lock escalation DISABLE.'
+                      ELSE N''
+                      END
                 ELSE
                     CASE WHEN total_row_lock_wait_count > 0 THEN
                         N'Row lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_row_lock_wait_count AS MONEY), 1), N'.00', N'')
@@ -485,7 +490,11 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     END +
                     CASE WHEN total_index_lock_promotion_attempt_count > 0 THEN
                         N'Lock escalation attempts: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_index_lock_promotion_attempt_count AS MONEY), 1), N'.00', N'')
-                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') + N'.'
+                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') +N'; '
+                    ELSE N''
+                    END +
+                    CASE WHEN lock_escalation_desc = N'DISABLE' THEN
+                        N'Lock escalation DISABLE.'
                     ELSE N''
                     END
                 END                  
@@ -1344,6 +1353,7 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
                                 SUM(os.leaf_insert_count), 
                                 SUM(os.leaf_delete_count), 
@@ -1376,6 +1386,10 @@ BEGIN TRY
                     LEFT JOIN ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_index_operational_stats('
                 + CAST(@DatabaseID AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
                     ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
+			            OUTER APPLY (SELECT st.lock_escalation_desc
+			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
+			                         WHERE st.object_id = ps.object_id
+			                             AND ps.index_id < 2 ) le
                     WHERE 1=1 
                     ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
                     ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
@@ -1387,6 +1401,7 @@ BEGIN TRY
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
             OPTION    ( RECOMPILE );
@@ -1407,6 +1422,7 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								le.lock_escalation_desc,
                                 ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N',
                                 SUM(os.leaf_insert_count), 
                                 SUM(os.leaf_delete_count), 
@@ -1438,6 +1454,10 @@ BEGIN TRY
 						JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
                         OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
                     + CAST(@DatabaseID AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
+			            OUTER APPLY (SELECT st.lock_escalation_desc
+			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
+			                         WHERE st.object_id = ps.object_id
+			                             AND ps.index_id < 2 ) le
                         WHERE 1=1 
                         ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
                         ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
@@ -1449,6 +1469,7 @@ BEGIN TRY
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
                 OPTION    ( RECOMPILE );
@@ -1480,7 +1501,8 @@ BEGIN TRY
                                           row_count, 
                                           reserved_MB,
                                           reserved_LOB_MB, 
-                                          reserved_row_overflow_MB,										   
+                                          reserved_row_overflow_MB,
+										  lock_escalation_desc,										   
                                           data_compression_desc, 
                                           leaf_insert_count,
                                           leaf_delete_count, 
@@ -2163,7 +2185,7 @@ FROM #IndexPartitionSanity ps
 
 
 RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
-INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], partition_count, total_rows, total_reserved_MB,
+INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
                                 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
                                 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
                                 total_forwarded_fetch_count,total_row_lock_count,
@@ -2172,7 +2194,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                                 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
                                 total_index_lock_promotion_count, data_compression_desc, 
 								page_latch_wait_count, page_latch_wait_in_ms, page_io_latch_wait_count, page_io_latch_wait_in_ms)
-        SELECT  index_sanity_id, ipp.database_id, ipp.schema_name,						
+        SELECT  index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc,						
 				COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
                 SUM(reserved_row_overflow_MB), 
                 SUM(range_scan_count),
@@ -2211,7 +2233,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
             ORDER BY ipp2.partition_number
             FOR      XML PATH(''),TYPE).value('.', 'nvarchar(max)'), 1, 1, '')) 
                 data_compression_info(data_compression_rollup)
-        GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name
+        GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc
         ORDER BY index_sanity_id 
 OPTION    ( RECOMPILE );
 
