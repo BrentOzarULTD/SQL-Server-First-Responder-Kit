@@ -8358,8 +8358,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 									IF (@ProductVersionMajor >= 11)
 									BEGIN
-										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB AS VARCHAR(30))','CAST(FORMAT(i.available_MB,''N'') AS VARCHAR(30))');
-										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB AS VARCHAR(30))','CAST(FORMAT(i.total_MB,''N'') AS VARCHAR(30))');
+										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
+										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
 									END;
 
 									EXECUTE(@StringToExecute);
