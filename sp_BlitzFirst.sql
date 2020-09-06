@@ -1009,22 +1009,7 @@ BEGIN
             END;
         END;
 
-	IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
-		DROP TABLE #ReadableDBs;
-	CREATE TABLE #ReadableDBs (
-	database_id INT
-	);
-
-	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
-    BEGIN
-		RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
-
-        SET @StringToExecute = 'INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;';
-        EXEC(@StringToExecute);
-		
-	END
-
-    DECLARE	@v DECIMAL(6,2),
+	DECLARE	@v DECIMAL(6,2),
 		@build INT,
 		@memGrantSortSupported BIT = 1;
 
@@ -1363,7 +1348,22 @@ BEGIN
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS);
 
-	/* If they want to run sp_BlitzWho and export to table, go for it. */
+	IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
+		DROP TABLE #ReadableDBs;
+	CREATE TABLE #ReadableDBs (
+	database_id INT
+	);
+
+	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+    BEGIN
+		RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+
+        SET @StringToExecute = 'INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;';
+        EXEC(@StringToExecute);
+		
+	END
+    
+    /* If they want to run sp_BlitzWho and export to table, go for it. */
 	IF @OutputTableNameBlitzWho IS NOT NULL
 		AND @OutputDatabaseName IS NOT NULL
 		AND @OutputSchemaName IS NOT NULL
