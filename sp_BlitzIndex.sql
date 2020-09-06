@@ -494,7 +494,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     ELSE N''
                     END +
                     CASE WHEN lock_escalation_desc = N'DISABLE' THEN
-                        N'Lock escalation DISABLE.'
+                        N'Lock escalation is disabled.'
                     ELSE N''
                     END
                 END                  
