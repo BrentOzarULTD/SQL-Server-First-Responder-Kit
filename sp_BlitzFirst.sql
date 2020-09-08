@@ -1798,7 +1798,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	/* Query Problems - Queries with high memory grants - CheckID 46 */
 	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
-	SELECT 100 AS CheckID,
+	SELECT 46 AS CheckID,
 	    100 AS Priority,
 	    'Query Problems' AS FindingGroup,
 	    'Query with memory a grant exceeding '
