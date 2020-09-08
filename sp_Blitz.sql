@@ -8307,7 +8307,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										( drive, available_MB )
 										EXEC master..xp_fixeddrives;
 								
-								IF (@ProductVersionMajor > 10.5 AND SERVERPROPERTY('Edition') <> 'SQL Azure') OR (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 2500) 
+								IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_volume_stats')
+									AND 100 >= (SELECT COUNT(*) FROM sys.master_files)
 								BEGIN
 									SET @StringToExecute = 'Update #driveInfo
 									SET
@@ -8358,7 +8359,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
 									IF (@ProductVersionMajor >= 11)
 									BEGIN
-										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
+										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.available_MB/1024,''N2'')');
 										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
 									END;
 
