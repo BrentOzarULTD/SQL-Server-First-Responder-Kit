@@ -28,6 +28,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
     @BlitzCacheSkipAnalysis BIT = 1 ,
+	@MemoryGrantThresholdPct DECIMAL(5,2) = 15.00,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -1794,6 +1795,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
+
+	/* Query Problems - Queries with high memory grants - CheckID 46 */
+	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
+	SELECT 46 AS CheckID,
+	    100 AS Priority,
+	    'Query Problems' AS FindingGroup,
+	    'Query with memory a grant exceeding '
+		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
+		+'%' AS Finding,
+		'Granted size: '+ CAST(CAST(Grants.granted_memory_kb / 1024 AS INT) AS NVARCHAR(50))
+		+N'MB '
+		 + @LineFeed
+		+N'Granted pct: ' 
+		+ CAST(ISNULL((CAST(Grants.granted_memory_kb / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' 
+		+ @LineFeed
+		+N'SQLHandle: '
+		+CONVERT(NVARCHAR(128),Grants.[sql_handle],1),
+		'https://www.brentozar.com/memory-grants-sql-servers-public-toilet/' AS URL,
+		SQLText.[text],
+		QueryPlan.query_plan
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	OUTER APPLY sys.dm_exec_sql_text(Grants.[sql_handle]) AS SQLText
+	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
+	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
 
     /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
