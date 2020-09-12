@@ -8308,7 +8308,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										EXEC master..xp_fixeddrives;
 								
 								IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_volume_stats')
-									AND 100 >= (SELECT COUNT(*) FROM sys.master_files)
 								BEGIN
 									SET @StringToExecute = 'Update #driveInfo
 									SET
@@ -8325,7 +8324,13 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													,available_bytes/1024/1024 AS available_MB
 													,(CONVERT(DECIMAL(4,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
 												FROM
-													sys.master_files AS f
+													(SELECT TOP 1 WITH TIES 
+														database_id
+														,file_id
+														,SUBSTRING(physical_name,1,1) AS Drive
+													 FROM sys.master_files
+													 ORDER BY ROW_NUMBER() OVER(PARTITION BY SUBSTRING(physical_name,1,1) ORDER BY database_id)
+													) f
 												CROSS APPLY
 													sys.dm_os_volume_stats(f.database_id, f.file_id)
 									) as v on #driveInfo.drive = v.volume_mount_point;';
