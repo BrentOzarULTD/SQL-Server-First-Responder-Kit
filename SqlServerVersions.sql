@@ -41,6 +41,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4063, 'CU6', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
     (15, 4053, 'CU6', 'https://support.microsoft.com/en-us/help/4563110', '2020-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 6 '),
     (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
     (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
@@ -49,6 +50,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3356, 'RTM CU22', 'https://support.microsoft.com/en-us/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
     (14, 3335, 'RTM CU21', 'https://support.microsoft.com/en-us/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),
     (14, 3294, 'RTM CU20', 'https://support.microsoft.com/en-us/help/4541283', '2020-04-07', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 20'),
     (14, 3257, 'RTM CU19', 'https://support.microsoft.com/en-us/help/4535007', '2020-02-05', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 19'),
