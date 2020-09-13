@@ -28,6 +28,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
     @BlitzCacheSkipAnalysis BIT = 1 ,
+	@MemoryGrantThresholdPct DECIMAL(5,2) = 15.00,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -44,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.98', @VersionDate = '20200808';
+SELECT @Version = '7.99', @VersionDate = '20200913';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1795,6 +1796,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
+	/* Query Problems - Queries with high memory grants - CheckID 46 */
+	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
+	SELECT 46 AS CheckID,
+	    100 AS Priority,
+	    'Query Problems' AS FindingGroup,
+	    'Query with memory a grant exceeding '
+		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
+		+'%' AS Finding,
+		'Granted size: '+ CAST(CAST(Grants.granted_memory_kb / 1024 AS INT) AS NVARCHAR(50))
+		+N'MB '
+		 + @LineFeed
+		+N'Granted pct: ' 
+		+ CAST(ISNULL((CAST(Grants.granted_memory_kb / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' 
+		+ @LineFeed
+		+N'SQLHandle: '
+		+CONVERT(NVARCHAR(128),Grants.[sql_handle],1),
+		'https://www.brentozar.com/memory-grants-sql-servers-public-toilet/' AS URL,
+		SQLText.[text],
+		QueryPlan.query_plan
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	OUTER APPLY sys.dm_exec_sql_text(Grants.[sql_handle]) AS SQLText
+	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
+	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
+
     /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
@@ -2137,27 +2163,59 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
 		BEGIN
+			/* We don't want to hang around to obtain locks */
+			SET LOCK_TIMEOUT 0;
+
 			EXEC sp_MSforeachdb N'USE [?];
-			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-			SELECT HowToStopIt = 
-						QUOTENAME(DB_NAME()) + N''.'' +
-						QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-						QUOTENAME(obj.name) +
-						N'' statistic '' + QUOTENAME(stat.name) + 
-						N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-						N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-				sp.rows
-			FROM sys.objects AS obj   
-			INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
-			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-			AND obj.is_ms_shipped = 0
-			AND ''[?]'' <> ''[tempdb]'';';
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
+			BEGIN TRY
+				INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+				SELECT HowToStopIt = 
+							QUOTENAME(DB_NAME()) + N''.'' +
+							QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+							QUOTENAME(obj.name) +
+							N'' statistic '' + QUOTENAME(stat.name) + 
+							N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+							N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+							CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
+							N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+					sp.rows
+				FROM sys.objects AS obj WITH (NOLOCK)
+				INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
+				CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+				WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+				AND obj.is_ms_shipped = 0
+				AND ''[?]'' <> ''[tempdb]'';
+			END TRY
+			BEGIN CATCH
+				IF (ERROR_NUMBER() = 1222)
+				BEGIN 
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as the lock timeout was exceeded,''+
+								N''  this is likely due to an Index operation in Progress'',
+						-1
+				END
+				ELSE
+				BEGIN
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as a result of error: ''+
+								CAST(ERROR_NUMBER() AS NVARCHAR(10)) +
+								N'' with message: ''+
+								CAST(ERROR_MESSAGE() AS NVARCHAR(128)),
+						-1
+				END
+			END CATCH';
+
+			/* Set timeout back to a default value of -1 */
+			SET LOCK_TIMEOUT -1;
 		END;
-    
-		IF EXISTS (SELECT * FROM #UpdatedStats)
+		
+		/* We mark timeout exceeded with a -1 so only show these IF there is statistics info that succeeded */
+		IF EXISTS (SELECT * FROM #UpdatedStats WHERE RowsForSorting > -1)
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 			SELECT 44 AS CheckId,
 					50 AS Priority,
