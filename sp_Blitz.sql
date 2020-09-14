@@ -1284,6 +1284,36 @@ AS
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 236 )
+					AND EXISTS (SELECT * FROM #BlitzResults WHERE CheckID = 178) /* We found snapshot backups */
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 236) WITH NOWAIT;
+						
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT TOP 1 236 AS CheckID ,
+										50 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'Snapshotting Too Many Databases' AS Finding ,
+										'https://BrentOzar.com/go/toomanysnaps' AS URL ,
+										( CAST(SUM(1) AS VARCHAR(20)) + ' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.') AS Details
+								FROM msdb.dbo.backupset bs
+								WHERE bs.type = 'D'
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
+								GROUP BY bs.backup_finish_date
+								HAVING SUM(1) >= 35
+								ORDER BY SUM(1) DESC;
+					END;
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 4 )
 					BEGIN
 						
