@@ -1285,7 +1285,6 @@ AS
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 236 )
-					AND EXISTS (SELECT * FROM #BlitzResults WHERE CheckID = 178) /* We found snapshot backups */
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 236) WITH NOWAIT;
