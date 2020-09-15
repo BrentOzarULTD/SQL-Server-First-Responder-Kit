@@ -2677,8 +2677,8 @@ BEGIN
 					INNER JOIN sys.columns c ON p.object_id = c.object_id
 					INNER JOIN sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
 					WHERE p.object_id = OBJECT_ID(@TableName)
-					AND EXISTS (SELECT * FROM sys.column_store_segments seg WHERE seg.column_id = c.column_id)
-					/* Sort the number types first: */
+					AND EXISTS (SELECT * FROM sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
+					AND p.data_compression IN (3,4)
 					ORDER BY c.column_id;
 				END';
 
