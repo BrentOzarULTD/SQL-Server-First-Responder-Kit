@@ -2672,14 +2672,18 @@ BEGIN
 			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectId)
 				BEGIN
 				SET @ColumnList = N'''';
-				SELECT @ColumnList = @ColumnList + QUOTENAME(c.name) + N'', ''
+				WITH DistinctColumns AS (
+				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
 					FROM sys.partitions p
 					INNER JOIN sys.columns c ON p.object_id = c.object_id
 					INNER JOIN sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
 					WHERE p.object_id = OBJECT_ID(@TableName)
 					AND EXISTS (SELECT * FROM sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
 					AND p.data_compression IN (3,4)
-					ORDER BY c.column_id;
+				)
+				SELECT @ColumnList = @ColumnList + column_name + N'', ''
+					FROM DistinctColumns
+					ORDER BY column_id;
 				END';
 
 		IF @Debug = 1
@@ -2703,19 +2707,19 @@ BEGIN
 
 		IF @ColumnList <> ''
 		BEGIN
-			SET @dsql = N'SELECT row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
+			SET @dsql = N'SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
 				FROM (
-					SELECT c.name AS column_name, /* seg.column_id, */
+					SELECT c.name AS column_name, p.partition_number,
 						rg.row_group_id, rg.total_rows, rg.deleted_rows,
 						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
 					FROM sys.column_store_row_groups rg 
 					INNER JOIN sys.columns c ON rg.object_id = c.object_id
-					INNER JOIN sys.partitions p ON rg.object_id = p.object_id
+					INNER JOIN sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
 					LEFT OUTER JOIN sys.column_store_segments seg ON p.partition_id = seg.partition_id AND c.column_id = seg.column_id AND rg.row_group_id = seg.segment_id
 					WHERE rg.object_id = OBJECT_ID(@TableName)
 				) AS x
 				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
-				ORDER BY row_group_id;';
+				ORDER BY partition_number, row_group_id;';
  
 			IF @Debug = 1
 				BEGIN
