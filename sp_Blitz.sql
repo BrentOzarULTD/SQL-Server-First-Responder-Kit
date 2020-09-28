@@ -9051,7 +9051,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
-								EXEC(@StringToExecute);
+								IF @OutputXMLasNVARCHAR = 1
+								BEGIN
+									SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)');
+								END;
+                                EXEC(@StringToExecute);
 							END;
 						IF @ValidOutputServer = 1
 							BEGIN
@@ -9072,6 +9076,21 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
+								IF @OutputXMLasNVARCHAR = 1
+								BEGIN
+									SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								END;
+								ELSE
+                                begin
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
 								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
@@ -9082,8 +9101,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-								
+								END;
 								EXEC(@StringToExecute);
+							
 							END;
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
