@@ -23,7 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
-	@SortOrder VARCHAR(256) = 'elapsed_time'
+	@SortOrder NVARCHAR(256) = 'elapsed_time'
 AS
 BEGIN
 	SET NOCOUNT ON;
