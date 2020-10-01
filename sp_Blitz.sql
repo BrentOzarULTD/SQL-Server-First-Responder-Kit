@@ -6902,21 +6902,59 @@ IF @ProductVersionMajor >= 10
 				        IF EXISTS ( SELECT * FROM sys.all_objects WHERE [name] = 'database_scoped_configurations' )
 					        BEGIN
 								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] through [%d].', 0, 1, 194, 197) WITH NOWAIT;
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] through [%d] and [%d] through [%d].', 0, 1, 194, 197, 237, 255) WITH NOWAIT;
 								
 								INSERT INTO #DatabaseScopedConfigurationDefaults (configuration_id, [name], default_value, default_value_for_secondary, CheckID)
-									SELECT 1, 'MAXDOP', 0, NULL, 194
+									SELECT 1, 'MAXDOP', '0', NULL, 194
 									UNION ALL
-									SELECT 2, 'LEGACY_CARDINALITY_ESTIMATION', 0, NULL, 195
+									SELECT 2, 'LEGACY_CARDINALITY_ESTIMATION', '0', NULL, 195
 									UNION ALL
-									SELECT 3, 'PARAMETER_SNIFFING', 1, NULL, 196
+									SELECT 3, 'PARAMETER_SNIFFING', '1', NULL, 196
 									UNION ALL
-									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', 0, NULL, 197;
+									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', '0', NULL, 197
+									UNION ALL
+									SELECT 6, 'IDENTITY_CACHE', '1', NULL, 237
+									UNION ALL
+									SELECT 7, 'INTERLEAVED_EXECUTION_TVF', '1', NULL, 238
+									UNION ALL
+									SELECT 8, 'BATCH_MODE_MEMORY_GRANT_FEEDBACK', '1', NULL, 239
+									UNION ALL
+									SELECT 9, 'BATCH_MODE_ADAPTIVE_JOINS', '1', NULL, 240
+									UNION ALL
+									SELECT 10, 'TSQL_SCALAR_UDF_INLINING', '1', NULL, 241
+									UNION ALL
+									SELECT 11, 'ELEVATE_ONLINE', 'OFF', NULL, 242
+									UNION ALL
+									SELECT 12, 'ELEVATE_RESUMABLE', 'OFF', NULL, 243
+									UNION ALL
+									SELECT 13, 'OPTIMIZE_FOR_AD_HOC_WORKLOADS', '0', NULL, 244
+									UNION ALL
+									SELECT 14, 'XTP_PROCEDURE_EXECUTION_STATISTICS', '0', NULL, 245
+									UNION ALL
+									SELECT 15, 'XTP_QUERY_EXECUTION_STATISTICS', '0', NULL, 246
+									UNION ALL
+									SELECT 16, 'ROW_MODE_MEMORY_GRANT_FEEDBACK', '1', NULL, 247
+									UNION ALL
+									SELECT 17, 'ISOLATE_SECURITY_POLICY_CARDINALITY', '0', NULL, 248
+									UNION ALL
+									SELECT 18, 'BATCH_MODE_ON_ROWSTORE', '1', NULL, 249
+									UNION ALL
+									SELECT 19, 'DEFERRED_COMPILATION_TV', '1', NULL, 250
+									UNION ALL
+									SELECT 20, 'ACCELERATED_PLAN_FORCING', '1', NULL, 251
+									UNION ALL
+									SELECT 21, 'GLOBAL_TEMPORARY_TABLE_AUTO_DROP', '1', NULL, 252
+									UNION ALL
+									SELECT 22, 'LIGHTWEIGHT_QUERY_PROFILING', '1', NULL, 253
+									UNION ALL
+									SELECT 23, 'VERBOSE_TRUNCATION_WARNINGS', '1', NULL, 254
+									UNION ALL
+									SELECT 24, 'LAST_QUERY_PLAN_STATS', '0', NULL, 255;
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://BrentOzar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
 									FROM [?].sys.database_scoped_configurations dsc
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
-									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (dsc.value = def.default_value OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
+									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (cast(dsc.value as nvarchar(100)) = cast(def.default_value as nvarchar(100)) OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
 									 OPTION (RECOMPILE);';
