@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.97', @VersionDate = '20200712';
+	SELECT @Version = '7.99', @VersionDate = '20200913';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -304,10 +304,6 @@ AS
 		want to skip. This part of the code checks those parameters, gets the list,
 		and then saves those in a temp table. As we run each check, we'll see if we
 		need to skip it.
-
-		Really anal-retentive users will note that the @SkipChecksServer parameter is
-		not used. YET. We added that parameter in so that we could avoid changing the
-		stored proc's surface area (interface) later.
 		*/
 		/* --TOURSTOP07-- */
 		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL
@@ -337,10 +333,15 @@ AS
 				
 				IF @Debug IN (1, 2) RAISERROR('Inserting SkipChecks', 0, 1) WITH NOWAIT;
 				
-				SET @StringToExecute = 'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
+				SET @StringToExecute = N'INSERT INTO #SkipChecks(DatabaseName, CheckID, ServerName )
 				SELECT DISTINCT DatabaseName, CheckID, ServerName
-				FROM ' + QUOTENAME(@SkipChecksDatabase) + '.' + QUOTENAME(@SkipChecksSchema) + '.' + QUOTENAME(@SkipChecksTable)
-					+ ' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
+				FROM '
+				IF LTRIM(RTRIM(@SkipChecksServer)) <> ''
+					BEGIN
+					SET @StringToExecute += QUOTENAME(@SkipChecksServer) + N'.';
+					END
+				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + N'.' + QUOTENAME(@SkipChecksSchema) + N'.' + QUOTENAME(@SkipChecksTable)
+					+ N' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
 				EXEC(@StringToExecute);
 			END;
 
@@ -439,6 +440,7 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (219);
+						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins called by Invalid login defined with Windows Authentication */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
 				            Priority ,
@@ -618,8 +620,11 @@ AS
 			DROP TABLE #driveInfo;
 		CREATE TABLE #driveInfo
 			(
-			  drive NVARCHAR ,
-			  SIZE DECIMAL(18, 2)
+			  drive NVARCHAR,
+              logical_volume_name NVARCHAR(32), --Limit is 32 for NTFS, 11 for FAT
+			  available_MB DECIMAL(18, 0),
+              total_MB DECIMAL(18, 0),
+              used_percent DECIMAL(18, 2)
 			);
 
 		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
@@ -3173,7 +3178,7 @@ AS
 								  Details
 								)
 								SELECT  100 AS CheckID ,
-										50 AS Priority ,
+										170 AS Priority ,
 										'Reliability' AS FindingGroup ,
 										'Remote DAC Disabled' AS Finding ,
 										'https://BrentOzar.com/go/dac' AS URL ,
@@ -3980,7 +3985,7 @@ AS
 				                        )
 				                        SELECT DISTINCT 150 AS CheckID ,
 					                            t.DatabaseName,
-						                        50 AS Priority ,
+						                        170 AS Priority ,
 						                        'Reliability' AS FindingsGroup ,
 						                        'Errors Logged Recently in the Default Trace' AS Finding ,
 						                        'https://BrentOzar.com/go/defaulttrace' AS URL ,
@@ -4921,7 +4926,7 @@ IF @ProductVersionMajor >= 10
 											FROM    sys.all_objects
 											WHERE   name = 'dm_server_memory_dumps' )
 						BEGIN
-							IF 5 <= (SELECT COUNT(*) FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(YEAR, -1, GETDATE()))
+							IF EXISTS (SELECT * FROM [sys].[dm_server_memory_dumps] WHERE [creation_time] >= DATEADD(YEAR, -1, GETDATE()))
 
 							BEGIN
 							
@@ -5612,7 +5617,7 @@ IF @ProductVersionMajor >= 10
 									  [URL] ,
 									  [Details] )
 						SELECT 209 AS CheckID ,
-						        50 AS Priority ,
+						        10 AS Priority ,
 						        'Reliability' AS FindingsGroup ,
 						        'DBCC WRITEPAGE Used Recently' AS Finding ,
 						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
@@ -5976,7 +5981,7 @@ IF @ProductVersionMajor >= 10
 							END;
 
 						
-							IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
+						IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
 											 FROM    #SkipChecks
 											 WHERE   DatabaseName IS NULL AND CheckID = 182 )
@@ -6009,6 +6014,37 @@ IF @ProductVersionMajor >= 10
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 							
 							EXECUTE(@StringToExecute);
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 235 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 235) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 235,
+		                              N''?'',
+		                              150,
+		                              ''Performance'',
+		                              ''Inconsistent Query Store metadata'',
+		                              '''',
+		                              (''Query store state in master metadata and database specific metadata not in sync.'')
+		                              FROM [?].sys.database_query_store_options dqso
+										join master.sys.databases D on D.name = N''?''
+									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state <> 0 AND D.is_query_store_on = 0))
+									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -6296,7 +6332,7 @@ IF @ProductVersionMajor >= 10
 			Details)
 		  SELECT DISTINCT 164,
 		  N''?'',
-		  20,
+		  100,
 		  ''Reliability'',
 		  ''Plan Guides Failing'',
 		  ''https://BrentOzar.com/go/misguided'',
@@ -7734,7 +7770,7 @@ IF @ProductVersionMajor >= 10
 								)
 								SELECT  77 AS CheckID ,
 										dSnap.[name] AS DatabaseName ,
-										50 AS Priority ,
+										170 AS Priority ,
 										'Reliability' AS FindingsGroup ,
 										'Database Snapshot Online' AS Finding ,
 										'https://BrentOzar.com/go/snapshot' AS URL ,
@@ -8268,10 +8304,40 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 92) WITH NOWAIT;
 								
 								INSERT  INTO #driveInfo
-										( drive, SIZE )
+										( drive, available_MB )
 										EXEC master..xp_fixeddrives;
 								
-								INSERT  INTO #BlitzResults
+								IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_volume_stats')
+								BEGIN
+									SET @StringToExecute = 'Update #driveInfo
+									SET
+									logical_volume_name = v.logical_volume_name,
+									total_MB = v.total_MB,
+									used_percent = v.used_percent
+									FROM
+									#driveInfo
+									inner join (
+												SELECT DISTINCT
+													SUBSTRING(volume_mount_point, 1, 1) AS volume_mount_point
+													,CASE WHEN ISNULL(logical_volume_name,'''') = '''' THEN '''' ELSE '' ('' + logical_volume_name + '')'' END AS logical_volume_name
+													,total_bytes/1024/1024 AS total_MB
+													,available_bytes/1024/1024 AS available_MB
+													,(CONVERT(DECIMAL(4,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
+												FROM
+													(SELECT TOP 1 WITH TIES 
+														database_id
+														,file_id
+														,SUBSTRING(physical_name,1,1) AS Drive
+													 FROM sys.master_files
+													 ORDER BY ROW_NUMBER() OVER(PARTITION BY SUBSTRING(physical_name,1,1) ORDER BY database_id)
+													) f
+												CROSS APPLY
+													sys.dm_os_volume_stats(f.database_id, f.file_id)
+									) as v on #driveInfo.drive = v.volume_mount_point;';
+									EXECUTE(@StringToExecute);
+								END;
+
+								SET @StringToExecute ='INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
 										  FindingsGroup ,
@@ -8281,13 +8347,29 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										)
 										SELECT  92 AS CheckID ,
 												250 AS Priority ,
-												'Server Info' AS FindingsGroup ,
-												'Drive ' + i.drive + ' Space' AS Finding ,
-												'' AS URL ,
-												CAST(i.SIZE AS VARCHAR(30))
-												+ 'MB free on ' + i.drive
-												+ ' drive' AS Details
-										FROM    #driveInfo AS i;
+												''Server Info'' AS FindingsGroup ,
+												''Drive '' + i.drive + '' Space'' AS Finding ,
+												'''' AS URL ,
+												CASE WHEN i.total_MB IS NULL THEN
+													CAST(CAST(i.available_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
+													+ '' GB free on '' + i.drive
+													+ '' drive''
+													ELSE CAST(CAST(i.available_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
+													+ '' GB free on '' + i.drive
+													+ '' drive'' + i.logical_volume_name
+													+ '' out of '' + CAST(CAST(i.total_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
+													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''%)'' END
+												 AS Details
+										FROM    #driveInfo AS i;'
+
+									IF (@ProductVersionMajor >= 11)
+									BEGIN
+										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.available_MB/1024,''N2'')');
+										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
+									END;
+
+									EXECUTE(@StringToExecute);
+
 								DROP TABLE #driveInfo;
 							END;
 
@@ -9232,7 +9314,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.97', @VersionDate = '20200712';
+	SELECT @Version = '3.99', @VersionDate = '20200913';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -10831,6 +10913,7 @@ CREATE TABLE ##BlitzCacheProcs (
         QueryPlanHash BINARY(8),
         StatementStartOffset INT,
         StatementEndOffset INT,
+		PlanGenerationNum BIGINT,
         MinReturnedRows BIGINT,
         MaxReturnedRows BIGINT,
         AverageReturnedRows MONEY,
@@ -10979,7 +11062,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @OutputServerName NVARCHAR(258) = NULL ,
     @OutputDatabaseName NVARCHAR(258) = NULL ,
     @OutputSchemaName NVARCHAR(258) = NULL ,
-    @OutputTableName NVARCHAR(258) = NULL ,
+    @OutputTableName NVARCHAR(258) = NULL , -- do NOT use ##BlitzCacheResults or ##BlitzCacheProcs as they are used as work tables in this procedure
     @ConfigurationDatabaseName NVARCHAR(128) = NULL ,
     @ConfigurationSchemaName NVARCHAR(258) = NULL ,
     @ConfigurationTableName NVARCHAR(258) = NULL ,
@@ -11010,7 +11093,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200712';
+SELECT @Version = '7.99', @VersionDate = '20200913';
 
 
 IF(@VersionCheckMode = 1)
@@ -11035,7 +11118,6 @@ Known limitations of this version:
    excluded by default.
  - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
    with no spaces between the hash values.
- - @OutputServerName is not functional yet.
 
 Unknown limitations of this version:
  - May or may not be vulnerable to the wick effect.
@@ -11485,6 +11567,9 @@ BEGIN
 	RETURN;
 END;
 
+/* Lets get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = LOWER(@SortOrder);
+
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
 IF @SortOrder LIKE 'query hash%'
 	BEGIN
@@ -11633,6 +11718,7 @@ BEGIN
         QueryPlanHash BINARY(8),
         StatementStartOffset INT,
         StatementEndOffset INT,
+		PlanGenerationNum BIGINT,
         MinReturnedRows BIGINT,
         MaxReturnedRows BIGINT,
         AverageReturnedRows MONEY,
@@ -11821,7 +11907,6 @@ END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
 
-SET @SortOrder = LOWER(@SortOrder);
 SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
 
 SET @SortOrder = CASE 
@@ -12310,7 +12395,8 @@ RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WI
 WITH total_plans AS 
 (
     SELECT COUNT_BIG(*) AS total_plans
-    FROM sys.dm_exec_query_stats AS deqs
+    FROM sys.dm_exec_cached_plans AS deqs
+    WHERE deqs.cacheobjtype = N'Compiled Plan'
 ),
      many_plans AS 
 (
@@ -12343,10 +12429,14 @@ SELECT m.duplicate_plan_handles,
        CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
        t.total_plans,
 	   @@SPID
-FROM   many_plans AS m, 
-       single_use_plans AS s, 
-       total_plans AS t;
+FROM   	many_plans AS m
+		CROSS APPLY single_use_plans AS s 
+		CROSS APPLY total_plans AS t;
 
+
+UPDATE #plan_usage
+	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
+	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
@@ -12633,7 +12723,7 @@ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalCPU, AverageCPUPerMinute, PercentCPUByType, PercentDurationByType,
                     PercentReadsByType, PercentExecutionsByType, AverageDuration, TotalDuration, AverageReads, TotalReads, ExecutionCount,
                     ExecutionsPerMinute, TotalWrites, AverageWrites, PercentWritesByType, WritesPerMinute, PlanCreationTime,
-                    LastExecutionTime, LastCompletionTime, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
+                    LastExecutionTime, LastCompletionTime, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows,
                     LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, 
 					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
@@ -12840,6 +12930,7 @@ SELECT TOP (@Top)
 	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
+	   NULL AS PlanGenerationNum, 
        NULL AS MinReturnedRows,
        NULL AS MaxReturnedRows,
        NULL AS AvgReturnedRows,
@@ -12949,7 +13040,8 @@ BEGIN
            qs.last_execution_time AS LastExecutionTime,
 		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
-           qs.statement_end_offset AS StatementEndOffset, ';
+           qs.statement_end_offset AS StatementEndOffset,
+		   qs.plan_generation_num AS PlanGenerationNum, ';
     
     IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
     BEGIN
@@ -15525,6 +15617,7 @@ BEGIN
             LastExecutionTime AS [Last Execution],
             StatementStartOffset,
             StatementEndOffset,
+			PlanGenerationNum,
 			PlanHandle AS [Plan Handle],  
 			SqlHandle AS [SQL Handle],  
             QueryHash,
@@ -15628,6 +15721,7 @@ BEGIN
 	PlanHandle AS [Plan Handle], 
 	SqlHandle AS [SQL Handle], 
     COALESCE(SetOptions, '''') AS [SET Options],
+	QueryHash AS [Query Hash], 
 	[Remove Plan Handle From Cache]';
 END;
 ELSE
@@ -15769,6 +15863,7 @@ BEGIN
         QueryPlanHash AS [Query Plan Hash],
         StatementStartOffset,
         StatementEndOffset,
+		PlanGenerationNum,
 		[Remove Plan Handle From Cache],
 		[Remove SQL Handle From Cache]';
 END;
@@ -15866,8 +15961,8 @@ EXEC sys.sp_executesql @user_perm_sql,
 IF @common_version >= 11
 BEGIN
     SET @user_perm_sql = N'
-    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 128.0 / 1024.) >= 2.
-    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 128.0 / 1024.))
+    	SELECT @user_perm_gb = CASE WHEN (pages_kb / 1024.0 / 1024.) >= 2.
+    			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 1024.0 / 1024.))
     			                    ELSE 0 
     		                   END
     	FROM sys.dm_os_memory_clerks
@@ -17072,10 +17167,9 @@ IF @Debug = 1
 
     END;
 
-    IF @OutputDatabaseName IS NOT NULL
-       AND @OutputSchemaName IS NOT NULL
-       AND @OutputTableName IS NOT NULL
-       GOTO OutputResultsToTable;
+    IF @OutputTableName IS NOT NULL
+	    --Allow for output to ##DB so don't check for DB or schema name here
+	   GOTO OutputResultsToTable;
 RETURN; --Avoid going into the AllSort GOTO
 
 /*Begin code to sort by all*/
@@ -17168,6 +17262,7 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
            PlanHandle VARBINARY(64),
            SqlHandle VARBINARY(64),
            SetOptions VARCHAR(MAX),
+		   QueryHash BINARY(8),
 		   RemovePlanHandleFromCache NVARCHAR(200),
            Pattern NVARCHAR(20)
          );
@@ -17183,7 +17278,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''cpu'', 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17195,7 +17290,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''reads'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17207,7 +17302,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''writes'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17219,7 +17314,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''duration'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17231,7 +17326,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''executions'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17266,7 +17361,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''memory grant'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17315,7 +17410,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache ) 					 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache ) 					 
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''spills'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17340,7 +17435,7 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache, Pattern 
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache, Pattern 
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  ';
@@ -17358,7 +17453,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg cpu'', 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17370,7 +17465,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg reads'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17382,7 +17477,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg writes'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17394,7 +17489,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg duration'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17406,7 +17501,7 @@ SET @AllSortSql += N'
 					INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 					 
 					 EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg executions'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17441,7 +17536,7 @@ SET @AllSortSql += N'
 						INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg memory grant'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17490,7 +17585,7 @@ SET @AllSortSql += N'
 						INSERT #bou_allsort (	DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters, ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 											TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 											ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache )			 
+											MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache )
 										  
 										  EXEC sp_BlitzCache @ExpertMode = 0, @HideSummary = 1, @Top = @i_Top, @SortOrder = ''avg spills'', @IgnoreSqlHandles = @ISH, 
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
@@ -17516,7 +17611,7 @@ SET @AllSortSql += N'
 					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
 										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
 										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, RemovePlanHandleFromCache, Pattern
+										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, RemovePlanHandleFromCache, Pattern
 										  FROM #bou_allsort 
 										  ORDER BY Id 
 										  OPTION(RECOMPILE);  ';
@@ -17543,211 +17638,544 @@ END;
 /*End of AllSort section*/
 
 
-/*Begin code to sort by all*/
+/*Begin code to write results to table */
 OutputResultsToTable:
+    
+RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
 
-IF @OutputDatabaseName IS NOT NULL
-   AND @OutputSchemaName IS NOT NULL
-   AND @OutputTableName IS NOT NULL
-BEGIN
-    RAISERROR('Writing results to table.', 0, 1) WITH NOWAIT;
-
-    SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
+SELECT @OutputServerName   = QUOTENAME(@OutputServerName),
+       @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
        @OutputSchemaName   = QUOTENAME(@OutputSchemaName),
        @OutputTableName    = QUOTENAME(@OutputTableName);
 
-    /* send results to a table */
-    DECLARE @insert_sql NVARCHAR(MAX) = N'' ;
-
-    SET @insert_sql = 'USE '
-        + @OutputDatabaseName
-        + '; IF EXISTS(SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @OutputSchemaName
-        + ''') AND NOT EXISTS (SELECT * FROM '
-        + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-        + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-        + @OutputTableName + ''') CREATE TABLE '
-        + @OutputSchemaName + '.'
-        + @OutputTableName
-        + N'(ID bigint NOT NULL IDENTITY(1,1),
-          ServerName NVARCHAR(258),
-		  CheckDate DATETIMEOFFSET,
-          Version NVARCHAR(258),
-          QueryType NVARCHAR(258),
-          Warnings varchar(max),
-          DatabaseName sysname,
-          SerialDesiredMemory float,
-          SerialRequiredMemory float,
-          AverageCPU bigint,
-          TotalCPU bigint,
-          PercentCPUByType money,
-          CPUWeight money,
-          AverageDuration bigint,
-          TotalDuration bigint,
-          DurationWeight money,
-          PercentDurationByType money,
-          AverageReads bigint,
-          TotalReads bigint,
-          ReadWeight money,
-          PercentReadsByType money,
-          AverageWrites bigint,
-          TotalWrites bigint,
-          WriteWeight money,
-          PercentWritesByType money,
-          ExecutionCount bigint,
-          ExecutionWeight money,
-          PercentExecutionsByType money,' + N'
-          ExecutionsPerMinute money,
-          PlanCreationTime datetime,
-		  PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
-          LastExecutionTime datetime,
-		  LastCompletionTime datetime, 
-		  PlanHandle varbinary(64),
-		  [Remove Plan Handle From Cache] AS 
-			CASE WHEN [PlanHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  SqlHandle varbinary(64),
-			[Remove SQL Handle From Cache] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
-			ELSE ''N/A'' END,
-		  [SQL Handle More Info] AS 
-			CASE WHEN [SqlHandle] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-		  QueryHash binary(8),
-		  [Query Hash More Info] AS 
-			CASE WHEN [QueryHash] IS NOT NULL 
-			THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
-			ELSE ''N/A'' END,
-          QueryPlanHash binary(8),
-          StatementStartOffset int,
-          StatementEndOffset int,
-          MinReturnedRows bigint,
-          MaxReturnedRows bigint,
-          AverageReturnedRows money,
-          TotalReturnedRows bigint,
-          QueryText nvarchar(max),
-          QueryPlan xml,
-          NumberOfPlans int,
-          NumberOfDistinctPlans int,
-		  MinGrantKB BIGINT,
-		  MaxGrantKB BIGINT,
-		  MinUsedGrantKB BIGINT, 
-		  MaxUsedGrantKB BIGINT,
-		  PercentMemoryGrantUsed MONEY,
-		  AvgMaxMemoryGrant MONEY,
-		  MinSpills BIGINT,
-		  MaxSpills BIGINT,
-		  TotalSpills BIGINT,
-		  AvgSpills MONEY,
-		  QueryPlanCost FLOAT,
-          JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-          CONSTRAINT [PK_' +REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC))';
-
-    		IF @Debug = 1
+/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
+DECLARE @ValidOutputServer BIT;
+DECLARE @ValidOutputLocation BIT;
+DECLARE @LinkedServerDBCheck NVARCHAR(2000);
+DECLARE @ValidLinkedServerDB INT;
+DECLARE @tmpdbchk table (cnt int);
+IF @OutputServerName IS NOT NULL
+	BEGIN
+					
+		IF @Debug IN (1, 2) RAISERROR('Outputting to a remote server.', 0, 1) WITH NOWAIT;
+					
+		IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+		    BEGIN
+		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+		        INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
+		        SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
+		        IF (@ValidLinkedServerDB > 0)
+                    BEGIN
+                        SET @ValidOutputServer = 1;
+                        SET @ValidOutputLocation = 1;
+                    END;
+		        ELSE
+			        RAISERROR('The specified database was not found on the output server', 16, 0);
+		    END;
+        ELSE
+            BEGIN
+                RAISERROR('The specified output server was not found', 16, 0);
+            END;
+    END;
+ELSE
+	BEGIN
+		IF @OutputDatabaseName IS NOT NULL
+			AND @OutputSchemaName IS NOT NULL
+			AND @OutputTableName IS NOT NULL
+			AND EXISTS ( SELECT *
+				FROM   sys.databases
+				WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 			BEGIN
-			    PRINT SUBSTRING(@insert_sql, 0, 4000);
-			    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-			    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-			    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-			    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-			    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-			    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-			    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-			    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-			    PRINT SUBSTRING(@insert_sql, 36000, 40000);
+			SET @ValidOutputLocation = 1;
 			END;
+		ELSE IF @OutputDatabaseName IS NOT NULL
+			AND @OutputSchemaName IS NOT NULL
+			AND @OutputTableName IS NOT NULL
+			AND NOT EXISTS ( SELECT *
+					FROM   sys.databases
+					WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+			BEGIN
+				RAISERROR('The specified output database was not found on this server', 16, 0);
+			END;
+		ELSE
+			BEGIN
+				SET @ValidOutputLocation = 0;
+			END;
+	END;
 
-	EXEC sp_executesql @insert_sql ;
+    /* @OutputTableName lets us export the results to a permanent table */
+    DECLARE @StringToExecute NVARCHAR(MAX) = N'' ;
 
-    /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
-    SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-    SET @insert_sql = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-        WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''LastCompletionTime'')
-        ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
-    EXEC(@insert_sql);
-    
-
-    IF @CheckDateOverride IS NULL
-        BEGIN
-        SET @CheckDateOverride = SYSDATETIMEOFFSET();
-        END;
-
-
-    SET @insert_sql = N' IF EXISTS(SELECT * FROM '
-          + @OutputDatabaseName
-          + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-          + @OutputSchemaName + N''') '
-		  + N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
-          + 'INSERT '
-          + @OutputDatabaseName + '.'
-          + @OutputSchemaName + '.'
-          + @OutputTableName
-          + N' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
-          + N'SELECT TOP (@Top) '
-          + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), N'''') + N', @CheckDateOverride, '
-          + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N'''') + ', '
-          + N' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
-          + N' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
-          + N' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-          + N' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
-          + N' FROM ##BlitzCacheProcs '
-		  + N' WHERE 1=1 ';
-   
-   IF @MinimumExecutionCount IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
-	  END;
-
-   IF @MinutesBack IS NOT NULL
-      BEGIN
-		SET @insert_sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
-	  END;
-
-	SET @insert_sql += N' AND SPID = @@SPID ';
-          
-    SELECT @insert_sql += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
-                                                    WHEN N'reads' THEN N' TotalReads '
-                                                    WHEN N'writes' THEN N' TotalWrites '
-                                                    WHEN N'duration' THEN N' TotalDuration '
-                                                    WHEN N'executions' THEN N' ExecutionCount '
-                                                    WHEN N'compiles' THEN N' PlanCreationTime '
-													WHEN N'memory grant' THEN N' MaxGrantKB'
-													WHEN N'spills' THEN N' MaxSpills'
-                                                    WHEN N'avg cpu' THEN N' AverageCPU'
-                                                    WHEN N'avg reads' THEN N' AverageReads'
-                                                    WHEN N'avg writes' THEN N' AverageWrites'
-                                                    WHEN N'avg duration' THEN N' AverageDuration'
-                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
-													WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-													WHEN 'avg spills' THEN N' AvgSpills'
-                                                    END + N' DESC ';
-
-    SET @insert_sql += N' OPTION (RECOMPILE) ; ';    
-    
-    	IF @Debug = 1
+    IF @ValidOutputLocation = 1
 		BEGIN
-		    PRINT SUBSTRING(@insert_sql, 0, 4000);
-		    PRINT SUBSTRING(@insert_sql, 4000, 8000);
-		    PRINT SUBSTRING(@insert_sql, 8000, 12000);
-		    PRINT SUBSTRING(@insert_sql, 12000, 16000);
-		    PRINT SUBSTRING(@insert_sql, 16000, 20000);
-		    PRINT SUBSTRING(@insert_sql, 20000, 24000);
-		    PRINT SUBSTRING(@insert_sql, 24000, 28000);
-		    PRINT SUBSTRING(@insert_sql, 28000, 32000);
-		    PRINT SUBSTRING(@insert_sql, 32000, 36000);
-		    PRINT SUBSTRING(@insert_sql, 36000, 40000);
-		END;
+			SET @StringToExecute = 'USE '
+				+ @OutputDatabaseName
+				+ '; IF EXISTS(SELECT * FROM '
+				+ @OutputDatabaseName
+				+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+				+ @OutputSchemaName
+				+ ''') AND NOT EXISTS (SELECT * FROM '
+				+ @OutputDatabaseName
+				+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+				+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
+				+ @OutputTableName + ''') CREATE TABLE '
+				+ @OutputSchemaName + '.'
+				+ @OutputTableName
+				+ N'(ID bigint NOT NULL IDENTITY(1,1),
+					ServerName NVARCHAR(258),
+					CheckDate DATETIMEOFFSET,
+					Version NVARCHAR(258),
+					QueryType NVARCHAR(258),
+					Warnings varchar(max),
+					DatabaseName sysname,
+					SerialDesiredMemory float,
+					SerialRequiredMemory float,
+					AverageCPU bigint,
+					TotalCPU bigint,
+					PercentCPUByType money,
+					CPUWeight money,
+					AverageDuration bigint,
+					TotalDuration bigint,
+					DurationWeight money,
+					PercentDurationByType money,
+					AverageReads bigint,
+					TotalReads bigint,
+					ReadWeight money,
+					PercentReadsByType money,
+					AverageWrites bigint,
+					TotalWrites bigint,
+					WriteWeight money,
+					PercentWritesByType money,
+					ExecutionCount bigint,
+					ExecutionWeight money,
+					PercentExecutionsByType money,
+					ExecutionsPerMinute money,
+					PlanCreationTime datetime,' + N'
+					PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+					LastExecutionTime datetime,
+					LastCompletionTime datetime, 
+					PlanHandle varbinary(64),
+					[Remove Plan Handle From Cache] AS 
+						CASE WHEN [PlanHandle] IS NOT NULL 
+						THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
+						ELSE ''N/A'' END,
+					SqlHandle varbinary(64),
+						[Remove SQL Handle From Cache] AS 
+						CASE WHEN [SqlHandle] IS NOT NULL 
+						THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
+						ELSE ''N/A'' END,
+					[SQL Handle More Info] AS 
+						CASE WHEN [SqlHandle] IS NOT NULL 
+						THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
+						ELSE ''N/A'' END,
+					QueryHash binary(8),
+					[Query Hash More Info] AS 
+						CASE WHEN [QueryHash] IS NOT NULL 
+						THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
+						ELSE ''N/A'' END,
+					QueryPlanHash binary(8),
+					StatementStartOffset int,
+					StatementEndOffset int,
+					PlanGenerationNum bigint,
+					MinReturnedRows bigint,
+					MaxReturnedRows bigint,
+					AverageReturnedRows money,
+					TotalReturnedRows bigint,
+					QueryText nvarchar(max),
+					QueryPlan xml,
+					NumberOfPlans int,
+					NumberOfDistinctPlans int,
+					MinGrantKB BIGINT,
+					MaxGrantKB BIGINT,
+					MinUsedGrantKB BIGINT, 
+					MaxUsedGrantKB BIGINT,
+					PercentMemoryGrantUsed MONEY,
+					AvgMaxMemoryGrant MONEY,
+					MinSpills BIGINT,
+					MaxSpills BIGINT,
+					TotalSpills BIGINT,
+					AvgSpills MONEY,
+					QueryPlanCost FLOAT,
+					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+			
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'xml','nvarchar(max)');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '''');''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''');''''');
+                    SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''''; ''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''''; ''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''N/A''','''''N/A''''');
+					
+                    IF @Debug = 1
+                    BEGIN
+                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
+                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
+                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
+                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
+                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
+                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
+                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
+                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
+                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                    END;
+                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    IF @Debug = 1
+                    BEGIN
+                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
+                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
+                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
+                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
+                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
+                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
+                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
+                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
+                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                    END;
+					EXEC(@StringToExecute);
+                END;
+            
+            /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''LastCompletionTime'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''LastCompletionTime''','''''LastCompletionTime''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
 
-    EXEC sp_executesql @insert_sql, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+            /* If the table doesn't have the new PlanGenerationNum column, add it. See Github #2514. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''PlanGenerationNum'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD PlanGenerationNum BIGINT NULL;';
+			IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''PlanGenerationNum''','''''PlanGenerationNum''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+            
+            IF @CheckDateOverride IS NULL
+                BEGIN
+                    SET @CheckDateOverride = SYSDATETIMEOFFSET();
+                END;
+            
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+					+ @OutputServerName + '.'
+					+ @OutputDatabaseName
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+					+ @OutputSchemaName + ''') INSERT '
+					+ @OutputServerName + '.'
+					+ @OutputDatabaseName + '.'
+					+ @OutputSchemaName + '.'
+					+ @OutputTableName
+					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+                    + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+                    + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + 'SELECT TOP (@Top) '
+                    + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
+                    + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
+                    + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+                    + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+                    + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CAST(QueryPlan AS NVARCHAR(MAX)), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' FROM ##BlitzCacheProcs '
+                    + ' WHERE 1=1 ';
+
+                IF @MinimumExecutionCount IS NOT NULL
+                    BEGIN
+                        SET @StringToExecute += N' AND ExecutionCount >= @MinimumExecutionCount ';
+                    END;
+                IF @MinutesBack IS NOT NULL
+                    BEGIN
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                    END;
+                    SET @StringToExecute += N' AND SPID = @@SPID ';
+                    SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                                    WHEN N'reads' THEN N' TotalReads '
+                                                                    WHEN N'writes' THEN N' TotalWrites '
+                                                                    WHEN N'duration' THEN N' TotalDuration '
+                                                                    WHEN N'executions' THEN N' ExecutionCount '
+                                                                    WHEN N'compiles' THEN N' PlanCreationTime '
+                                                                    WHEN N'memory grant' THEN N' MaxGrantKB'
+                                                                    WHEN N'spills' THEN N' MaxSpills'
+                                                                    WHEN N'avg cpu' THEN N' AverageCPU'
+                                                                    WHEN N'avg reads' THEN N' AverageReads'
+                                                                    WHEN N'avg writes' THEN N' AverageWrites'
+                                                                    WHEN N'avg duration' THEN N' AverageDuration'
+                                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+                                                                    WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    END + N' DESC ';
+                    SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
+                    
+                    IF @Debug = 1
+                    BEGIN
+                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
+                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
+                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
+                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
+                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
+                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
+                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
+                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
+                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                    END;
+
+                    EXEC sp_executesql @StringToExecute, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+				END;
+			ELSE
+				BEGIN
+					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+					+ @OutputDatabaseName
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+					+ @OutputSchemaName + ''') INSERT '
+					+ @OutputDatabaseName + '.'
+					+ @OutputSchemaName + '.'
+					+ @OutputTableName
+					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+                    + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+                    + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + 'SELECT TOP (@Top) '
+                    + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
+                    + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
+                    + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+                    + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+                    + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' FROM ##BlitzCacheProcs '
+                    + ' WHERE 1=1 ';
+
+                IF @MinimumExecutionCount IS NOT NULL
+                    BEGIN
+                        SET @StringToExecute += N' AND ExecutionCount >= @MinimumExecutionCount ';
+                    END;
+                IF @MinutesBack IS NOT NULL
+                    BEGIN
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                    END;
+                    SET @StringToExecute += N' AND SPID = @@SPID ';
+                    SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                                    WHEN N'reads' THEN N' TotalReads '
+                                                                    WHEN N'writes' THEN N' TotalWrites '
+                                                                    WHEN N'duration' THEN N' TotalDuration '
+                                                                    WHEN N'executions' THEN N' ExecutionCount '
+                                                                    WHEN N'compiles' THEN N' PlanCreationTime '
+                                                                    WHEN N'memory grant' THEN N' MaxGrantKB'
+                                                                    WHEN N'spills' THEN N' MaxSpills'
+                                                                    WHEN N'avg cpu' THEN N' AverageCPU'
+                                                                    WHEN N'avg reads' THEN N' AverageReads'
+                                                                    WHEN N'avg writes' THEN N' AverageWrites'
+                                                                    WHEN N'avg duration' THEN N' AverageDuration'
+                                                                    WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+                                                                    WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    END + N' DESC ';
+                    SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
+                    
+                    IF @Debug = 1
+                    BEGIN
+                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
+                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
+                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
+                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
+                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
+                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
+                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
+                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
+                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                    END;
+
+                    EXEC sp_executesql @StringToExecute, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+				END;
+		END;
+	ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+		BEGIN
+			IF @ValidOutputServer = 1
+				BEGIN
+					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
+				END;
+			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
+				BEGIN
+					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
+				END;
+			ELSE
+				BEGIN				
+					SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
+						+ @OutputTableName
+						+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
+						+ 'CREATE TABLE '
+						+ @OutputTableName
+						+ ' (ID bigint NOT NULL IDENTITY(1,1),
+						ServerName NVARCHAR(258),
+						CheckDate DATETIMEOFFSET,
+						Version NVARCHAR(258),
+						QueryType NVARCHAR(258),
+						Warnings varchar(max),
+						DatabaseName sysname,
+						SerialDesiredMemory float,
+						SerialRequiredMemory float,
+						AverageCPU bigint,
+						TotalCPU bigint,
+						PercentCPUByType money,
+						CPUWeight money,
+						AverageDuration bigint,
+						TotalDuration bigint,
+						DurationWeight money,
+						PercentDurationByType money,
+						AverageReads bigint,
+						TotalReads bigint,
+						ReadWeight money,
+						PercentReadsByType money,
+						AverageWrites bigint,
+						TotalWrites bigint,
+						WriteWeight money,
+						PercentWritesByType money,
+						ExecutionCount bigint,
+						ExecutionWeight money,
+						PercentExecutionsByType money,
+						ExecutionsPerMinute money,
+						PlanCreationTime datetime,' + N'
+						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+						LastExecutionTime datetime,
+						LastCompletionTime datetime, 
+						PlanHandle varbinary(64),
+						[Remove Plan Handle From Cache] AS 
+							CASE WHEN [PlanHandle] IS NOT NULL 
+							THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''
+							ELSE ''N/A'' END,
+						SqlHandle varbinary(64),
+							[Remove SQL Handle From Cache] AS 
+							CASE WHEN [SqlHandle] IS NOT NULL 
+							THEN ''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''
+							ELSE ''N/A'' END,
+						[SQL Handle More Info] AS 
+							CASE WHEN [SqlHandle] IS NOT NULL 
+							THEN ''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''
+							ELSE ''N/A'' END,
+						QueryHash binary(8),
+						[Query Hash More Info] AS 
+							CASE WHEN [QueryHash] IS NOT NULL 
+							THEN ''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''
+							ELSE ''N/A'' END,
+						QueryPlanHash binary(8),
+						StatementStartOffset int,
+						StatementEndOffset int,
+						PlanGenerationNum bigint,
+						MinReturnedRows bigint,
+						MaxReturnedRows bigint,
+						AverageReturnedRows money,
+						TotalReturnedRows bigint,
+						QueryText nvarchar(max),
+						QueryPlan xml,
+						NumberOfPlans int,
+						NumberOfDistinctPlans int,
+						MinGrantKB BIGINT,
+						MaxGrantKB BIGINT,
+						MinUsedGrantKB BIGINT, 
+						MaxUsedGrantKB BIGINT,
+						PercentMemoryGrantUsed MONEY,
+						AvgMaxMemoryGrant MONEY,
+						MinSpills BIGINT,
+						MaxSpills BIGINT,
+						TotalSpills BIGINT,
+						AvgSpills MONEY,
+						QueryPlanCost FLOAT,
+						JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
+						CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+					SET @StringToExecute +=	N' INSERT '
+						+ @OutputTableName
+						+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
+						+ ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
+						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+						+ 'SELECT TOP (@Top) '
+						+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
+						+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
+						+ ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
+						+ ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
+						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+						+ ' FROM ##BlitzCacheProcs '
+						+ ' WHERE 1=1 ';
+                        
+                    IF @MinimumExecutionCount IS NOT NULL
+                        BEGIN
+                            SET @StringToExecute += N' AND ExecutionCount >= @MinimumExecutionCount ';
+                        END;
+
+                    IF @MinutesBack IS NOT NULL
+                        BEGIN
+                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        END;
+
+                        SET @StringToExecute += N' AND SPID = @@SPID ';
+                        
+                        SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
+                                                                        WHEN N'reads' THEN N' TotalReads '
+                                                                        WHEN N'writes' THEN N' TotalWrites '
+                                                                        WHEN N'duration' THEN N' TotalDuration '
+                                                                        WHEN N'executions' THEN N' ExecutionCount '
+                                                                        WHEN N'compiles' THEN N' PlanCreationTime '
+                                                                        WHEN N'memory grant' THEN N' MaxGrantKB'
+                                                                        WHEN N'spills' THEN N' MaxSpills'
+                                                                        WHEN N'avg cpu' THEN N' AverageCPU'
+                                                                        WHEN N'avg reads' THEN N' AverageReads'
+                                                                        WHEN N'avg writes' THEN N' AverageWrites'
+                                                                        WHEN N'avg duration' THEN N' AverageDuration'
+                                                                        WHEN N'avg executions' THEN N' ExecutionsPerMinute'
+                                                                        WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
+                                                                        WHEN 'avg spills' THEN N' AvgSpills'
+                                                                        END + N' DESC ';
+
+                        SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
+                        
+                        IF @Debug = 1
+                        BEGIN
+                            PRINT SUBSTRING(@StringToExecute, 0, 4000);
+                            PRINT SUBSTRING(@StringToExecute, 4000, 8000);
+                            PRINT SUBSTRING(@StringToExecute, 8000, 12000);
+                            PRINT SUBSTRING(@StringToExecute, 12000, 16000);
+                            PRINT SUBSTRING(@StringToExecute, 16000, 20000);
+                            PRINT SUBSTRING(@StringToExecute, 20000, 24000);
+                            PRINT SUBSTRING(@StringToExecute, 24000, 28000);
+                            PRINT SUBSTRING(@StringToExecute, 28000, 32000);
+                            PRINT SUBSTRING(@StringToExecute, 32000, 36000);
+                            PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                            PRINT SUBSTRING(@StringToExecute, 34000, 40000);
+                        END;
+                    EXEC sp_executesql @StringToExecute, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
+				END;
+		END;
+	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+		BEGIN
+			RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 END; /* End of writing results to table */
 
 END; /*Final End*/
@@ -17783,6 +18211,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @SinceStartup TINYINT = 0 ,
     @ShowSleepingSPIDs TINYINT = 0 ,
     @BlitzCacheSkipAnalysis BIT = 1 ,
+	@MemoryGrantThresholdPct DECIMAL(5,2) = 15.00,
     @LogMessageCheckID INT = 38,
     @LogMessagePriority TINYINT = 1,
     @LogMessageFindingsGroup VARCHAR(50) = 'Logged Message',
@@ -17799,7 +18228,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200712';
+SELECT @Version = '7.99', @VersionDate = '20200913';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -19550,6 +19979,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		'http://www.BrentOzar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
+	/* Query Problems - Queries with high memory grants - CheckID 46 */
+	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
+	SELECT 46 AS CheckID,
+	    100 AS Priority,
+	    'Query Problems' AS FindingGroup,
+	    'Query with memory a grant exceeding '
+		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
+		+'%' AS Finding,
+		'Granted size: '+ CAST(CAST(Grants.granted_memory_kb / 1024 AS INT) AS NVARCHAR(50))
+		+N'MB '
+		 + @LineFeed
+		+N'Granted pct: ' 
+		+ CAST(ISNULL((CAST(Grants.granted_memory_kb / 1024 AS MONEY)
+		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' 
+		+ @LineFeed
+		+N'SQLHandle: '
+		+CONVERT(NVARCHAR(128),Grants.[sql_handle],1),
+		'https://www.brentozar.com/memory-grants-sql-servers-public-toilet/' AS URL,
+		SQLText.[text],
+		QueryPlan.query_plan
+	FROM sys.dm_exec_query_memory_grants AS Grants
+	OUTER APPLY sys.dm_exec_sql_text(Grants.[sql_handle]) AS SQLText
+	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
+	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
+
     /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
@@ -19892,27 +20346,59 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
 		BEGIN
+			/* We don't want to hang around to obtain locks */
+			SET LOCK_TIMEOUT 0;
+
 			EXEC sp_MSforeachdb N'USE [?];
-			INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-			SELECT HowToStopIt = 
-						QUOTENAME(DB_NAME()) + N''.'' +
-						QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-						QUOTENAME(obj.name) +
-						N'' statistic '' + QUOTENAME(stat.name) + 
-						N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-						N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-						CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-						N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-				sp.rows
-			FROM sys.objects AS obj   
-			INNER JOIN sys.stats AS stat ON stat.object_id = obj.object_id  
-			CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-			WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-			AND obj.is_ms_shipped = 0
-			AND ''[?]'' <> ''[tempdb]'';';
+			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
+			BEGIN TRY
+				INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+				SELECT HowToStopIt = 
+							QUOTENAME(DB_NAME()) + N''.'' +
+							QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
+							QUOTENAME(obj.name) +
+							N'' statistic '' + QUOTENAME(stat.name) + 
+							N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
+							N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
+							CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
+							N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
+					sp.rows
+				FROM sys.objects AS obj WITH (NOLOCK)
+				INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
+				CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
+				WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
+				AND obj.is_ms_shipped = 0
+				AND ''[?]'' <> ''[tempdb]'';
+			END TRY
+			BEGIN CATCH
+				IF (ERROR_NUMBER() = 1222)
+				BEGIN 
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as the lock timeout was exceeded,''+
+								N''  this is likely due to an Index operation in Progress'',
+						-1
+				END
+				ELSE
+				BEGIN
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = 
+								QUOTENAME(DB_NAME()) +
+							    N'' No information could be retrieved as a result of error: ''+
+								CAST(ERROR_NUMBER() AS NVARCHAR(10)) +
+								N'' with message: ''+
+								CAST(ERROR_MESSAGE() AS NVARCHAR(128)),
+						-1
+				END
+			END CATCH';
+
+			/* Set timeout back to a default value of -1 */
+			SET LOCK_TIMEOUT -1;
 		END;
-    
-		IF EXISTS (SELECT * FROM #UpdatedStats)
+		
+		/* We mark timeout exceeded with a -1 so only show these IF there is statistics info that succeeded */
+		IF EXISTS (SELECT * FROM #UpdatedStats WHERE RowsForSorting > -1)
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 			SELECT 44 AS CheckId,
 					50 AS Priority,
@@ -22071,6 +22557,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputSchemaName NVARCHAR(256) = NULL ,
     @OutputTableName NVARCHAR(256) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
+    @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -22081,7 +22568,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.97', @VersionDate = '20200712';
+SELECT @Version = '7.99', @VersionDate = '20200913';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22416,7 +22903,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 			  page_latch_wait_count BIGINT NULL,
 			  page_latch_wait_in_ms BIGINT NULL,
 			  page_io_latch_wait_count BIGINT NULL,
-			  page_io_latch_wait_in_ms BIGINT NULL
+			  page_io_latch_wait_in_ms BIGINT NULL,
+              lock_escalation_desc nvarchar(60) NULL
             );
 
         CREATE TABLE #IndexSanitySize
@@ -22450,6 +22938,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 			  page_latch_wait_in_ms BIGINT NULL,
 			  page_io_latch_wait_count BIGINT NULL,
 			  page_io_latch_wait_in_ms BIGINT NULL,
+              lock_escalation_desc nvarchar(60) NULL,
               index_size_summary AS ISNULL(
                 CASE WHEN partition_count > 1
                         THEN N'[' + CAST(partition_count AS NVARCHAR(10)) + N' PARTITIONS] '
@@ -22487,7 +22976,10 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                 ), N'Table metadata not in memory'),
             index_lock_wait_summary AS ISNULL(
                 CASE WHEN total_row_lock_wait_count = 0 AND  total_page_lock_wait_count = 0 AND
-                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits.'
+                    total_index_lock_promotion_attempt_count = 0 THEN N'0 lock waits; '
+                    + CASE WHEN lock_escalation_desc = N'DISABLE' THEN N'Lock escalation DISABLE.'
+                      ELSE N''
+                      END
                 ELSE
                     CASE WHEN total_row_lock_wait_count > 0 THEN
                         N'Row lock waits: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_row_lock_wait_count AS MONEY), 1), N'.00', N'')
@@ -22523,7 +23015,11 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     END +
                     CASE WHEN total_index_lock_promotion_attempt_count > 0 THEN
                         N'Lock escalation attempts: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(total_index_lock_promotion_attempt_count AS MONEY), 1), N'.00', N'')
-                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') + N'.'
+                        + N'; Actual Escalations: ' + REPLACE(CONVERT(NVARCHAR(30),CAST(ISNULL(total_index_lock_promotion_count,0) AS MONEY), 1), N'.00', N'') +N'; '
+                    ELSE N''
+                    END +
+                    CASE WHEN lock_escalation_desc = N'DISABLE' THEN
+                        N'Lock escalation is disabled.'
                     ELSE N''
                     END
                 END                  
@@ -22573,9 +23069,12 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             user_seeks BIGINT NOT NULL,
             user_scans BIGINT NOT NULL,
             unique_compiles BIGINT NULL,
-            equality_columns NVARCHAR(4000), 
-            inequality_columns NVARCHAR(4000),
-            included_columns NVARCHAR(4000),
+            equality_columns NVARCHAR(MAX),
+            equality_columns_with_data_type NVARCHAR(MAX),
+            inequality_columns NVARCHAR(MAX),
+            inequality_columns_with_data_type NVARCHAR(MAX),
+            included_columns NVARCHAR(MAX),
+            included_columns_with_data_type NVARCHAR(MAX),
 			is_low BIT,
                 [index_estimated_impact] AS 
                     REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
@@ -22586,20 +23085,24 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                         + N'%; Avg query cost: '
                         + CAST(avg_total_user_cost AS NVARCHAR(30)),
                 [missing_index_details] AS
-                    CASE WHEN equality_columns IS NOT NULL THEN N'EQUALITY: ' + equality_columns + N' '
-                         ELSE N''
-                    END + CASE WHEN inequality_columns IS NOT NULL THEN N'INEQUALITY: ' + inequality_columns + N' '
-                       ELSE N''
-                    END + CASE WHEN included_columns IS NOT NULL THEN N'INCLUDES: ' + included_columns + N' '
-                        ELSE N''
-                    END,
+                    CASE WHEN COALESCE(equality_columns_with_data_type,equality_columns) IS NOT NULL
+						THEN N'EQUALITY: ' + COALESCE(CAST(equality_columns_with_data_type AS NVARCHAR(MAX)), CAST(equality_columns AS NVARCHAR(MAX))) + N' '
+                         ELSE N'' END +
+
+                    CASE WHEN COALESCE(inequality_columns_with_data_type,inequality_columns) IS NOT NULL
+						THEN N'INEQUALITY: ' + COALESCE(CAST(inequality_columns_with_data_type AS NVARCHAR(MAX)), CAST(inequality_columns AS NVARCHAR(MAX))) + N' '
+                         ELSE N'' END +
+
+                    CASE WHEN COALESCE(included_columns_with_data_type,included_columns) IS NOT NULL
+						THEN N'INCLUDE: ' + COALESCE(CAST(included_columns_with_data_type AS NVARCHAR(MAX)), CAST(included_columns AS NVARCHAR(MAX))) + N' '
+                         ELSE N'' END,
                 [create_tsql] AS N'CREATE INDEX [' 
-                    + REPLACE(REPLACE(REPLACE(REPLACE(
+                    + LEFT(REPLACE(REPLACE(REPLACE(REPLACE(
                         ISNULL(equality_columns,N'')+ 
                         CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N'_' ELSE N'' END
                         + ISNULL(inequality_columns,''),',','')
                         ,'[',''),']',''),' ','_') 
-                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END + N'] ON ' 
+                    + CASE WHEN included_columns IS NOT NULL THEN N'_Includes' ELSE N'' END, 128) + N'] ON ' 
                     + [statement] + N' (' + ISNULL(equality_columns,N'')
                     + CASE WHEN equality_columns IS NOT NULL AND inequality_columns IS NOT NULL THEN N', ' ELSE N'' END
                     + CASE WHEN inequality_columns IS NOT NULL THEN inequality_columns ELSE N'' END + 
@@ -23375,6 +23878,7 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
                                 SUM(os.leaf_insert_count), 
                                 SUM(os.leaf_delete_count), 
@@ -23407,6 +23911,10 @@ BEGIN TRY
                     LEFT JOIN ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_index_operational_stats('
                 + CAST(@DatabaseID AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
                     ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
+			            OUTER APPLY (SELECT st.lock_escalation_desc
+			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
+			                         WHERE st.object_id = ps.object_id
+			                             AND ps.index_id < 2 ) le
                     WHERE 1=1 
                     ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
                     ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
@@ -23418,6 +23926,7 @@ BEGIN TRY
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
             OPTION    ( RECOMPILE );
@@ -23438,6 +23947,7 @@ BEGIN TRY
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+								le.lock_escalation_desc,
                                 ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N',
                                 SUM(os.leaf_insert_count), 
                                 SUM(os.leaf_delete_count), 
@@ -23469,6 +23979,10 @@ BEGIN TRY
 						JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
                         OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
                     + CAST(@DatabaseID AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
+			            OUTER APPLY (SELECT st.lock_escalation_desc
+			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
+			                         WHERE st.object_id = ps.object_id
+			                             AND ps.index_id < 2 ) le
                         WHERE 1=1 
                         ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
                         ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
@@ -23480,6 +23994,7 @@ BEGIN TRY
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
+								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
                 OPTION    ( RECOMPILE );
@@ -23511,7 +24026,8 @@ BEGIN TRY
                                           row_count, 
                                           reserved_MB,
                                           reserved_LOB_MB, 
-                                          reserved_row_overflow_MB,										   
+                                          reserved_row_overflow_MB,
+										  lock_escalation_desc,										   
                                           data_compression_desc, 
                                           leaf_insert_count,
                                           leaf_delete_count, 
@@ -23542,10 +24058,73 @@ BEGIN TRY
 
 
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
-        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
+
+
+		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT '', '' + cn_inner.ColumnName + '' '' +
+			N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
+								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length / 2 AS VARCHAR(25)) END + '')''
+								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
+								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
+								ELSE ty.name END + ''}''
+				FROM	sys.dm_db_missing_index_details AS id_inner
+				CROSS APPLY(
+					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+				UNION ALL
+					SELECT	LTRIM(RTRIM(v.value(N''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.inequality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+				UNION ALL
+					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.included_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					CROSS APPLY n.nodes(''x'') node(v)
+			)AS cn_inner'
+		+ /*split the string otherwise dsql cuts some of it out*/
+		'		JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.columns AS co ON co.object_id = id_inner.object_id AND ''['' + co.name + '']'' = cn_inner.ColumnName
+				JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.types AS ty ON ty.user_type_id = co.user_type_id 
+                WHERE id_inner.index_handle = id.index_handle
+				AND	id_inner.object_id = id.object_id
+				AND cn_inner.IndexColumnType = cn.IndexColumnType
+				FOR XML PATH('''')
+			 ),1,1,'''') AS ReplaceColumnNames
+            FROM sys.dm_db_missing_index_details AS id
+           CROSS APPLY(
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+				    UNION ALL
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.inequality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+				    UNION ALL
+						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.included_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						CROSS APPLY n.nodes(''x'') node(v)
+					)AS cn
+				GROUP BY	id.index_handle,id.object_id,cn.IndexColumnType
+				)
                 SELECT  id.database_id, id.object_id, @i_DatabaseName, sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
-                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles,id.equality_columns, 
-                        id.inequality_columns,id.included_columns
+                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles, id.equality_columns, id.inequality_columns, id.included_columns,
+				(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Equality''
+                ) AS equality_columns_with_data_type
+                ,(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Inequality''
+                ) AS inequality_columns_with_data_type
+                ,(
+                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+                    AND ColumnNamesWithDataTypes.object_id = id.object_id
+                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
+                ) AS included_columns_with_data_type
                 FROM    sys.dm_db_missing_index_groups ig
                         JOIN sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
                         JOIN sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
@@ -23576,7 +24155,8 @@ BEGIN TRY
             END;
         INSERT    #MissingIndexes ( [database_id], [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
-                                    inequality_columns, included_columns)
+                                    inequality_columns, included_columns, equality_columns_with_data_type, inequality_columns_with_data_type, 
+                                    included_columns_with_data_type)
         EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
         SET @dsql = N'
@@ -24130,7 +24710,7 @@ FROM #IndexPartitionSanity ps
 
 
 RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
-INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], partition_count, total_rows, total_reserved_MB,
+INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
                                 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
                                 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
                                 total_forwarded_fetch_count,total_row_lock_count,
@@ -24139,7 +24719,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
                                 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
                                 total_index_lock_promotion_count, data_compression_desc, 
 								page_latch_wait_count, page_latch_wait_in_ms, page_io_latch_wait_count, page_io_latch_wait_in_ms)
-        SELECT  index_sanity_id, ipp.database_id, ipp.schema_name,						
+        SELECT  index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc,						
 				COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
                 SUM(reserved_row_overflow_MB), 
                 SUM(range_scan_count),
@@ -24178,7 +24758,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], pa
             ORDER BY ipp2.partition_number
             FOR      XML PATH(''),TYPE).value('.', 'nvarchar(max)'), 1, 1, '')) 
                 data_compression_info(data_compression_rollup)
-        GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name
+        GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc
         ORDER BY index_sanity_id 
 OPTION    ( RECOMPILE );
 
@@ -24503,8 +25083,9 @@ BEGIN
 		AND mi.database_id = cd.database_id
 		AND mi.schema_name = cd.schema_name
         WHERE   mi.[object_id] = @ObjectID
+        AND (@ShowAllMissingIndexRequests=1
                 /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-        AND (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
+            OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END;       
@@ -25786,7 +26367,8 @@ BEGIN;
 										  AND mi.database_id = sz.database_id
 										  AND mi.schema_name = sz.schema_name
                                         /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-                        WHERE ( @Mode = 4 AND (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000 ) 
+                        WHERE @ShowAllMissingIndexRequests=1
+                        OR ( @Mode = 4 AND (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000 ) 
 						OR (magic_benefit_number / CASE WHEN sz.create_days < @DaysUptime THEN sz.create_days ELSE @DaysUptime END) >= 100000
                         ) AS t
                         WHERE t.rownum <= CASE WHEN (@Mode <> 4) THEN 20 ELSE t.rownum END
@@ -26546,7 +27128,7 @@ BEGIN;
                    N'Nice Work!',
                    N'http://FirstResponderKit.org', 
                    N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
-                   N'The new default Mode 0 only looks for very serious index issues.', 
+                   N'The default Mode 0 only looks for very serious index issues.', 
                    @DaysUptimeInsertValue, N''
                     );
 
@@ -27220,10 +27802,10 @@ BEGIN;
 				mi.avg_user_impact AS [Est Index Improvement], 
 				mi.user_seeks AS [Seeks], 
 				mi.user_scans AS [Scans],
-				mi.unique_compiles AS [Compiles], 
-				mi.equality_columns AS [Equality Columns], 
-				mi.inequality_columns AS [Inequality Columns], 
-				mi.included_columns AS [Included Columns], 
+				mi.unique_compiles AS [Compiles],
+				mi.equality_columns_with_data_type AS [Equality Columns],
+				mi.inequality_columns_with_data_type AS [Inequality Columns],
+				mi.included_columns_with_data_type AS [Included Columns], 
 				mi.index_estimated_impact AS [Estimated Impact], 
 				mi.create_tsql AS [Create TSQL], 
 				mi.more_info AS [More Info],
@@ -27235,7 +27817,8 @@ BEGIN;
 			AND mi.database_id = cd.database_id
 			AND mi.schema_name = cd.schema_name
 			/* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-			WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
+			WHERE @ShowAllMissingIndexRequests=1 
+            OR (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
 			UNION ALL
 			SELECT               
 				@ScriptVersionName,   
@@ -27243,8 +27826,8 @@ BEGIN;
 				N'http://FirstResponderKit.org' ,
 				100000000000,
 				@DaysUptimeInsertValue,
-				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL, 0 AS [Display Order], NULL AS is_low
+				NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
 	  	END;
@@ -27313,7 +27896,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.97', @VersionDate = '20200712';
+SELECT @Version = '2.99', @VersionDate = '20200913';
 
 
 IF(@VersionCheckMode = 1)
@@ -27700,6 +28283,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -27712,6 +28296,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/objectlock') AS ca(dr)
@@ -27733,6 +28318,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -27744,6 +28330,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/pagelock') AS ca(dr)
@@ -27763,6 +28350,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -27774,6 +28362,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/keylock') AS ca(dr)
@@ -27793,6 +28382,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -27804,6 +28394,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/ridlock') AS ca(dr)
@@ -27823,6 +28414,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					ca.object_name,
 					ca.lock_mode,
 					ca.index_name,
+					ca.associatedObjectId,
 				    w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
                     w.l.value('@mode', 'NVARCHAR(256)') AS waiter_mode,
                     o.l.value('@id', 'NVARCHAR(256)') AS owner_id,
@@ -27834,6 +28426,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                     ca.dr.value('@objectname', 'NVARCHAR(256)') AS object_name,
                     ca.dr.value('@mode', 'NVARCHAR(256)') AS lock_mode,
 					ca.dr.value('@indexname', 'NVARCHAR(256)') AS index_name,
+					ca.dr.value('@associatedObjectId', 'BIGINT') AS associatedObjectId,
 					ca.dr.query('.') AS dr
         FROM        #deadlock_resource AS dr
         CROSS APPLY dr.resource_xml.nodes('//resource-list/rowgrouplock') AS ca(dr)
@@ -28008,6 +28601,17 @@ You need to use an Azure storage account, and the path has to look like this: ht
         AND dp.victim_id = aj.victim_id
         AND dp.id = aj.id
 		OPTION ( RECOMPILE );
+
+		/*Get each and every table of all databases*/
+		DECLARE @sysAssObjId AS TABLE (database_id bigint, partition_id bigint, schema_name varchar(255), table_name varchar(255));
+		INSERT into @sysAssObjId EXECUTE sp_MSforeachdb
+		  N'USE [?];
+		    SELECT DB_ID() as database_id, p.partition_id, s.name as schema_name, t.name as table_name
+			FROM sys.partitions p
+			LEFT JOIN sys.tables t ON t.object_id = p.object_id 
+			LEFT JOIN sys.schemas s ON s.schema_id = t.schema_id 
+			WHERE s.name is not NULL AND t.name is not NULL';
+
 
 		/*Begin checks based on parsed values*/
 
@@ -28347,23 +28951,24 @@ You need to use an Azure storage account, and the path has to look like this: ht
         RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
 		WITH bi AS (
 				SELECT  DISTINCT
-						dow.object_name,
-						PARSENAME(dow.object_name, 3) AS database_name,
-						PARSENAME(dow.object_name, 2) AS schema_name,
-						PARSENAME(dow.object_name, 1) AS table_name
+					dow.object_name,
+					DB_NAME(dow.database_id) as database_name,
+					a.schema_name AS schema_name,
+					a.table_name AS table_name
 				FROM #deadlock_owner_waiter AS dow
+				LEFT JOIN @sysAssObjId a ON a.database_id=dow.database_id AND a.partition_id = dow.associatedObjectId
 				WHERE 1 = 1
 				AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 				AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
 				AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 				AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 				AND dow.object_name IS NOT NULL
-					)
+		)
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
 		SELECT 9 AS check_id,	
 				bi.database_name,
-				bi.schema_name + '.' + bi.table_name,
+				bi.object_name,
 				'More Info - Table' AS finding_group,
 				'EXEC sp_BlitzIndex ' + 
 				'@DatabaseName = ' + QUOTENAME(bi.database_name, '''') + 
@@ -28950,7 +29555,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.97', @VersionDate = '20200712';
+SELECT @Version = '3.99', @VersionDate = '20200913';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -34676,7 +35281,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.97', @VersionDate = '20200712';
+	SELECT @Version = '7.99', @VersionDate = '20200913';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -34757,7 +35362,9 @@ DECLARE  @ProductVersion NVARCHAR(128)
 						  AND r.statement_end_offset = session_stats.statement_end_offset' 
 		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
 		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
-		,@ObjectFullName NVARCHAR(2000);
+		,@ObjectFullName NVARCHAR(2000)
+		,@OutputTableNameQueryStats_View NVARCHAR(256)
+		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
 
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -34775,9 +35382,11 @@ IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exe
  END
 
 SELECT
+	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
-	@OutputTableName = QUOTENAME(@OutputTableName);
+	@OutputTableName = QUOTENAME(@OutputTableName),
+	@LineFeed = CHAR(13) + CHAR(10);
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
   AND EXISTS ( SELECT *
@@ -34928,6 +35537,242 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 		N'@SrvName NVARCHAR(128), @CheckDate date',
 		@@SERVERNAME, @OutputTableCleanupDate;
 
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameQueryStats_View;
+
+        /* Create the view */
+        IF OBJECT_ID(@ObjectFullName) IS NULL
+            BEGIN
+            SET @StringToExecute = N'USE '
+                + @OutputDatabaseName
+                + N'; EXEC (''CREATE VIEW '
+                + @OutputSchemaName + '.'
+                + @OutputTableNameQueryStats_View + N' AS ' + @LineFeed
+				+ N'WITH MaxQueryDuration AS ' + @LineFeed
+				+ N'( ' + @LineFeed
+				+ N'    SELECT ' + @LineFeed
+				+ N'        MIN([ID]) AS [MinID], ' + @LineFeed
+				+ N'		MAX([ID]) AS [MaxID] ' + @LineFeed
+				+ N'    FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed
+				+ N'    GROUP BY [ServerName], ' + @LineFeed
+				+ N'    [session_id], ' + @LineFeed
+				+ N'    [database_name], ' + @LineFeed
+				+ N'    [request_time], ' + @LineFeed
+				+ N'    [start_time], ' + @LineFeed
+				+ N'    [sql_handle] ' + @LineFeed
+				+ N') ' + @LineFeed
+				+ N'SELECT ' + @LineFeed
+				+ N'    [ID], ' + @LineFeed
+				+ N'    [ServerName], ' + @LineFeed
+				+ N'    [CheckDate], ' + @LineFeed
+				+ N'    [elapsed_time], ' + @LineFeed 
+				+ N'    [session_id], ' + @LineFeed 
+				+ N'    [database_name], ' + @LineFeed 
+				+ N'    [query_text_snippet], ' + @LineFeed 
+				+ N'    [query_plan], ' + @LineFeed 
+				+ N'    [live_query_plan], ' + @LineFeed 
+				+ N'    [query_cost], ' + @LineFeed 
+				+ N'    [status], ' + @LineFeed 
+				+ N'    [wait_info], ' + @LineFeed 
+				+ N'    [top_session_waits], ' + @LineFeed 
+				+ N'    [blocking_session_id], ' + @LineFeed 
+				+ N'    [open_transaction_count], ' + @LineFeed 
+				+ N'    [is_implicit_transaction], ' + @LineFeed 
+				+ N'    [nt_domain], ' + @LineFeed 
+				+ N'    [host_name], ' + @LineFeed 
+				+ N'    [login_name], ' + @LineFeed 
+				+ N'    [nt_user_name], ' + @LineFeed 
+				+ N'    [program_name], ' + @LineFeed 
+				+ N'    [fix_parameter_sniffing], ' + @LineFeed 
+				+ N'    [client_interface_name], ' + @LineFeed 
+				+ N'    [login_time], ' + @LineFeed 
+				+ N'    [start_time], ' + @LineFeed 
+				+ N'    [request_time], ' + @LineFeed 
+				+ N'    [request_cpu_time], ' + @LineFeed 
+				+ N'    [degree_of_parallelism], ' + @LineFeed 
+				+ N'    [request_logical_reads], ' + @LineFeed 
+				+ N'    [Logical_Reads_MB], ' + @LineFeed 
+				+ N'    [request_writes], ' + @LineFeed 
+				+ N'    [Logical_Writes_MB], ' + @LineFeed 
+				+ N'    [request_physical_reads], ' + @LineFeed 
+				+ N'    [Physical_reads_MB], ' + @LineFeed 
+				+ N'    [session_cpu], ' + @LineFeed 
+				+ N'    [session_logical_reads], ' + @LineFeed 
+				+ N'    [session_logical_reads_MB], ' + @LineFeed 
+				+ N'    [session_physical_reads], ' + @LineFeed 
+				+ N'    [session_physical_reads_MB], ' + @LineFeed 
+				+ N'    [session_writes], ' + @LineFeed 
+				+ N'    [session_writes_MB], ' + @LineFeed 
+				+ N'    [tempdb_allocations_mb], ' + @LineFeed 
+				+ N'    [memory_usage], ' + @LineFeed 
+				+ N'    [estimated_completion_time], ' + @LineFeed 
+				+ N'    [percent_complete], ' + @LineFeed 
+				+ N'    [deadlock_priority], ' + @LineFeed 
+				+ N'    [transaction_isolation_level], ' + @LineFeed 
+				+ N'    [last_dop], ' + @LineFeed 
+				+ N'    [min_dop], ' + @LineFeed 
+				+ N'    [max_dop], ' + @LineFeed 
+				+ N'    [last_grant_kb], ' + @LineFeed 
+				+ N'    [min_grant_kb], ' + @LineFeed 
+				+ N'    [max_grant_kb], ' + @LineFeed 
+				+ N'    [last_used_grant_kb], ' + @LineFeed 
+				+ N'    [min_used_grant_kb], ' + @LineFeed 
+				+ N'    [max_used_grant_kb], ' + @LineFeed 
+				+ N'    [last_ideal_grant_kb], ' + @LineFeed 
+				+ N'    [min_ideal_grant_kb], ' + @LineFeed 
+				+ N'    [max_ideal_grant_kb], ' + @LineFeed 
+				+ N'    [last_reserved_threads], ' + @LineFeed 
+				+ N'    [min_reserved_threads], ' + @LineFeed 
+				+ N'    [max_reserved_threads], ' + @LineFeed 
+				+ N'    [last_used_threads], ' + @LineFeed 
+				+ N'    [min_used_threads], ' + @LineFeed 
+				+ N'    [max_used_threads], ' + @LineFeed 
+				+ N'    [grant_time], ' + @LineFeed 
+				+ N'    [requested_memory_kb], ' + @LineFeed 
+				+ N'    [grant_memory_kb], ' + @LineFeed 
+				+ N'    [is_request_granted], ' + @LineFeed 
+				+ N'    [required_memory_kb], ' + @LineFeed 
+				+ N'    [query_memory_grant_used_memory_kb], ' + @LineFeed 
+				+ N'    [ideal_memory_kb], ' + @LineFeed 
+				+ N'    [is_small], ' + @LineFeed 
+				+ N'    [timeout_sec], ' + @LineFeed 
+				+ N'    [resource_semaphore_id], ' + @LineFeed 
+				+ N'    [wait_order], ' + @LineFeed 
+				+ N'    [wait_time_ms], ' + @LineFeed 
+				+ N'    [next_candidate_for_memory_grant], ' + @LineFeed 
+				+ N'    [target_memory_kb], ' + @LineFeed 
+				+ N'    [max_target_memory_kb], ' + @LineFeed 
+				+ N'    [total_memory_kb], ' + @LineFeed 
+				+ N'    [available_memory_kb], ' + @LineFeed 
+				+ N'    [granted_memory_kb], ' + @LineFeed 
+				+ N'    [query_resource_semaphore_used_memory_kb], ' + @LineFeed 
+				+ N'    [grantee_count], ' + @LineFeed 
+				+ N'    [waiter_count], ' + @LineFeed 
+				+ N'    [timeout_error_count], ' + @LineFeed 
+				+ N'    [forced_grant_count], ' + @LineFeed 
+				+ N'    [workload_group_name], ' + @LineFeed 
+				+ N'    [resource_pool_name], ' + @LineFeed 
+				+ N'    [context_info], ' + @LineFeed 
+				+ N'    [query_hash], ' + @LineFeed 
+				+ N'    [query_plan_hash], ' + @LineFeed 
+				+ N'    [sql_handle], ' + @LineFeed 
+				+ N'    [plan_handle], ' + @LineFeed 
+				+ N'    [statement_start_offset], ' + @LineFeed 
+				+ N'    [statement_end_offset] ' + @LineFeed
+				+ N'    FROM ' + @LineFeed
+				+ N'        ( ' + @LineFeed
+				+ N'            SELECT ' + @LineFeed
+				+ N'                   [ID], ' + @LineFeed
+				+ N'			       [ServerName], ' + @LineFeed 
+				+ N'			       [CheckDate], ' + @LineFeed 
+				+ N'			       [elapsed_time], ' + @LineFeed 
+				+ N'			       [session_id], ' + @LineFeed 
+				+ N'			       [database_name], ' + @LineFeed 
+				+ N'			       /* Truncate the query text to aid performance of painting the rows in SSMS */ ' + @LineFeed
+				+ N'			       CAST([query_text] AS NVARCHAR(1000)) AS [query_text_snippet], ' + @LineFeed 
+				+ N'			       [query_plan], ' + @LineFeed 
+				+ N'			       [live_query_plan], ' + @LineFeed 
+				+ N'			       [query_cost], ' + @LineFeed 
+				+ N'			       [status], ' + @LineFeed 
+				+ N'			       [wait_info], ' + @LineFeed 
+				+ N'			       [top_session_waits], ' + @LineFeed 
+				+ N'			       [blocking_session_id], ' + @LineFeed 
+				+ N'			       [open_transaction_count], ' + @LineFeed 
+				+ N'			       [is_implicit_transaction], ' + @LineFeed 
+				+ N'			       [nt_domain], ' + @LineFeed 
+				+ N'			       [host_name], ' + @LineFeed 
+				+ N'			       [login_name], ' + @LineFeed 
+				+ N'			       [nt_user_name], ' + @LineFeed 
+				+ N'			       [program_name], ' + @LineFeed 
+				+ N'			       [fix_parameter_sniffing], ' + @LineFeed 
+				+ N'			       [client_interface_name], ' + @LineFeed 
+				+ N'			       [login_time], ' + @LineFeed 
+				+ N'			       [start_time], ' + @LineFeed 
+				+ N'			       [request_time], ' + @LineFeed 
+				+ N'			       [request_cpu_time], ' + @LineFeed 
+				+ N'			       [degree_of_parallelism], ' + @LineFeed 
+				+ N'			       [request_logical_reads], ' + @LineFeed 
+				+ N'			       ((CAST([request_logical_reads] AS MONEY)* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
+				+ N'			       [request_writes], ' + @LineFeed 
+				+ N'			       ((CAST([request_writes] AS MONEY)* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
+				+ N'			       [request_physical_reads], ' + @LineFeed 
+				+ N'			       ((CAST([request_physical_reads] AS MONEY)* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
+				+ N'			       [session_cpu], ' + @LineFeed 
+				+ N'			       [session_logical_reads], ' + @LineFeed 
+				+ N'			       ((CAST([session_logical_reads] AS MONEY)* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
+				+ N'			       [session_physical_reads], ' + @LineFeed 
+				+ N'			       ((CAST([session_physical_reads] AS MONEY)* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
+				+ N'			       [session_writes], ' + @LineFeed 
+				+ N'			       ((CAST([session_writes] AS MONEY)* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
+				+ N'			       [tempdb_allocations_mb], ' + @LineFeed 
+				+ N'			       [memory_usage], ' + @LineFeed 
+				+ N'			       [estimated_completion_time], ' + @LineFeed 
+				+ N'			       [percent_complete], ' + @LineFeed 
+				+ N'			       [deadlock_priority], ' + @LineFeed 
+				+ N'			       [transaction_isolation_level], ' + @LineFeed 
+				+ N'			       [last_dop], ' + @LineFeed 
+				+ N'			       [min_dop], ' + @LineFeed 
+				+ N'			       [max_dop], ' + @LineFeed 
+				+ N'			       [last_grant_kb], ' + @LineFeed 
+				+ N'			       [min_grant_kb], ' + @LineFeed 
+				+ N'			       [max_grant_kb], ' + @LineFeed 
+				+ N'			       [last_used_grant_kb], ' + @LineFeed 
+				+ N'			       [min_used_grant_kb], ' + @LineFeed 
+				+ N'			       [max_used_grant_kb], ' + @LineFeed 
+				+ N'			       [last_ideal_grant_kb], ' + @LineFeed 
+				+ N'			       [min_ideal_grant_kb], ' + @LineFeed 
+				+ N'			       [max_ideal_grant_kb], ' + @LineFeed 
+				+ N'			       [last_reserved_threads], ' + @LineFeed 
+				+ N'			       [min_reserved_threads], ' + @LineFeed 
+				+ N'			       [max_reserved_threads], ' + @LineFeed 
+				+ N'			       [last_used_threads], ' + @LineFeed 
+				+ N'			       [min_used_threads], ' + @LineFeed 
+				+ N'			       [max_used_threads], ' + @LineFeed 
+				+ N'			       [grant_time], ' + @LineFeed 
+				+ N'			       [requested_memory_kb], ' + @LineFeed 
+				+ N'			       [grant_memory_kb], ' + @LineFeed 
+				+ N'			       [is_request_granted], ' + @LineFeed 
+				+ N'			       [required_memory_kb], ' + @LineFeed 
+				+ N'			       [query_memory_grant_used_memory_kb], ' + @LineFeed 
+				+ N'			       [ideal_memory_kb], ' + @LineFeed 
+				+ N'			       [is_small], ' + @LineFeed 
+				+ N'			       [timeout_sec], ' + @LineFeed 
+				+ N'			       [resource_semaphore_id], ' + @LineFeed 
+				+ N'			       [wait_order], ' + @LineFeed 
+				+ N'			       [wait_time_ms], ' + @LineFeed 
+				+ N'			       [next_candidate_for_memory_grant], ' + @LineFeed 
+				+ N'			       [target_memory_kb], ' + @LineFeed 
+				+ N'			       [max_target_memory_kb], ' + @LineFeed 
+				+ N'			       [total_memory_kb], ' + @LineFeed 
+				+ N'			       [available_memory_kb], ' + @LineFeed 
+				+ N'			       [granted_memory_kb], ' + @LineFeed 
+				+ N'			       [query_resource_semaphore_used_memory_kb], ' + @LineFeed 
+				+ N'			       [grantee_count], ' + @LineFeed 
+				+ N'			       [waiter_count], ' + @LineFeed 
+				+ N'			       [timeout_error_count], ' + @LineFeed 
+				+ N'			       [forced_grant_count], ' + @LineFeed 
+				+ N'			       [workload_group_name], ' + @LineFeed 
+				+ N'			       [resource_pool_name], ' + @LineFeed 
+				+ N'			       [context_info], ' + @LineFeed 
+				+ N'			       [query_hash], ' + @LineFeed 
+				+ N'			       [query_plan_hash], ' + @LineFeed 
+				+ N'			       [sql_handle], ' + @LineFeed 
+				+ N'			       [plan_handle], ' + @LineFeed 
+				+ N'			       [statement_start_offset], ' + @LineFeed 
+				+ N'			       [statement_end_offset] ' + @LineFeed
+				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed 
+				+ N'        ) AS [BlitzWho] ' + @LineFeed
+				+ N'INNER JOIN [MaxQueryDuration] ON [BlitzWho].[ID] = [MaxQueryDuration].[MaxID]; ' + @LineFeed
+				+ N''');'
+
+			IF @Debug = 1
+				BEGIN
+					PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
+					PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
+				END
+
+				EXEC(@StringToExecute);
+            END;
+
  END
 
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -34973,14 +35818,20 @@ BEGIN
 			       derp.query_plan ,
 						    qmg.query_cost ,										   		   
 						    s.status ,
-			       COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), 
-						    blocked.waittime) + '')'' ) AS wait_info ,											
+							CASE
+								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+								ELSE NULL
+							END AS wait_info ,																					
 						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
-							     THEN r.blocking_session_id
-							     WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
-							     THEN blocked.blocking_session_id
-							    ELSE NULL 
-						    END AS blocking_session_id , 
+							       THEN r.blocking_session_id
+							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+							       THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+							       THEN r.blocking_session_id
+							       ELSE NULL 
+						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 						    CASE WHEN EXISTS (  SELECT 1 
                FROM sys.dm_tran_active_transactions AS tat
@@ -35033,8 +35884,8 @@ BEGIN
 			   CASE 
 			     WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
 			     WHEN s.transaction_isolation_level = 1 THEN ''Read Uncommitted''
-			     WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.dm_tran_active_snapshot_database_transactions AS trn WHERE s.session_id = trn.session_id AND is_snapshot = 0 ) THEN ''Read Committed Snapshot Isolation''
-						  WHEN s.transaction_isolation_level = 2 AND NOT EXISTS (SELECT 1 FROM sys.dm_tran_active_snapshot_database_transactions AS trn WHERE s.session_id = trn.session_id AND is_snapshot = 0 ) THEN ''Read Committed''
+			     WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME(r.database_id) AND is_read_committed_snapshot_on = 1) THEN ''Read Committed Snapshot Isolation''
+			     WHEN s.transaction_isolation_level = 2 THEN ''Read Committed''
 			     WHEN s.transaction_isolation_level = 3 THEN ''Repeatable Read''
 			     WHEN s.transaction_isolation_level = 4 THEN ''Serializable''
 			     WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
@@ -35174,7 +36025,10 @@ IF @ProductVersionMajor >= 11
 						    +' 
 			       qmg.query_cost ,
 			       s.status ,
-			       COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) AS wait_info ,'
+					CASE
+						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+						ELSE NULL
+					END AS wait_info ,'
 						    +
 						    CASE @SessionWaits
 							     WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
@@ -35185,6 +36039,10 @@ IF @ProductVersionMajor >= 11
 							       THEN r.blocking_session_id
 							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
 							       THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   THEN blocked.blocking_session_id
+								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+							       THEN r.blocking_session_id
 							       ELSE NULL 
 						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
@@ -35238,8 +36096,8 @@ IF @ProductVersionMajor >= 11
 		        CASE 
 	        WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
 	        WHEN s.transaction_isolation_level = 1 THEN ''Read Uncommitted''
-	        WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.dm_tran_active_snapshot_database_transactions AS trn WHERE s.session_id = trn.session_id AND is_snapshot = 0 ) THEN ''Read Committed Snapshot Isolation''
-			        WHEN s.transaction_isolation_level = 2 AND NOT EXISTS (SELECT 1 FROM sys.dm_tran_active_snapshot_database_transactions AS trn WHERE s.session_id = trn.session_id AND is_snapshot = 0 ) THEN ''Read Committed''
+			WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME(r.database_id) AND is_read_committed_snapshot_on = 1) THEN ''Read Committed Snapshot Isolation''
+			WHEN s.transaction_isolation_level = 2 THEN ''Read Committed''
 	        WHEN s.transaction_isolation_level = 3 THEN ''Repeatable Read''
 	        WHEN s.transaction_isolation_level = 4 THEN ''Serializable''
 	        WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
@@ -35595,6 +36453,17 @@ BEGIN
             ReleaseDate ASC
         )
     );
+	
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The major version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionNumber'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The minor version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionNumber'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The update level of the build. CU indicates a cumulative update. SP indicates a service pack. RTM indicates Release To Manufacturer. GDR indicates a General Distribution Release. QFE indicates Quick Fix Engineering (aka hotfix).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Branch'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'A link to the KB article for a version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Url'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date the version was publicly released.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ReleaseDate'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date main stream Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MainstreamSupportEndDate'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date extended Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ExtendedSupportEndDate'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The major version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionName'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The minor version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionName'
+	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'A reference for SQL Server major and minor versions.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions'
 
 END;
 GO
@@ -35604,6 +36473,8 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4063, 'CU6', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
+    (15, 4053, 'CU6', 'https://support.microsoft.com/en-us/help/4563110', '2020-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 6 '),
     (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
     (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
     (15, 4023, 'CU3', 'https://support.microsoft.com/en-us/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
@@ -35611,12 +36482,12 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3356, 'RTM CU22', 'https://support.microsoft.com/en-us/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
     (14, 3335, 'RTM CU21', 'https://support.microsoft.com/en-us/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),
     (14, 3294, 'RTM CU20', 'https://support.microsoft.com/en-us/help/4541283', '2020-04-07', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 20'),
     (14, 3257, 'RTM CU19', 'https://support.microsoft.com/en-us/help/4535007', '2020-02-05', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 19'),
     (14, 3257, 'RTM CU18', 'https://support.microsoft.com/en-us/help/4527377', '2019-12-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 18'),
     (14, 3238, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
-    (14, 3228, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
     (14, 3223, 'RTM CU16', 'https://support.microsoft.com/en-us/help/4508218', '2019-08-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 16'),
     (14, 3162, 'RTM CU15', 'https://support.microsoft.com/en-us/help/4498951', '2019-05-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 15'),
     (14, 3076, 'RTM CU14', 'https://support.microsoft.com/en-us/help/4484710', '2019-03-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 14'),
@@ -35634,13 +36505,12 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5830, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4564903', '2020-08-06', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 14'),
     (13, 5820, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4549825', '2020-05-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 13'),
     (13, 5698, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4536648', '2020-02-25', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 12'),
-    (13, 5492, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
+    (13, 5598, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
     (13, 5492, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
     (13, 5479, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
-    (13, 5426, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
-    (13, 5426, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
     (13, 5426, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/4505830', '2019-07-31', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 8'),
     (13, 5337, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/4495256', '2019-05-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 7'),
     (13, 5292, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/4488536', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 6'),
@@ -35737,6 +36607,9 @@ VALUES
     (12, 2269, 'RTM MS15-058: GDR Security Update ', 'https://support.microsoft.com/en-us/help/3045324', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: GDR Security Update '),
     (12, 2254, 'RTM MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977315', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: GDR Security Update'),
     (12, 2000, 'RTM ', '', '2014-04-01', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM '),
+    (11, 7493, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/4532098', '2020-02-11', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2020-0618'),
+    (11, 7469, 'SP4 On-Demand Hotfix Update', 'https://support.microsoft.com/en-us/help/4091266', '2018-03-28', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 SP4 On-Demand Hotfix Update'),
+    (11, 7462, 'SP4 ADV180002: GDR Security Update', 'https://support.microsoft.com/en-us/help/4057116', '2018-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 ADV180002: GDR Security Update'),
     (11, 7001, 'SP4 ', 'https://support.microsoft.com/en-us/help/4018073', '2017-10-02', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 '),
     (11, 6607, 'SP3 CU10', 'https://support.microsoft.com/en-us/help/4025925', '2017-08-08', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 10'),
     (11, 6598, 'SP3 CU9', 'https://support.microsoft.com/en-us/help/4016762', '2017-05-15', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 9'),
