@@ -2743,7 +2743,9 @@ BEGIN
 		END
 		ELSE /* No columns were found for this object */
 		BEGIN
-			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization;
+			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization
+			UNION ALL
+			SELECT N'SELECT * FROM sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectId AS NVARCHAR(100));
 		END
     END
 
