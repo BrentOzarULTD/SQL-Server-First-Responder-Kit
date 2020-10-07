@@ -1473,7 +1473,7 @@ BEGIN TRY
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so ON ps.object_id = so.object_id
                                    AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                    AND so.type <> ''TF'' /*Exclude table valued functions*/
-						JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
+						JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
                         OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
                     + CAST(@DatabaseID AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
 			            OUTER APPLY (SELECT st.lock_escalation_desc
@@ -1566,7 +1566,7 @@ BEGIN TRY
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
 								ELSE ty.name END + ''}''
-				FROM	sys.dm_db_missing_index_details AS id_inner
+				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
 					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
@@ -1588,7 +1588,7 @@ BEGIN TRY
 				AND cn_inner.IndexColumnType = cn.IndexColumnType
 				FOR XML PATH('''')
 			 ),1,1,'''') AS ReplaceColumnNames
-            FROM sys.dm_db_missing_index_details AS id
+            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id
            CROSS APPLY(
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
 						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
@@ -1624,9 +1624,9 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.object_id = id.object_id
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type
-                FROM    sys.dm_db_missing_index_groups ig
-                        JOIN sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
-                        JOIN sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
+                FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so on 
                             id.object_id=so.object_id
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sc on 
@@ -2653,11 +2653,11 @@ BEGIN
                         hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
                         s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
                         props.last_updated AS [Last Updated], s.stats_id AS [StatsID]
-                    FROM sys.stats AS s
-                    INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
-                    INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
-                    CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
-                    CROSS APPLY sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
+                    FROM ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
+                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
+                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
@@ -2669,16 +2669,16 @@ BEGIN
         RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
 		SET @dsql = N'
-			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectId)
+			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectID)
 				BEGIN
 				SET @ColumnList = N'''';
 				WITH DistinctColumns AS (
 				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
-					FROM sys.partitions p
-					INNER JOIN sys.columns c ON p.object_id = c.object_id
-					INNER JOIN sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
+					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON p.object_id = c.object_id
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
 					WHERE p.object_id = OBJECT_ID(@TableName)
-					AND EXISTS (SELECT * FROM sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
+					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
 					AND p.data_compression IN (3,4)
 				)
 				SELECT @ColumnList = @ColumnList + column_name + N'', ''
@@ -2713,10 +2713,10 @@ BEGIN
 					SELECT c.name AS column_name, p.partition_number,
 						rg.row_group_id, rg.total_rows, rg.deleted_rows,
 						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
-					FROM sys.column_store_row_groups rg 
-					INNER JOIN sys.columns c ON rg.object_id = c.object_id
-					INNER JOIN sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
-					LEFT OUTER JOIN sys.column_store_segments seg ON p.partition_id = seg.partition_id AND c.column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
+					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND c.column_id = seg.column_id AND rg.row_group_id = seg.segment_id
 					WHERE rg.object_id = OBJECT_ID(@TableName)
 				) AS x
 				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
@@ -2745,7 +2745,7 @@ BEGIN
 		BEGIN
 			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization
 			UNION ALL
-			SELECT N'SELECT * FROM sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectId AS NVARCHAR(100));
+			SELECT N'SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectID AS NVARCHAR(100));
 		END
     END
 
