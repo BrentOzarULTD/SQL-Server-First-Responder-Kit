@@ -2702,11 +2702,12 @@ BEGIN
 
         EXEC sp_executesql @dsql, N'@ObjectID INT, @TableName NVARCHAR(128), @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @TableName, @ColumnList OUTPUT;
  
-		/* Remove the trailing comma */
-		SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
 
 		IF @ColumnList <> ''
 		BEGIN
+			/* Remove the trailing comma */
+			SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
+
 			SET @dsql = N'SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
 				FROM (
 					SELECT c.name AS column_name, p.partition_number,
@@ -2739,6 +2740,12 @@ BEGIN
 				RAISERROR('@dsql is null',16,1);
 			ELSE
 				EXEC sp_executesql @dsql, N'@TableName NVARCHAR(128)', @TableName;
+		END
+		ELSE /* No columns were found for this object */
+		BEGIN
+			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization
+			UNION ALL
+			SELECT N'SELECT * FROM sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectId AS NVARCHAR(100));
 		END
     END
 
