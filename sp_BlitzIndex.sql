@@ -2652,7 +2652,8 @@ BEGIN
                         hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
                         hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
                         s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
-                        props.last_updated AS [Last Updated], s.stats_id AS [StatsID]
+                        props.last_updated AS [Last Updated], props.modification_counter AS [Modification Counter], props.rows AS [Table Rows],
+						props.rows_sampled AS [Rows Sampled], s.stats_id AS [StatsID]
                     FROM sys.stats AS s
                     INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
                     INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
@@ -2669,7 +2670,7 @@ BEGIN
         RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
 		SET @dsql = N'
-			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectId)
+			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectID)
 				BEGIN
 				SET @ColumnList = N'''';
 				WITH DistinctColumns AS (
@@ -2745,7 +2746,7 @@ BEGIN
 		BEGIN
 			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization
 			UNION ALL
-			SELECT N'SELECT * FROM sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectId AS NVARCHAR(100));
+			SELECT N'SELECT * FROM sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectID AS NVARCHAR(100));
 		END
     END
 
