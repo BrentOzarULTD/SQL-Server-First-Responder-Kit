@@ -2669,8 +2669,8 @@ BEGIN
     BEGIN
         RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
-		SET @dsql = N'
-			IF EXISTS(SELECT * FROM sys.column_store_row_groups WHERE object_id = @ObjectID)
+		SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
+			IF EXISTS(SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = @ObjectID)
 				BEGIN
 				SET @ColumnList = N'''';
 				WITH DistinctColumns AS (
@@ -2702,14 +2702,16 @@ BEGIN
 			END;
 
         EXEC sp_executesql @dsql, N'@ObjectID INT, @TableName NVARCHAR(128), @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @TableName, @ColumnList OUTPUT;
- 
+
+		IF @Debug = 1
+			SELECT @ColumnList AS ColumnstoreColumnList;
 
 		IF @ColumnList <> ''
 		BEGIN
 			/* Remove the trailing comma */
 			SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
 
-			SET @dsql = N'SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
+			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
 				FROM (
 					SELECT c.name AS column_name, p.partition_number,
 						rg.row_group_id, rg.total_rows, rg.deleted_rows,
@@ -2748,6 +2750,7 @@ BEGIN
 			UNION ALL
 			SELECT N'SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectID AS NVARCHAR(100));
 		END
+        RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
     END
 
 END; 
