@@ -22,7 +22,8 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+	@SortOrder NVARCHAR(256) = 'elapsed_time'
 AS
 BEGIN
 	SET NOCOUNT ON;
@@ -1030,9 +1031,12 @@ IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @M
 	SET @StringToExecute += N' ) ';
 	END
 
-SET @StringToExecute += 	
-	N' ORDER BY 2 DESC
-	';
+SET @StringToExecute +=
+		N' ORDER BY ' + CASE	WHEN @SortOrder = 'elapsed_time'	THEN '[elapsed_time] ASC'
+								WHEN @SortOrder = 'session_id'		THEN '[session_id] DESC'
+																	ELSE '[elapsed_time] ASC'
+						END + '
+		';
 
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
