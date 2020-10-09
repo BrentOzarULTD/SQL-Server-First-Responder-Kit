@@ -23,7 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
-	@SortOrder NVARCHAR(256) = 'elapsed_time'
+	@SortOrder NVARCHAR(256) = N'elapsed time'
 AS
 BEGIN
 	SET NOCOUNT ON;
@@ -114,6 +114,8 @@ DECLARE  @ProductVersion NVARCHAR(128)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
 		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
 
+/* Let's get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
@@ -1032,9 +1034,34 @@ IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @M
 	END
 
 SET @StringToExecute +=
-		N' ORDER BY ' + CASE	WHEN @SortOrder = 'elapsed_time'	THEN '[elapsed_time] ASC'
-								WHEN @SortOrder = 'session_id'		THEN '[session_id] DESC'
-																	ELSE '[elapsed_time] ASC'
+		N' ORDER BY ' + CASE	WHEN @SortOrder = 'session_id'		THEN '[session_id] DESC'
+								WHEN @SortOrder = 'query_cost'		THEN '[query_cost] DESC'
+								WHEN @SortOrder = 'database_name'		THEN '[database_name] ASC'
+								WHEN @SortOrder = 'open_transaction_count'		THEN '[open_transaction_count] DESC'
+								WHEN @SortOrder = 'is_implicit_transaction'		THEN '[is_implicit_transaction] DESC'
+								WHEN @SortOrder = 'login_name'		THEN '[login_name] ASC'
+								WHEN @SortOrder = 'program_name'		THEN '[program_name] ASC'
+								WHEN @SortOrder = 'client_interface_name'		THEN '[client_interface_name] ASC'
+								WHEN @SortOrder = 'request_cpu_time'		THEN 'COALESCE(r.cpu_time, s.cpu_time) DESC'
+								WHEN @SortOrder = 'request_logical_reads'		THEN 'COALESCE(r.logical_reads, s.logical_reads) DESC'
+								WHEN @SortOrder = 'request_writes'		THEN 'COALESCE(r.writes, s.writes) DESC'
+								WHEN @SortOrder = 'request_physical_reads'		THEN 'COALESCE(r.reads, s.reads) DESC '
+								WHEN @SortOrder = 'session_cpu'		THEN 's.cpu_time DESC'
+								WHEN @SortOrder = 'session_logical_reads'		THEN 's.logical_reads DESC'
+								WHEN @SortOrder = 'session_physical_reads'		THEN 's.writes DESC'
+								WHEN @SortOrder = 'session_writes'		THEN 's.writes DESC'
+								WHEN @SortOrder = 'tempdb_allocations_mb'		THEN '[tempdb_allocations_mb] DESC'
+								WHEN @SortOrder = 'memory_usage'		THEN '[memory_usage] DESC'
+								WHEN @SortOrder = 'deadlock_priority'		THEN 'r.deadlock_priority DESC'
+								WHEN @SortOrder = 'transaction_isolation_level'		THEN 'r.[transaction_isolation_level] DESC'
+								WHEN @SortOrder = 'requested_memory_kb' THEN '[requested_memory_kb] DESC'
+								WHEN @SortOrder = 'grant_memory_kb' THEN 'qmg.granted_memory_kb DESC'
+								WHEN @SortOrder = 'grant' THEN 'qmg.granted_memory_kb DESC'
+								WHEN @SortOrder = 'query_memory_grant_used_memory_kb' THEN 'qmg.used_memory_kb DESC'
+								WHEN @SortOrder = 'ideal_memory_kb' THEN '[ideal_memory_kb] DESC'
+								WHEN @SortOrder = 'workload_group_name' THEN 'wg.name ASC'
+								WHEN @SortOrder = 'resource_pool_name' THEN 'rp.name ASC'
+								ELSE '[elapsed_time] DESC'
 						END + '
 		';
 
