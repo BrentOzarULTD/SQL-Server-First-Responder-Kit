@@ -33,6 +33,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
+	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -119,6 +120,9 @@ DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
+
+/* Let's get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -5362,11 +5366,26 @@ BEGIN;
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
 					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
-			ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
+			ORDER BY CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
+						WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
+						WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
+						WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
+						WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
+						WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
+						WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
+						WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
+						WHEN @SortOrder = N'total_reads' THEN total_reads
+						WHEN @SortOrder = N'reads' THEN total_reads
+						WHEN @SortOrder = N'user_updates' THEN user_updates
+						WHEN @SortOrder = N'writes' THEN user_updates
+						WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
+						WHEN @SortOrder = N'ratio' THEN reads_per_write
+						WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
+						WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
+						ELSE NULL END DESC, /* Shout out to DHutmacher */
+				i.[database_name], [Schema Name], [Object Name], [Index ID]
 			OPTION (RECOMPILE);
   		END;
-
-
 
     END; /* End @Mode=2 (index detail)*/
     ELSE IF (@Mode=3) /*Missing index Detail*/
