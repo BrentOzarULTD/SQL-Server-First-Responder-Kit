@@ -45,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1454,8 +1454,8 @@ BEGIN
     AND     l.request_mode = N'S'
     AND    l.request_status = N'GRANT'
     AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+    OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
     WHERE r.command LIKE 'DBCC%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'

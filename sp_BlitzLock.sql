@@ -22,7 +22,8 @@ ALTER PROCEDURE dbo.sp_BlitzLock
     @VersionCheckMode BIT = 0,
 	@OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --ditto as below
-    @OutputTableName NVARCHAR(256) = 'BlitzLock'  --put a standard here no need to check later in the script
+    @OutputTableName NVARCHAR(256) = 'BlitzLock',  --put a standard here no need to check later in the script
+    @ExportToExcel BIT = 0
 )
 WITH RECOMPILE
 AS
@@ -31,7 +32,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.99', @VersionDate = '20200913';
+SELECT @Version = '2.999', @VersionDate = '20201011';
 
 
 IF(@VersionCheckMode = 1)
@@ -1440,18 +1441,20 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
-						CONVERT(
-							XML,
-							STUFF(( SELECT DISTINCT NCHAR(10) 
-											+ N' <object>' 
-											+ ISNULL(c.object_name, N'') 
-											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-									FROM   #deadlock_owner_waiter AS c
-									WHERE  ( dp.id = c.owner_id
-									         OR dp.victim_id = c.waiter_id )
-									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-								1, 1, N'')) AS object_names,
+						CASE WHEN @ExportToExcel = 0 THEN
+							CONVERT(
+								XML,
+								STUFF(( SELECT DISTINCT NCHAR(10) 
+												+ N' <object>' 
+												+ ISNULL(c.object_name, N'') 
+												+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+										FROM   #deadlock_owner_waiter AS c
+										WHERE  ( dp.id = c.owner_id
+												OR dp.victim_id = c.waiter_id )
+										AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
+										FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+									1, 1, N''))
+							ELSE NULL END AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -1496,7 +1499,7 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT,
-						CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
+						CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) ELSE 'parallel_deadlock' END AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -1543,7 +1546,8 @@ ELSE  --Output to database is not set output to client app
 				+ CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
 				+ CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
 				AS deadlock_group, 
-				CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>') AS query,
+				CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>')  
+					ELSE SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(d.inputbuf)),' ','<>'),'><',''),NCHAR(10), ' '),NCHAR(13), ' '),'<>',' '), 1, 32000) END AS query,
 				d.object_names,
 				d.isolation_level,
 				d.owner_mode,
@@ -1572,7 +1576,7 @@ ELSE  --Output to database is not set output to client app
 				d.waiter_merging,
 				d.waiter_spilling,
 				d.waiter_waiting_to_close,
-				d.deadlock_graph
+				CASE WHEN @ExportToExcel = 0 THEN d.deadlock_graph ELSE NULL END AS deadlock_graph
 			FROM   deadlocks AS d
 			WHERE  d.dn = 1
 			AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)

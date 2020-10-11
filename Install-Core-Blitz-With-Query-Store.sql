@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.99', @VersionDate = '20200913';
+	SELECT @Version = '7.999', @VersionDate = '20201011';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -1280,6 +1280,35 @@ AS
 								AND bs.backup_size >= 50000000000 /* At least 50GB */
 								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
 								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()); /* In the last 2 weeks */
+					END;
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 236 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 236) WITH NOWAIT;
+						
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT TOP 1 236 AS CheckID ,
+										50 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'Snapshotting Too Many Databases' AS Finding ,
+										'https://BrentOzar.com/go/toomanysnaps' AS URL ,
+										( CAST(SUM(1) AS VARCHAR(20)) + ' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.') AS Details
+								FROM msdb.dbo.backupset bs
+								WHERE bs.type = 'D'
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
+								GROUP BY bs.backup_finish_date
+								HAVING SUM(1) >= 35
+								ORDER BY SUM(1) DESC;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -6873,21 +6902,59 @@ IF @ProductVersionMajor >= 10
 				        IF EXISTS ( SELECT * FROM sys.all_objects WHERE [name] = 'database_scoped_configurations' )
 					        BEGIN
 								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] through [%d].', 0, 1, 194, 197) WITH NOWAIT;
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] through [%d] and [%d] through [%d].', 0, 1, 194, 197, 237, 255) WITH NOWAIT;
 								
 								INSERT INTO #DatabaseScopedConfigurationDefaults (configuration_id, [name], default_value, default_value_for_secondary, CheckID)
-									SELECT 1, 'MAXDOP', 0, NULL, 194
+									SELECT 1, 'MAXDOP', '0', NULL, 194
 									UNION ALL
-									SELECT 2, 'LEGACY_CARDINALITY_ESTIMATION', 0, NULL, 195
+									SELECT 2, 'LEGACY_CARDINALITY_ESTIMATION', '0', NULL, 195
 									UNION ALL
-									SELECT 3, 'PARAMETER_SNIFFING', 1, NULL, 196
+									SELECT 3, 'PARAMETER_SNIFFING', '1', NULL, 196
 									UNION ALL
-									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', 0, NULL, 197;
+									SELECT 4, 'QUERY_OPTIMIZER_HOTFIXES', '0', NULL, 197
+									UNION ALL
+									SELECT 6, 'IDENTITY_CACHE', '1', NULL, 237
+									UNION ALL
+									SELECT 7, 'INTERLEAVED_EXECUTION_TVF', '1', NULL, 238
+									UNION ALL
+									SELECT 8, 'BATCH_MODE_MEMORY_GRANT_FEEDBACK', '1', NULL, 239
+									UNION ALL
+									SELECT 9, 'BATCH_MODE_ADAPTIVE_JOINS', '1', NULL, 240
+									UNION ALL
+									SELECT 10, 'TSQL_SCALAR_UDF_INLINING', '1', NULL, 241
+									UNION ALL
+									SELECT 11, 'ELEVATE_ONLINE', 'OFF', NULL, 242
+									UNION ALL
+									SELECT 12, 'ELEVATE_RESUMABLE', 'OFF', NULL, 243
+									UNION ALL
+									SELECT 13, 'OPTIMIZE_FOR_AD_HOC_WORKLOADS', '0', NULL, 244
+									UNION ALL
+									SELECT 14, 'XTP_PROCEDURE_EXECUTION_STATISTICS', '0', NULL, 245
+									UNION ALL
+									SELECT 15, 'XTP_QUERY_EXECUTION_STATISTICS', '0', NULL, 246
+									UNION ALL
+									SELECT 16, 'ROW_MODE_MEMORY_GRANT_FEEDBACK', '1', NULL, 247
+									UNION ALL
+									SELECT 17, 'ISOLATE_SECURITY_POLICY_CARDINALITY', '0', NULL, 248
+									UNION ALL
+									SELECT 18, 'BATCH_MODE_ON_ROWSTORE', '1', NULL, 249
+									UNION ALL
+									SELECT 19, 'DEFERRED_COMPILATION_TV', '1', NULL, 250
+									UNION ALL
+									SELECT 20, 'ACCELERATED_PLAN_FORCING', '1', NULL, 251
+									UNION ALL
+									SELECT 21, 'GLOBAL_TEMPORARY_TABLE_AUTO_DROP', '1', NULL, 252
+									UNION ALL
+									SELECT 22, 'LIGHTWEIGHT_QUERY_PROFILING', '1', NULL, 253
+									UNION ALL
+									SELECT 23, 'VERBOSE_TRUNCATION_WARNINGS', '1', NULL, 254
+									UNION ALL
+									SELECT 24, 'LAST_QUERY_PLAN_STATS', '0', NULL, 255;
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://BrentOzar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
 									FROM [?].sys.database_scoped_configurations dsc
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
-									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (dsc.value = def.default_value OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
+									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (cast(dsc.value as nvarchar(100)) = cast(def.default_value as nvarchar(100)) OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
 									 OPTION (RECOMPILE);';
@@ -9022,7 +9089,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
-								EXEC(@StringToExecute);
+								IF @OutputXMLasNVARCHAR = 1
+								BEGIN
+									SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)');
+								END;
+                                EXEC(@StringToExecute);
 							END;
 						IF @ValidOutputServer = 1
 							BEGIN
@@ -9043,6 +9114,21 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
+								IF @OutputXMLasNVARCHAR = 1
+								BEGIN
+									SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
+								+ @OutputDatabaseName
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+								+ @OutputSchemaName + ''') INSERT '
+								+ @OutputDatabaseName + '.'
+								+ @OutputSchemaName + '.'
+								+ @OutputTableName
+								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
+								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								END;
+								ELSE
+                                begin
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
 								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
@@ -9053,8 +9139,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
 								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
-								
+								END;
 								EXEC(@StringToExecute);
+							
 							END;
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
@@ -9314,7 +9401,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.99', @VersionDate = '20200913';
+	SELECT @Version = '3.999', @VersionDate = '20201011';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -11093,7 +11180,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 
 IF(@VersionCheckMode = 1)
@@ -11865,9 +11952,9 @@ DECLARE @DurationFilter_i INT,
         @common_version DECIMAL(10,2),
         @buffer_pool_memory_gb DECIMAL(10,2),
         @user_perm_percent DECIMAL(10,2),
-        @is_tokenstore_big BIT = 0;
-
-
+        @is_tokenstore_big BIT = 0,
+        @sort NVARCHAR(MAX) = N'',
+		@sort_filter NVARCHAR(MAX) = N'';
 
 
 IF @SortOrder = 'sp_BlitzIndex'
@@ -13141,8 +13228,31 @@ BEGIN
            age_minutes_lifetime ';
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
-    
+
+	SET @sort_filter += CASE @SortOrder  WHEN N'cpu' THEN N'AND total_worker_time > 0'
+                                WHEN N'reads' THEN N'AND total_logical_reads > 0'
+                                WHEN N'writes' THEN N'AND total_logical_writes > 0'
+                                WHEN N'duration' THEN N'AND total_elapsed_time > 0'
+                                WHEN N'executions' THEN N'AND execution_count > 0'
+                                WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'
+								WHEN N'memory grant' THEN N'AND max_grant_kb > 0'
+								WHEN N'spills' THEN N'AND max_spills > 0'
+                                /* And now the averages */
+                                WHEN N'avg cpu' THEN N'AND (total_worker_time / execution_count) > 0'
+                                WHEN N'avg reads' THEN N'AND (total_logical_reads / execution_count) > 0'
+                                WHEN N'avg writes' THEN N'AND (total_logical_writes / execution_count) > 0'
+                                WHEN N'avg duration' THEN N'AND (total_elapsed_time / execution_count) > 0'
+								WHEN N'avg memory grant' THEN N'AND CASE WHEN max_grant_kb = 0 THEN 0 ELSE (max_grant_kb / execution_count) END > 0'
+                                WHEN N'avg spills' THEN N'AND CASE WHEN total_spills = 0 THEN 0 ELSE (total_spills / execution_count) END > 0'
+                                WHEN N'avg executions' THEN N'AND CASE WHEN execution_count = 0 THEN 0
+            WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
+            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
+            END > 0'
+               END;
+
     SET @sql += REPLACE(@body_where, 'cached_time', 'creation_time') ;
+
+	SET @sql += @sort_filter + @nl;
     
     SET @sql += @body_order + @nl + @nl + @nl;
 
@@ -13169,7 +13279,9 @@ BEGIN
     IF @IgnoreSystemDBs = 1
        SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
-    SET @sql += @body_order + @nl + @nl + @nl ;
+	SET @sql += @sort_filter + @nl;
+
+	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
 IF (@v >= 13
@@ -13199,7 +13311,9 @@ BEGIN
     IF @IgnoreSystemDBs = 1
        SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
-    SET @sql += @body_order + @nl + @nl + @nl ;
+	SET @sql += @sort_filter + @nl;
+
+	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
 /*******************************************************************************
@@ -13232,11 +13346,13 @@ BEGIN
 
    IF @IgnoreSystemDBs = 1
       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
-   
+
+   SET @sql += @sort_filter + @nl;   
+
    SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
-DECLARE @sort NVARCHAR(MAX);
+
 
 SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'reads' THEN N'total_logical_reads'
@@ -18228,7 +18344,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -19637,8 +19753,8 @@ BEGIN
     AND     l.request_mode = N'S'
     AND    l.request_status = N'GRANT'
     AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+    OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
     WHERE r.command LIKE 'DBCC%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
 	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
@@ -22558,6 +22674,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
+	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -22568,7 +22685,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22588,12 +22705,6 @@ the findings, contribute your own code, and more.
 
 Known limitations of this version:
  - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
- - The @OutputDatabaseName parameters are not functional yet. To check the
-   status of this enhancement request, visit:
-   https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/221
- - Does not analyze columnstore, spatial, XML, or full text indexes. If you
-   would like to contribute code to analyze those, head over to Github and
-   check out the issues list: http://FirstResponderKit.org
  - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
  --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it is important 
            for the user to understand if it is going to be offline and not just run a script.
@@ -22649,6 +22760,10 @@ DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
+DECLARE @ColumnList NVARCHAR(MAX);
+
+/* Let's get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -22881,6 +22996,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               reserved_MB NUMERIC(29,2) NOT NULL ,
               reserved_LOB_MB NUMERIC(29,2) NOT NULL ,
               reserved_row_overflow_MB NUMERIC(29,2) NOT NULL ,
+              reserved_dictionary_MB NUMERIC(29,2) NOT NULL ,
               leaf_insert_count BIGINT NULL ,
               leaf_delete_count BIGINT NULL ,
               leaf_update_count BIGINT NULL ,
@@ -22918,6 +23034,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               total_reserved_MB NUMERIC(29,2) NOT NULL ,
               total_reserved_LOB_MB NUMERIC(29,2) NOT NULL ,
               total_reserved_row_overflow_MB NUMERIC(29,2) NOT NULL ,
+              total_reserved_dictionary_MB NUMERIC(29,2) NOT NULL ,
               total_leaf_delete_count BIGINT NULL,
               total_leaf_update_count BIGINT NULL,
               total_range_scan_count BIGINT NULL,
@@ -22950,15 +23067,21 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     CAST(CAST(total_reserved_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB'
                 END
                 + CASE WHEN total_reserved_LOB_MB > 1024 THEN 
-                    N'; ' + CAST(CAST(total_reserved_LOB_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB LOB'
+                    N'; ' + CAST(CAST(total_reserved_LOB_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB ' + CASE WHEN total_reserved_dictionary_MB = 0 THEN N'LOB' ELSE N'Columnstore' END
                 WHEN total_reserved_LOB_MB > 0 THEN
-                    N'; ' + CAST(CAST(total_reserved_LOB_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB LOB'
+                    N'; ' + CAST(CAST(total_reserved_LOB_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB ' + CASE WHEN total_reserved_dictionary_MB = 0 THEN N'LOB' ELSE N'Columnstore' END
                 ELSE ''
                 END
                  + CASE WHEN total_reserved_row_overflow_MB > 1024 THEN
                     N'; ' + CAST(CAST(total_reserved_row_overflow_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB Row Overflow'
                 WHEN total_reserved_row_overflow_MB > 0 THEN
                     N'; ' + CAST(CAST(total_reserved_row_overflow_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB Row Overflow'
+                ELSE ''
+                END
+                 + CASE WHEN total_reserved_dictionary_MB > 1024 THEN
+                    N'; ' + CAST(CAST(total_reserved_dictionary_MB/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'GB Dictionaries'
+                WHEN total_reserved_dictionary_MB > 0 THEN
+                    N'; ' + CAST(CAST(total_reserved_dictionary_MB AS NUMERIC(29,1)) AS NVARCHAR(30)) + N'MB Dictionaries'
                 ELSE ''
                 END ,
                     N'Error- NULL in computed column'),
@@ -23869,7 +23992,7 @@ BEGIN TRY
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
+                        SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
 								s.name,
                                 ps.index_id, 
@@ -23901,27 +24024,37 @@ BEGIN TRY
 								SUM(os.page_latch_wait_count),
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
-								SUM(os.page_io_latch_wait_in_ms)
-                    FROM    ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_partition_stats AS ps  
-                    JOIN ' + QUOTENAME(@DatabaseName) + '.sys.partitions AS par on ps.partition_id=par.partition_id
-                    JOIN ' + QUOTENAME(@DatabaseName) + '.sys.objects AS so ON ps.object_id = so.object_id
+								SUM(os.page_io_latch_wait_in_ms), ';
+
+		    /* Get columnstore dictionary size - more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2585 */
+			IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'column_store_dictionaries')
+				SET @dsql = @dsql + N' COALESCE((SELECT SUM (on_disk_size / 1024.0 / 1024) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries dict WHERE dict.partition_id = ps.partition_id),0) AS reserved_dictionary_MB ';
+			ELSE
+				SET @dsql = @dsql + N' 0 AS reserved_dictionary_MB ';
+
+
+            SET @dsql = @dsql + N'
+			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
+                    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions AS par on ps.partition_id=par.partition_id
+                    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so ON ps.object_id = so.object_id
                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                AND so.type <> ''TF'' /*Exclude table valued functions*/
-					JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
-                    LEFT JOIN ' + QUOTENAME(@DatabaseName) + '.sys.dm_db_index_operational_stats('
-                + CAST(@DatabaseID AS NVARCHAR(10)) + ', NULL, NULL,NULL) AS os ON
+					JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
+                    LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
+                + CAST(@DatabaseID AS NVARCHAR(10)) + N', NULL, NULL,NULL) AS os ON
                     ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
 			            OUTER APPLY (SELECT st.lock_escalation_desc
 			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
 			                         WHERE st.object_id = ps.object_id
 			                             AND ps.index_id < 2 ) le
                     WHERE 1=1 
-                    ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + '
-                    ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + '
+                    ' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND so.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N' ' END + N'
+                    ' + CASE WHEN @Filter = 2 THEN N'AND ps.reserved_page_count * 8./1024. > ' + CAST(@FilterMB AS NVARCHAR(5)) + N' ' ELSE N' ' END + N'
             GROUP BY ps.object_id, 
 								s.name,
                                 ps.index_id, 
                                 ps.partition_number, 
+								ps.partition_id,
                                 ps.row_count,
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
@@ -23938,7 +24071,7 @@ BEGIN TRY
 		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
 		--If you have a lot of paritions and this suddenly starts running for a long time, change it back.
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + ' AS database_id,
+                        SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
 								s.name,
                                 ps.index_id, 
@@ -23970,13 +24103,22 @@ BEGIN TRY
 								SUM(os.page_latch_wait_count),
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
-								SUM(os.page_io_latch_wait_in_ms)
+								SUM(os.page_io_latch_wait_in_ms)';
+
+		    /* Get columnstore dictionary size - more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2585 */
+			IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'column_store_dictionaries')
+				SET @dsql = @dsql + N' COALESCE((SELECT SUM (on_disk_size / 1024.0 / 1024) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries dict WHERE dict.partition_id = ps.partition_id),0) AS reserved_dictionary_MB ';
+			ELSE
+				SET @dsql = @dsql + N' 0 AS reserved_dictionary_MB ';
+
+
+            SET @dsql = @dsql + N'
                         FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions AS par on ps.partition_id=par.partition_id
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects AS so ON ps.object_id = so.object_id
                                    AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                    AND so.type <> ''TF'' /*Exclude table valued functions*/
-						JOIN ' + QUOTENAME(@DatabaseName) + '.sys.schemas AS s ON s.schema_id = so.schema_id
+						JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
                         OUTER APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
                     + CAST(@DatabaseID AS NVARCHAR(10)) + N', ps.object_id, ps.index_id,ps.partition_number) AS os
 			            OUTER APPLY (SELECT st.lock_escalation_desc
@@ -23989,7 +24131,8 @@ BEGIN TRY
 	            GROUP BY ps.object_id, 
 								s.name,
                                 ps.index_id, 
-                                ps.partition_number, 
+                                ps.partition_number,
+								ps.partition_id,
                                 ps.row_count,
                                 ps.reserved_page_count,
                                 ps.lob_reserved_page_count,
@@ -24050,7 +24193,8 @@ BEGIN TRY
 								          page_latch_wait_count,
 								          page_latch_wait_in_ms,
 								          page_io_latch_wait_count,								
-								          page_io_latch_wait_in_ms)
+								          page_io_latch_wait_in_ms,
+										  reserved_dictionary_MB)
                 EXEC sp_executesql @dsql;
         
 		END; --End Check For @SkipPartitions = 0
@@ -24067,7 +24211,7 @@ BEGIN TRY
 								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
 								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
 								ELSE ty.name END + ''}''
-				FROM	sys.dm_db_missing_index_details AS id_inner
+				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
 					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
@@ -24089,7 +24233,7 @@ BEGIN TRY
 				AND cn_inner.IndexColumnType = cn.IndexColumnType
 				FOR XML PATH('''')
 			 ),1,1,'''') AS ReplaceColumnNames
-            FROM sys.dm_db_missing_index_details AS id
+            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id
            CROSS APPLY(
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
 						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
@@ -24125,9 +24269,9 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.object_id = id.object_id
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type
-                FROM    sys.dm_db_missing_index_groups ig
-                        JOIN sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
-                        JOIN sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
+                FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
+                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so on 
                             id.object_id=so.object_id
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sc on 
@@ -24711,7 +24855,7 @@ FROM #IndexPartitionSanity ps
 
 RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
 INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
-                                total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
+                                total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_reserved_dictionary_MB, total_range_scan_count,
                                 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
                                 total_forwarded_fetch_count,total_row_lock_count,
                                 total_row_lock_wait_count, total_row_lock_wait_in_ms, avg_row_lock_wait_in_ms,
@@ -24720,8 +24864,10 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [l
                                 total_index_lock_promotion_count, data_compression_desc, 
 								page_latch_wait_count, page_latch_wait_in_ms, page_io_latch_wait_count, page_io_latch_wait_in_ms)
         SELECT  index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc,						
-				COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
+				COUNT(*), SUM(row_count), SUM(reserved_MB),
+				SUM(reserved_LOB_MB) - SUM(reserved_dictionary_MB), /* Subtract columnstore dictionaries from LOB data */
                 SUM(reserved_row_overflow_MB), 
+                SUM(reserved_dictionary_MB), 
                 SUM(range_scan_count),
                 SUM(singleton_lookup_count),
                 SUM(leaf_delete_count), 
@@ -25151,17 +25297,106 @@ BEGIN
                         hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
                         hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
                         s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
-                        props.last_updated AS [Last Updated], s.stats_id AS [StatsID]
-                    FROM sys.stats AS s
-                    INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
-                    INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
-                    CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
-                    CROSS APPLY sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
+                        props.last_updated AS [Last Updated], props.modification_counter AS [Modification Counter], props.rows AS [Table Rows],
+						props.rows_sampled AS [Rows Sampled], s.stats_id AS [StatsID]
+                    FROM ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
+                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
+                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
     END
 
+    /* Visualize columnstore index contents. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2584 */
+    IF 2 = (SELECT SUM(1) FROM sys.all_objects WHERE name IN ('column_store_row_groups','column_store_segments'))
+    BEGIN
+        RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
+
+		SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
+			IF EXISTS(SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = @ObjectID)
+				BEGIN
+				SET @ColumnList = N'''';
+				WITH DistinctColumns AS (
+				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
+					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON p.object_id = c.object_id
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
+					WHERE p.object_id = OBJECT_ID(@TableName)
+					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
+					AND p.data_compression IN (3,4)
+				)
+				SELECT @ColumnList = @ColumnList + column_name + N'', ''
+					FROM DistinctColumns
+					ORDER BY column_id;
+				END';
+
+		IF @Debug = 1
+			BEGIN
+				PRINT SUBSTRING(@dsql, 0, 4000);
+				PRINT SUBSTRING(@dsql, 4000, 8000);
+				PRINT SUBSTRING(@dsql, 8000, 12000);
+				PRINT SUBSTRING(@dsql, 12000, 16000);
+				PRINT SUBSTRING(@dsql, 16000, 20000);
+				PRINT SUBSTRING(@dsql, 20000, 24000);
+				PRINT SUBSTRING(@dsql, 24000, 28000);
+				PRINT SUBSTRING(@dsql, 28000, 32000);
+				PRINT SUBSTRING(@dsql, 32000, 36000);
+				PRINT SUBSTRING(@dsql, 36000, 40000);
+			END;
+
+        EXEC sp_executesql @dsql, N'@ObjectID INT, @TableName NVARCHAR(128), @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @TableName, @ColumnList OUTPUT;
+
+		IF @Debug = 1
+			SELECT @ColumnList AS ColumnstoreColumnList;
+
+		IF @ColumnList <> ''
+		BEGIN
+			/* Remove the trailing comma */
+			SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
+
+			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
+				FROM (
+					SELECT c.name AS column_name, p.partition_number,
+						rg.row_group_id, rg.total_rows, rg.deleted_rows,
+						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
+					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
+					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
+					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND c.column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+					WHERE rg.object_id = OBJECT_ID(@TableName)
+				) AS x
+				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
+				ORDER BY partition_number, row_group_id;';
+ 
+			IF @Debug = 1
+				BEGIN
+					PRINT SUBSTRING(@dsql, 0, 4000);
+					PRINT SUBSTRING(@dsql, 4000, 8000);
+					PRINT SUBSTRING(@dsql, 8000, 12000);
+					PRINT SUBSTRING(@dsql, 12000, 16000);
+					PRINT SUBSTRING(@dsql, 16000, 20000);
+					PRINT SUBSTRING(@dsql, 20000, 24000);
+					PRINT SUBSTRING(@dsql, 24000, 28000);
+					PRINT SUBSTRING(@dsql, 28000, 32000);
+					PRINT SUBSTRING(@dsql, 32000, 36000);
+					PRINT SUBSTRING(@dsql, 36000, 40000);
+				END;
+
+			IF @dsql IS NULL 
+				RAISERROR('@dsql is null',16,1);
+			ELSE
+				EXEC sp_executesql @dsql, N'@TableName NVARCHAR(128)', @TableName;
+		END
+		ELSE /* No columns were found for this object */
+		BEGIN
+			SELECT N'No compressed columnstore rowgroups were found for this object.' AS Columnstore_Visualization
+			UNION ALL
+			SELECT N'SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectID AS NVARCHAR(100));
+		END
+        RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
+    END
 
 END; 
 
@@ -27772,11 +28007,26 @@ BEGIN;
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
 					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
-			ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
+			ORDER BY CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
+						WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
+						WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
+						WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
+						WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
+						WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
+						WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
+						WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
+						WHEN @SortOrder = N'total_reads' THEN total_reads
+						WHEN @SortOrder = N'reads' THEN total_reads
+						WHEN @SortOrder = N'user_updates' THEN user_updates
+						WHEN @SortOrder = N'writes' THEN user_updates
+						WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
+						WHEN @SortOrder = N'ratio' THEN reads_per_write
+						WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
+						WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
+						ELSE NULL END DESC, /* Shout out to DHutmacher */
+				i.[database_name], [Schema Name], [Object Name], [Index ID]
 			OPTION (RECOMPILE);
   		END;
-
-
 
     END; /* End @Mode=2 (index detail)*/
     ELSE IF (@Mode=3) /*Missing index Detail*/
@@ -27887,7 +28137,8 @@ ALTER PROCEDURE dbo.sp_BlitzLock
     @VersionCheckMode BIT = 0,
 	@OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = 'dbo' ,  --ditto as below
-    @OutputTableName NVARCHAR(256) = 'BlitzLock'  --put a standard here no need to check later in the script
+    @OutputTableName NVARCHAR(256) = 'BlitzLock',  --put a standard here no need to check later in the script
+    @ExportToExcel BIT = 0
 )
 WITH RECOMPILE
 AS
@@ -27896,7 +28147,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.99', @VersionDate = '20200913';
+SELECT @Version = '2.999', @VersionDate = '20201011';
 
 
 IF(@VersionCheckMode = 1)
@@ -29305,18 +29556,20 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
-						CONVERT(
-							XML,
-							STUFF(( SELECT DISTINCT NCHAR(10) 
-											+ N' <object>' 
-											+ ISNULL(c.object_name, N'') 
-											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-									FROM   #deadlock_owner_waiter AS c
-									WHERE  ( dp.id = c.owner_id
-									         OR dp.victim_id = c.waiter_id )
-									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-								1, 1, N'')) AS object_names,
+						CASE WHEN @ExportToExcel = 0 THEN
+							CONVERT(
+								XML,
+								STUFF(( SELECT DISTINCT NCHAR(10) 
+												+ N' <object>' 
+												+ ISNULL(c.object_name, N'') 
+												+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+										FROM   #deadlock_owner_waiter AS c
+										WHERE  ( dp.id = c.owner_id
+												OR dp.victim_id = c.waiter_id )
+										AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
+										FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+									1, 1, N''))
+							ELSE NULL END AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -29361,7 +29614,7 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT,
-						CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
+						CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) ELSE 'parallel_deadlock' END AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -29408,7 +29661,8 @@ ELSE  --Output to database is not set output to client app
 				+ CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
 				+ CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
 				AS deadlock_group, 
-				CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>') AS query,
+				CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>')  
+					ELSE SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(d.inputbuf)),' ','<>'),'><',''),NCHAR(10), ' '),NCHAR(13), ' '),'<>',' '), 1, 32000) END AS query,
 				d.object_names,
 				d.isolation_level,
 				d.owner_mode,
@@ -29437,7 +29691,7 @@ ELSE  --Output to database is not set output to client app
 				d.waiter_merging,
 				d.waiter_spilling,
 				d.waiter_waiting_to_close,
-				d.deadlock_graph
+				CASE WHEN @ExportToExcel = 0 THEN d.deadlock_graph ELSE NULL END AS deadlock_graph
 			FROM   deadlocks AS d
 			WHERE  d.dn = 1
 			AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
@@ -29555,7 +29809,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.99', @VersionDate = '20200913';
+SELECT @Version = '3.999', @VersionDate = '20201011';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -35275,13 +35529,14 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+	@SortOrder NVARCHAR(256) = N'elapsed time'
 AS
 BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.99', @VersionDate = '20200913';
+	SELECT @Version = '7.999', @VersionDate = '20201011';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -35366,6 +35621,8 @@ DECLARE  @ProductVersion NVARCHAR(128)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
 		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
 
+/* Let's get @SortOrder set to lower case here for comparisons later */
+SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
@@ -36283,9 +36540,37 @@ IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @M
 	SET @StringToExecute += N' ) ';
 	END
 
-SET @StringToExecute += 	
-	N' ORDER BY 2 DESC
-	';
+SET @StringToExecute +=
+		N' ORDER BY ' + CASE	WHEN @SortOrder = 'session_id'		THEN '[session_id] DESC'
+								WHEN @SortOrder = 'query_cost'		THEN '[query_cost] DESC'
+								WHEN @SortOrder = 'database_name'		THEN '[database_name] ASC'
+								WHEN @SortOrder = 'open_transaction_count'		THEN '[open_transaction_count] DESC'
+								WHEN @SortOrder = 'is_implicit_transaction'		THEN '[is_implicit_transaction] DESC'
+								WHEN @SortOrder = 'login_name'		THEN '[login_name] ASC'
+								WHEN @SortOrder = 'program_name'		THEN '[program_name] ASC'
+								WHEN @SortOrder = 'client_interface_name'		THEN '[client_interface_name] ASC'
+								WHEN @SortOrder = 'request_cpu_time'		THEN 'COALESCE(r.cpu_time, s.cpu_time) DESC'
+								WHEN @SortOrder = 'request_logical_reads'		THEN 'COALESCE(r.logical_reads, s.logical_reads) DESC'
+								WHEN @SortOrder = 'request_writes'		THEN 'COALESCE(r.writes, s.writes) DESC'
+								WHEN @SortOrder = 'request_physical_reads'		THEN 'COALESCE(r.reads, s.reads) DESC '
+								WHEN @SortOrder = 'session_cpu'		THEN 's.cpu_time DESC'
+								WHEN @SortOrder = 'session_logical_reads'		THEN 's.logical_reads DESC'
+								WHEN @SortOrder = 'session_physical_reads'		THEN 's.reads DESC'
+								WHEN @SortOrder = 'session_writes'		THEN 's.writes DESC'
+								WHEN @SortOrder = 'tempdb_allocations_mb'		THEN '[tempdb_allocations_mb] DESC'
+								WHEN @SortOrder = 'memory_usage'		THEN '[memory_usage] DESC'
+								WHEN @SortOrder = 'deadlock_priority'		THEN 'r.deadlock_priority DESC'
+								WHEN @SortOrder = 'transaction_isolation_level'		THEN 'r.[transaction_isolation_level] DESC'
+								WHEN @SortOrder = 'requested_memory_kb' THEN '[requested_memory_kb] DESC'
+								WHEN @SortOrder = 'grant_memory_kb' THEN 'qmg.granted_memory_kb DESC'
+								WHEN @SortOrder = 'grant' THEN 'qmg.granted_memory_kb DESC'
+								WHEN @SortOrder = 'query_memory_grant_used_memory_kb' THEN 'qmg.used_memory_kb DESC'
+								WHEN @SortOrder = 'ideal_memory_kb' THEN '[ideal_memory_kb] DESC'
+								WHEN @SortOrder = 'workload_group_name' THEN 'wg.name ASC'
+								WHEN @SortOrder = 'resource_pool_name' THEN 'rp.name ASC'
+								ELSE '[elapsed_time] DESC'
+						END + '
+		';
 
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
@@ -36473,7 +36758,8 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (15, 4063, 'CU6', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
+    (15, 4073, 'CU8', 'https://support.microsoft.com/en-us/help/4577194', '2020-10-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 '),
+    (15, 4063, 'CU7', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
     (15, 4053, 'CU6', 'https://support.microsoft.com/en-us/help/4563110', '2020-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 6 '),
     (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
     (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
@@ -36505,6 +36791,7 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
     (13, 5830, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4564903', '2020-08-06', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 14'),
     (13, 5820, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4549825', '2020-05-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 13'),
     (13, 5698, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4536648', '2020-02-25', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 12'),

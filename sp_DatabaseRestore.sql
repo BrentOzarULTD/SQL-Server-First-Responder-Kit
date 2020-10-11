@@ -38,7 +38,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1388,22 +1388,29 @@ IF @RunCheckDB = 1
 
 IF @DatabaseOwner IS NOT NULL
 	BEGIN
-		IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
+		IF @RunRecovery = 1
 		BEGIN
-			SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @DatabaseOwner + ']';
+			IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
+			BEGIN
+				SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @DatabaseOwner + ']';
 
-				IF @Debug = 1 OR @Execute = 'N'
-				BEGIN
-					IF @sql IS NULL PRINT '@sql is NULL for Set Database Owner';
-					PRINT @sql;
-				END;
+					IF @Debug = 1 OR @Execute = 'N'
+					BEGIN
+						IF @sql IS NULL PRINT '@sql is NULL for Set Database Owner';
+						PRINT @sql;
+					END;
 
-			IF @Debug IN (0, 1) AND @Execute = 'Y'
-				EXECUTE (@sql);
+				IF @Debug IN (0, 1) AND @Execute = 'Y'
+					EXECUTE (@sql);
+			END
+			ELSE
+			BEGIN
+				PRINT @DatabaseOwner + ' is not a valid Login. Database Owner not set.';
+			END
 		END
 		ELSE
 		BEGIN
-			PRINT @DatabaseOwner + ' is not a valid Login. Database Owner not set.'
+			PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to change the database owner to [' + @DatabaseOwner + '].';
 		END
 	END;
 

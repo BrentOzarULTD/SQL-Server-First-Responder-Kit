@@ -278,7 +278,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 
 IF(@VersionCheckMode = 1)
@@ -1050,9 +1050,9 @@ DECLARE @DurationFilter_i INT,
         @common_version DECIMAL(10,2),
         @buffer_pool_memory_gb DECIMAL(10,2),
         @user_perm_percent DECIMAL(10,2),
-        @is_tokenstore_big BIT = 0;
-
-
+        @is_tokenstore_big BIT = 0,
+        @sort NVARCHAR(MAX) = N'',
+		@sort_filter NVARCHAR(MAX) = N'';
 
 
 IF @SortOrder = 'sp_BlitzIndex'
@@ -2326,8 +2326,31 @@ BEGIN
            age_minutes_lifetime ';
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
-    
+
+	SET @sort_filter += CASE @SortOrder  WHEN N'cpu' THEN N'AND total_worker_time > 0'
+                                WHEN N'reads' THEN N'AND total_logical_reads > 0'
+                                WHEN N'writes' THEN N'AND total_logical_writes > 0'
+                                WHEN N'duration' THEN N'AND total_elapsed_time > 0'
+                                WHEN N'executions' THEN N'AND execution_count > 0'
+                                WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'
+								WHEN N'memory grant' THEN N'AND max_grant_kb > 0'
+								WHEN N'spills' THEN N'AND max_spills > 0'
+                                /* And now the averages */
+                                WHEN N'avg cpu' THEN N'AND (total_worker_time / execution_count) > 0'
+                                WHEN N'avg reads' THEN N'AND (total_logical_reads / execution_count) > 0'
+                                WHEN N'avg writes' THEN N'AND (total_logical_writes / execution_count) > 0'
+                                WHEN N'avg duration' THEN N'AND (total_elapsed_time / execution_count) > 0'
+								WHEN N'avg memory grant' THEN N'AND CASE WHEN max_grant_kb = 0 THEN 0 ELSE (max_grant_kb / execution_count) END > 0'
+                                WHEN N'avg spills' THEN N'AND CASE WHEN total_spills = 0 THEN 0 ELSE (total_spills / execution_count) END > 0'
+                                WHEN N'avg executions' THEN N'AND CASE WHEN execution_count = 0 THEN 0
+            WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
+            ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
+            END > 0'
+               END;
+
     SET @sql += REPLACE(@body_where, 'cached_time', 'creation_time') ;
+
+	SET @sql += @sort_filter + @nl;
     
     SET @sql += @body_order + @nl + @nl + @nl;
 
@@ -2354,7 +2377,9 @@ BEGIN
     IF @IgnoreSystemDBs = 1
        SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
-    SET @sql += @body_order + @nl + @nl + @nl ;
+	SET @sql += @sort_filter + @nl;
+
+	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
 IF (@v >= 13
@@ -2384,7 +2409,9 @@ BEGIN
     IF @IgnoreSystemDBs = 1
        SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
-    SET @sql += @body_order + @nl + @nl + @nl ;
+	SET @sql += @sort_filter + @nl;
+
+	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
 /*******************************************************************************
@@ -2417,11 +2444,13 @@ BEGIN
 
    IF @IgnoreSystemDBs = 1
       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
-   
+
+   SET @sql += @sort_filter + @nl;   
+
    SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
-DECLARE @sort NVARCHAR(MAX);
+
 
 SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'reads' THEN N'total_logical_reads'
