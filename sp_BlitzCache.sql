@@ -792,7 +792,7 @@ IF @SortOrder LIKE 'query hash%'
 /* Set @Top based on sort */
 IF (
      @Top IS NULL
-     AND LOWER(@SortOrder) IN ( 'all', 'all sort' )
+     AND @SortOrder IN ( 'all', 'all sort' )
    )
    BEGIN
          SET @Top = 5;
@@ -800,7 +800,7 @@ IF (
 
 IF (
      @Top IS NULL
-     AND LOWER(@SortOrder) NOT IN ( 'all', 'all sort' )
+     AND @SortOrder NOT IN ( 'all', 'all sort' )
    )
    BEGIN
          SET @Top = 10;
@@ -6483,7 +6483,7 @@ IF OBJECT_ID('tempdb.. #bou_allsort') IS NULL
    END;
 
 
-IF LOWER(@SortOrder) = 'all'
+IF @SortOrder = 'all'
 BEGIN
 RAISERROR('Beginning for ALL', 0, 1) WITH NOWAIT;
 SET @AllSortSql += N'
@@ -6658,7 +6658,7 @@ SET @AllSortSql += N'
 END; 			
 
 
-IF LOWER(@SortOrder) = 'all avg'
+IF @SortOrder = 'all avg'
 BEGIN 
 RAISERROR('Beginning for ALL AVG', 0, 1) WITH NOWAIT;
 SET @AllSortSql += N' 
