@@ -45,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99', @VersionDate = '20200913';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1321,12 +1321,12 @@ BEGIN
 		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
 		   FROM sys.dm_os_wait_stats os
 		) x
-		   WHERE EXISTS 
+		   WHERE NOT EXISTS 
 		   (
-                SELECT 1/0
+                SELECT *
 				FROM ##WaitCategories AS wc
 				WHERE wc.WaitType = x.wait_type
-				AND wc.Ignorable = 0
+				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
@@ -2276,12 +2276,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
 		   FROM sys.dm_os_wait_stats os
 		) x
-		   WHERE EXISTS 
+		   WHERE NOT EXISTS 
 		   (
-                SELECT 1/0
+                SELECT *
 				FROM ##WaitCategories AS wc
 				WHERE wc.WaitType = x.wait_type
-				AND wc.Ignorable = 0
+				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;
