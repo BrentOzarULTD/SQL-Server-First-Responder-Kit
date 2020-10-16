@@ -595,7 +595,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     + N';'
                     ,
                 [more_info] AS N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],'''') + 
-                    N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([table_name],'''') + N';'
+                    N', @SchemaName=' + QUOTENAME([schema_name],'''') + N', @TableName=' + QUOTENAME([table_name],'''') + N';',
+				[sample_query_plan] XML NULL
             );
 
         CREATE TABLE #ForeignKeys (
@@ -1627,8 +1628,24 @@ BEGIN TRY
                     FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
                     AND ColumnNamesWithDataTypes.object_id = id.object_id
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
-                ) AS included_columns_with_data_type
-                FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
+                ) AS included_columns_with_data_type '
+
+		IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
+			SET @dsql = @dsql + N' , NULL AS sample_query_plan '
+		ELSE
+		BEGIN
+			SET @dsql = @dsql + N' , sample_query_plan = (SELECT TOP 1 p.query_plan
+				FROM sys.dm_db_missing_index_group_stats gs 
+				CROSS APPLY (SELECT TOP 1 s.plan_handle 
+					FROM sys.dm_db_missing_index_group_stats_query q 
+					INNER JOIN sys.dm_exec_query_stats s ON q.query_plan_hash = s.query_plan_hash
+					WHERE gs.group_handle = q.group_handle 
+					ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC) q2
+				CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+				WHERE gs.group_handle = gs.group_handle) '
+		END
+
+		SET @dsql = @dsql + N'FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so on 
@@ -1659,7 +1676,7 @@ BEGIN TRY
         INSERT    #MissingIndexes ( [database_id], [object_id], [database_name], [schema_name], [table_name], [statement], avg_total_user_cost, 
                                     avg_user_impact, user_seeks, user_scans, unique_compiles, equality_columns, 
                                     inequality_columns, included_columns, equality_columns_with_data_type, inequality_columns_with_data_type, 
-                                    included_columns_with_data_type)
+                                    included_columns_with_data_type, sample_query_plan)
         EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
         SET @dsql = N'
@@ -2581,7 +2598,8 @@ BEGIN
                     END AS [Estimated Benefit],
                 missing_index_details AS [Missing Index Request] ,
                 index_estimated_impact AS [Estimated Impact],
-                create_tsql AS [Create TSQL]
+                create_tsql AS [Create TSQL],
+				sample_query_plan AS [Sample Query Plan]
         FROM    #MissingIndexes mi
 		LEFT JOIN create_date AS cd
 		ON mi.[object_id] =  cd.object_id 
@@ -5419,7 +5437,8 @@ BEGIN;
 				mi.create_tsql AS [Create TSQL], 
 				mi.more_info AS [More Info],
 				1 AS [Display Order],
-				mi.is_low
+				mi.is_low,
+				mi.sample_query_plan AS [Sample Query Plan]
 			FROM #MissingIndexes AS mi
 			LEFT JOIN create_date AS cd
 			ON mi.[object_id] =  cd.object_id 
@@ -5436,7 +5455,7 @@ BEGIN;
 				100000000000,
 				@DaysUptimeInsertValue,
 				NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
+				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low, NULL
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
 	  	END;
