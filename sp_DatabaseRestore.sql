@@ -596,6 +596,17 @@ BEGIN
 		END;
 	END
 	/*End folder sanity check*/
+
+	IF @StopAt IS NOT NULL
+	BEGIN
+		DELETE
+		FROM @FileList
+		WHERE BackupFile LIKE N'%.bak'
+			AND
+			BackupFile LIKE N'%' + @Database + N'%'
+			AND
+			(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
+	END
 	
     -- Find latest full backup 
     SELECT @LastFullBackup = MAX(BackupFile)
