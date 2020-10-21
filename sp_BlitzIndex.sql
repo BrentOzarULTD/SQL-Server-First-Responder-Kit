@@ -4528,7 +4528,7 @@ BEGIN;
 				s.database_name,
 				'' AS URL,
 				'Statistics on this table were last updated ' + 
-					CASE s.last_statistics_update WHEN NULL THEN N' NEVER '
+					CASE WHEN s.last_statistics_update IS NULL THEN N' NEVER '
 					ELSE CONVERT(NVARCHAR(20), s.last_statistics_update) + 
 						' have had ' + CONVERT(NVARCHAR(100), s.modification_counter) +
 						' modifications in that time, which is ' +
