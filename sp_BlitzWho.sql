@@ -108,11 +108,7 @@ DECLARE  @ProductVersion NVARCHAR(128)
 								AND r.plan_handle = session_stats.plan_handle
 						  AND r.statement_start_offset = session_stats.statement_start_offset
 						  AND r.statement_end_offset = session_stats.statement_end_offset' 
-		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , '
-		,@QueryStatsParameterSelect NVARCHAR(MAX) = N' STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'') + N'' (Actual: '' + Node.Data.value(''(@ParameterRuntimeValue)[1]'', ''NVARCHAR(4000)'') + N'')''
-						FROM qs_live.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
-						FOR XML PATH('''')), 1,2,'''')
-						AS Live_Parameter_Info, '
+		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
 		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
 		,@ObjectFullName NVARCHAR(2000)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
@@ -127,16 +123,11 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
  BEGIN
   SET @QueryStatsXMLselect = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ';
-  SET @QueryStatsParameterSelect = N' STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'') + N'' (Actual: '' + Node.Data.value(''(@ParameterRuntimeValue)[1]'', ''NVARCHAR(4000)'') + N'')''
-					FROM qs_live.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
-					FOR XML PATH('''')), 1,2,'''')
-					AS Live_Parameter_Info, '
   SET @QueryStatsXMLSQL = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live';
  END
  ELSE
  BEGIN
   SET @QueryStatsXMLselect = N' NULL AS live_query_plan , ';
-  SET @QueryStatsParameterSelect = N' NULL AS Live_Parameter_Info , '
   SET @QueryStatsXMLSQL = N' ';
  END
 
@@ -275,28 +266,6 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
-	EXEC(@StringToExecute);
-
-
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Cached_Parameter_Info'')
-		ALTER TABLE ' + @ObjectFullName + N' ADD Cached_Parameter_Info NVARCHAR(4000) NULL;';
-	IF @Debug = 1
-	BEGIN
-		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
-		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
-	END
-	EXEC(@StringToExecute);
-
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Live_Parameter_Info'')
-		ALTER TABLE ' + @ObjectFullName + N' ADD Live_Parameter_Info NVARCHAR(4000) NULL;';
-	
-	IF @Debug = 1
-	BEGIN
-		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 0, 8000))
-		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
-	END
 	EXEC(@StringToExecute);
 
 	/* Delete history older than @OutputTableRetentionDays */
@@ -597,10 +566,6 @@ BEGIN
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 			       derp.query_plan ,
-					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
-						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
-						FOR XML PATH('''')), 1,2,'''')
-						AS Cached_Parameter_Info,
 						    qmg.query_cost ,										   		   
 						    s.status ,
 							CASE
@@ -807,13 +772,7 @@ IF @ProductVersionMajor >= 11
 			              / 2 ) + 1), dest.text) AS query_text ,
 			       derp.query_plan ,'
 						     + @QueryStatsXMLselect
-						    + N'
-					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
-						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
-						FOR XML PATH('''')), 1,2,'''')
-						AS Cached_Parameter_Info,'
-						+ @QueryStatsParameterSelect
-						+ N'
+						    +' 
 			       qmg.query_cost ,
 			       s.status ,
 					CASE
@@ -1126,8 +1085,6 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_text]
 	,[query_plan]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
-	,[Cached_Parameter_Info]'
-	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_parameter_info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
 	,[wait_info]'
