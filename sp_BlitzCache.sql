@@ -351,7 +351,7 @@ BEGIN
     UNION ALL
     SELECT N'@SortOrder',
            N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
     UNION ALL
     SELECT N'@UseTriggersAnyway',
@@ -1103,6 +1103,7 @@ SET @SortOrder = CASE
                      WHEN @SortOrder IN ('avg write') THEN 'avg writes'
                      WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
                      WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
                      WHEN @SortOrder IN ('spill') THEN 'spills'
                      WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
                      WHEN @SortOrder IN ('execution') THEN 'executions'
@@ -1111,7 +1112,7 @@ SET @SortOrder = CASE
 RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
 					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
 					   'query hash')
   BEGIN
@@ -2018,6 +2019,7 @@ SELECT @body += N'        ORDER BY ' +
                                  WHEN N'executions' THEN N'execution_count'
                                  WHEN N'compiles' THEN N'cached_time'
 								 WHEN N'memory grant' THEN N'max_grant_kb'
+								 WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								 WHEN N'spills' THEN N'max_spills'
                                  /* And now the averages */
                                  WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
@@ -2334,6 +2336,7 @@ BEGIN
                                 WHEN N'executions' THEN N'AND execution_count > 0'
                                 WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'
 								WHEN N'memory grant' THEN N'AND max_grant_kb > 0'
+								WHEN N'unused grant' THEN N'AND max_grant_kb > 0'
 								WHEN N'spills' THEN N'AND max_spills > 0'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'AND (total_worker_time / execution_count) > 0'
@@ -2365,7 +2368,7 @@ END;
 IF (@QueryFilter = 'all' 
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
@@ -2386,7 +2389,7 @@ IF (@v >= 13
    AND @QueryFilter = 'all'
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
    AND (@SortOrder NOT IN ('spills', 'avg spills'))
    OR (LEFT(@QueryFilter, 3) = 'fun')
 BEGIN
@@ -2429,7 +2432,7 @@ IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (@QueryFilter = 'all')
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -2459,6 +2462,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'executions' THEN N'execution_count'
                                 WHEN N'compiles' THEN N'cached_time'
 								WHEN N'memory grant' THEN N'max_grant_kb'
+								WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								WHEN N'spills' THEN N'max_spills'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
@@ -2519,6 +2523,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
                                 WHEN N'executions' THEN N'ExecutionCount'
                                 WHEN N'compiles' THEN N'PlanCreationTime'
 								WHEN N'memory grant' THEN N'MaxGrantKB'
+								WHEN N'unused grant' THEN N'MaxGrantKB - MaxUsedGrantKB'
 								WHEN N'spills' THEN N'MaxSpills'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'TotalCPU / ExecutionCount'
@@ -4858,6 +4863,7 @@ BEGIN
                               WHEN N'executions' THEN N' ExecutionCount '
                               WHEN N'compiles' THEN N' PlanCreationTime '
 							  WHEN N'memory grant' THEN N' MaxGrantKB'
+							  WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
 							  WHEN N'spills' THEN N' MaxSpills'
                               WHEN N'avg cpu' THEN N' AverageCPU'
                               WHEN N'avg reads' THEN N' AverageReads'
@@ -5107,6 +5113,7 @@ SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
                                                 WHEN N'executions' THEN N' ExecutionCount '
                                                 WHEN N'compiles' THEN N' PlanCreationTime '
 												WHEN N'memory grant' THEN N' MaxGrantKB'
+												WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB '
 												WHEN N'spills' THEN N' MaxSpills'
                                                 WHEN N'avg cpu' THEN N' AverageCPU'
                                                 WHEN N'avg reads' THEN N' AverageReads'
