@@ -525,6 +525,21 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 
  END
 
+ IF OBJECT_ID('tempdb..#WhoReadableDBs') IS NOT NULL 
+	DROP TABLE #WhoReadableDBs;
+
+CREATE TABLE #WhoReadableDBs 
+(
+database_id INT
+);
+
+IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+BEGIN
+	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+
+	EXEC('INSERT INTO #WhoReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;');
+END
+
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
    
 						DECLARE @blocked TABLE 
@@ -999,6 +1014,7 @@ IF @ProductVersionMajor >= 11
 	    N'
 	    WHERE s.session_id <> @@SPID 
 	    AND s.host_name IS NOT NULL
+		AND r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs)
 	    '
 	    + CASE WHEN @ShowSleepingSPIDs = 0 THEN
 			    N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
