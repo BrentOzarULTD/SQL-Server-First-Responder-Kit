@@ -38,7 +38,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.97', @VersionDate = '20200712';
+SELECT @Version = '7.999', @VersionDate = '20201011';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -433,7 +433,8 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "/"', 0, 1) WITH NOWAIT;
 	SET @StandbyUndoPath += N'/';
 END;
-IF @RestoreDatabaseName IS NULL
+
+IF @RestoreDatabaseName IS NULL OR @RestoreDatabaseName LIKE N'' /*use LIKE instead of =, otherwise N'' = N' '. See: https://www.brentozar.com/archive/2017/04/surprising-behavior-trailing-spaces/ */
 BEGIN
 	SET @RestoreDatabaseName = @Database;
 END;
@@ -595,6 +596,17 @@ BEGIN
 		END;
 	END
 	/*End folder sanity check*/
+
+	IF @StopAt IS NOT NULL
+	BEGIN
+		DELETE
+		FROM @FileList
+		WHERE BackupFile LIKE N'%.bak'
+			AND
+			BackupFile LIKE N'%' + @Database + N'%'
+			AND
+			(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
+	END
 	
     -- Find latest full backup 
     SELECT @LastFullBackup = MAX(BackupFile)
@@ -1387,22 +1399,29 @@ IF @RunCheckDB = 1
 
 IF @DatabaseOwner IS NOT NULL
 	BEGIN
-		IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
+		IF @RunRecovery = 1
 		BEGIN
-			SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @DatabaseOwner + ']';
+			IF EXISTS (SELECT * FROM master.dbo.syslogins WHERE syslogins.loginname = @DatabaseOwner)
+			BEGIN
+				SET @sql = N'ALTER AUTHORIZATION ON DATABASE::' + @RestoreDatabaseName + ' TO [' + @DatabaseOwner + ']';
 
-				IF @Debug = 1 OR @Execute = 'N'
-				BEGIN
-					IF @sql IS NULL PRINT '@sql is NULL for Set Database Owner';
-					PRINT @sql;
-				END;
+					IF @Debug = 1 OR @Execute = 'N'
+					BEGIN
+						IF @sql IS NULL PRINT '@sql is NULL for Set Database Owner';
+						PRINT @sql;
+					END;
 
-			IF @Debug IN (0, 1) AND @Execute = 'Y'
-				EXECUTE (@sql);
+				IF @Debug IN (0, 1) AND @Execute = 'Y'
+					EXECUTE (@sql);
+			END
+			ELSE
+			BEGIN
+				PRINT @DatabaseOwner + ' is not a valid Login. Database Owner not set.';
+			END
 		END
 		ELSE
 		BEGIN
-			PRINT @DatabaseOwner + ' is not a valid Login. Database Owner not set.'
+			PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to change the database owner to [' + @DatabaseOwner + '].';
 		END
 	END;
 

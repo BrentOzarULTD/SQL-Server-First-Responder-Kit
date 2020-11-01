@@ -52,60 +52,14 @@ Your code must handle:
 
 We know that's a pain, but that's the kind of thing we find out in the wild. Of course you would never build a server like that, but...
 
+### How to Check In Your Code
 
-### Contributing T-SQL Code: Git Flow for Pull Requests
-<a name="git-flow"></a>
+Rather than give you step-by-step instructions here, we'd rather link you to the work of others:
 
-1. [Fork] the project, clone your fork, and configure the remotes:
+* [How to fork a GitHub repository and contribute to an open source project](https://sqldbawithabeard.com/2019/11/29/how-to-fork-a-github-repository-and-contribute-to-an-open-source-project/)
 
-   ```bash
-   # Clone your fork of the repo into the current directory
-   git clone git@github.com:<YOUR_USERNAME>/SQL-Server-First-Responder-Kit.git
-   # Navigate to the newly cloned directory
-   cd SQL-Server-First-Responder-Kit
-   # Assign the original repo to a remote called "upstream"
-   git remote add upstream https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-   ```
 
-2. If you cloned a while ago, get the latest changes from upstream:
 
-   ```bash
-   git checkout dev
-   git pull upstream dev
-   ```
-
-3. Create a new topic branch (off the main project development branch) to
-   contain your feature, change, or fix:
-
-   ```bash
-   git checkout -b <topic-branch-name>
-   ```
-
-4. Make changes.
-
-   Make changes to one or more of the files in the project.
-   If your change requires a new CheckId look here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/dev/Documentation/sp_Blitz_Checks_by_Priority.md.
-   You should modify the file `Documentation\sp_Blitz Checks by Priority.md` in the project by yourself.
-
-5. Commit your changes in logical chunks. Please adhere to these [git commit message guidelines]
-   or your code is unlikely be merged into the main project. Use Git's [interactive rebase]
-   feature to tidy up your commits before making them public.
-
-6. Locally merge (or rebase) the upstream development branch into your topic branch:
-
-   ```bash
-   git pull [--rebase] upstream dev
-   ```
-
-7. Push your topic branch up to your fork:
-
-   ```bash
-   git push origin <topic-branch-name>
-   ```
-
-8. [Open a Pull Request] with a clear title and description.
-
-**IMPORTANT**: By submitting a patch, you agree to allow the project owner to license your work under the MIT [LICENSE]
 
 ## The Contributor Covenant Code of Conduct
 
@@ -162,9 +116,4 @@ available at [http://contributor-covenant.org/version/1/4][version]
 [version]: http://contributor-covenant.org/version/1/4/
 [Github issues list]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
 [closed issues list]: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues?q=is%3Aissue+is%3Aclosed
-[Fork]:https://help.github.com/articles/fork-a-repo/
-[git commit message guidelines]:http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
-[interactive rebase]:https://help.github.com/articles/about-git-rebase/
-[Open a Pull Request]:https://help.github.com/articles/about-pull-requests/
-[LICENSE]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md
 [download the dev branch version]: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/archive/dev.zip
