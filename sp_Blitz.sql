@@ -1055,9 +1055,9 @@ AS
 										d.name AS DatabaseName,
 										1 AS Priority ,
 										'Backup' AS FindingsGroup ,
-										'Log backups to NUL' AS Finding ,
-										'https://www.brentozar.com/archive/2009/08/backup-log-with-truncate-only-in-sql-server-2008/' AS URL ,
-										('' + CAST(d.name AS NVARCHAR(128)) + '''s Log file has been backed up ' +  CAST((SELECT count(*)
+										'Log Backups to NUL' AS Finding ,
+										'https://www.brentozar.com/go/nul' AS URL ,
+										N'The transaction log file has been backed up ' +  CAST((SELECT count(*)
 														 FROM   msdb.dbo.backupset AS b INNER JOIN
 																msdb.dbo.backupmediafamily AS bmf
 																	ON	b.media_set_id = bmf.media_set_id
@@ -1065,7 +1065,7 @@ AS
 																AND bmf.physical_device_name = 'NUL'
 																AND b.type = 'L'
 																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE())) AS NVARCHAR(8)) + ' time(s) to ''NUL'' in the last week. This could potentially break the backup chain.') AS Details
+																  -7, GETDATE())) AS NVARCHAR(8)) + ' time(s) to ''NUL'' in the last week, which means the backup does not exist. This breaks point-in-time recovery.' AS Details
 								FROM    master.sys.databases AS d
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )

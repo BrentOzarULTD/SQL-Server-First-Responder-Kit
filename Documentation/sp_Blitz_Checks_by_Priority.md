@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 255.
-If you want to add a new one, start at 256.
+CURRENT HIGH CHECKID: 256.
+If you want to add a new one, start at 257.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -18,6 +18,7 @@ If you want to add a new one, start at 256.
 | 1 | Backup | Backups Not Performed Recently | https://www.BrentOzar.com/go/nobak | 1 |
 | 1 | Backup | Encryption Certificate Not Backed Up Recently | https://www.BrentOzar.com/go/tde | 202 |
 | 1 | Backup | Full Recovery Mode w/o Log Backups | https://www.BrentOzar.com/go/biglogs | 2 |
+| 1 | Backup | Log Backups to NUL | https://www.BrentOzar.com/go/nul | 256 |
 | 1 | Backup | TDE Certificate Not Backed Up Recently | https://www.BrentOzar.com/go/tde | 119 |
 | 1 | Corruption | Database Corruption Detected | https://www.BrentOzar.com/go/repair | 34 |
 | 1 | Corruption | Database Corruption Detected | https://www.BrentOzar.com/go/repair | 89 |
