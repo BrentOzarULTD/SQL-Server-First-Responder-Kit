@@ -34,6 +34,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
 	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
+	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -123,6 +124,7 @@ DECLARE @ColumnList NVARCHAR(MAX);
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
+SET @SortDirection = LOWER(@SortDirection);
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -317,25 +319,31 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             [reads_per_write] AS CAST(CASE WHEN user_updates > 0
                 THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
                 ELSE 0 END AS MONEY) ,
-            [index_usage_summary] AS N'Reads: ' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
-                + CASE WHEN user_seeks + user_scans + user_lookups > 0 THEN
-                    N' (' 
-                        + RTRIM(
-                        CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), N'.00', N'') + N' seek ' ELSE N'' END
-                        + CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), N'.00', N'') + N' scan '  ELSE N'' END
-                        + CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), N'.00', N'') + N' lookup' ELSE N'' END
-                        )
-                        + N') '
-                    ELSE N' ' END 
-                + N'Writes:' + 
-                REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), N'.00', N''),
-            [more_info] AS 
-                CASE WHEN is_in_memory_oltp = 1 
-                    THEN N'EXEC dbo.sp_BlitzInMemoryOLTP @dbName=' + QUOTENAME([database_name],N'''') + 
-                    N', @tableName=' + QUOTENAME([object_name],N'''') + N';'
-                ELSE N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
-                    N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';' END
+            [index_usage_summary] AS
+				CASE WHEN is_spatial = 1 THEN N'Not Tracked'
+				WHEN is_disabled = 1 THEN N'Disabled'
+				ELSE N'Reads: ' + 
+					REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
+					+ CASE WHEN user_seeks + user_scans + user_lookups > 0 THEN
+						N' (' 
+							+ RTRIM(
+							CASE WHEN user_seeks > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks) AS MONEY), 1), N'.00', N'') + N' seek ' ELSE N'' END
+							+ CASE WHEN user_scans > 0 THEN REPLACE(CONVERT(NVARCHAR(30),CAST((user_scans) AS MONEY), 1), N'.00', N'') + N' scan '  ELSE N'' END
+							+ CASE WHEN user_lookups > 0 THEN  REPLACE(CONVERT(NVARCHAR(30),CAST((user_lookups) AS MONEY), 1), N'.00', N'') + N' lookup' ELSE N'' END
+							)
+							+ N') '
+						ELSE N' '
+						END 
+					+ N'Writes:' + 
+					REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), N'.00', N'')
+				END /* First "end" is about is_spatial */,
+				[more_info] AS 
+				CASE WHEN is_in_memory_oltp = 1 
+					THEN N'EXEC dbo.sp_BlitzInMemoryOLTP @dbName=' + QUOTENAME([database_name],N'''') + 
+					N', @tableName=' + QUOTENAME([object_name],N'''') + N';'
+				ELSE N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
+					N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';'
+				END
 		);
         RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
         IF NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE name='uq_database_id_object_id_index_id') 
@@ -5384,23 +5392,46 @@ BEGIN;
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
 					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
-			ORDER BY CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
-						WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
-						WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
-						WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
-						WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
-						WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
-						WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
-						WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
-						WHEN @SortOrder = N'total_reads' THEN total_reads
-						WHEN @SortOrder = N'reads' THEN total_reads
-						WHEN @SortOrder = N'user_updates' THEN user_updates
-						WHEN @SortOrder = N'writes' THEN user_updates
-						WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
-						WHEN @SortOrder = N'ratio' THEN reads_per_write
-						WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
-						WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
-						ELSE NULL END DESC, /* Shout out to DHutmacher */
+			ORDER BY CASE WHEN @SortDirection = 'desc' THEN
+						CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
+							WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
+							WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
+							WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
+							WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
+							WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
+							WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
+							WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
+							WHEN @SortOrder = N'total_reads' THEN total_reads
+							WHEN @SortOrder = N'reads' THEN total_reads
+							WHEN @SortOrder = N'user_updates' THEN user_updates
+							WHEN @SortOrder = N'writes' THEN user_updates
+							WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
+							WHEN @SortOrder = N'ratio' THEN reads_per_write
+							WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
+							WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
+							ELSE NULL END
+						ELSE 1 END
+						DESC, /* Shout out to DHutmacher */
+					CASE WHEN @SortDirection = 'asc' THEN
+						CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
+							WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
+							WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
+							WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
+							WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
+							WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
+							WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
+							WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
+							WHEN @SortOrder = N'total_reads' THEN total_reads
+							WHEN @SortOrder = N'reads' THEN total_reads
+							WHEN @SortOrder = N'user_updates' THEN user_updates
+							WHEN @SortOrder = N'writes' THEN user_updates
+							WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
+							WHEN @SortOrder = N'ratio' THEN reads_per_write
+							WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
+							WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
+							ELSE NULL END
+						ELSE 1 END
+						ASC,
 				i.[database_name], [Schema Name], [Object Name], [Index ID]
 			OPTION (RECOMPILE);
   		END;
