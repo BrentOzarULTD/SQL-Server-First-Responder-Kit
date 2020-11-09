@@ -26,7 +26,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
-	@IgnoreAlreadyPresentInMsdb BIT = 0,
+	@SkipBackupsAlreadyInMsdb BIT = 0,
 	@DatabaseOwner sysname = NULL,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
@@ -1186,7 +1186,7 @@ BEGIN
     /*End folder sanity check*/
 
 	
-IF @IgnoreAlreadyPresentInMsdb = 1
+IF @SkipBackupsAlreadyInMsdb = 1
 BEGIN
 	SELECT TOP 1 @LogLastNameInMsdbAS = bf.physical_device_name
 	FROM msdb.dbo.backupmediafamily bf
