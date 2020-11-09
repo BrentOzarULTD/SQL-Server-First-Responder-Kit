@@ -4454,7 +4454,8 @@ IF @ProductVersionMajor >= 10
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%';
+						  AND [servicename] NOT LIKE 'SQL Server Agent%'
+						  AND [servicename] NOT LIKE 'SQL Server Launchpad%';
 
 					END;
 					END;
