@@ -6972,7 +6972,7 @@ ELSE
 					PercentExecutionsByType money,
 					ExecutionsPerMinute money,
 					PlanCreationTime datetime,' + N'
-					PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+					PlanCreationTimeHours AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]),
 					LastExecutionTime datetime,
 					LastCompletionTime datetime, 
 					PlanHandle varbinary(64),
@@ -7018,7 +7018,28 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));
+
+					IF EXISTS(SELECT * FROM '
+					+@OutputDatabaseName
+					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+					+@OutputSchemaName
+					+''') AND EXISTS (SELECT * FROM '
+					+@OutputDatabaseName+
+					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+					+@OutputSchemaName
+					+''' AND QUOTENAME(TABLE_NAME) = '''
+					+@OutputTableName
+					+''') AND EXISTS (SELECT * FROM '
+					+@OutputDatabaseName+
+					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
+					+@OutputTableName
+					+''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
+BEGIN 
+	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
+	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' DROP COLUMN [PlanCreationTimeHours];
+	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
+END ';
 			
             IF @ValidOutputServer = 1
 				BEGIN
