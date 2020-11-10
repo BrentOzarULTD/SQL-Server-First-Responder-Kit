@@ -22,11 +22,7 @@ If you want to add a new check, start at 121.
 | 80 | Abnormal Psychology | Columnstore Indexes with Trace Flag 834 | https://support.microsoft.com/en-us/kb/3210239 | 72 |
 | 80 | Abnormal Psychology | Identity Column Near End of Range | https://www.brentozar.com/go/AbnormalPsychology | 68 |
 | 80 | Abnormal Psychology | Filter Columns Not In Index Definition | https://www.brentozar.com/go/IndexFeatures | 34 |
-
 | 90 | Functioning Statistaholics | Low Sampling Rates | https://www.brentozar.com/go/stats | 91 |
-
-
-
 | 90 | Functioning Statistaholics | Statistics Not Updated Recently | https://www.brentozar.com/go/stats | 90 |
 | 90 | Functioning Statistaholics | Statistics with NO RECOMPUTE | https://www.brentozar.com/go/stats | 92 |
 | 100 | Index Hoarder | NC index with High Writes:Reads | https://www.brentozar.com/go/IndexHoarder | 48 |
@@ -39,8 +35,6 @@ If you want to add a new check, start at 121.
 | 100 | Self Loathing Indexes | Small Active Heap | https://www.brentozar.com/go/SelfLoathing | 46 |
 | 100 | Serial Forcer | Computed Column with Scalar UDF | https://www.brentozar.com/go/serialudf | 99 |
 | 100 | Serial Forcer | Check Constraint with Scalar UDF | https://www.brentozar.com/go/computedscalar | 94 |
-
-
 | 150 | Abnormal Psychology | Cascading Updates or Deletes | https://www.brentozar.com/go/AbnormalPsychology | 71 |
 | 150 | Abnormal Psychology | Columnstore Index | https://www.brentozar.com/go/AbnormalPsychology | 61 |
 | 150 | Abnormal Psychology | Column Collation Does Not Match Database Collation| https://www.brentozar.com/go/AbnormalPsychology | 69 |
