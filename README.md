@@ -261,7 +261,11 @@ Common parameters include:
 * @SchemaName, @TableName - if you pass in these, sp_BlitzIndex does a deeper-dive analysis of just one table. You get several result sets back describing more information about the table's current indexes, foreign key relationships, missing indexes, and fields in the table.
 * @GetAllDatabases = 1 - slower, but lets you analyze all the databases at once, up to 50. If you want more than 50 databases, you also have to pass in @BringThePain = 1.
 * @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
-* @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
+* @Mode = 0 (default) - returns high-priority (1-100) advice on the most urgent index issues.
+	* @Mode = 4: Diagnose Details - like @Mode 0, but returns even more advice (priorities 1-255) with things you may not be able to fix right away, and things we just want to warn you about.
+	* @Mode = 1: Summarize - total numbers of indexes, space used, etc per database.
+	* @Mode = 2: Index Usage Details - an inventory of your existing indexes and their usage statistics. Great for copy/pasting into Excel to do slice & dice analysis. This is the only mode that works with the @Output parameters: you can export this data to table on a monthly basis if you need to go back and look to see which indexes were used over time.
+	* @Mode = 3: Missing Indexes - an inventory of indexes SQL Server is suggesting. Also great for copy/pasting into Excel for later analysis.
 
 sp_BlitzIndex focuses on mainstream index types. Other index types have varying amounts of support:
 
