@@ -11,7 +11,6 @@ If you want to add a new check, start at 121.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
-
 | 10 | Index Hoarder | Many NC Indexes on a Single Table | https://www.brentozar.com/go/IndexHoarder | 20 |
 | 10 | Index Hoarder | Unused NC Index with High Writes | https://www.brentozar.com/go/IndexHoarder | 22 |
 | 20 | Multiple Index Personalities | Duplicate Keys | https://www.brentozar.com/go/duplicateindex | 1 |
