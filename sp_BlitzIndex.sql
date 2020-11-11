@@ -334,7 +334,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 							+ N') '
 						ELSE N' '
 						END 
-					+ N'Writes:' + 
+					+ N'Writes: ' + 
 					REPLACE(CONVERT(NVARCHAR(30),CAST(user_updates AS MONEY), 1), N'.00', N'')
 				END /* First "end" is about is_spatial */,
 				[more_info] AS 
