@@ -29,12 +29,12 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version             VARCHAR(30)    = NULL OUTPUT,
   @VersionDate         DATETIME       = NULL OUTPUT,
   @VersionCheckMode    BIT            = 0
--- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
+-- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.999', @VersionDate = '20201011';
+  SELECT @Version = '2.9999', @VersionDate = '20201114';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -100,22 +100,22 @@ BEGIN
           @cmd    nvarchar(max),
           @thisdb sysname,
           @cr     char(2) = CHAR(13) + CHAR(10),
-		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017)
+		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
 		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')); -- Stores the SQL Server Instance name.
 
   CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
 
+  -- first, let's limit to only DBs the caller is interested in
   IF @database_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
   BEGIN
-    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n < 4000),
+    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@database_list)),
     names AS
     (
       SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@database_list, n, 
         CHARINDEX(N',', @database_list + N',', n) - n), 1)))
       FROM n 
-      WHERE n <= LEN(@database_list)
-        AND SUBSTRING(N',' + @database_list, n, 1) = N','
+      WHERE SUBSTRING(N',' + @database_list, n, 1) = N','
     ) 
     INSERT #ineachdb(id,name,is_distributor) 
     SELECT d.database_id, d.name, d.is_distributor
@@ -128,19 +128,17 @@ BEGIN
     INSERT #ineachdb(id,name,is_distributor) SELECT database_id, name, is_distributor FROM sys.databases;
   END
 
-  -- first, let's delete any that have been explicitly excluded
+  -- now delete any that have been explicitly excluded - exclude trumps include
   IF @exclude_list > N'' 
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
-  -- exclude trumps include
   BEGIN
-    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n < 4000),
+    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@exclude_list)),
     names AS
     (
       SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@exclude_list, n, 
         CHARINDEX(N',', @exclude_list + N',', n) - n), 1)))
       FROM n 
-      WHERE n <= LEN(@exclude_list)
-        AND SUBSTRING(N',' + @exclude_list, n, 1) = N','
+      WHERE SUBSTRING(N',' + @exclude_list, n, 1) = N','
     )
     DELETE d 
       FROM #ineachdb AS d

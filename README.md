@@ -187,10 +187,11 @@ Other common parameters include:
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
-* OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
-* IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
-* OnlySqlHandles, @IgnoreSqlHandles - just like the above two params
+* @OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
+* @IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
+* @OnlySqlHandles, @IgnoreSqlHandles - just like the above two params
 * @DatabaseName - if you only want to analyze plans in a single database. However, keep in mind that this is only the database context. A single query that runs in Database1 can join across objects in Database2 and Database3, but we can only know that it ran in Database1.
+* @SlowlySearchPlansFor - lets you search for strings, but will not find all results due to a [bug in the way SQL Server removes spaces from XML.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2202) If your search string includes spaces, SQL Server may remove those before the search runs, unfortunately.
 
 [*Back to top*](#header1)
 
@@ -260,7 +261,11 @@ Common parameters include:
 * @SchemaName, @TableName - if you pass in these, sp_BlitzIndex does a deeper-dive analysis of just one table. You get several result sets back describing more information about the table's current indexes, foreign key relationships, missing indexes, and fields in the table.
 * @GetAllDatabases = 1 - slower, but lets you analyze all the databases at once, up to 50. If you want more than 50 databases, you also have to pass in @BringThePain = 1.
 * @ThresholdMB = 250 - by default, we only analyze objects over 250MB because you're busy.
-* @Mode = 0 (default) - get different data with 0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details.
+* @Mode = 0 (default) - returns high-priority (1-100) advice on the most urgent index issues.
+	* @Mode = 4: Diagnose Details - like @Mode 0, but returns even more advice (priorities 1-255) with things you may not be able to fix right away, and things we just want to warn you about.
+	* @Mode = 1: Summarize - total numbers of indexes, space used, etc per database.
+	* @Mode = 2: Index Usage Details - an inventory of your existing indexes and their usage statistics. Great for copy/pasting into Excel to do slice & dice analysis. This is the only mode that works with the @Output parameters: you can export this data to table on a monthly basis if you need to go back and look to see which indexes were used over time.
+	* @Mode = 3: Missing Indexes - an inventory of indexes SQL Server is suggesting. Also great for copy/pasting into Excel for later analysis.
 
 sp_BlitzIndex focuses on mainstream index types. Other index types have varying amounts of support:
 
@@ -431,9 +436,10 @@ Parameters include:
 * @ExistingDBAction - if the database already exists when we try to restore it, 1 sets the database to single user mode, 2 kills the connections, and 3 kills the connections and then drops the database.
 * @Debug - default 0. When 1, we print out messages of what we're doing in the messages tab of SSMS.
 * @StopAt NVARCHAR(14) - pass in a date time to stop your restores at a time like '20170508201501'. This doesn't use the StopAt parameter for the restore command - it simply stops restoring logs that would have this date/time's contents in it. (For example, if you're taking backups every 15 minutes on the hour, and you pass in 9:05 AM as part of the restore time, the restores would stop at your last log backup that doesn't include 9:05AM's data - but it won't restore right up to 9:05 AM.)
+* @SkipBackupsAlreadyInMsdb - default 0. When set to 1, we check MSDB for the most recently restored backup from this log path, and skip all backup files prior to that. Useful if you're pulling backups from across a slow network and you don't want to wait to check the restore header of each backup.
 
 
-For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://BrentOzar.com/go/gce)
+For information about how this works, see [Tara Kizer's white paper on Log Shipping 2.0 with Google Compute Engine.](https://www.brentozar.com/archive/2017/03/new-white-paper-build-sql-server-disaster-recovery-plan-google-compute-engine/)
 
 [*Back to top*](#header1)
 
