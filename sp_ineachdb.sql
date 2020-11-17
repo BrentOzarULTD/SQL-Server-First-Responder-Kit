@@ -29,12 +29,12 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version             VARCHAR(30)    = NULL OUTPUT,
   @VersionDate         DATETIME       = NULL OUTPUT,
   @VersionCheckMode    BIT            = 0
--- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
+-- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.999', @VersionDate = '20201011';
+  SELECT @Version = '2.9999', @VersionDate = '20201114';
   
   IF(@VersionCheckMode = 1)
   BEGIN

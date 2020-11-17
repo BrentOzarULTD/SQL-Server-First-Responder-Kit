@@ -278,7 +278,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.999', @VersionDate = '20201011';
+SELECT @Version = '7.9999', @VersionDate = '20201114';
 
 
 IF(@VersionCheckMode = 1)
@@ -2810,12 +2810,15 @@ SET     NumberOfDistinctPlans = distinct_plan_count,
 FROM (
         SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
                 COUNT(QueryHash) AS number_of_plans,
-                QueryHash
+                QueryHash,
+				DatabaseName
         FROM    ##BlitzCacheProcs
 		WHERE SPID = @@SPID
-        GROUP BY QueryHash
+        GROUP BY QueryHash,
+		         DatabaseName
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
+AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
 OPTION (RECOMPILE) ;
 
 -- query level checks
@@ -3664,22 +3667,7 @@ END;
 
 
 /* END Testing using XML nodes to speed up processing */
-RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##BlitzCacheProcs
-SET NumberOfDistinctPlans = distinct_plan_count,
-    NumberOfPlans = number_of_plans,
-    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END 
-FROM (
-SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
-       COUNT(QueryHash) AS number_of_plans,
-       QueryHash
-FROM   ##BlitzCacheProcs
-WHERE SPID = @@SPID
-GROUP BY QueryHash
-) AS x
-WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash 
-OPTION (RECOMPILE);
+
 
 /* Update to grab stored procedure name for individual statements */
 RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
