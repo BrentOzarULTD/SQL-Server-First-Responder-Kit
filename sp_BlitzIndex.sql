@@ -2707,7 +2707,7 @@ BEGIN
 				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON p.object_id = c.object_id
-                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id and ic.object_id = c.object_id 
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id and ic.object_id = c.object_id AND ic.index_id = p.index_id
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
 					WHERE p.object_id = @ObjectID
 					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = ic.index_column_id)
@@ -2749,8 +2749,8 @@ BEGIN
 						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
-					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id and ic.object_id = c.object_id 
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id
 					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
 					WHERE rg.object_id = @ObjectID
 				) AS x
