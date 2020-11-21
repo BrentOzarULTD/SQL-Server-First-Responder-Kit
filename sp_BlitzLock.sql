@@ -1214,6 +1214,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				+ ' parallel deadlocks.'
         FROM   #deadlock_resource_parallel AS drp
 		WHERE 1 = 1
+		HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
 		OPTION ( RECOMPILE );
 
 		/*Thank you goodnight*/
