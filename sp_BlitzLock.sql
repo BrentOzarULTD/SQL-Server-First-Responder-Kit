@@ -314,7 +314,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
         FROM   xml
         LEFT JOIN #t AS t
         ON 1 = 1
-        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
+        CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS x(c)
+        WHERE  1 = 1 
+        AND    x.c.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  > @StartDate
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
