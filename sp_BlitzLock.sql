@@ -824,6 +824,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		AND dow.lock_type NOT IN (N'HEAP', N'RID')
+		AND dow.index_name is not null
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
