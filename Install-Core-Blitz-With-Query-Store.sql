@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.9999', @VersionDate = '20201114';
+	SELECT @Version = '7.99999', @VersionDate = '20201211';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -9460,7 +9460,7 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.9999', @VersionDate = '20201114';
+	SELECT @Version = '3.99999', @VersionDate = '20201211';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -11239,7 +11239,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '7.99999', @VersionDate = '20201211';
 
 
 IF(@VersionCheckMode = 1)
@@ -17967,9 +17967,9 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 
-					IF EXISTS(SELECT * FROM '
+			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
 					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 					+@OutputSchemaName
@@ -18419,7 +18419,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '7.99999', @VersionDate = '20201211';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -18542,6 +18542,7 @@ END;
 IF UPPER(@OutputType) LIKE 'TOP 10%' SET @OutputType = 'Top10';
 IF @OutputType = 'Top10' SET @SinceStartup = 1;
 
+/* Logged Message  - CheckID 38 */
 IF @LogMessage IS NOT NULL
     BEGIN
 
@@ -18883,7 +18884,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_COMPROWSET_RWLOCK','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_RWLOCK','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_SCHEDULER_IDLE_WAIT','Idle',1);
-			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSHC_MUTEX','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSHC_MUTEX','Full Text Search',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSISM_MUTEX','Full Text Search',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE_COORDINATOR','Full Text Search',0);
@@ -19938,7 +19939,7 @@ BEGIN
 		EXECUTE sp_executesql @StringToExecute;
     END;
 	
-    /* Query Problems - Plan Cache Erased Recently */
+    /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
     IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
@@ -19993,7 +19994,7 @@ BEGIN
     AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 
 
-    /*Query Problems - Clients using implicit transactions */
+    /*Query Problems - Clients using implicit transactions - CheckID 37 */
     IF @Seconds > 0 
 		AND ( @@VERSION NOT LIKE 'Microsoft SQL Server 2005%'
 		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008%'
@@ -20195,7 +20196,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
 	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
 
-    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache - CheckID 45 */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
         /* SQL 2012+ version */
@@ -20350,9 +20351,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                             y.request_id, 
                             y.parallelism_skew;
                    
-                   /*
-                   CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of poor cardinality estimates - CheckID 42 */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 42 AS CheckID,
@@ -20398,9 +20397,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				  
 				SET @StringToExecute = @StringToExecute + N';
 
-                   /*
-                   CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of unbalanced parallelism - CheckID 43 */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 43 AS CheckID,
@@ -20452,7 +20449,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         END
     END
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+    /* Server Performance - High CPU Utilization - CheckID 24 */
     IF @Seconds < 30
         BEGIN
         /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
@@ -20473,6 +20470,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
+        /* CPU Utilization - CheckID 23 */
         IF SERVERPROPERTY('Edition') <> 'SQL Azure'
 			WITH y
 				AS
@@ -20513,7 +20511,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			ORDER BY y.event_date DESC;
 
 		
-		/* Highlight if non SQL processes are using >25% CPU */
+		/* Highlight if non SQL processes are using >25% CPU - CheckID 28 */
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
 	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -20716,7 +20714,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WHERE  DATEDIFF(ss, pFirst.SampleTime, pNow.SampleTime) > 0;
 
 
-    /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
+    /* Query Stats - If we're within 10 seconds of our projected finish time, do the plan cache analysis. - CheckID 18 */
     IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
@@ -20857,7 +20855,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             FROM #QueryStats qs
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
-        /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
+        /* Query Stats - Most Resource-Intensive Queries - CheckID 17 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle, QueryHash)
         SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
@@ -21256,13 +21254,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
           CROSS JOIN waits2;
     END;
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+    /* If we're waiting 30+ seconds, run these checks at the end.
+    We get this data from the ring buffers, and it's only updated once per minute, so might
+    as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+    end of our sp_BlitzFirst session. */
     IF @Seconds >= 30
         BEGIN
-        /* If we're waiting 30+ seconds, run this check at the end.
-           We get this data from the ring buffers, and it's only updated once per minute, so might
-           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
-           end of our sp_BlitzFirst session. */
+        /* Server Performance - High CPU Utilization CheckID 24 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -21277,6 +21275,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
+        /* Server Performance - CPU Utilization CheckID 23 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -21349,7 +21348,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   'We hope you found this tool useful.'
                 );
 
-                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
+                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old - CheckID 27 */
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
                         INSERT  INTO #BlitzFirstResults
@@ -21438,8 +21437,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
             END;
 
-        ELSE /* No sp_BlitzCache found, or it's outdated */
+        ELSE 
             BEGIN
+                /* No sp_BlitzCache found, or it's outdated - CheckID 36 */
                 INSERT  INTO #BlitzFirstResults
                         ( CheckID ,
                             Priority ,
@@ -22632,13 +22632,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   AND wd1.FileID = wd2.FileID
             )
             SELECT
-                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
             FROM readstats
-            WHERE StallRank <=5 AND [MB Read/Written] > 0
+            WHERE StallRank <=20 AND [MB Read/Written] > 0
             UNION ALL
-            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
             FROM writestats
-            WHERE StallRank <=5 AND [MB Read/Written] > 0;
+            WHERE StallRank <=20 AND [MB Read/Written] > 0
+            ORDER BY Pattern, StallRank;
 
 
             -------------------------
@@ -22761,7 +22762,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '7.99999', @VersionDate = '20201211';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -23544,7 +23545,7 @@ ELSE
                     ELSE @DatabaseName END;
                END;
 
-SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList);
+SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL);
 SET @msg = N'Number of databases to examine: ' + CAST(@NumDatabases AS NVARCHAR(50));
 RAISERROR (@msg,0,1) WITH NOWAIT;
 
@@ -24706,8 +24707,8 @@ BEGIN TRY
 			IF @dsql IS NULL 
 			RAISERROR('@dsql is null',16,1);
 			
-			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_table_name, 
-									 history_schema_name, start_column_name, end_column_name, period_name )
+			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
+									 history_table_name, start_column_name, end_column_name, period_name )
 					
 			EXEC sp_executesql @dsql;
 
@@ -25423,9 +25424,10 @@ BEGIN
 				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON p.object_id = c.object_id
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id and ic.object_id = c.object_id AND ic.index_id = p.index_id
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
-					WHERE p.object_id = OBJECT_ID(@TableName)
-					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = c.column_id)
+					WHERE p.object_id = @ObjectID
+					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = ic.index_column_id)
 					AND p.data_compression IN (3,4)
 				)
 				SELECT @ColumnList = @ColumnList + column_name + N'', ''
@@ -25447,7 +25449,7 @@ BEGIN
 				PRINT SUBSTRING(@dsql, 36000, 40000);
 			END;
 
-        EXEC sp_executesql @dsql, N'@ObjectID INT, @TableName NVARCHAR(128), @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @TableName, @ColumnList OUTPUT;
+        EXEC sp_executesql @dsql, N'@ObjectID INT, @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @ColumnList OUTPUT;
 
 		IF @Debug = 1
 			SELECT @ColumnList AS ColumnstoreColumnList;
@@ -25465,8 +25467,9 @@ BEGIN
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
-					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND c.column_id = seg.column_id AND rg.row_group_id = seg.segment_id
-					WHERE rg.object_id = OBJECT_ID(@TableName)
+                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id
+					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+					WHERE rg.object_id = @ObjectID
 				) AS x
 				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
 				ORDER BY partition_number, row_group_id;';
@@ -25488,7 +25491,7 @@ BEGIN
 			IF @dsql IS NULL 
 				RAISERROR('@dsql is null',16,1);
 			ELSE
-				EXEC sp_executesql @dsql, N'@TableName NVARCHAR(128)', @TableName;
+				EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
 		END
 		ELSE /* No columns were found for this object */
 		BEGIN
@@ -28282,7 +28285,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.9999', @VersionDate = '20201114';
+SELECT @Version = '2.99999', @VersionDate = '20201211';
 
 
 IF(@VersionCheckMode = 1)
@@ -28437,7 +28440,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
-		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
+		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100),@DeadlockCount INT;
 		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
 		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -28559,16 +28562,29 @@ You need to use an Azure storage account, and the path has to look like this: ht
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml
+        SELECT ISNULL(xml.deadlock_xml, '') AS deadlock_xml
         INTO   #deadlock_data
         FROM   xml
         LEFT JOIN #t AS t
         ON 1 = 1
-        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
+        CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS x(c)
+        WHERE  1 = 1 
+        AND    x.c.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  > @StartDate
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
 		OPTION ( RECOMPILE );
+
+		/*Optimization: if we got back more rows than @Top, remove them. This seems to be better than using @Top in the query above as that results in excessive memory grant*/
+		SET @DeadlockCount = @@ROWCOUNT
+		IF( @Top < @DeadlockCount ) BEGIN
+			WITH T
+			AS (
+				SELECT TOP ( @DeadlockCount - @Top) *
+				FROM   #deadlock_data
+				ORDER  BY #deadlock_data.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ASC)
+			DELETE FROM T 
+		END
 
 		/*Parse process and input buffer XML*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -28599,7 +28615,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         FROM        (   SELECT      dd.deadlock_xml,
                                     CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
                                     dd.victim_id,
-									dd.is_parallel,
+									CONVERT(tinyint, dd.is_parallel) + CONVERT(tinyint, dd.is_parallel_batch) AS is_parallel,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
@@ -28622,6 +28638,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                                d1.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
                                                d1.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 											   d1.deadlock_xml.exist('//deadlock/resource-list/exchangeEvent') AS is_parallel,
+											   d1.deadlock_xml.exist('//deadlock/resource-list/SyncPoint') AS is_parallel_batch,
                                                d1.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
                                         FROM   #deadlock_data AS d1 ) AS dd
                         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -28653,12 +28670,19 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Grab the full resource list*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
+        SELECT 
+                    CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dr.event_date), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
+                    dr.victim_id, 
+                    dr.resource_xml
+        INTO        #deadlock_resource
+        FROM 
+        (
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ISNULL(ca.dp.query('.'), '') AS resource_xml
-        INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+        ) AS dr
 		OPTION ( RECOMPILE );
 
 
@@ -29066,6 +29090,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		AND dow.lock_type NOT IN (N'HEAP', N'RID')
+		AND dow.index_name is not null
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
@@ -29464,6 +29489,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				+ ' parallel deadlocks.'
         FROM   #deadlock_resource_parallel AS drp
 		WHERE 1 = 1
+		HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
 		OPTION ( RECOMPILE );
 
 		/*Thank you goodnight*/
@@ -29988,7 +30014,7 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.9999', @VersionDate = '20201114';
+SELECT @Version = '3.99999', @VersionDate = '20201211';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -35715,7 +35741,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.9999', @VersionDate = '20201114';
+	SELECT @Version = '7.99999', @VersionDate = '20201211';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
