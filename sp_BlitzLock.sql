@@ -32,7 +32,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.9999', @VersionDate = '20201114';
+SELECT @Version = '2.99999', @VersionDate = '20201211';
 
 
 IF(@VersionCheckMode = 1)
@@ -187,7 +187,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
-		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
+		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100),@DeadlockCount INT;
 		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
 		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -309,16 +309,29 @@ You need to use an Azure storage account, and the path has to look like this: ht
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml
+        SELECT ISNULL(xml.deadlock_xml, '') AS deadlock_xml
         INTO   #deadlock_data
         FROM   xml
         LEFT JOIN #t AS t
         ON 1 = 1
-        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
+        CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS x(c)
+        WHERE  1 = 1 
+        AND    x.c.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  > @StartDate
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
 		OPTION ( RECOMPILE );
+
+		/*Optimization: if we got back more rows than @Top, remove them. This seems to be better than using @Top in the query above as that results in excessive memory grant*/
+		SET @DeadlockCount = @@ROWCOUNT
+		IF( @Top < @DeadlockCount ) BEGIN
+			WITH T
+			AS (
+				SELECT TOP ( @DeadlockCount - @Top) *
+				FROM   #deadlock_data
+				ORDER  BY #deadlock_data.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ASC)
+			DELETE FROM T 
+		END
 
 		/*Parse process and input buffer XML*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -349,7 +362,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         FROM        (   SELECT      dd.deadlock_xml,
                                     CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
                                     dd.victim_id,
-									dd.is_parallel,
+									CONVERT(tinyint, dd.is_parallel) + CONVERT(tinyint, dd.is_parallel_batch) AS is_parallel,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
@@ -372,6 +385,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                                                d1.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
                                                d1.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 											   d1.deadlock_xml.exist('//deadlock/resource-list/exchangeEvent') AS is_parallel,
+											   d1.deadlock_xml.exist('//deadlock/resource-list/SyncPoint') AS is_parallel_batch,
                                                d1.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
                                         FROM   #deadlock_data AS d1 ) AS dd
                         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -403,12 +417,19 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Grab the full resource list*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
+        SELECT 
+                    CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dr.event_date), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
+                    dr.victim_id, 
+                    dr.resource_xml
+        INTO        #deadlock_resource
+        FROM 
+        (
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ISNULL(ca.dp.query('.'), '') AS resource_xml
-        INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+        ) AS dr
 		OPTION ( RECOMPILE );
 
 
@@ -816,6 +837,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		AND dow.lock_type NOT IN (N'HEAP', N'RID')
+		AND dow.index_name is not null
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
@@ -1214,6 +1236,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				+ ' parallel deadlocks.'
         FROM   #deadlock_resource_parallel AS drp
 		WHERE 1 = 1
+		HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
 		OPTION ( RECOMPILE );
 
 		/*Thank you goodnight*/

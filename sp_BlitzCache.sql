@@ -278,7 +278,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '7.99999', @VersionDate = '20201211';
 
 
 IF(@VersionCheckMode = 1)
@@ -7006,9 +7006,9 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 
-					IF EXISTS(SELECT * FROM '
+			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
 					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 					+@OutputSchemaName

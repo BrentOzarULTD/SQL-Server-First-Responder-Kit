@@ -45,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '7.99999', @VersionDate = '20201211';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -168,6 +168,7 @@ END;
 IF UPPER(@OutputType) LIKE 'TOP 10%' SET @OutputType = 'Top10';
 IF @OutputType = 'Top10' SET @SinceStartup = 1;
 
+/* Logged Message  - CheckID 38 */
 IF @LogMessage IS NOT NULL
     BEGIN
 
@@ -509,7 +510,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_COMPROWSET_RWLOCK','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_RWLOCK','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTS_SCHEDULER_IDLE_WAIT','Idle',1);
-			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSHC_MUTEX','Full Text Search',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSHC_MUTEX','Full Text Search',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_IFTSISM_MUTEX','Full Text Search',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE','Full Text Search',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('FT_MASTER_MERGE_COORDINATOR','Full Text Search',0);
@@ -1564,7 +1565,7 @@ BEGIN
 		EXECUTE sp_executesql @StringToExecute;
     END;
 	
-    /* Query Problems - Plan Cache Erased Recently */
+    /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
     IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
@@ -1619,7 +1620,7 @@ BEGIN
     AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 
 
-    /*Query Problems - Clients using implicit transactions */
+    /*Query Problems - Clients using implicit transactions - CheckID 37 */
     IF @Seconds > 0 
 		AND ( @@VERSION NOT LIKE 'Microsoft SQL Server 2005%'
 		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008%'
@@ -1821,7 +1822,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
 	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
 
-    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache - CheckID 45 */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
         /* SQL 2012+ version */
@@ -1976,9 +1977,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                             y.request_id, 
                             y.parallelism_skew;
                    
-                   /*
-                   CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of poor cardinality estimates - CheckID 42 */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 42 AS CheckID,
@@ -2024,9 +2023,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				  
 				SET @StringToExecute = @StringToExecute + N';
 
-                   /*
-                   CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of unbalanced parallelism - CheckID 43 */
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 43 AS CheckID,
@@ -2078,7 +2075,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         END
     END
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+    /* Server Performance - High CPU Utilization - CheckID 24 */
     IF @Seconds < 30
         BEGIN
         /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
@@ -2099,6 +2096,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
+        /* CPU Utilization - CheckID 23 */
         IF SERVERPROPERTY('Edition') <> 'SQL Azure'
 			WITH y
 				AS
@@ -2139,7 +2137,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			ORDER BY y.event_date DESC;
 
 		
-		/* Highlight if non SQL processes are using >25% CPU */
+		/* Highlight if non SQL processes are using >25% CPU - CheckID 28 */
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
 	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -2342,7 +2340,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WHERE  DATEDIFF(ss, pFirst.SampleTime, pNow.SampleTime) > 0;
 
 
-    /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
+    /* Query Stats - If we're within 10 seconds of our projected finish time, do the plan cache analysis. - CheckID 18 */
     IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
 
@@ -2483,7 +2481,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             FROM #QueryStats qs
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
-        /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
+        /* Query Stats - Most Resource-Intensive Queries - CheckID 17 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle, QueryHash)
         SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
@@ -2882,13 +2880,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
           CROSS JOIN waits2;
     END;
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+    /* If we're waiting 30+ seconds, run these checks at the end.
+    We get this data from the ring buffers, and it's only updated once per minute, so might
+    as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+    end of our sp_BlitzFirst session. */
     IF @Seconds >= 30
         BEGIN
-        /* If we're waiting 30+ seconds, run this check at the end.
-           We get this data from the ring buffers, and it's only updated once per minute, so might
-           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
-           end of our sp_BlitzFirst session. */
+        /* Server Performance - High CPU Utilization CheckID 24 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -2903,6 +2901,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
+        /* Server Performance - CPU Utilization CheckID 23 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
         SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
             FROM (
@@ -2975,7 +2974,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   'We hope you found this tool useful.'
                 );
 
-                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
+                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old - CheckID 27 */
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
                         INSERT  INTO #BlitzFirstResults
@@ -3064,8 +3063,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
             END;
 
-        ELSE /* No sp_BlitzCache found, or it's outdated */
+        ELSE 
             BEGIN
+                /* No sp_BlitzCache found, or it's outdated - CheckID 36 */
                 INSERT  INTO #BlitzFirstResults
                         ( CheckID ,
                             Priority ,
@@ -4258,13 +4258,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   AND wd1.FileID = wd2.FileID
             )
             SELECT
-                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
             FROM readstats
-            WHERE StallRank <=5 AND [MB Read/Written] > 0
+            WHERE StallRank <=20 AND [MB Read/Written] > 0
             UNION ALL
-            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name]
+            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
             FROM writestats
-            WHERE StallRank <=5 AND [MB Read/Written] > 0;
+            WHERE StallRank <=20 AND [MB Read/Written] > 0
+            ORDER BY Pattern, StallRank;
 
 
             -------------------------
