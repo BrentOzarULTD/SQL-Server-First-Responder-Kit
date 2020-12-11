@@ -45,74 +45,79 @@ AS
 		RETURN;
 	END;
 
-	IF @Help = 1 PRINT '
-	/*
-	sp_Blitz from http://FirstResponderKit.org
-	
-	This script checks the health of your SQL Server and gives you a prioritized
-	to-do list of the most urgent things you should consider fixing.
+	IF @Help = 1 
+	BEGIN
+		PRINT '
+		/*
+		sp_Blitz from http://FirstResponderKit.org
+		
+		This script checks the health of your SQL Server and gives you a prioritized
+		to-do list of the most urgent things you should consider fixing.
 
-	To learn more, visit http://FirstResponderKit.org where you can download new
-	versions for free, watch training videos on how it works, get more info on
-	the findings, contribute your own code, and more.
+		To learn more, visit http://FirstResponderKit.org where you can download new
+		versions for free, watch training videos on how it works, get more info on
+		the findings, contribute your own code, and more.
 
-	Known limitations of this version:
-	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
-	 - If a database name has a question mark in it, some tests will fail. Gotta
-	   love that unsupported sp_MSforeachdb.
-	 - If you have offline databases, sp_Blitz fails the first time you run it,
-	   but does work the second time. (Hoo, boy, this will be fun to debug.)
-      - @OutputServerName will output QueryPlans as NVARCHAR(MAX) since Microsoft
-	    has refused to support XML columns in Linked Server queries. The bug is now
-		16 years old! *~ \o/ ~*
+		Known limitations of this version:
+		- Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+		- If a database name has a question mark in it, some tests will fail. Gotta
+		love that unsupported sp_MSforeachdb.
+		- If you have offline databases, sp_Blitz fails the first time you run it,
+		but does work the second time. (Hoo, boy, this will be fun to debug.)
+		- @OutputServerName will output QueryPlans as NVARCHAR(MAX) since Microsoft
+			has refused to support XML columns in Linked Server queries. The bug is now
+			16 years old! *~ \o/ ~*
 
-	Unknown limitations of this version:
-	 - None.  (If we knew them, they would be known. Duh.)
+		Unknown limitations of this version:
+		- None.  (If we knew them, they would be known. Duh.)
 
-     Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+		Changes - for the full list of improvements and fixes in this version, see:
+		https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
-	Parameter explanations:
+		Parameter explanations:
 
-	@CheckUserDatabaseObjects	1=review user databases for triggers, heaps, etc. Takes more time for more databases and objects.
-	@CheckServerInfo			1=show server info like CPUs, memory, virtualization
-	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
-	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
-	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
-	@IgnorePrioritiesBelow		50=ignore priorities below 50
-	@IgnorePrioritiesAbove		50=ignore priorities above 50
-	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
+		@CheckUserDatabaseObjects	1=review user databases for triggers, heaps, etc. Takes more time for more databases and objects.
+		@CheckServerInfo			1=show server info like CPUs, memory, virtualization
+		@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
+		@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
+		@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
+		@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
+		@IgnorePrioritiesBelow		50=ignore priorities below 50
+		@IgnorePrioritiesAbove		50=ignore priorities above 50
+		For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
 
-    MIT License
-	
-	Copyright for portions of sp_Blitz are held by Microsoft as part of project
-	tigertoolbox and are provided under the MIT license:
-	https://github.com/Microsoft/tigertoolbox
-	
-	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2020.
+		MIT License
+		
+		Copyright for portions of sp_Blitz are held by Microsoft as part of project
+		tigertoolbox and are provided under the MIT license:
+		https://github.com/Microsoft/tigertoolbox
+		
+		All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2020.
 
-	Copyright (c) 2020 Brent Ozar Unlimited
+		Copyright (c) 2020 Brent Ozar Unlimited
 
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
 
-	The above copyright notice and this permission notice shall be included in all
-	copies or substantial portions of the Software.
+		The above copyright notice and this permission notice shall be included in all
+		copies or substantial portions of the Software.
 
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-	SOFTWARE.
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+		SOFTWARE.
 
-	*/';
+		*/';
+		RETURN;
+	END;	/* IF @Help = 1*/
+
 	ELSE IF @OutputType = 'SCHEMA'
 	BEGIN
 		SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT';

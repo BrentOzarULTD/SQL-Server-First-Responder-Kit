@@ -30,70 +30,74 @@ AS
 		RETURN;
 	END;
 
-	IF @Help = 1 PRINT '
-	/*
-	sp_BlitzBackups from http://FirstResponderKit.org
-	
-	This script checks your backups to see how much data you might lose when
-	this server fails, and how long it might take to recover.
+	IF @Help = 1 
+	BEGIN
+		PRINT '
+		/*
+		sp_BlitzBackups from http://FirstResponderKit.org
+		
+		This script checks your backups to see how much data you might lose when
+		this server fails, and how long it might take to recover.
 
-	To learn more, visit http://FirstResponderKit.org where you can download new
-	versions for free, watch training videos on how it works, get more info on
-	the findings, contribute your own code, and more.
+		To learn more, visit http://FirstResponderKit.org where you can download new
+		versions for free, watch training videos on how it works, get more info on
+		the findings, contribute your own code, and more.
 
-	Known limitations of this version:
-	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+		Known limitations of this version:
+		- Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 
-	Unknown limitations of this version:
-	 - None.  (If we knew them, they would be known. Duh.)
+		Unknown limitations of this version:
+		- None.  (If we knew them, they would be known. Duh.)
 
-     Changes - for the full list of improvements and fixes in this version, see:
-     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-
-
-	Parameter explanations:
-
-	@HoursBack INT = 168		How many hours of history to examine, back from now.
-								You can check just the last 24 hours of backups, for example.
-	@MSDBName NVARCHAR(255) 	You can restore MSDB from different servers and check them
-								centrally. Also useful if you create a DBA utility database
-								and merge data from several servers in an AG into one DB.
-	@RestoreSpeedFullMBps INT	By default, we use the backup speed from MSDB to guesstimate
-								how fast your restores will go. If you have done performance
-								tuning and testing of your backups (or if they horribly go even
-								slower in your DR environment, and you want to account for
-								that), then you can pass in different numbers here.
-	@RestoreSpeedDiffMBps INT	See above.
-	@RestoreSpeedLogMBps INT	See above.
-
-	For more documentation: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-
-    MIT License
-	
-	Copyright (c) 2020 Brent Ozar Unlimited
-
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
-
-	The above copyright notice and this permission notice shall be included in all
-	copies or substantial portions of the Software.
-
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-	SOFTWARE.
+		Changes - for the full list of improvements and fixes in this version, see:
+		https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 
+		Parameter explanations:
+
+		@HoursBack INT = 168		How many hours of history to examine, back from now.
+									You can check just the last 24 hours of backups, for example.
+		@MSDBName NVARCHAR(255) 	You can restore MSDB from different servers and check them
+									centrally. Also useful if you create a DBA utility database
+									and merge data from several servers in an AG into one DB.
+		@RestoreSpeedFullMBps INT	By default, we use the backup speed from MSDB to guesstimate
+									how fast your restores will go. If you have done performance
+									tuning and testing of your backups (or if they horribly go even
+									slower in your DR environment, and you want to account for
+									that), then you can pass in different numbers here.
+		@RestoreSpeedDiffMBps INT	See above.
+		@RestoreSpeedLogMBps INT	See above.
+
+		For more documentation: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+
+		MIT License
+		
+		Copyright (c) 2020 Brent Ozar Unlimited
+
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
+
+		The above copyright notice and this permission notice shall be included in all
+		copies or substantial portions of the Software.
+
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+		SOFTWARE.
 
 
-	*/';
+
+
+		*/';
+		RETURN;
+	END;	/* @Help = 1 */
 ELSE
 BEGIN
 DECLARE @StringToExecute NVARCHAR(MAX) = N'', 

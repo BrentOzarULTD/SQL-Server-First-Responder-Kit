@@ -39,43 +39,46 @@ BEGIN
 
 
 	IF @Help = 1
+	BEGIN
 		PRINT '
-sp_BlitzWho from http://FirstResponderKit.org
+		sp_BlitzWho from http://FirstResponderKit.org
 
-This script gives you a snapshot of everything currently executing on your SQL Server.
+		This script gives you a snapshot of everything currently executing on your SQL Server.
 
-To learn more, visit http://FirstResponderKit.org where you can download new
-versions for free, watch training videos on how it works, get more info on
-the findings, contribute your own code, and more.
+		To learn more, visit http://FirstResponderKit.org where you can download new
+		versions for free, watch training videos on how it works, get more info on
+		the findings, contribute your own code, and more.
 
-Known limitations of this version:
- - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
- - Outputting to table is only supported with SQL Server 2012 and higher.
- - If @OutputDatabaseName and @OutputSchemaName are populated, the database and
-   schema must already exist. We will not create them, only the table.
-   
-MIT License
+		Known limitations of this version:
+		- Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+		- Outputting to table is only supported with SQL Server 2012 and higher.
+		- If @OutputDatabaseName and @OutputSchemaName are populated, the database and
+		schema must already exist. We will not create them, only the table.
+		
+		MIT License
 
-Copyright (c) 2020 Brent Ozar Unlimited
+		Copyright (c) 2020 Brent Ozar Unlimited
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+		The above copyright notice and this permission notice shall be included in all
+		copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-';
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+		SOFTWARE.
+		';
+	RETURN;
+END; /* @Help = 1 */
 
 /* Get the major and minor build numbers */
 DECLARE  @ProductVersion NVARCHAR(128)

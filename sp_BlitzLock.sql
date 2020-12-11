@@ -39,83 +39,86 @@ IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-	IF @Help = 1 PRINT '
-	/*
-	sp_BlitzLock from http://FirstResponderKit.org
-	
-	This script checks for and analyzes deadlocks from the system health session or a custom extended event path
-
-	Variables you can use:
-		@Top: Use if you want to limit the number of deadlocks to return.
-			  This is ordered by event date ascending
-
-		@DatabaseName: If you want to filter to a specific database
-
-		@StartDate: The date you want to start searching on.
-
-		@EndDate: The date you want to stop searching on.
-
-		@ObjectName: If you want to filter to a specific able. 
-					 The object name has to be fully qualified ''Database.Schema.Table''
-
-		@StoredProcName: If you want to search for a single stored proc
-					 The proc name has to be fully qualified ''Database.Schema.Sproc''
+	IF @Help = 1 
+	BEGIN
+		PRINT '
+		/*
+		sp_BlitzLock from http://FirstResponderKit.org
 		
-		@AppName: If you want to filter to a specific application
+		This script checks for and analyzes deadlocks from the system health session or a custom extended event path
+
+		Variables you can use:
+			@Top: Use if you want to limit the number of deadlocks to return.
+				This is ordered by event date ascending
+
+			@DatabaseName: If you want to filter to a specific database
+
+			@StartDate: The date you want to start searching on.
+
+			@EndDate: The date you want to stop searching on.
+
+			@ObjectName: If you want to filter to a specific able. 
+						The object name has to be fully qualified ''Database.Schema.Table''
+
+			@StoredProcName: If you want to search for a single stored proc
+						The proc name has to be fully qualified ''Database.Schema.Sproc''
+			
+			@AppName: If you want to filter to a specific application
+			
+			@HostName: If you want to filter to a specific host
+			
+			@LoginName: If you want to filter to a specific login
+
+			@EventSessionPath: If you want to point this at an XE session rather than the system health session.
 		
-		@HostName: If you want to filter to a specific host
+			@OutputDatabaseName: If you want to output information to a specific database
+			@OutputSchemaName: Specify a schema name to output information to a specific Schema
+			@OutputTableName: Specify table name to to output information to a specific table
 		
-		@LoginName: If you want to filter to a specific login
+		To learn more, visit http://FirstResponderKit.org where you can download new
+		versions for free, watch training videos on how it works, get more info on
+		the findings, contribute your own code, and more.
 
-		@EventSessionPath: If you want to point this at an XE session rather than the system health session.
-	
-		@OutputDatabaseName: If you want to output information to a specific database
-		@OutputSchemaName: Specify a schema name to output information to a specific Schema
-		@OutputTableName: Specify table name to to output information to a specific table
-	
-	To learn more, visit http://FirstResponderKit.org where you can download new
-	versions for free, watch training videos on how it works, get more info on
-	the findings, contribute your own code, and more.
-
-	Known limitations of this version:
-	 - Only SQL Server 2012 and newer is supported
-	 - If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references) you may get errors trying to parse the XML.
-	   I took a long look at this one, and:
-		1) Trying to account for all the weird places these could crop up is a losing effort. 
-		2) Replace is slow af on lots of XML.
-	- Your mom.
+		Known limitations of this version:
+		- Only SQL Server 2012 and newer is supported
+		- If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references) you may get errors trying to parse the XML.
+		I took a long look at this one, and:
+			1) Trying to account for all the weird places these could crop up is a losing effort. 
+			2) Replace is slow af on lots of XML.
+		- Your mom.
 
 
 
 
-	Unknown limitations of this version:
-	 - None.  (If we knew them, they would be known. Duh.)
+		Unknown limitations of this version:
+		- None.  (If we knew them, they would be known. Duh.)
 
 
-    MIT License
-	   
-	Copyright (c) 2020 Brent Ozar Unlimited
+		MIT License
+		
+		Copyright (c) 2020 Brent Ozar Unlimited
 
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
 
-	The above copyright notice and this permission notice shall be included in all
-	copies or substantial portions of the Software.
+		The above copyright notice and this permission notice shall be included in all
+		copies or substantial portions of the Software.
 
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-	SOFTWARE.
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+		SOFTWARE.
 
-	*/';
-
+		*/';
+		RETURN;
+	END; /* @Help = 1 */
 
         DECLARE @ProductVersion NVARCHAR(128);
         DECLARE @ProductVersionMajor FLOAT;
