@@ -13,6 +13,8 @@ If you want to add a new check, start at 70
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|-------------|
 | 10 | Execution Plans | Forced Serialization | http://www.brentozar.com/blitzcache/forced-serialization/ | 25 | No |
 | 10 | Large USERSTORE_TOKENPERM cache | Using Over 10% of the Buffer Pool | https://brentozar.com/go/userstore | 69 | No |
+| 50 | Complexity | High Compile CPU | https://www.brentozar.com/blitzcache/high-compilers/ | 64 | No |
+| 50 | Complexity | High Compile Memory | https://www.brentozar.com/blitzcache/high-compilers/ | 65 | No |
 | 50 | Execution Plans | Compilation timeout | http://brentozar.com/blitzcache/compilation-timeout/ | 18 | No |
 | 50 | Execution Plans | Compile Memory Limit Exceeded | http://brentozar.com/blitzcache/compile-memory-limit-exceeded/ | 19 | No |
 | 50 | Execution Plans | No join predicate | http://brentozar.com/blitzcache/no-join-predicate/ | 20 | No |
@@ -28,6 +30,7 @@ If you want to add a new check, start at 70
 | 50 | Performance | Long Running Query | http://brentozar.com/blitzcache/long-running-queries/ | 9 | No |
 | 50 | Performance | Missing Indexes | http://brentozar.com/blitzcache/missing-index-request/ | 10 | No |
 | 50 | Selects w/ Writes | Read queries are causing writes | https://dba.stackexchange.com/questions/191825/ | 66 | No |
+| 100 | Complexity | Long Compile Time | https://www.brentozar.com/blitzcache/high-compilers/ | No |
 | 100 | Complexity | Many to Many Merge | Blog not published yet | 61 | Yes |
 | 100 | Complexity | Row Estimate Mismatch | https://www.brentozar.com/blitzcache/bad-estimates/ | 56 | Yes |
 | 100 | Compute Scalar That References A CLR Function | Calls CLR Functions |  https://www.brentozar.com/blitzcache/compute-scalar-functions/| 31 | Yes |
@@ -75,7 +78,7 @@ If you want to add a new check, start at 70
 | 200 | Execution Plans | Nearly Parallel | http://brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/ | 7 | No |
 | 200 | Execution Plans | Parallel | http://brentozar.com/blitzcache/parallel-plans-detected/ | 6 | No |
 | 200 | Indexes | Backwards Scans | https://www.brentozar.com/blitzcache/backwards-scans/ | 38 | Yes |
-| 200 | Is Paul White Electric? | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 998 | Yes |
+| 200 | Is Paul White Electric? | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 57 | Yes |
 | 200 | Trace Flags | Session Level Trace Flags Enabled | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 29 | No |
 | 254 | Plan Cache Information | Breaks cache down by creation date (24/4/1 hrs) | None | 999 | No |
 | 255 | Global Trace Flags Enabled | You have Global Trace Flags enabled on your server | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 1000 | No |
