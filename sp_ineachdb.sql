@@ -34,7 +34,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.9999', @VersionDate = '20201114';
+  SELECT @Version = '2.99999', @VersionDate = '20201211';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -101,10 +101,14 @@ BEGIN
           @thisdb sysname,
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
-		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')); -- Stores the SQL Server Instance name.
+		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
+		  @NoSpaces nvarchar(20) = N'%[^' + CHAR(9) + CHAR(32) + CHAR(10) + CHAR(13) + N']%'; --Pattern for PATINDEX
+
 
   CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
 
+
+/*
   -- first, let's limit to only DBs the caller is interested in
   IF @database_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
@@ -146,7 +150,62 @@ BEGIN
       ON names.name = d.name
       OPTION (MAXRECURSION 0);
   END
+*/
 
+/*
+@database_list and @exclude_list are are processed at the same time
+1)Read the list searching for a comma or [
+2)If we find a comma, save the name
+3)If we find a [, we begin to accumulate the result until we reach closing ], (jumping over escaped ]]).
+4)Finally, tabs, line breaks and spaces are removed from unquoted names
+*/
+WITH C
+AS (SELECT V.SrcList
+         , CAST('' AS nvarchar(MAX)) AS Name
+         , V.DBList
+         , 0 AS InBracket
+         , 0 AS Quoted
+    FROM (VALUES ('In', @database_list + ','), ('Out', @exclude_list + ',')) AS V (SrcList, DBList)
+    UNION ALL
+    SELECT C.SrcList
+         , IIF(V.Found = '[', '', SUBSTRING(C.DBList, 1, V.Place - 1))/*remove initial [*/
+         , STUFF(C.DBList, 1, V.Place, '')
+         , IIF(V.Found = '[', 1, 0)
+         , 0
+    FROM C
+        CROSS APPLY
+    (   VALUES (PATINDEX('%[,[]%', C.DBList), SUBSTRING(C.DBList, PATINDEX('%[,[]%', C.DBList), 1))) AS V (Place, Found)
+    WHERE C.DBList > ''
+          AND C.InBracket = 0
+    UNION ALL
+    SELECT C.SrcList
+         , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/ 
+         , STUFF(C.DBList, 1, V.Place + W.DoubleBracket, '')
+         , W.DoubleBracket
+         , 1
+    FROM C
+        CROSS APPLY (VALUES (CHARINDEX(']', C.DBList))) AS V (Place)
+        CROSS APPLY (VALUES (IIF(SUBSTRING(C.DBList, V.Place + 1, 1) = ']', 1, 0))) AS W (DoubleBracket)
+    WHERE C.DBList > ''
+          AND C.InBracket = 1)
+   , F
+AS (SELECT C.SrcList
+         , IIF(C.Quoted = 0
+                ,SUBSTRING(C.name, PATINDEX(@NoSpaces, name), DATALENGTH (name)/2 - PATINDEX(@NoSpaces, name) - PATINDEX(@NoSpaces, REVERSE(name))+2)
+             , C.Name) 
+ AS name
+    FROM C
+    WHERE C.InBracket = 0
+          AND C.Name > '')
+ SELECT d.database_id
+     , d.name
+     , d.is_distributor
+FROM sys.databases AS d
+WHERE (   EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'In')
+          OR @database_list IS NULL)
+      AND NOT EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'Out')
+OPTION (MAXRECURSION 0);
+;
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
   WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))
@@ -272,4 +331,3 @@ BEGIN
   CLOSE dbs; 
   DEALLOCATE dbs;
 END
-GO
