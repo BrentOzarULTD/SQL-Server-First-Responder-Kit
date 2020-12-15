@@ -197,7 +197,8 @@ AS (SELECT C.SrcList
     FROM C
     WHERE C.InBracket = 0
           AND C.Name > '')
- SELECT d.database_id
+INSERT #ineachdb(id,name,is_distributor)
+SELECT d.database_id
      , d.name
      , d.is_distributor
 FROM sys.databases AS d
