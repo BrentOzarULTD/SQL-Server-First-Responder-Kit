@@ -286,7 +286,9 @@ BEGIN
 	RETURN;
 END;
 	
-IF @Help = 1 PRINT '
+IF @Help = 1 
+BEGIN
+PRINT '
 sp_BlitzCache from http://FirstResponderKit.org
 	
 This script displays your most resource-intensive queries from the plan cache,
@@ -337,8 +339,8 @@ SOFTWARE.
 
 DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 	
-IF @Help = 1
-BEGIN
+--IF @Help = 1 /* We're still under a @Help = 1 BEGIN from above */
+--BEGIN
     SELECT N'@Help' AS [Parameter Name] ,
            N'BIT' AS [Data Type] ,
            N'Displays this help message.' AS [Parameter Description]
