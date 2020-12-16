@@ -15,6 +15,7 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @user_only           bit = 0,
   @name_pattern        nvarchar(300)  = N'%', 
   @database_list       nvarchar(max)  = NULL,
+  @exclude_pattern     nvarchar(300)  = NULL,
   @exclude_list        nvarchar(max)  = NULL,
   @recovery_model_desc nvarchar(120)  = NULL,
   @compatibility_level tinyint        = NULL,
@@ -28,18 +29,19 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version             VARCHAR(30)    = NULL OUTPUT,
   @VersionDate         DATETIME       = NULL OUTPUT,
   @VersionCheckMode    BIT            = 0
--- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
+-- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.9', @VersionDate = '20191024';
+  SELECT @Version = '2.9999', @VersionDate = '20201114';
   
-IF(@VersionCheckMode = 1)
-BEGIN
+  IF(@VersionCheckMode = 1)
+  BEGIN
 	RETURN;
-END;
-IF @Help = 1
+  END;
+  
+  IF @Help = 1
 
 	BEGIN
 	
@@ -47,7 +49,7 @@ IF @Help = 1
 		/*
 			sp_ineachdb from http://FirstResponderKit.org
 			
-			This script will restore a database from a given file path.
+			This script will execute a command against multiple databases.
 		
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on
@@ -97,49 +99,46 @@ IF @Help = 1
           @dbq    sysname,
           @cmd    nvarchar(max),
           @thisdb sysname,
-          @cr     char(2) = CHAR(13) + CHAR(10);
+          @cr     char(2) = CHAR(13) + CHAR(10),
+		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
+		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')); -- Stores the SQL Server Instance name.
 
-DECLARE @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff		-- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017))
-DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) -- Stores the SQL Server Instance name.
+  CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
 
-  CREATE TABLE #ineachdb(id int, name nvarchar(512));
-
+  -- first, let's limit to only DBs the caller is interested in
   IF @database_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
   BEGIN
-    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n < 4000),
+    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@database_list)),
     names AS
     (
       SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@database_list, n, 
         CHARINDEX(N',', @database_list + N',', n) - n), 1)))
       FROM n 
-      WHERE n <= LEN(@database_list)
-        AND SUBSTRING(N',' + @database_list, n, 1) = N','
+      WHERE SUBSTRING(N',' + @database_list, n, 1) = N','
     ) 
-    INSERT #ineachdb(id,name) 
-    SELECT d.database_id, d.name
+    INSERT #ineachdb(id,name,is_distributor) 
+    SELECT d.database_id, d.name, d.is_distributor
       FROM sys.databases AS d
       WHERE EXISTS (SELECT 1 FROM names WHERE name = d.name)
       OPTION (MAXRECURSION 0);
   END
   ELSE
   BEGIN
-    INSERT #ineachdb(id,name) SELECT database_id, name FROM sys.databases;
+    INSERT #ineachdb(id,name,is_distributor) SELECT database_id, name, is_distributor FROM sys.databases;
   END
 
-  -- first, let's delete any that have been explicitly excluded
+  -- now delete any that have been explicitly excluded - exclude trumps include
   IF @exclude_list > N'' 
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
-  -- exclude trumps include
   BEGIN
-    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n < 4000),
+    ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@exclude_list)),
     names AS
     (
       SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@exclude_list, n, 
         CHARINDEX(N',', @exclude_list + N',', n) - n), 1)))
       FROM n 
-      WHERE n <= LEN(@exclude_list)
-        AND SUBSTRING(N',' + @exclude_list, n, 1) = N','
+      WHERE SUBSTRING(N',' + @exclude_list, n, 1) = N','
     )
     DELETE d 
       FROM #ineachdb AS d
@@ -150,9 +149,10 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
 
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
-  WHERE (@system_only = 1 AND id NOT IN (1,2,3,4))
-     OR (@user_only   = 1 AND id     IN (1,2,3,4))
+  WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))
+     OR (@user_only   = 1 AND (id     IN (1,2,3,4) OR  is_distributor =  1))
      OR name NOT LIKE @name_pattern
+     OR name LIKE @exclude_pattern
      OR EXISTS
      (
        SELECT 1 
@@ -196,11 +196,12 @@ DECLARE @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')) 
       )
   );
 
--- from Andy Mallon / First Responders Kit. Make sure that if we're an 
--- AG secondary, we skip any database where allow connections is off
-if @SQLVersion >= 11
-  DELETE dbs FROM #ineachdb AS dbs
-  WHERE EXISTS
+  -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
+  -- AG secondary, we skip any database where allow connections is off
+  IF @SQLVersion >= 11
+  BEGIN
+    DELETE dbs FROM #ineachdb AS dbs
+    WHERE EXISTS
           (
             SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
               INNER JOIN sys.availability_replicas AS ar
@@ -210,7 +211,8 @@ if @SQLVersion >= 11
               WHERE drs.database_id = dbs.id
               AND ar.secondary_role_allow_connections = 0
               AND ags.primary_replica <> @ServerName
-  );
+          );
+  END
 
   -- Well, if we deleted them all...
   IF NOT EXISTS (SELECT 1 FROM #ineachdb)
