@@ -451,6 +451,18 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 * @ExpertMode = 1 - turns on more details useful for digging deeper into results.
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three of these in, and the stored proc's output will be written to a table. We'll create the table if it doesn't already exist. @OutputServerName will push the data to a linked server as long as you configure the linked server first and enable RPC OUT calls.
 
+To check versions of any of the stored procedures, use their output parameters for Version and VersionDate like this:
+
+```
+DECLARE @VersionOutput VARCHAR(30), @VersionDateOutput DATETIME;
+EXEC sp_Blitz 
+	@Version = @VersionOutput OUTPUT, 
+	@VersionDate = @VersionDateOutput OUTPUT,
+	@VersionCheckMode = 1;
+SELECT @VersionOutput AS Version, 
+	@VersionDateOutput AS VersionDate;
+```
+
 [*Back to top*](#header1)
 
 
