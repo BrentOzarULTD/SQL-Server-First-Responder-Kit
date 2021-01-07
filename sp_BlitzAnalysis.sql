@@ -37,6 +37,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Version VARCHAR(30) = NULL,
 @VersionDate DATETIME = NULL,
 @VersionCheckMode BIT = 0,
+@BringThePain BIT = 0,
 @Debug BIT = 0
 )
 AS 
@@ -138,7 +139,14 @@ END
 IF (@OutputSchemaName IS NULL) 
 BEGIN 
 	SET @OutputSchemaName = 'dbo';
-END 
+END
+
+IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@FromDate,@ToDate) > 4 AND @BringThePain = 0)
+BEGIN
+	RAISERROR('Wow! hold up now, are you sure you wanna do this? Are sure you want to query over 4 hours of data with @BlitzCacheSortorder set to ''all''? IF you do then set @BringThePain = 1 but I gotta warn you this might hurt a bit!',11,1) WITH NOWAIT;
+	RETURN;
+END
+
 
 SELECT 
 	@Servername AS [ServerToReportOn],
@@ -738,7 +746,8 @@ SELECT [ServerName]
       ,[statement_end_offset]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
-  AND [CheckDate] BETWEEN @FromDate AND @ToDate;';
+  AND [CheckDate] BETWEEN @FromDate AND @ToDate
+  ORDER BY [CheckDate] ASC;';
 
 RAISERROR('Getting BlitzWho info from %s',0,0,@FullOutputTableNameBlitzWho) WITH NOWAIT;
 
