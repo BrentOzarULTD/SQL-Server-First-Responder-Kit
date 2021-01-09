@@ -445,7 +445,7 @@ AND [CheckDate] BETWEEN @FromDate AND @ToDate
 
 /* Append additional CTEs based on sortorder */
 SET @Sql += (
-SELECT N','
+SELECT CAST(N',' AS NVARCHAR(MAX))
 +@NewLine
 +[SortOptions].[Aliasname]+N' AS (
 SELECT
@@ -568,7 +568,9 @@ FROM (VALUES
 		(N'reads',N'TopReads',N'TotalReads'),
 		(N'writes',N'TopWrites',N'TotalWrites'),
 		(N'duration',N'TopDuration',N'TotalDuration'),
-		(N'executions',N'TopExecutions',N'ExecutionCount')
+		(N'executions',N'TopExecutions',N'ExecutionCount'),
+		(N'memory grant',N'TopMemoryGrants',N'MaxGrantKB'),
+		(N'spills',N'TopSpills',N'MaxSpills')
 	) SortOptions(Sortorder,Aliasname,Columnname)
 WHERE [SortOptions].[Sortorder] = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)')
@@ -587,7 +589,9 @@ FROM (VALUES
 		(N'reads',N'TopReads',N'TotalReads'),
 		(N'writes',N'TopWrites',N'TotalWrites'),
 		(N'duration',N'TopDuration',N'TotalDuration'),
-		(N'executions',N'TopExecutions',N'ExecutionCount')
+		(N'executions',N'TopExecutions',N'ExecutionCount'),
+		(N'memory grant',N'TopMemoryGrants',N'MaxGrantKB'),
+		(N'spills',N'TopSpills',N'MaxSpills')
 	) SortOptions(Sortorder,Aliasname,Columnname)
 WHERE [SortOptions].[Sortorder] = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'),1,11,N'')
