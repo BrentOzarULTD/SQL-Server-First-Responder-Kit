@@ -110,6 +110,12 @@ END
 
 SET @BlitzCacheSortorder = LOWER(@BlitzCacheSortorder);
 
+IF (@OutputTableNameBlitzCache IS NOT NULL AND @BlitzCacheSortorder NOT IN (N'all',N'cpu',N'reads',N'writes',N'duration',N'executions',N'memory grant',N'spills'))
+BEGIN
+	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, support values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
+	RETURN;
+END 
+
 IF (@FromDate IS NULL)
 BEGIN 
 	RAISERROR('Setting @FromDate to: 1 hour ago',0,0) WITH NOWAIT;
