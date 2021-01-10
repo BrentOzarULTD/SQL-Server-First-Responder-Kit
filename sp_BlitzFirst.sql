@@ -52,7 +52,9 @@ BEGIN
 	RETURN;
 END;
 
-IF @Help = 1 PRINT '
+IF @Help = 1 
+BEGIN
+PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
 	
 This script gives you a prioritized list of why your SQL Server is slow right now.
@@ -104,7 +106,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ';
-
+RETURN;
+END;    /* @Help = 1 */
 
 RAISERROR('Setting up configuration variables',10,1) WITH NOWAIT;
 DECLARE @StringToExecute NVARCHAR(MAX),
