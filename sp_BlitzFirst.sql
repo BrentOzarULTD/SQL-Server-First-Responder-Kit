@@ -2909,10 +2909,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		SELECT TOP 10 29 AS CheckID,
 			40 AS Priority,
 			''Table Problems'' AS FindingGroup,
-			''Forwarded Fetches/Sec High: Temp Table'' AS Finding,
+			''Forwarded Fetches/Sec High: TempDB Object'' AS Finding,
 			''https://BrentOzar.com/go/fetch/'' AS URL,
-			CAST(COALESCE(os.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on temp table '' + COALESCE(OBJECT_NAME(os.object_id), ''Unknown'') AS Details,
-			''Look through your source code to find the object creating these temp tables, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
+			CAST(COALESCE(os.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
+				CASE WHEN OBJECT_NAME(os.object_id) IS NULL THEN ''an unknown table ''
+				WHEN LEN(OBJECT_NAME(os.object_id)) < 50 THEN ''a table variable, internal identifier '' + OBJECT_NAME(os.object_id)
+				ELSE ''a temp table '' + OBJECT_NAME(os.object_id)
+				END AS Details,
+			''Look through your source code to find the object creating these objects, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
 		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID(''tempdb''), NULL, NULL, NULL) os
 		WHERE os.database_id = DB_ID(''tempdb'')
 			AND os.forwarded_fetch_count > 100
