@@ -43,7 +43,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210107';
+SELECT @Version = '1.000', @VersionDate = '20210110';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -79,6 +79,8 @@ DECLARE @FullOutputTableNameBlitzCache NVARCHAR(1000);
 DECLARE @FullOutputTableNameBlitzWho NVARCHAR(1000);
 DECLARE @Sql NVARCHAR(MAX);
 DECLARE @NewLine NVARCHAR(2) = CHAR(10)+ CHAR(13);
+DECLARE @IncludeMemoryGrants BIT;
+DECLARE @IncludeSpills BIT;
 
 /* Set fully qualified table names */
 SET @FullOutputTableNameBlitzFirst = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameBlitzFirst);
@@ -114,7 +116,20 @@ IF (@OutputTableNameBlitzCache IS NOT NULL AND @BlitzCacheSortorder NOT IN (N'al
 BEGIN
 	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, support values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
 	RETURN;
-END 
+END
+
+SELECT @IncludeMemoryGrants = 
+	CASE 
+		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')) THEN 1
+		ELSE 0
+	END;
+
+SELECT @IncludeSpills = 
+	CASE
+		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')) THEN 1 
+		ELSE 0
+	END;
+
 
 IF (@FromDate IS NULL)
 BEGIN 
@@ -589,7 +604,12 @@ FROM (VALUES
 		(N'memory grant',N'TopMemoryGrants',N'MaxGrantKB'),
 		(N'spills',N'TopSpills',N'MaxSpills')
 	) SortOptions(Sortorder,Aliasname,Columnname)
-WHERE [SortOptions].[Sortorder] = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
+WHERE
+	CASE /* for spills and memory grant sorts make sure the underlying columns exist in the DMV otherwise do not include them */
+		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND [SortOptions].[Sortorder] = N'memory grant' THEN NULL
+		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND [SortOptions].[Sortorder] = N'spills' THEN NULL
+		ELSE [SortOptions].[Sortorder]
+	END = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)')
 
 
@@ -610,7 +630,12 @@ FROM (VALUES
 		(N'memory grant',N'TopMemoryGrants',N'MaxGrantKB'),
 		(N'spills',N'TopSpills',N'MaxSpills')
 	) SortOptions(Sortorder,Aliasname,Columnname)
-WHERE [SortOptions].[Sortorder] = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
+WHERE
+	CASE /* for spills and memory grant sorts make sure the underlying columns exist in the DMV otherwise do not include them */
+		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND [SortOptions].[Sortorder] = N'memory grant' THEN NULL
+		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND [SortOptions].[Sortorder] = N'spills' THEN NULL
+		ELSE [SortOptions].[Sortorder]
+	END = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'),1,11,N'')
 );
 
