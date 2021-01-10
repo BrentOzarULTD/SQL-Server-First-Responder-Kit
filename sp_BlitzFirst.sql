@@ -1368,6 +1368,16 @@ BEGIN
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS);
 
+	/* For Github #2743: */
+	CREATE TABLE #TempdbOperationalStats (object_id BIGINT PRIMARY KEY CLUSTERED,
+		forwarded_fetch_count BIGINT);
+	INSERT INTO #TempdbOperationalStats (object_id, forwarded_fetch_count)
+		SELECT object_id, forwarded_fetch_count
+		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID('tempdb'), NULL, NULL, NULL) os
+	WHERE os.database_id = DB_ID('tempdb')
+		AND os.forwarded_fetch_count > 100;
+
+
 	/* If they want to run sp_BlitzWho and export to table, go for it. */
 	IF @OutputTableNameBlitzWho IS NOT NULL
 		AND @OutputDatabaseName IS NOT NULL
@@ -2890,7 +2900,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Table Problems' AS FindingGroup,
         'Forwarded Fetches/Sec High' AS Finding,
         'https://BrentOzar.com/go/fetch/' AS URL,
-        CAST(ps.value_delta AS NVARCHAR(20)) + ' Forwarded Records (from SQLServer:Access Methods counter)' + @LineFeed
+        CAST(ps.value_delta AS NVARCHAR(20)) + ' forwarded fetches (from SQLServer:Access Methods counter)' + @LineFeed
             + 'Check your heaps: they need to be rebuilt, or they need a clustered index applied.' + @LineFeed AS Details,
         'Rebuild your heaps. If you use Ola Hallengren maintenance scripts, those do not rebuild heaps by default: https://www.brentozar.com/archive/2016/07/fix-forwarded-records/' AS HowToStopIt
     FROM #PerfmonStats ps
@@ -2911,15 +2921,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			''Table Problems'' AS FindingGroup,
 			''Forwarded Fetches/Sec High: TempDB Object'' AS Finding,
 			''https://BrentOzar.com/go/fetch/'' AS URL,
-			CAST(COALESCE(os.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
+			CAST(COALESCE(os.forwarded_fetch_count,0) - COALESCE(os_prior.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
 				CASE WHEN OBJECT_NAME(os.object_id) IS NULL THEN ''an unknown table ''
 				WHEN LEN(OBJECT_NAME(os.object_id)) < 50 THEN ''a table variable, internal identifier '' + OBJECT_NAME(os.object_id)
 				ELSE ''a temp table '' + OBJECT_NAME(os.object_id)
 				END AS Details,
 			''Look through your source code to find the object creating these objects, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
 		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID(''tempdb''), NULL, NULL, NULL) os
+			LEFT OUTER JOIN #TempdbOperationalStats os_prior ON os.object_id = os_prior.object_id
+				AND os.forwarded_fetch_count > os_prior.forwarded_fetch_count
 		WHERE os.database_id = DB_ID(''tempdb'')
-			AND os.forwarded_fetch_count > 100
+			AND os.forwarded_fetch_count - COALESCE(os_prior.forwarded_fetch_count,0) > 100
 		ORDER BY os.forwarded_fetch_count DESC;'
 
 		EXECUTE sp_executesql @StringToExecute;
