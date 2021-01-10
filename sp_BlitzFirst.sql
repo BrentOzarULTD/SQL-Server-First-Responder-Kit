@@ -1891,13 +1891,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	SELECT 46 AS CheckID,
 	    100 AS Priority,
 	    'Query Problems' AS FindingGroup,
-	    'Query with memory a grant exceeding '
+	    'Query with a memory grant exceeding '
 		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
 		+'%' AS Finding,
 		'Granted size: '+ CAST(CAST(Grants.granted_memory_kb / 1024 AS INT) AS NVARCHAR(50))
 		+N'MB '
 		 + @LineFeed
-		+N'Granted pct: ' 
+		+N'Granted pct of max workspace: ' 
 		+ CAST(ISNULL((CAST(Grants.granted_memory_kb / 1024 AS MONEY)
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' 
 		+ @LineFeed
