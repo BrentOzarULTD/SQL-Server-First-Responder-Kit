@@ -566,7 +566,18 @@ CROSS APPLY (
 	FROM '+@FullOutputTableNameBlitzCache+N' AS '+[SortOptions].[Aliasname]+N'
 	WHERE [ServerName] = @Servername
 	AND [CheckDate] BETWEEN @FromDate AND @ToDate
-	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]  
+	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]'
+	+CASE 
+		WHEN [Sortorder] = N'cpu' THEN N' AND [TotalCPU] > 0'
+		WHEN [Sortorder] = N'reads' THEN N' AND [TotalReads] > 0'
+		WHEN [Sortorder] = N'writes' THEN N' AND [TotalWrites] > 0'
+		WHEN [Sortorder] = N'duration' THEN N' AND [TotalDuration] > 0'
+		WHEN [Sortorder] = N'executions' THEN N' AND [ExecutionCount] > 0'
+		WHEN [Sortorder] = N'memory grant' THEN N' AND [MaxGrantKB] > 0'
+		WHEN [Sortorder] = N'spills' THEN N' AND [MaxSpills] > 0'
+		ELSE N''
+	END
+	+N'
 	ORDER BY ['+[SortOptions].[Columnname]+N'] DESC) '+[SortOptions].[Aliasname]+N'
 )'
 FROM (VALUES
