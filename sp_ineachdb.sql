@@ -194,9 +194,6 @@ AS (SELECT V.SrcList
           AND C.InBracket = 1)
    , F
 AS (SELECT C.SrcList
---         , IIF(C.Quoted = 0
---                ,SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
---             , C.Name) 
          , CASE WHEN C.Quoted = 0 THEN 
                 SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
              ELSE C.Name END						   
