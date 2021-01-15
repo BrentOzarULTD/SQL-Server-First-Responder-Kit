@@ -191,7 +191,7 @@ AS (SELECT V.SrcList
    , F
 AS (SELECT C.SrcList
          , IIF(C.Quoted = 0
-                ,SUBSTRING(C.Name, PATINDEX(@nospaces, Name), DATALENGTH (Name)/2 - PATINDEX(@nospaces, Name) - PATINDEX(@nospaces, REVERSE(Name))+2)
+                ,SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
              , C.Name) 
  AS name
     FROM C
