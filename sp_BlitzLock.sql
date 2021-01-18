@@ -32,14 +32,16 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.99999', @VersionDate = '20201211';
+SELECT @Version = '8.0', @VersionDate = '20210117';
 
 
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-	IF @Help = 1 PRINT '
+	IF @Help = 1 
+	BEGIN
+	PRINT '
 	/*
 	sp_BlitzLock from http://FirstResponderKit.org
 	
@@ -94,7 +96,7 @@ END;
 
     MIT License
 	   
-	Copyright (c) 2020 Brent Ozar Unlimited
+	Copyright (c) 2021 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -115,8 +117,9 @@ END;
 	SOFTWARE.
 
 	*/';
-
-
+	RETURN;
+	END;    /* @Help = 1 */
+	
         DECLARE @ProductVersion NVARCHAR(128);
         DECLARE @ProductVersionMajor FLOAT;
         DECLARE @ProductVersionMinor INT;
@@ -299,9 +302,24 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NULL
-		   BEGIN
-		       UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
-           END
+		   BEGIN;
+				BEGIN TRY;
+					UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+				END TRY
+				BEGIN CATCH;
+					/* Misleading error returned, if run without permissions to update statistics the error returned is "Cannot find object".
+					   Catching specific error, and returning message with better info. If any other error is returned, then throw as normal */
+					IF (ERROR_NUMBER() = 1088)
+					BEGIN;
+						SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+						RAISERROR('Cannot run UPDATE STATISTICS on temp table without db_owner or sysadmin permissions %s', 0, 1, @d) WITH NOWAIT;
+					END;
+					ELSE
+					BEGIN;
+						THROW;
+					END;
+				END CATCH;
+			END;
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
