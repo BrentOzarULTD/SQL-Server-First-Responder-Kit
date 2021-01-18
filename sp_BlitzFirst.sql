@@ -108,6 +108,61 @@ SOFTWARE.
 ';
 RETURN;
 END;    /* @Help = 1 */
+    PRINT '
+    sp_BlitzFirst from http://FirstResponderKit.org
+        
+    This script gives you a prioritized list of why your SQL Server is slow right now.
+
+    This is not an overall health check - for that, check out sp_Blitz.
+
+    To learn more, visit http://FirstResponderKit.org where you can download new
+    versions for free, watch training videos on how it works, get more info on
+    the findings, contribute your own code, and more.
+
+    Known limitations of this version:
+    - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000. It
+    may work just fine on 2005, and if it does, hug your parents. Just don''t
+    file support issues if it breaks.
+    - If a temp table called #CustomPerfmonCounters exists for any other session,
+    but not our session, this stored proc will fail with an error saying the
+    temp table #CustomPerfmonCounters does not exist.
+    - @OutputServerName is not functional yet.
+    - If @OutputDatabaseName, SchemaName, TableName, etc are quoted with brackets,
+    the write to table may silently fail. Look, I never said I was good at this.
+
+    Unknown limitations of this version:
+    - None. Like Zombo.com, the only limit is yourself.
+
+    Changes - for the full list of improvements and fixes in this version, see:
+    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+
+
+    MIT License
+
+    Copyright (c) 2020 Brent Ozar Unlimited
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+    ';
+    RETURN;
+END;    /* @Help = 1 */
+
 
 RAISERROR('Setting up configuration variables',10,1) WITH NOWAIT;
 DECLARE @StringToExecute NVARCHAR(MAX),

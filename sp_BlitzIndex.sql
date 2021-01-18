@@ -104,6 +104,56 @@ SOFTWARE.
 ';
 RETURN;
 END;    /* @Help = 1 */
+    PRINT '
+    /*
+    sp_BlitzIndex from http://FirstResponderKit.org
+        
+    This script analyzes the design and performance of your indexes.
+
+    To learn more, visit http://FirstResponderKit.org where you can download new
+    versions for free, watch training videos on how it works, get more info on
+    the findings, contribute your own code, and more.
+
+    Known limitations of this version:
+    - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+    - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
+    --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it is important 
+            for the user to understand if it is going to be offline and not just run a script.
+    --        Example 2: they do not include all the options the index may have been created with (padding, compression
+            filegroup/partition scheme etc.)
+    --        (The compression and filegroup index create syntax is not trivial because it is set at the partition 
+            level and is not trivial to code.)
+    - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
+
+    Unknown limitations of this version:
+    - We knew them once, but we forgot.
+
+
+    MIT License
+
+    Copyright (c) 2020 Brent Ozar Unlimited
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+    ';
+    RETURN;
+END /* @Help = 1 */
+
 
 DECLARE @ScriptVersionName NVARCHAR(50);
 DECLARE @DaysUptime NUMERIC(23,2);
