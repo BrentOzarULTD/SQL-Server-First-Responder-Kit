@@ -1,12 +1,5 @@
-USE [master]
-GO
-
-
-SET ANSI_NULLS ON
-GO
-
+SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON
-GO
 
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[sp_BlitzAnalysis]') AND type in (N'P', N'PC'))
 BEGIN
@@ -14,13 +7,12 @@ EXEC dbo.sp_executesql @statement = N'CREATE PROCEDURE [dbo].[sp_BlitzAnalysis] 
 END
 GO
 
-
 ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Help TINYINT = 0,
 @FromDate DATETIMEOFFSET(7) = NULL,
 @ToDate DATETIMEOFFSET(7) = NULL,
-@OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputDatabaseName NVARCHAR(256) = N'DBA',
+@OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', /**/
 @OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',/**/
 @OutputTableNamePerfmonStats NVARCHAR(256)  = N'BlitzFirst_PerfmonStats',
@@ -55,22 +47,30 @@ IF (@Help = 1)
 BEGIN 
 	PRINT 'EXEC sp_BlitzAnalysis 
 @FromDate = ''20201111 13:30'',
-@ToDate = NULL, /* Get an hour of data */
-@OutputSchemaName = N''dbo'',
-@OutputDatabaseName = N''DBA'',
-@OutputTableNameBlitzFirst = N''BlitzFirst'', 
-@OutputTableNameFileStats = N''BlitzFirst_FileStats'',
-@OutputTableNamePerfmonStats  = N''BlitzFirst_PerfmonStats'',
-@OutputTableNameWaitStats = N''BlitzFirst_WaitStats'',
-@OutputTableNameBlitzCache = N''BlitzCache'',
-@OutputTableNameBlitzWho = N''BlitzWho'',
-@MaxBlitzFirstPriority = 249,
-@BlitzCacheSortorder = ''cpu'',
-@WaitStatsTop = 3, /* Controls the top for wait stats only */
-@Debug = 0;';
+@ToDate = NULL,		/* NULL will get an hour of data since @FromDate */
+@OutputDatabaseName = N''DBA'',		/* Specify the database name where where we can find your logged blitz data */
+@OutputSchemaName = N''dbo'',		/* Specify the schema */
+@OutputTableNameBlitzFirst = N''BlitzFirst'',		/* Table name where you are storing sp_BlitzFirst output, Set to NULL to ignore */ 
+@OutputTableNameFileStats = N''BlitzFirst_FileStats'',		/* Table name where you are storing sp_BlitzFirst filestats output, Set to NULL to ignore */ 
+@OutputTableNamePerfmonStats  = N''BlitzFirst_PerfmonStats'',		/* Table name where you are storing sp_BlitzFirst Perfmon output, Set to NULL to ignore */ 
+@OutputTableNameWaitStats = N''BlitzFirst_WaitStats'',		/* Table name where you are storing sp_BlitzFirst Wait stats output, Set to NULL to ignore */ 
+@OutputTableNameBlitzCache = N''BlitzCache'',		/* Table name where you are storing sp_BlitzCache output, Set to NULL to ignore */ 
+@OutputTableNameBlitzWho = N''BlitzWho'',		/* Table name where you are storing sp_BlitzWho output, Set to NULL to ignore */ 
+@MaxBlitzFirstPriority = 249,		/* Max priority to include in the results */
+@BlitzCacheSortorder = ''cpu'',		/* Accepted values ''all'' ''cpu'' ''reads'' ''writes'' ''duration'' ''executions'' ''memory grant'' ''spills'' */
+@WaitStatsTop = 3,		/* Controls the top for wait stats only */
+@Debug = 0;		/* Show sp_BlitzAnalysis SQL commands in the messages tab as they execute */
+
+/*
+Additional parameters:
+@ReadLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_read_average_ms in your filestats table */
+@WriteLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_write_average_ms in your filestats table */
+@BringThePain BIT		/* Default: 0 - If you are getting more than 4 hours of data with blitzcachesortorder set to ''all'' you will need to set BringThePain to 1 */
+*/';
 	RETURN;
 END
 
+/* Declare all local veriables required */
 DECLARE @FullOutputTableNameBlitzFirst NVARCHAR(1000); 
 DECLARE @FullOutputTableNameFileStats NVARCHAR(1000);
 DECLARE @FullOutputTableNamePerfmonStats NVARCHAR(1000);
@@ -104,7 +104,7 @@ CREATE TABLE #BlitzFirstCounts (
 	[LastOccurrence] DATETIMEOFFSET(7) NULL
 );
 
-/* Sanitise variables */
+/* Vallidate variables and set defaults as required */
 IF (@BlitzCacheSortorder IS NULL) 
 BEGIN 
 	SET @BlitzCacheSortorder = N'cpu';
@@ -118,6 +118,7 @@ BEGIN
 	RETURN;
 END
 
+/* We need to check if your SQL version has memory grant and spills columns in sys.dm_exec_query_stats */
 SELECT @IncludeMemoryGrants = 
 	CASE 
 		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')) THEN 1
@@ -606,11 +607,11 @@ FROM (VALUES
 	) SortOptions(Sortorder,Aliasname,Columnname)
 WHERE
 	CASE /* for spills and memory grant sorts make sure the underlying columns exist in the DMV otherwise do not include them */
-		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND [SortOptions].[Sortorder] = N'memory grant' THEN NULL
-		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND [SortOptions].[Sortorder] = N'spills' THEN NULL
+		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND ([SortOptions].[Sortorder] = N'memory grant' OR [SortOptions].[Sortorder] = N'all') THEN NULL
+		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND ([SortOptions].[Sortorder] = N'spills' OR [SortOptions].[Sortorder] = N'all') THEN NULL
 		ELSE [SortOptions].[Sortorder]
 	END = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
-FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)')
+FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)');
 
 
 /* Build the select statements to return the data after CTE declarations */
@@ -632,8 +633,8 @@ FROM (VALUES
 	) SortOptions(Sortorder,Aliasname,Columnname)
 WHERE
 	CASE /* for spills and memory grant sorts make sure the underlying columns exist in the DMV otherwise do not include them */
-		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND [SortOptions].[Sortorder] = N'memory grant' THEN NULL
-		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND [SortOptions].[Sortorder] = N'spills' THEN NULL
+		WHEN (@IncludeMemoryGrants = 0 OR @IncludeMemoryGrants IS NULL) AND ([SortOptions].[Sortorder] = N'memory grant' OR [SortOptions].[Sortorder] = N'all') THEN NULL
+		WHEN (@IncludeSpills = 0 OR @IncludeSpills IS NULL) AND ([SortOptions].[Sortorder] = N'spills' OR [SortOptions].[Sortorder] = N'all') THEN NULL
 		ELSE [SortOptions].[Sortorder]
 	END = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'),1,11,N'')
