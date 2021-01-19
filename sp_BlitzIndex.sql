@@ -45,7 +45,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.99999', @VersionDate = '20201211';
+SELECT @Version = '8.0', @VersionDate = '20210117';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -53,7 +53,9 @@ BEGIN
 	RETURN;
 END;
 
-IF @Help = 1 PRINT '
+IF @Help = 1 
+BEGIN
+PRINT '
 /*
 sp_BlitzIndex from http://FirstResponderKit.org
 	
@@ -80,7 +82,7 @@ Unknown limitations of this version:
 
 MIT License
 
-Copyright (c) 2020 Brent Ozar Unlimited
+Copyright (c) 2021 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -100,7 +102,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ';
-
+RETURN;
+END;    /* @Help = 1 */
 
 DECLARE @ScriptVersionName NVARCHAR(50);
 DECLARE @DaysUptime NUMERIC(23,2);
@@ -1582,15 +1585,15 @@ BEGIN TRY
 				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id_inner
 				CROSS APPLY(
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 				UNION ALL
 					SELECT	LTRIM(RTRIM(v.value(N''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.inequality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 				UNION ALL
 					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id_inner.included_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 					CROSS APPLY n.nodes(''x'') node(v)
 			)AS cn_inner'
 		+ /*split the string otherwise dsql cuts some of it out*/
@@ -1604,15 +1607,15 @@ BEGIN TRY
             FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id
            CROSS APPLY(
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.equality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 				    UNION ALL
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.inequality_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 				    UNION ALL
 						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE(CAST(id.included_columns AS nvarchar(max)), N'','', N''</x><x>'') + N''</x>''))) x(n)
+						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
 						CROSS APPLY n.nodes(''x'') node(v)
 					)AS cn
 				GROUP BY	id.index_handle,id.object_id,cn.IndexColumnType
@@ -2874,7 +2877,7 @@ BEGIN;
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
 						AND ip.is_primary_key = 0
-                        ORDER BY ip.object_id, ip.key_column_names_with_sort_order    
+                        ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names_with_sort_order    
                 OPTION    ( RECOMPILE );
 
         RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
@@ -2912,7 +2915,7 @@ BEGIN;
                                 di.number_dupes > 1    
                         )
 						AND ip.is_primary_key = 0                                          
-                        ORDER BY ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
+                        ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
             OPTION    ( RECOMPILE );
 
         ----------------------------------------

@@ -34,7 +34,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.99999', @VersionDate = '20201211';
+  SELECT @Version = '8.0', @VersionDate = '20210117';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -67,7 +67,7 @@ BEGIN
 		
 		    MIT License
 			
-			Copyright (c) 2019 Brent Ozar Unlimited
+			Copyright (c) 2021 Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
@@ -167,10 +167,12 @@ AS (SELECT V.SrcList
          , 0 AS Quoted
     FROM (VALUES ('In', @database_list + ','), ('Out', @exclude_list + ',')) AS V (SrcList, DBList)
     UNION ALL
-    SELECT C.SrcList
-         , IIF(V.Found = '[', '', SUBSTRING(C.DBList, 1, V.Place - 1))/*remove initial [*/
+	SELECT C.SrcList									
+--       , IIF(V.Found = '[', '', SUBSTRING(C.DBList, 1, V.Place - 1))/*remove initial [*/
+         , CASE WHEN V.Found = '[' THEN '' ELSE SUBSTRING(C.DBList, 1, V.Place - 1)  END  /*remove initial [*/
          , STUFF(C.DBList, 1, V.Place, '')
-         , IIF(V.Found = '[', 1, 0)
+--       , IIF(V.Found = '[', 1, 0)
+		 ,Case WHEN V.Found = '[' THEN 1 ELSE 0 END
          , 0
     FROM C
         CROSS APPLY
@@ -179,25 +181,28 @@ AS (SELECT V.SrcList
           AND C.InBracket = 0
     UNION ALL
     SELECT C.SrcList
-         , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/ 
+--       , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/ 
+	     , ISNULL(C.Name,'') + ISNULL(SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1),'') /*Accumulates only one ] if escaped]] or none if end]*/ 
          , STUFF(C.DBList, 1, V.Place + W.DoubleBracket, '')
          , W.DoubleBracket
          , 1
     FROM C
         CROSS APPLY (VALUES (CHARINDEX(']', C.DBList))) AS V (Place)
-        CROSS APPLY (VALUES (IIF(SUBSTRING(C.DBList, V.Place + 1, 1) = ']', 1, 0))) AS W (DoubleBracket)
+	--  CROSS APPLY (VALUES (IIF(SUBSTRING(C.DBList, V.Place + 1, 1) = ']', 1, 0))) AS W (DoubleBracket)
+        CROSS APPLY (VALUES (CASE WHEN SUBSTRING(C.DBList, V.Place + 1, 1) = ']' THEN 1 ELSE 0 END)) AS W (DoubleBracket)							 				 
     WHERE C.DBList > ''
           AND C.InBracket = 1)
    , F
 AS (SELECT C.SrcList
-         , IIF(C.Quoted = 0
-                ,SUBSTRING(C.name, PATINDEX(@NoSpaces, name), DATALENGTH (name)/2 - PATINDEX(@NoSpaces, name) - PATINDEX(@NoSpaces, REVERSE(name))+2)
-             , C.Name) 
+         , CASE WHEN C.Quoted = 0 THEN 
+                SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
+             ELSE C.Name END						   
  AS name
     FROM C
     WHERE C.InBracket = 0
-          AND C.Name > '')
- SELECT d.database_id
+          AND C.Name > '')																	 
+INSERT #ineachdb(id,name,is_distributor)
+SELECT d.database_id
      , d.name
      , d.is_distributor
 FROM sys.databases AS d
@@ -331,3 +336,4 @@ OPTION (MAXRECURSION 0);
   CLOSE dbs; 
   DEALLOCATE dbs;
 END
+GO
