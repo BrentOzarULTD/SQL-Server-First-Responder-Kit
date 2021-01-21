@@ -3251,13 +3251,16 @@ AS
 										AND j.category_id <> 100; /* Exclude SSRS category */
 					END;
 
+				/* Dedicated Admin Connection */
 				IF EXISTS ( SELECT  1
 							FROM    sys.configurations
 							WHERE   name = 'remote admin connections'
-									AND value_in_use = 0 )
+									--AND value_in_use = 0 /* No filter, we need to consider both value cases for this option. */
+									)
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
 									 WHERE  DatabaseName IS NULL AND CheckID = 100 )
+				
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 100) WITH NOWAIT;
@@ -3271,11 +3274,24 @@ AS
 								  Details
 								)
 								SELECT  100 AS CheckID ,
-										170 AS Priority ,
-										'Reliability' AS FindingGroup ,
-										'Remote DAC Disabled' AS Finding ,
+										CASE sc.value_in_use	WHEN 0 THEN 170
+																WHEN 1 THEN 250
+																ELSE 250 END AS [Priority],
+										CASE sc.value_in_use	WHEN 0 THEN 'Reliability'
+																WHEN 1 THEN 'Best Practice'
+																ELSE 'Unknown' END AS [FindingGroup],
+										CASE sc.value_in_use	WHEN 0 THEN 'Remote DAC Disabled'
+																WHEN 1 THEN 'Remote DAC Enabled'
+																ELSE 'Unknown' END AS [Finding],
 										'https://BrentOzar.com/go/dac' AS URL ,
-										'Remote access to the Dedicated Admin Connection (DAC) is not enabled. The DAC can make remote troubleshooting much easier when SQL Server is unresponsive.';
+										CASE sc.value_in_use	WHEN 0 THEN 'Remote access to the Dedicated Admin Connection (DAC) is not enabled. The DAC can make remote troubleshooting much easier when SQL Server is unresponsive.'
+																WHEN 1 THEN 'Remote access to the Dedicated Admin Connection (DAC) IS enabled. This is a BEST PRACTICE.'
+																ELSE 'Unknown' END AS [Details]
+								FROM    sys.configurations AS sc
+								WHERE   name = 'remote admin connections';
+
+						DELETE FROM #BlitzResults WHERE CheckID = 1049; /* We don't need to also report this as a "Non Default Server Config" */
+																		/* We might even consider removing that from #ConfigurationDefaults as we are covering both sides of the boolean options.*/
 					END;
 
 				IF EXISTS ( SELECT  *
