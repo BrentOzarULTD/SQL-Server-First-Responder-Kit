@@ -2859,7 +2859,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 compilations per second, or more compilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Compilations are more than 10% of batch requests per second */
 
     /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
@@ -2885,7 +2885,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 recompilations per second, or more recompilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Recompilations are more than 10% of batch requests per second */
 
     /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
