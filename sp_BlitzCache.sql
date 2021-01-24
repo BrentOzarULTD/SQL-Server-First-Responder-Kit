@@ -2337,7 +2337,7 @@ BEGIN
                                 WHEN N'writes' THEN N'AND total_logical_writes > 0'
                                 WHEN N'duration' THEN N'AND total_elapsed_time > 0'
                                 WHEN N'executions' THEN N'AND execution_count > 0'
-                                WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'
+                                /* WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'  BGO 2021-01-24 commenting out for https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2772 */
 								WHEN N'memory grant' THEN N'AND max_grant_kb > 0'
 								WHEN N'unused grant' THEN N'AND max_grant_kb > 0'
 								WHEN N'spills' THEN N'AND max_spills > 0'
@@ -2352,6 +2352,7 @@ BEGIN
             WHEN COALESCE(age_minutes, age_minutes_lifetime, 0) = 0 THEN 0
             ELSE CAST((1.00 * execution_count / COALESCE(age_minutes, age_minutes_lifetime)) AS money)
             END > 0'
+            ELSE N' /* No minimum threshold set */ '
                END;
 
     SET @sql += REPLACE(@body_where, 'cached_time', 'creation_time') ;
