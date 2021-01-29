@@ -11,7 +11,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Help TINYINT = 0,
 @FromDate DATETIMEOFFSET(7) = NULL,
 @ToDate DATETIMEOFFSET(7) = NULL,
-@OutputDatabaseName NVARCHAR(256) = N'DBA',
+@OutputDatabaseName NVARCHAR(256),
 @OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', /**/
 @OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',/**/
@@ -30,12 +30,13 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @VersionDate DATETIME = NULL,
 @VersionCheckMode BIT = 0,
 @BringThePain BIT = 0,
+@Maxdop INT = 1,
 @Debug BIT = 0
 )
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210110';
+SELECT @Version = '1.000', @VersionDate = '20210129';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -116,6 +117,18 @@ IF (@OutputTableNameBlitzCache IS NOT NULL AND @BlitzCacheSortorder NOT IN (N'al
 BEGIN
 	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, support values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
 	RETURN;
+END
+
+/* Set @Maxdop to 1 if NULL was passed in */
+IF (@Maxdop IS NULL)
+BEGIN
+	SET @Maxdop = 1;
+END
+
+/* iF @Maxdop is set higher than the core count just set it to 0 */
+IF (@Maxdop > (SELECT CAST(cpu_count AS INT) FROM sys.dm_os_sys_info))
+BEGIN
+	SET @Maxdop = 0;
 END
 
 /* We need to check if your SQL version has memory grant and spills columns in sys.dm_exec_query_stats */
@@ -227,7 +240,7 @@ AND [Priority] BETWEEN 1 AND @MaxBlitzFirstPriority
 AND [CheckDate] BETWEEN @FromDate AND @ToDate
 AND [CheckID] > -1
 ORDER BY CheckDate ASC,[Priority] ASC
-OPTION (RECOMPILE);';
+OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 
 RAISERROR('Getting BlitzFirst info from %s',0,0,@FullOutputTableNameBlitzFirst) WITH NOWAIT;
@@ -302,7 +315,7 @@ WHERE [WaitsRank] <= @WaitStatsTop
 ORDER BY 
 [CheckDate] ASC, 
 [wait_time_ms_delta] DESC
-OPTION(RECOMPILE);'
+OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
 RAISERROR('Getting wait stats info from %s',0,0,@FullOutputTableNameWaitStats) WITH NOWAIT;
 
@@ -369,7 +382,7 @@ GROUP BY
 LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1)
 ORDER BY 
 [CheckDate] ASC
-OPTION (RECOMPILE);'
+OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
 RAISERROR('Getting FileStats info from %s',0,0,@FullOutputTableNameFileStats) WITH NOWAIT;
 
@@ -419,7 +432,8 @@ FROM '+@FullOutputTableNamePerfmonStats+N'
 WHERE CheckDate BETWEEN @FromDate AND @ToDate
 ORDER BY 
 	[CheckDate] ASC,
-	[counter_name] ASC;'
+	[counter_name] ASC
+OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
 RAISERROR('Getting Perfmon info from %s',0,0,@FullOutputTableNamePerfmonStats) WITH NOWAIT;
 
@@ -649,7 +663,7 @@ SET @Sql += @NewLine
 
 /* Append OPTION(RECOMPILE) complete the statement */
 SET @Sql += @NewLine
-+'OPTION(RECOMPILE);';
++'OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 RAISERROR('Getting BlitzCache info from %s',0,0,@FullOutputTableNameBlitzCache) WITH NOWAIT;
 
@@ -794,7 +808,8 @@ SELECT [ServerName]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
   AND [CheckDate] BETWEEN @FromDate AND @ToDate
-  ORDER BY [CheckDate] ASC;';
+  ORDER BY [CheckDate] ASC
+  OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 RAISERROR('Getting BlitzWho info from %s',0,0,@FullOutputTableNameBlitzWho) WITH NOWAIT;
 
