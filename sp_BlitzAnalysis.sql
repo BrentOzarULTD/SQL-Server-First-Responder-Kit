@@ -13,13 +13,14 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @ToDate DATETIMEOFFSET(7) = NULL,
 @OutputDatabaseName NVARCHAR(256),
 @OutputSchemaName NVARCHAR(256) = N'dbo',
-@OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', /**/
-@OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',/**/
+@OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', 
+@OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',
 @OutputTableNamePerfmonStats NVARCHAR(256)  = N'BlitzFirst_PerfmonStats',
-@OutputTableNameWaitStats NVARCHAR(256) = N'BlitzFirst_WaitStats', /**/
-@OutputTableNameBlitzCache NVARCHAR(256) = N'BlitzCache',/**/
+@OutputTableNameWaitStats NVARCHAR(256) = N'BlitzFirst_WaitStats',
+@OutputTableNameBlitzCache NVARCHAR(256) = N'BlitzCache',
 @OutputTableNameBlitzWho NVARCHAR(256) = N'BlitzWho',
 @Servername NVARCHAR(128) = @@SERVERNAME,
+@Databasename NVARCHAR(128) = NULL,
 @BlitzCacheSortorder NVARCHAR(20) = N'cpu',
 @MaxBlitzFirstPriority INT = 249,
 @ReadLatencyThreshold INT = 100,
@@ -36,7 +37,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210129';
+SELECT @Version = '1.000', @VersionDate = '20210130';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -56,10 +57,12 @@ BEGIN
 @OutputTableNamePerfmonStats  = N''BlitzFirst_PerfmonStats'',		/* Table name where you are storing sp_BlitzFirst Perfmon output, Set to NULL to ignore */ 
 @OutputTableNameWaitStats = N''BlitzFirst_WaitStats'',		/* Table name where you are storing sp_BlitzFirst Wait stats output, Set to NULL to ignore */ 
 @OutputTableNameBlitzCache = N''BlitzCache'',		/* Table name where you are storing sp_BlitzCache output, Set to NULL to ignore */ 
-@OutputTableNameBlitzWho = N''BlitzWho'',		/* Table name where you are storing sp_BlitzWho output, Set to NULL to ignore */ 
+@OutputTableNameBlitzWho = N''BlitzWho'',		/* Table name where you are storing sp_BlitzWho output, Set to NULL to ignore */
+@Databasename = NULL,		/* Filters results for BlitzCache, FileStats (will also include tempdb), BlitzWho. Leave as NULL for all databases */
 @MaxBlitzFirstPriority = 249,		/* Max priority to include in the results */
 @BlitzCacheSortorder = ''cpu'',		/* Accepted values ''all'' ''cpu'' ''reads'' ''writes'' ''duration'' ''executions'' ''memory grant'' ''spills'' */
 @WaitStatsTop = 3,		/* Controls the top for wait stats only */
+@Maxdop = 1,		/* Control the degree of parallelism that the queries within this proc can use if they want to*/
 @Debug = 0;		/* Show sp_BlitzAnalysis SQL commands in the messages tab as they execute */
 
 /*
@@ -376,7 +379,14 @@ SUM([megabytes_written]) AS [megabytes_written]
 FROM '+@FullOutputTableNameFileStats+N'
 WHERE [ServerName] = @Servername
 AND [CheckDate] BETWEEN @FromDate AND @ToDate
-GROUP BY 
+'
++CASE
+	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] IN (N''tempdb'',@Databasename)
+'
+	ELSE N'
+'
+END
++N'GROUP BY 
 [ServerName], 
 [CheckDate],
 LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1)
@@ -410,11 +420,13 @@ BEGIN
 	N'@FromDate DATETIMEOFFSET(7),
 	@ToDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
+	@Databasename NVARCHAR(128),
 	@ReadLatencyThreshold INT,
 	@WriteLatencyThreshold INT',
 	@FromDate=@FromDate, 
 	@ToDate=@ToDate,
-	@Servername=@Servername, 
+	@Servername=@Servername,
+	@Databasename = @Databasename,
 	@ReadLatencyThreshold = @ReadLatencyThreshold,
 	@WriteLatencyThreshold = @WriteLatencyThreshold;
 END
@@ -477,7 +489,14 @@ FROM '
 +@NewLine
 +N'WHERE [ServerName] = @Servername
 AND [CheckDate] BETWEEN @FromDate AND @ToDate
-)';
+'
++CASE
+	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] = @Databasename
+'
+	ELSE N'
+'
+END
++N')';
 
 /* Append additional CTEs based on sortorder */
 SET @Sql += (
@@ -596,15 +615,22 @@ CROSS APPLY (
 	FROM '+@FullOutputTableNameBlitzCache+N' AS '+[SortOptions].[Aliasname]+N'
 	WHERE [ServerName] = @Servername
 	AND [CheckDate] BETWEEN @FromDate AND @ToDate
-	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]'
+	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]
+	'
+	+CASE
+		WHEN @Databasename IS NOT NULL THEN N'AND ['+[SortOptions].[Aliasname]+N'].[DatabaseName] = @Databasename
+	'
+		ELSE N'
+	'
+	END
 	+CASE 
-		WHEN [Sortorder] = N'cpu' THEN N' AND [TotalCPU] > 0'
-		WHEN [Sortorder] = N'reads' THEN N' AND [TotalReads] > 0'
-		WHEN [Sortorder] = N'writes' THEN N' AND [TotalWrites] > 0'
-		WHEN [Sortorder] = N'duration' THEN N' AND [TotalDuration] > 0'
-		WHEN [Sortorder] = N'executions' THEN N' AND [ExecutionCount] > 0'
-		WHEN [Sortorder] = N'memory grant' THEN N' AND [MaxGrantKB] > 0'
-		WHEN [Sortorder] = N'spills' THEN N' AND [MaxSpills] > 0'
+		WHEN [Sortorder] = N'cpu' THEN N'AND [TotalCPU] > 0'
+		WHEN [Sortorder] = N'reads' THEN N'AND [TotalReads] > 0'
+		WHEN [Sortorder] = N'writes' THEN N'AND [TotalWrites] > 0'
+		WHEN [Sortorder] = N'duration' THEN N'AND [TotalDuration] > 0'
+		WHEN [Sortorder] = N'executions' THEN N'AND [ExecutionCount] > 0'
+		WHEN [Sortorder] = N'memory grant' THEN N'AND [MaxGrantKB] > 0'
+		WHEN [Sortorder] = N'spills' THEN N'AND [MaxSpills] > 0'
 		ELSE N''
 	END
 	+N'
@@ -696,10 +722,12 @@ ELSE /* Table exists then run the query */
 BEGIN
 	EXEC sp_executesql @Sql,
 	N'@Servername NVARCHAR(128),
+	@Databasename NVARCHAR(128),
 	@BlitzCacheSortorder NVARCHAR(20),
 	@FromDate DATETIMEOFFSET(7),
 	@ToDate DATETIMEOFFSET(7)',
 	@Servername = @Servername,
+	@Databasename = @Databasename,
 	@BlitzCacheSortorder = @BlitzCacheSortorder,
 	@FromDate = @FromDate,
 	@ToDate = @ToDate;
@@ -808,7 +836,14 @@ SELECT [ServerName]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
   AND [CheckDate] BETWEEN @FromDate AND @ToDate
-  ORDER BY [CheckDate] ASC
+  '
+  +CASE
+	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
+  '
+  	ELSE N'
+  '
+  END
++N'ORDER BY [CheckDate] ASC
   OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 RAISERROR('Getting BlitzWho info from %s',0,0,@FullOutputTableNameBlitzWho) WITH NOWAIT;
@@ -836,10 +871,12 @@ BEGIN
 	EXEC sp_executesql @Sql,
 	N'@FromDate DATETIMEOFFSET(7),
 	@ToDate DATETIMEOFFSET(7),
-	@Servername NVARCHAR(128)',
+	@Servername NVARCHAR(128),
+	@Databasename NVARCHAR(128)',
 	@FromDate=@FromDate, 
 	@ToDate=@ToDate,
-	@Servername=@Servername;
+	@Servername=@Servername,
+	@Databasename = @Databasename;
 END
 
 
