@@ -1757,6 +1757,51 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		WHERE r.status = 'rollback';
 	END
 
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            1 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
+	END
+
     /* Server Performance - Too Much Free Memory - CheckID 34 */
 	IF (@Debug = 1)
 	BEGIN
@@ -3127,6 +3172,51 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
           CROSS JOIN waits1
           CROSS JOIN waits2;
     END;
+
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            2 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
+	END
 
     /* If we're waiting 30+ seconds, run these checks at the end.
     We get this data from the ring buffers, and it's only updated once per minute, so might
