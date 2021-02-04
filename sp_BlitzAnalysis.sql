@@ -11,7 +11,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Help TINYINT = 0,
 @FromDate DATETIMEOFFSET(7) = NULL,
 @ToDate DATETIMEOFFSET(7) = NULL,
-@OutputDatabaseName NVARCHAR(256),
+@OutputDatabaseName NVARCHAR(256) = NULL,
 @OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', 
 @OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',
@@ -26,9 +26,8 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @ReadLatencyThreshold INT = 100,
 @WriteLatencyThreshold INT = 100,
 @WaitStatsTop TINYINT = 10,
-@SkipAnalysis BIT = 0,
-@Version VARCHAR(30) = NULL,
-@VersionDate DATETIME = NULL,
+@Version VARCHAR(30) = NULL OUTPUT,
+@VersionDate DATETIME = NULL OUTPUT,
 @VersionCheckMode BIT = 0,
 @BringThePain BIT = 0,
 @Maxdop INT = 1,
@@ -37,18 +36,17 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210130';
+SELECT @Version = '1.000', @VersionDate = '20210204';
 
 IF(@VersionCheckMode = 1)
 BEGIN
-	SELECT @Version AS [Version], @VersionDate AS [VersionDate];
 	RETURN;
 END;
 
 IF (@Help = 1) 
 BEGIN 
 	PRINT 'EXEC sp_BlitzAnalysis 
-@FromDate = ''20201111 13:30'',
+@FromDate = ''20210204 09:00'',
 @ToDate = NULL,		/* NULL will get an hour of data since @FromDate */
 @OutputDatabaseName = N''DBA'',		/* Specify the database name where where we can find your logged blitz data */
 @OutputSchemaName = N''dbo'',		/* Specify the schema */
@@ -85,6 +83,13 @@ DECLARE @Sql NVARCHAR(MAX);
 DECLARE @NewLine NVARCHAR(2) = CHAR(10)+ CHAR(13);
 DECLARE @IncludeMemoryGrants BIT;
 DECLARE @IncludeSpills BIT;
+
+/* Validate the database name */
+IF (DB_ID(@OutputDatabaseName) IS NULL)
+BEGIN
+	RAISERROR('Invalid database name provided for parameter @OutputDatabaseName: %s',11,0,@OutputDatabaseName);
+	RETURN;
+END
 
 /* Set fully qualified table names */
 SET @FullOutputTableNameBlitzFirst = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameBlitzFirst);
