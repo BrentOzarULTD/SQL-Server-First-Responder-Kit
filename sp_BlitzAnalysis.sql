@@ -843,7 +843,7 @@ SELECT [ServerName]
       ,[statement_end_offset]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
-  AND [CheckDate] BETWEEN @FromDate AND @ToDate
+  AND ([CheckDate] BETWEEN @FromDate AND @ToDate OR [start_time] BETWEEN CAST(@FromDate AS DATETIME) AND CAST(@ToDate AS DATETIME))
   '
   +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
