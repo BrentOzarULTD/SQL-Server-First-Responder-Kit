@@ -159,9 +159,12 @@ BEGIN
 	/* Set FromDate to be an hour ago */
 	SET @FromDate = DATEADD(HOUR,-1,SYSDATETIMEOFFSET());
 
-	RAISERROR('Setting @ToDate to: Now',0,0) WITH NOWAIT;
-	/* Get data right up to now */
-	SET @ToDate = SYSDATETIMEOFFSET();
+	IF (@ToDate IS NULL)
+	BEGIN 
+		RAISERROR('Setting @ToDate to: Now',0,0) WITH NOWAIT;
+		/* Get data right up to now */
+		SET @ToDate = SYSDATETIMEOFFSET();
+	END
 END 
 
 IF (@ToDate IS NULL)
