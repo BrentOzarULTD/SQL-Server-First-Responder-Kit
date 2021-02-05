@@ -278,463 +278,466 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.999', @VersionDate = '20201011';
+SELECT @Version = '8.0', @VersionDate = '20210117';
 
 
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-	
-IF @Help = 1 PRINT '
-sp_BlitzCache from http://FirstResponderKit.org
-	
-This script displays your most resource-intensive queries from the plan cache,
-and points to ways you can tune these queries to make them faster.
-
-
-To learn more, visit http://FirstResponderKit.org where you can download new
-versions for free, watch training videos on how it works, get more info on
-the findings, contribute your own code, and more.
-
-Known limitations of this version:
- - This query will not run on SQL Server 2005.
- - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
-   excluded by default.
- - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
-   with no spaces between the hash values.
-
-Unknown limitations of this version:
- - May or may not be vulnerable to the wick effect.
-
-Changes - for the full list of improvements and fixes in this version, see:
-https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-
-
-
-MIT License
-
-Copyright (c) 2020 Brent Ozar Unlimited
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-';
 
 DECLARE @nl NVARCHAR(2) = NCHAR(13) + NCHAR(10) ;
 	
-IF @Help = 1
-BEGIN
-    SELECT N'@Help' AS [Parameter Name] ,
-           N'BIT' AS [Data Type] ,
-           N'Displays this help message.' AS [Parameter Description]
+IF @Help = 1 
+	BEGIN
+	PRINT '
+	sp_BlitzCache from http://FirstResponderKit.org
+	
+	This script displays your most resource-intensive queries from the plan cache,
+	and points to ways you can tune these queries to make them faster.
 
-    UNION ALL
-    SELECT N'@Top',
-           N'INT',
-           N'The number of records to retrieve and analyze from the plan cache. The following DMVs are used as the plan cache: dm_exec_query_stats, dm_exec_procedure_stats, dm_exec_trigger_stats.'
 
-    UNION ALL
-    SELECT N'@SortOrder',
-           N'VARCHAR(10)',
-           N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
 
-    UNION ALL
-    SELECT N'@UseTriggersAnyway',
-           N'BIT',
-           N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
+	Known limitations of this version:
+	 - This query will not run on SQL Server 2005.
+	 - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
+	   excluded by default.
+	 - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
+	   with no spaces between the hash values.
 
-    UNION ALL
-    SELECT N'@ExportToExcel',
-           N'BIT',
-           N'Prepare output for exporting to Excel. Newlines and additional whitespace are removed from query text and the execution plan is not displayed.'
+	Unknown limitations of this version:
+	 - May or may not be vulnerable to the wick effect.
 
-    UNION ALL
-    SELECT N'@ExpertMode',
-           N'TINYINT',
-           N'Default 0. When set to 1, results include more columns. When 2, mode is optimized for Opserver, the open source dashboard.'
+	Changes - for the full list of improvements and fixes in this version, see:
+	https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
-    UNION ALL
-    SELECT N'@OutputDatabaseName',
-           N'NVARCHAR(128)',
-           N'The output database. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
-    UNION ALL
-    SELECT N'@OutputSchemaName',
-           N'NVARCHAR(258)',
-           N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
 
-    UNION ALL
-    SELECT N'@OutputTableName',
-           N'NVARCHAR(258)',
-           N'The output table. If this does not exist, it will be created for you.'
+	MIT License
 
-    UNION ALL
-    SELECT N'@DurationFilter',
-           N'DECIMAL(38,4)',
-           N'Excludes queries with an average duration (in seconds) less than @DurationFilter.'
+	Copyright (c) 2021 Brent Ozar Unlimited
 
-    UNION ALL
-    SELECT N'@HideSummary',
-           N'BIT',
-           N'Hides the findings summary result set.'
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
 
-    UNION ALL
-    SELECT N'@IgnoreSystemDBs',
-           N'BIT',
-           N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
 
-    UNION ALL
-    SELECT N'@OnlyQueryHashes',
-           N'VARCHAR(MAX)',
-           N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+	';
 
-    UNION ALL
-    SELECT N'@IgnoreQueryHashes',
-           N'VARCHAR(MAX)',
-           N'A list of query hashes to ignore.'
-    
-    UNION ALL
-    SELECT N'@OnlySqlHandles',
-           N'VARCHAR(MAX)',
-           N'One or more sql_handles to use for filtering results.'
+	
+	SELECT N'@Help' AS [Parameter Name] ,
+			N'BIT' AS [Data Type] ,
+			N'Displays this help message.' AS [Parameter Description]
+
+	UNION ALL
+	SELECT N'@Top',
+			N'INT',
+			N'The number of records to retrieve and analyze from the plan cache. The following DMVs are used as the plan cache: dm_exec_query_stats, dm_exec_procedure_stats, dm_exec_trigger_stats.'
+
+	UNION ALL
+	SELECT N'@SortOrder',
+			N'VARCHAR(10)',
+			N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+
+	UNION ALL
+	SELECT N'@UseTriggersAnyway',
+			N'BIT',
+			N'On SQL Server 2008R2 and earlier, trigger execution count is incorrect - trigger execution count is incremented once per execution of a SQL agent job. If you still want to see relative execution count of triggers, then you can force sp_BlitzCache to include this information.'
+
+	UNION ALL
+	SELECT N'@ExportToExcel',
+			N'BIT',
+			N'Prepare output for exporting to Excel. Newlines and additional whitespace are removed from query text and the execution plan is not displayed.'
+
+	UNION ALL
+	SELECT N'@ExpertMode',
+			N'TINYINT',
+			N'Default 0. When set to 1, results include more columns. When 2, mode is optimized for Opserver, the open source dashboard.'
+
+	UNION ALL
+	SELECT N'@OutputDatabaseName',
+			N'NVARCHAR(128)',
+			N'The output database. If this does not exist SQL Server will divide by zero and everything will fall apart.'
+
+	UNION ALL
+	SELECT N'@OutputSchemaName',
+			N'NVARCHAR(258)',
+			N'The output schema. If this does not exist SQL Server will divide by zero and everything will fall apart.'
+
+	UNION ALL
+	SELECT N'@OutputTableName',
+			N'NVARCHAR(258)',
+			N'The output table. If this does not exist, it will be created for you.'
+
+	UNION ALL
+	SELECT N'@DurationFilter',
+			N'DECIMAL(38,4)',
+			N'Excludes queries with an average duration (in seconds) less than @DurationFilter.'
+
+	UNION ALL
+	SELECT N'@HideSummary',
+			N'BIT',
+			N'Hides the findings summary result set.'
+
+	UNION ALL
+	SELECT N'@IgnoreSystemDBs',
+			N'BIT',
+			N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
+
+	UNION ALL
+	SELECT N'@OnlyQueryHashes',
+			N'VARCHAR(MAX)',
+			N'A list of query hashes to query. All other query hashes will be ignored. Stored procedures and triggers will be ignored.'
+
+	UNION ALL
+	SELECT N'@IgnoreQueryHashes',
+			N'VARCHAR(MAX)',
+			N'A list of query hashes to ignore.'
     
 	UNION ALL
-    SELECT N'@IgnoreSqlHandles',
-           N'VARCHAR(MAX)',
-           N'One or more sql_handles to ignore.'
-
-    UNION ALL
-    SELECT N'@DatabaseName',
-           N'NVARCHAR(128)',
-           N'A database name which is used for filtering results.'
-
-    UNION ALL
-    SELECT N'@StoredProcName',
-           N'NVARCHAR(128)',
-           N'Name of stored procedure you want to find plans for.'
-
-    UNION ALL
-    SELECT N'@SlowlySearchPlansFor',
-           N'NVARCHAR(4000)',
-           N'String to search for in plan text. % wildcards allowed.'
-
-    UNION ALL
-    SELECT N'@BringThePain',
-           N'BIT',
-           N'When using @SortOrder = ''all'' and @Top > 10, we require you to set @BringThePain = 1 so you understand that sp_BlitzCache will take a while to run.'
-
-    UNION ALL
-    SELECT N'@QueryFilter',
-           N'VARCHAR(10)',
-           N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', ''functions'', or ''all'' (any variation in capitalization is acceptable).'
-
-    UNION ALL
-    SELECT N'@Reanalyze',
-           N'BIT',
-           N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results'
-           
-    UNION ALL
-    SELECT N'@MinimumExecutionCount',
-           N'INT',
-           N'Queries with fewer than this number of executions will be omitted from results.'
+	SELECT N'@OnlySqlHandles',
+			N'VARCHAR(MAX)',
+			N'One or more sql_handles to use for filtering results.'
     
 	UNION ALL
-    SELECT N'@Debug',
-           N'BIT',
-           N'Setting this to 1 will print dynamic SQL and select data from all tables used.'
+	SELECT N'@IgnoreSqlHandles',
+			N'VARCHAR(MAX)',
+			N'One or more sql_handles to ignore.'
 
-    UNION ALL
-    SELECT N'@MinutesBack',
-           N'INT',
-           N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negtive.';
+	UNION ALL
+	SELECT N'@DatabaseName',
+			N'NVARCHAR(128)',
+			N'A database name which is used for filtering results.'
+
+	UNION ALL
+	SELECT N'@StoredProcName',
+			N'NVARCHAR(128)',
+			N'Name of stored procedure you want to find plans for.'
+
+	UNION ALL
+	SELECT N'@SlowlySearchPlansFor',
+			N'NVARCHAR(4000)',
+			N'String to search for in plan text. % wildcards allowed.'
+
+	UNION ALL
+	SELECT N'@BringThePain',
+			N'BIT',
+			N'When using @SortOrder = ''all'' and @Top > 10, we require you to set @BringThePain = 1 so you understand that sp_BlitzCache will take a while to run.'
+
+	UNION ALL
+	SELECT N'@QueryFilter',
+			N'VARCHAR(10)',
+			N'Filter out stored procedures or statements. The default value is ''ALL''. Allowed values are ''procedures'', ''statements'', ''functions'', or ''all'' (any variation in capitalization is acceptable).'
+
+	UNION ALL
+	SELECT N'@Reanalyze',
+			N'BIT',
+			N'The default is 0. When set to 0, sp_BlitzCache will re-evalute the plan cache. Set this to 1 to reanalyze existing results'
+           
+	UNION ALL
+	SELECT N'@MinimumExecutionCount',
+			N'INT',
+			N'Queries with fewer than this number of executions will be omitted from results.'
+    
+	UNION ALL
+	SELECT N'@Debug',
+			N'BIT',
+			N'Setting this to 1 will print dynamic SQL and select data from all tables used.'
+
+	UNION ALL
+	SELECT N'@MinutesBack',
+			N'INT',
+			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negtive.';
 
 
-    /* Column definitions */
-    SELECT N'# Executions' AS [Column Name],
-           N'BIGINT' AS [Data Type],
-           N'The number of executions of this particular query. This is computed across statements, procedures, and triggers and aggregated by the SQL handle.' AS [Column Description]
+	/* Column definitions */
+	SELECT N'# Executions' AS [Column Name],
+			N'BIGINT' AS [Data Type],
+			N'The number of executions of this particular query. This is computed across statements, procedures, and triggers and aggregated by the SQL handle.' AS [Column Description]
 
-    UNION ALL
-    SELECT N'Executions / Minute',
-           N'MONEY',
-           N'Number of executions per minute - calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
+	UNION ALL
+	SELECT N'Executions / Minute',
+			N'MONEY',
+			N'Number of executions per minute - calculated for the life of the current plan. Plan life is the last execution time minus the plan creation time.'
 
-    UNION ALL
-    SELECT N'Execution Weight',
-           N'MONEY',
-           N'An arbitrary metric of total "execution-ness". A weight of 2 is "one more" than a weight of 1.'
+	UNION ALL
+	SELECT N'Execution Weight',
+			N'MONEY',
+			N'An arbitrary metric of total "execution-ness". A weight of 2 is "one more" than a weight of 1.'
 
-    UNION ALL
-    SELECT N'Database',
-           N'sysname',
-           N'The name of the database where the plan was encountered. If the database name cannot be determined for some reason, a value of NA will be substituted. A value of 32767 indicates the plan comes from ResourceDB.'
+	UNION ALL
+	SELECT N'Database',
+			N'sysname',
+			N'The name of the database where the plan was encountered. If the database name cannot be determined for some reason, a value of NA will be substituted. A value of 32767 indicates the plan comes from ResourceDB.'
 
-    UNION ALL
-    SELECT N'Total CPU',
-           N'BIGINT',
-           N'Total CPU time, reported in milliseconds, that was consumed by all executions of this query since the last compilation.'
+	UNION ALL
+	SELECT N'Total CPU',
+			N'BIGINT',
+			N'Total CPU time, reported in milliseconds, that was consumed by all executions of this query since the last compilation.'
 
-    UNION ALL
-    SELECT N'Avg CPU',
-           N'BIGINT',
-           N'Average CPU time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
+	UNION ALL
+	SELECT N'Avg CPU',
+			N'BIGINT',
+			N'Average CPU time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
-    UNION ALL
-    SELECT N'CPU Weight',
-           N'MONEY',
-           N'An arbitrary metric of total "CPU-ness". A weight of 2 is "one more" than a weight of 1.'
+	UNION ALL
+	SELECT N'CPU Weight',
+			N'MONEY',
+			N'An arbitrary metric of total "CPU-ness". A weight of 2 is "one more" than a weight of 1.'
 
-    UNION ALL
-    SELECT N'Total Duration',
-           N'BIGINT',
-           N'Total elapsed time, reported in milliseconds, consumed by all executions of this query since last compilation.'
+	UNION ALL
+	SELECT N'Total Duration',
+			N'BIGINT',
+			N'Total elapsed time, reported in milliseconds, consumed by all executions of this query since last compilation.'
 
-    UNION ALL
-    SELECT N'Avg Duration',
-           N'BIGINT',
-           N'Average elapsed time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
+	UNION ALL
+	SELECT N'Avg Duration',
+			N'BIGINT',
+			N'Average elapsed time, reported in milliseconds, consumed by each execution of this query since the last compilation.'
 
-    UNION ALL
-    SELECT N'Duration Weight',
-           N'MONEY',
-           N'An arbitrary metric of total "Duration-ness". A weight of 2 is "one more" than a weight of 1.'
+	UNION ALL
+	SELECT N'Duration Weight',
+			N'MONEY',
+			N'An arbitrary metric of total "Duration-ness". A weight of 2 is "one more" than a weight of 1.'
 
-    UNION ALL
-    SELECT N'Total Reads',
-           N'BIGINT',
-           N'Total logical reads performed by this query since last compilation.'
+	UNION ALL
+	SELECT N'Total Reads',
+			N'BIGINT',
+			N'Total logical reads performed by this query since last compilation.'
 
-    UNION ALL
-    SELECT N'Average Reads',
-           N'BIGINT',
-           N'Average logical reads performed by each execution of this query since the last compilation.'
+	UNION ALL
+	SELECT N'Average Reads',
+			N'BIGINT',
+			N'Average logical reads performed by each execution of this query since the last compilation.'
 
-    UNION ALL
-    SELECT N'Read Weight',
-           N'MONEY',
-           N'An arbitrary metric of "Read-ness". A weight of 2 is "one more" than a weight of 1.'
+	UNION ALL
+	SELECT N'Read Weight',
+			N'MONEY',
+			N'An arbitrary metric of "Read-ness". A weight of 2 is "one more" than a weight of 1.'
 
-    UNION ALL
-    SELECT N'Total Writes',
-           N'BIGINT',
-           N'Total logical writes performed by this query since last compilation.'
+	UNION ALL
+	SELECT N'Total Writes',
+			N'BIGINT',
+			N'Total logical writes performed by this query since last compilation.'
 
-    UNION ALL
-    SELECT N'Average Writes',
-           N'BIGINT',
-           N'Average logical writes performed by each execution this query since last compilation.'
+	UNION ALL
+	SELECT N'Average Writes',
+			N'BIGINT',
+			N'Average logical writes performed by each execution this query since last compilation.'
 
-    UNION ALL
-    SELECT N'Write Weight',
-           N'MONEY',
-           N'An arbitrary metric of "Write-ness". A weight of 2 is "one more" than a weight of 1.'
+	UNION ALL
+	SELECT N'Write Weight',
+			N'MONEY',
+			N'An arbitrary metric of "Write-ness". A weight of 2 is "one more" than a weight of 1.'
 
-    UNION ALL
-    SELECT N'Query Type',
-           N'NVARCHAR(258)',
-           N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
+	UNION ALL
+	SELECT N'Query Type',
+			N'NVARCHAR(258)',
+			N'The type of query being examined. This can be "Procedure", "Statement", or "Trigger".'
 
-    UNION ALL
-    SELECT N'Query Text',
-           N'NVARCHAR(4000)',
-           N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache(tm) for display purposes.'
+	UNION ALL
+	SELECT N'Query Text',
+			N'NVARCHAR(4000)',
+			N'The text of the query. This may be truncated by either SQL Server or by sp_BlitzCache(tm) for display purposes.'
 
-    UNION ALL
-    SELECT N'% Executions (Type)',
-           N'MONEY',
-           N'Percent of executions relative to the type of query - e.g. 17.2% of all stored procedure executions.'
+	UNION ALL
+	SELECT N'% Executions (Type)',
+			N'MONEY',
+			N'Percent of executions relative to the type of query - e.g. 17.2% of all stored procedure executions.'
 
-    UNION ALL
-    SELECT N'% CPU (Type)',
-           N'MONEY',
-           N'Percent of CPU time consumed by this query for a given type of query - e.g. 22% of CPU of all stored procedures executed.'
+	UNION ALL
+	SELECT N'% CPU (Type)',
+			N'MONEY',
+			N'Percent of CPU time consumed by this query for a given type of query - e.g. 22% of CPU of all stored procedures executed.'
 
-    UNION ALL
-    SELECT N'% Duration (Type)',
-           N'MONEY',
-           N'Percent of elapsed time consumed by this query for a given type of query - e.g. 12% of all statements executed.'
+	UNION ALL
+	SELECT N'% Duration (Type)',
+			N'MONEY',
+			N'Percent of elapsed time consumed by this query for a given type of query - e.g. 12% of all statements executed.'
 
-    UNION ALL
-    SELECT N'% Reads (Type)',
-           N'MONEY',
-           N'Percent of reads consumed by this query for a given type of query - e.g. 34.2% of all stored procedures executed.'
+	UNION ALL
+	SELECT N'% Reads (Type)',
+			N'MONEY',
+			N'Percent of reads consumed by this query for a given type of query - e.g. 34.2% of all stored procedures executed.'
 
-    UNION ALL
-    SELECT N'% Writes (Type)',
-           N'MONEY',
-           N'Percent of writes performed by this query for a given type of query - e.g. 43.2% of all statements executed.'
+	UNION ALL
+	SELECT N'% Writes (Type)',
+			N'MONEY',
+			N'Percent of writes performed by this query for a given type of query - e.g. 43.2% of all statements executed.'
 
-    UNION ALL
-    SELECT N'Total Rows',
-           N'BIGINT',
-           N'Total number of rows returned for all executions of this query. This only applies to query level stats, not stored procedures or triggers.'
+	UNION ALL
+	SELECT N'Total Rows',
+			N'BIGINT',
+			N'Total number of rows returned for all executions of this query. This only applies to query level stats, not stored procedures or triggers.'
 
-    UNION ALL
-    SELECT N'Average Rows',
-           N'MONEY',
-           N'Average number of rows returned by each execution of the query.'
+	UNION ALL
+	SELECT N'Average Rows',
+			N'MONEY',
+			N'Average number of rows returned by each execution of the query.'
 
-    UNION ALL
-    SELECT N'Min Rows',
-           N'BIGINT',
-           N'The minimum number of rows returned by any execution of this query.'
+	UNION ALL
+	SELECT N'Min Rows',
+			N'BIGINT',
+			N'The minimum number of rows returned by any execution of this query.'
 
-    UNION ALL
-    SELECT N'Max Rows',
-           N'BIGINT',
-           N'The maximum number of rows returned by any execution of this query.'
+	UNION ALL
+	SELECT N'Max Rows',
+			N'BIGINT',
+			N'The maximum number of rows returned by any execution of this query.'
 
-    UNION ALL
-    SELECT N'MinGrantKB',
-           N'BIGINT',
-           N'The minimum memory grant the query received in kb.'
+	UNION ALL
+	SELECT N'MinGrantKB',
+			N'BIGINT',
+			N'The minimum memory grant the query received in kb.'
 
-    UNION ALL
-    SELECT N'MaxGrantKB',
-           N'BIGINT',
-           N'The maximum memory grant the query received in kb.'
+	UNION ALL
+	SELECT N'MaxGrantKB',
+			N'BIGINT',
+			N'The maximum memory grant the query received in kb.'
 
-    UNION ALL
-    SELECT N'MinUsedGrantKB',
-           N'BIGINT',
-           N'The minimum used memory grant the query received in kb.'
+	UNION ALL
+	SELECT N'MinUsedGrantKB',
+			N'BIGINT',
+			N'The minimum used memory grant the query received in kb.'
 
-    UNION ALL
-    SELECT N'MaxUsedGrantKB',
-           N'BIGINT',
-           N'The maximum used memory grant the query received in kb.'
+	UNION ALL
+	SELECT N'MaxUsedGrantKB',
+			N'BIGINT',
+			N'The maximum used memory grant the query received in kb.'
 
-    UNION ALL
-    SELECT N'MinSpills',
-           N'BIGINT',
-           N'The minimum amount this query has spilled to tempdb in 8k pages.'
+	UNION ALL
+	SELECT N'MinSpills',
+			N'BIGINT',
+			N'The minimum amount this query has spilled to tempdb in 8k pages.'
 
-    UNION ALL
-    SELECT N'MaxSpills',
-           N'BIGINT',
-           N'The maximum amount this query has spilled to tempdb in 8k pages.'
+	UNION ALL
+	SELECT N'MaxSpills',
+			N'BIGINT',
+			N'The maximum amount this query has spilled to tempdb in 8k pages.'
 
-    UNION ALL
-    SELECT N'TotalSpills',
-           N'BIGINT',
-           N'The total amount this query has spilled to tempdb in 8k pages.'
+	UNION ALL
+	SELECT N'TotalSpills',
+			N'BIGINT',
+			N'The total amount this query has spilled to tempdb in 8k pages.'
 
-    UNION ALL
-    SELECT N'AvgSpills',
-           N'BIGINT',
-           N'The average amount this query has spilled to tempdb in 8k pages.'
+	UNION ALL
+	SELECT N'AvgSpills',
+			N'BIGINT',
+			N'The average amount this query has spilled to tempdb in 8k pages.'
 
-    UNION ALL
-    SELECT N'PercentMemoryGrantUsed',
-           N'MONEY',
-           N'Result of dividing the maximum grant used by the minimum granted.'
+	UNION ALL
+	SELECT N'PercentMemoryGrantUsed',
+			N'MONEY',
+			N'Result of dividing the maximum grant used by the minimum granted.'
 
-    UNION ALL
-    SELECT N'AvgMaxMemoryGrant',
-           N'MONEY',
-           N'The average maximum memory grant for a query.'
+	UNION ALL
+	SELECT N'AvgMaxMemoryGrant',
+			N'MONEY',
+			N'The average maximum memory grant for a query.'
 
-    UNION ALL
-    SELECT N'# Plans',
-           N'INT',
-           N'The total number of execution plans found that match a given query.'
+	UNION ALL
+	SELECT N'# Plans',
+			N'INT',
+			N'The total number of execution plans found that match a given query.'
 
-    UNION ALL
-    SELECT N'# Distinct Plans',
-           N'INT',
-           N'The number of distinct execution plans that match a given query. '
-            + NCHAR(13) + NCHAR(10)
-            + N'This may be caused by running the same query across multiple databases or because of a lack of proper parameterization in the database.'
+	UNION ALL
+	SELECT N'# Distinct Plans',
+			N'INT',
+			N'The number of distinct execution plans that match a given query. '
+			+ NCHAR(13) + NCHAR(10)
+			+ N'This may be caused by running the same query across multiple databases or because of a lack of proper parameterization in the database.'
 
-    UNION ALL
-    SELECT N'Created At',
-           N'DATETIME',
-           N'Time that the execution plan was last compiled.'
+	UNION ALL
+	SELECT N'Created At',
+			N'DATETIME',
+			N'Time that the execution plan was last compiled.'
 
-    UNION ALL
-    SELECT N'Last Execution',
-           N'DATETIME',
-           N'The last time that this query was executed.'
+	UNION ALL
+	SELECT N'Last Execution',
+			N'DATETIME',
+			N'The last time that this query was executed.'
 
-    UNION ALL
-    SELECT N'Query Plan',
-           N'XML',
-           N'The query plan. Click to display a graphical plan or, if you need to patch SSMS, a pile of XML.'
+	UNION ALL
+	SELECT N'Query Plan',
+			N'XML',
+			N'The query plan. Click to display a graphical plan or, if you need to patch SSMS, a pile of XML.'
 
-    UNION ALL
-    SELECT N'Plan Handle',
-           N'VARBINARY(64)',
-           N'An arbitrary identifier referring to the compiled plan this query is a part of.'
+	UNION ALL
+	SELECT N'Plan Handle',
+			N'VARBINARY(64)',
+			N'An arbitrary identifier referring to the compiled plan this query is a part of.'
 
-    UNION ALL
-    SELECT N'SQL Handle',
-           N'VARBINARY(64)',
-           N'An arbitrary identifier referring to a batch or stored procedure that this query is a part of.'
+	UNION ALL
+	SELECT N'SQL Handle',
+			N'VARBINARY(64)',
+			N'An arbitrary identifier referring to a batch or stored procedure that this query is a part of.'
 
-    UNION ALL
-    SELECT N'Query Hash',
-           N'BINARY(8)',
-           N'A hash of the query. Queries with the same query hash have similar logic but only differ by literal values or database.'
+	UNION ALL
+	SELECT N'Query Hash',
+			N'BINARY(8)',
+			N'A hash of the query. Queries with the same query hash have similar logic but only differ by literal values or database.'
 
-    UNION ALL
-    SELECT N'Warnings',
-           N'VARCHAR(MAX)',
-           N'A list of individual warnings generated by this query.' ;
+	UNION ALL
+	SELECT N'Warnings',
+			N'VARCHAR(MAX)',
+			N'A list of individual warnings generated by this query.' ;
 
 
            
-    /* Configuration table description */
-    SELECT N'Frequent Execution Threshold' AS [Configuration Parameter] ,
-           N'100' AS [Default Value] ,
-           N'Executions / Minute' AS [Unit of Measure] ,
-           N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered.' AS [Description]
+	/* Configuration table description */
+	SELECT N'Frequent Execution Threshold' AS [Configuration Parameter] ,
+			N'100' AS [Default Value] ,
+			N'Executions / Minute' AS [Unit of Measure] ,
+			N'Executions / Minute before a "Frequent Execution Threshold" warning is triggered.' AS [Description]
 
-    UNION ALL
-    SELECT N'Parameter Sniffing Variance Percent' ,
-           N'30' ,
-           N'Percent' ,
-           N'Variance required between min/max values and average values before a "Parameter Sniffing" warning is triggered. Applies to worker time and returned rows.'
+	UNION ALL
+	SELECT N'Parameter Sniffing Variance Percent' ,
+			N'30' ,
+			N'Percent' ,
+			N'Variance required between min/max values and average values before a "Parameter Sniffing" warning is triggered. Applies to worker time and returned rows.'
 
-    UNION ALL
-    SELECT N'Parameter Sniffing IO Threshold' ,
-           N'100,000' ,
-           N'Logical reads' ,
-           N'Minimum number of average logical reads before parameter sniffing checks are evaluated.'
+	UNION ALL
+	SELECT N'Parameter Sniffing IO Threshold' ,
+			N'100,000' ,
+			N'Logical reads' ,
+			N'Minimum number of average logical reads before parameter sniffing checks are evaluated.'
 
-    UNION ALL
-    SELECT N'Cost Threshold for Parallelism Warning' AS [Configuration Parameter] ,
-           N'10' ,
-           N'Percent' ,
-           N'Trigger a "Nearly Parallel" warning when a query''s cost is within X percent of the cost threshold for parallelism.'
+	UNION ALL
+	SELECT N'Cost Threshold for Parallelism Warning' AS [Configuration Parameter] ,
+			N'10' ,
+			N'Percent' ,
+			N'Trigger a "Nearly Parallel" warning when a query''s cost is within X percent of the cost threshold for parallelism.'
 
-    UNION ALL
-    SELECT N'Long Running Query Warning' AS [Configuration Parameter] ,
-           N'300' ,
-           N'Seconds' ,
-           N'Triggers a "Long Running Query Warning" when average duration, max CPU time, or max clock time is higher than this number.'
+	UNION ALL
+	SELECT N'Long Running Query Warning' AS [Configuration Parameter] ,
+			N'300' ,
+			N'Seconds' ,
+			N'Triggers a "Long Running Query Warning" when average duration, max CPU time, or max clock time is higher than this number.'
 
-    UNION ALL
-    SELECT N'Unused Memory Grant Warning' AS [Configuration Parameter] ,
-           N'10' ,
-           N'Percent' ,
-           N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.';
-    RETURN;
-END;
+	UNION ALL
+	SELECT N'Unused Memory Grant Warning' AS [Configuration Parameter] ,
+			N'10' ,
+			N'Percent' ,
+			N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.';
+	RETURN;
+	END; /* IF @Help = 1  */
+
+
 
 /*Validate version*/
 IF (
@@ -1103,6 +1106,7 @@ SET @SortOrder = CASE
                      WHEN @SortOrder IN ('avg write') THEN 'avg writes'
                      WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
                      WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
                      WHEN @SortOrder IN ('spill') THEN 'spills'
                      WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
                      WHEN @SortOrder IN ('execution') THEN 'executions'
@@ -1111,7 +1115,7 @@ SET @SortOrder = CASE
 RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
 IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
                        'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
 					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
 					   'query hash')
   BEGIN
@@ -2018,6 +2022,7 @@ SELECT @body += N'        ORDER BY ' +
                                  WHEN N'executions' THEN N'execution_count'
                                  WHEN N'compiles' THEN N'cached_time'
 								 WHEN N'memory grant' THEN N'max_grant_kb'
+								 WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								 WHEN N'spills' THEN N'max_spills'
                                  /* And now the averages */
                                  WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
@@ -2334,6 +2339,7 @@ BEGIN
                                 WHEN N'executions' THEN N'AND execution_count > 0'
                                 WHEN N'compiles' THEN N'AND (age_minutes + age_minutes_lifetime) > 0'
 								WHEN N'memory grant' THEN N'AND max_grant_kb > 0'
+								WHEN N'unused grant' THEN N'AND max_grant_kb > 0'
 								WHEN N'spills' THEN N'AND max_spills > 0'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'AND (total_worker_time / execution_count) > 0'
@@ -2365,7 +2371,7 @@ END;
 IF (@QueryFilter = 'all' 
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
@@ -2386,7 +2392,7 @@ IF (@v >= 13
    AND @QueryFilter = 'all'
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
    AND (@SortOrder NOT IN ('spills', 'avg spills'))
    OR (LEFT(@QueryFilter, 3) = 'fun')
 BEGIN
@@ -2429,7 +2435,7 @@ IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (@QueryFilter = 'all')
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -2459,6 +2465,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
                                 WHEN N'executions' THEN N'execution_count'
                                 WHEN N'compiles' THEN N'cached_time'
 								WHEN N'memory grant' THEN N'max_grant_kb'
+								WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								WHEN N'spills' THEN N'max_spills'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
@@ -2519,6 +2526,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
                                 WHEN N'executions' THEN N'ExecutionCount'
                                 WHEN N'compiles' THEN N'PlanCreationTime'
 								WHEN N'memory grant' THEN N'MaxGrantKB'
+								WHEN N'unused grant' THEN N'MaxGrantKB - MaxUsedGrantKB'
 								WHEN N'spills' THEN N'MaxSpills'
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'TotalCPU / ExecutionCount'
@@ -2805,12 +2813,15 @@ SET     NumberOfDistinctPlans = distinct_plan_count,
 FROM (
         SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
                 COUNT(QueryHash) AS number_of_plans,
-                QueryHash
+                QueryHash,
+				DatabaseName
         FROM    ##BlitzCacheProcs
 		WHERE SPID = @@SPID
-        GROUP BY QueryHash
+        GROUP BY QueryHash,
+		         DatabaseName
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
+AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
 OPTION (RECOMPILE) ;
 
 -- query level checks
@@ -3659,22 +3670,7 @@ END;
 
 
 /* END Testing using XML nodes to speed up processing */
-RAISERROR(N'Gathering additional plan level information', 0, 1) WITH NOWAIT;
-WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-UPDATE ##BlitzCacheProcs
-SET NumberOfDistinctPlans = distinct_plan_count,
-    NumberOfPlans = number_of_plans,
-    plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END 
-FROM (
-SELECT COUNT(DISTINCT QueryHash) AS distinct_plan_count,
-       COUNT(QueryHash) AS number_of_plans,
-       QueryHash
-FROM   ##BlitzCacheProcs
-WHERE SPID = @@SPID
-GROUP BY QueryHash
-) AS x
-WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash 
-OPTION (RECOMPILE);
+
 
 /* Update to grab stored procedure name for individual statements */
 RAISERROR(N'Attempting to get stored procedure name for individual statements', 0, 1) WITH NOWAIT;
@@ -4858,6 +4854,7 @@ BEGIN
                               WHEN N'executions' THEN N' ExecutionCount '
                               WHEN N'compiles' THEN N' PlanCreationTime '
 							  WHEN N'memory grant' THEN N' MaxGrantKB'
+							  WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
 							  WHEN N'spills' THEN N' MaxSpills'
                               WHEN N'avg cpu' THEN N' AverageCPU'
                               WHEN N'avg reads' THEN N' AverageReads'
@@ -5107,6 +5104,7 @@ SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
                                                 WHEN N'executions' THEN N' ExecutionCount '
                                                 WHEN N'compiles' THEN N' PlanCreationTime '
 												WHEN N'memory grant' THEN N' MaxGrantKB'
+												WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB '
 												WHEN N'spills' THEN N' MaxSpills'
                                                 WHEN N'avg cpu' THEN N' AverageCPU'
                                                 WHEN N'avg reads' THEN N' AverageReads'
@@ -6965,7 +6963,7 @@ ELSE
 					PercentExecutionsByType money,
 					ExecutionsPerMinute money,
 					PlanCreationTime datetime,' + N'
-					PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+					PlanCreationTimeHours AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]),
 					LastExecutionTime datetime,
 					LastCompletionTime datetime, 
 					PlanHandle varbinary(64),
@@ -7012,6 +7010,27 @@ ELSE
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+
+			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
+					+@OutputDatabaseName
+					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+					+@OutputSchemaName
+					+''') AND EXISTS (SELECT * FROM '
+					+@OutputDatabaseName+
+					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+					+@OutputSchemaName
+					+''' AND QUOTENAME(TABLE_NAME) = '''
+					+@OutputTableName
+					+''') AND EXISTS (SELECT * FROM '
+					+@OutputDatabaseName+
+					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
+					+@OutputTableName
+					+''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
+BEGIN 
+	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
+	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' DROP COLUMN [PlanCreationTimeHours];
+	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
+END ';
 			
             IF @ValidOutputServer = 1
 				BEGIN
