@@ -46,8 +46,8 @@ END;
 IF (@Help = 1) 
 BEGIN 
 	PRINT 'EXEC sp_BlitzAnalysis 
-@FromDate = ''20210204 09:00'',
-@ToDate = NULL,		/* NULL will get an hour of data since @FromDate */
+@FromDate = NULL,		/* Specify a datetime or NULL will get an hour ago */
+@ToDate = NULL,		/* Specify a datetime or NULL will get an hour of data since @FromDate */
 @OutputDatabaseName = N''DBA'',		/* Specify the database name where where we can find your logged blitz data */
 @OutputSchemaName = N''dbo'',		/* Specify the schema */
 @OutputTableNameBlitzFirst = N''BlitzFirst'',		/* Table name where you are storing sp_BlitzFirst output, Set to NULL to ignore */ 
