@@ -72,7 +72,7 @@ Additional parameters:
 	RETURN;
 END
 
-/* Declare all local veriables required */
+/* Declare all local variables required */
 DECLARE @FullOutputTableNameBlitzFirst NVARCHAR(1000); 
 DECLARE @FullOutputTableNameFileStats NVARCHAR(1000);
 DECLARE @FullOutputTableNamePerfmonStats NVARCHAR(1000);
@@ -113,7 +113,7 @@ CREATE TABLE #BlitzFirstCounts (
 	[LastOccurrence] DATETIMEOFFSET(7) NULL
 );
 
-/* Vallidate variables and set defaults as required */
+/* Validate variables and set defaults as required */
 IF (@BlitzCacheSortorder IS NULL) 
 BEGIN 
 	SET @BlitzCacheSortorder = N'cpu';
@@ -123,7 +123,7 @@ SET @BlitzCacheSortorder = LOWER(@BlitzCacheSortorder);
 
 IF (@OutputTableNameBlitzCache IS NOT NULL AND @BlitzCacheSortorder NOT IN (N'all',N'cpu',N'reads',N'writes',N'duration',N'executions',N'memory grant',N'spills'))
 BEGIN
-	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, support values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
+	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, supported values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
 	RETURN;
 END
 
@@ -182,18 +182,20 @@ BEGIN
 	END
 END 
 
+/* Default to dbo schema if NULL is passed in */
 IF (@OutputSchemaName IS NULL) 
 BEGIN 
 	SET @OutputSchemaName = 'dbo';
 END
 
+/* Prompt the user for @BringThePain = 1 if they are searching a timeframe greater than 4 hours and they are using BlitzCacheSortorder = 'all' */
 IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@FromDate,@ToDate) > 4 AND @BringThePain = 0)
 BEGIN
 	RAISERROR('Wow! hold up now, are you sure you wanna do this? Are sure you want to query over 4 hours of data with @BlitzCacheSortorder set to ''all''? IF you do then set @BringThePain = 1 but I gotta warn you this might hurt a bit!',11,1) WITH NOWAIT;
 	RETURN;
 END
 
-
+/* Output report window information */
 SELECT 
 	@Servername AS [ServerToReportOn],
 	CAST(1 AS NVARCHAR(20)) + N' - '+ CAST(@MaxBlitzFirstPriority AS NVARCHAR(20)) AS [PrioritesToInclude],
@@ -695,7 +697,7 @@ SET @Sql += @NewLine
 	[CheckDate] ASC,
 	[TimeFrameRank] ASC';
 
-/* Append OPTION(RECOMPILE) complete the statement */
+/* Append OPTION(RECOMPILE, MAXDOP) to complete the statement */
 SET @Sql += @NewLine
 +'OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
