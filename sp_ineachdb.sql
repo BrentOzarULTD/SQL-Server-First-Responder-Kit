@@ -262,7 +262,7 @@ OPTION (MAXRECURSION 0);
 
   -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
   -- AG secondary, we skip any database where allow connections is off
-  IF @SQLVersion >= 11
+  IF @SQLVersion >= 11 AND 3 = (SELECT COUNT(*) FROM sys.all_objects WHERE name IN('availability_replicas','dm_hadr_availability_group_states','dm_hadr_database_replica_states'))
   BEGIN
     DELETE dbs FROM #ineachdb AS dbs
     WHERE EXISTS
