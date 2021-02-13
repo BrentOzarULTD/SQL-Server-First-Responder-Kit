@@ -8833,7 +8833,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												250 AS Priority ,
 												''Server Info'' AS FindingsGroup ,
 												''Azure Managed Instance'' AS Finding ,
-												''https://www.BrenOzar.com/go/azurevm'' AS URL ,
+												''https://www.BrentOzar.com/go/azurevm'' AS URL ,
 												''cpu_rate: '' + CAST(COALESCE(cpu_rate, 0) AS VARCHAR(20)) + 
 												'', memory_limit_mb: '' + CAST(COALESCE(memory_limit_mb, 0) AS NVARCHAR(20)) + 
 												'', process_memory_limit_mb: '' + CAST(COALESCE(process_memory_limit_mb, 0) AS NVARCHAR(20)) + 
