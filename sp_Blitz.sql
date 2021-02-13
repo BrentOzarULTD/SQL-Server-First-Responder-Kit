@@ -8861,7 +8861,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                     CREATE TABLE #services (cmdshell_output varchar(max));
                                     
                                     INSERT INTO #services
-                                    EXEC xp_cmdshell 'net start'
+                                    EXEC /**/xp_cmdshell/**/ 'net start' /* added comments around command since some firewalls block this string TL 20210221 */
                                     
                                     IF EXISTS (SELECT 1 
                                                 FROM #services 
