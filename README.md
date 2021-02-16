@@ -413,7 +413,7 @@ Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no loo
 EXEC sp_BlitzAnalysis 
 	@FromDate = NULL,
 	@ToDate = NULL,	
-	@OutputDatabaseName = 'DBA',
+	@OutputDatabaseName = 'DBAtools',
 	@OutputSchemaName = 'Blitz',
 	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
 	@OutputTableNamePerfmonStats  = NULL,		
