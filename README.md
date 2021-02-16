@@ -393,7 +393,8 @@ Parameters include:
 Example calls: 
 
 Get information for the last hour from all sp_BlitzFirst output tables
-...SQL
+
+```SQL
 EXEC sp_BlitzAnalysis 
 	@FromDate = NULL,
 	@ToDate = NULL,	
@@ -404,10 +405,11 @@ EXEC sp_BlitzAnalysis
 	@OutputTableNameWaitStats = N'BlitzFirst_WaitStats',		 
 	@OutputTableNameBlitzCache = N'BlitzCache',		 
 	@OutputTableNameBlitzWho = N'BlitzWho';
-...
+```
 
-Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no lookup will occur against the table and a skipped message will appear in the resultset */
-...SQL
+Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no lookup will occur against the table and a skipped message will appear in the resultset
+
+```SQL
 EXEC sp_BlitzAnalysis 
 	@FromDate = NULL,
 	@ToDate = NULL,	
@@ -418,13 +420,14 @@ EXEC sp_BlitzAnalysis
 	@OutputTableNameWaitStats = N'BlitzFirst_WaitStats',		 
 	@OutputTableNameBlitzCache = N'BlitzCache',		 
 	@OutputTableNameBlitzWho = N'BlitzWho';
-...
+```
 
 Known issues: 
 We are likely to be hitting some big tables here and some of these queries will require scans of the clustered indexes as there are no nonclustered indexes to cover the queries by default, keep this in mind if you are planning on running this in a production environment!
 
 I have noticed that the Perfmon query can ask for a big memory grant so be mindful when including this table with large volumes of data:
 
+```SQL
 SELECT 
     [ServerName]
 	,[CheckDate]
@@ -437,6 +440,7 @@ WHERE CheckDate BETWEEN @FromDate AND @ToDate
 ORDER BY 
 	[CheckDate] ASC,
 	[counter_name] ASC
+```
 	
 [*Back to top*](#header1)
 
