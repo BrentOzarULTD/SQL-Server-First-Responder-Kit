@@ -9,8 +9,8 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Help TINYINT = 0,
-@FromDate DATETIMEOFFSET(7) = NULL,
-@ToDate DATETIMEOFFSET(7) = NULL,
+@StartDate DATETIMEOFFSET(7) = NULL,
+@EndDate DATETIMEOFFSET(7) = NULL,
 @OutputDatabaseName NVARCHAR(256) = NULL,
 @OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', 
@@ -46,8 +46,8 @@ END;
 IF (@Help = 1) 
 BEGIN 
 	PRINT 'EXEC sp_BlitzAnalysis 
-@FromDate = NULL,		/* Specify a datetime or NULL will get an hour ago */
-@ToDate = NULL,		/* Specify a datetime or NULL will get an hour of data since @FromDate */
+@StartDate = NULL,		/* Specify a datetime or NULL will get an hour ago */
+@EndDate = NULL,		/* Specify a datetime or NULL will get an hour of data since @StartDate */
 @OutputDatabaseName = N''DBA'',		/* Specify the database name where where we can find your logged blitz data */
 @OutputSchemaName = N''dbo'',		/* Specify the schema */
 @OutputTableNameBlitzFirst = N''BlitzFirst'',		/* Table name where you are storing sp_BlitzFirst output, Set to NULL to ignore */ 
@@ -153,32 +153,32 @@ SELECT @IncludeSpills =
 	END;
 
 
-IF (@FromDate IS NULL)
+IF (@StartDate IS NULL)
 BEGIN 
-	RAISERROR('Setting @FromDate to: 1 hour ago',0,0) WITH NOWAIT;
-	/* Set FromDate to be an hour ago */
-	SET @FromDate = DATEADD(HOUR,-1,SYSDATETIMEOFFSET());
+	RAISERROR('Setting @StartDate to: 1 hour ago',0,0) WITH NOWAIT;
+	/* Set StartDate to be an hour ago */
+	SET @StartDate = DATEADD(HOUR,-1,SYSDATETIMEOFFSET());
 
-	IF (@ToDate IS NULL)
+	IF (@EndDate IS NULL)
 	BEGIN 
-		RAISERROR('Setting @ToDate to: Now',0,0) WITH NOWAIT;
+		RAISERROR('Setting @EndDate to: Now',0,0) WITH NOWAIT;
 		/* Get data right up to now */
-		SET @ToDate = SYSDATETIMEOFFSET();
+		SET @EndDate = SYSDATETIMEOFFSET();
 	END
 END 
 
-IF (@ToDate IS NULL)
+IF (@EndDate IS NULL)
 BEGIN 
-	/* Default to an hour of data or SYSDATETIMEOFFSET() if now is earlier than the hour added to @FromDate */
-	IF(DATEADD(HOUR,1,@FromDate) < SYSDATETIMEOFFSET())
+	/* Default to an hour of data or SYSDATETIMEOFFSET() if now is earlier than the hour added to @StartDate */
+	IF(DATEADD(HOUR,1,@StartDate) < SYSDATETIMEOFFSET())
 	BEGIN 
-		RAISERROR('@ToDate was NULL - Setting to return 1 hour of information, if you want more then set @ToDate aswell',0,0) WITH NOWAIT;
-		SET @ToDate = DATEADD(HOUR,1,@FromDate);
+		RAISERROR('@EndDate was NULL - Setting to return 1 hour of information, if you want more then set @EndDate aswell',0,0) WITH NOWAIT;
+		SET @EndDate = DATEADD(HOUR,1,@StartDate);
 	END
 	ELSE 
 	BEGIN 
-		RAISERROR('@ToDate was NULL - Setting to SYSDATETIMEOFFSET()',0,0) WITH NOWAIT;
-		SET @ToDate = SYSDATETIMEOFFSET();
+		RAISERROR('@EndDate was NULL - Setting to SYSDATETIMEOFFSET()',0,0) WITH NOWAIT;
+		SET @EndDate = SYSDATETIMEOFFSET();
 	END
 END 
 
@@ -189,7 +189,7 @@ BEGIN
 END
 
 /* Prompt the user for @BringThePain = 1 if they are searching a timeframe greater than 4 hours and they are using BlitzCacheSortorder = 'all' */
-IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@FromDate,@ToDate) > 4 AND @BringThePain = 0)
+IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@StartDate,@EndDate) > 4 AND @BringThePain = 0)
 BEGIN
 	RAISERROR('Wow! hold up now, are you sure you wanna do this? Are sure you want to query over 4 hours of data with @BlitzCacheSortorder set to ''all''? IF you do then set @BringThePain = 1 but I gotta warn you this might hurt a bit!',11,1) WITH NOWAIT;
 	RETURN;
@@ -199,8 +199,8 @@ END
 SELECT 
 	@Servername AS [ServerToReportOn],
 	CAST(1 AS NVARCHAR(20)) + N' - '+ CAST(@MaxBlitzFirstPriority AS NVARCHAR(20)) AS [PrioritesToInclude],
-	@FromDate AS [FromDatetime],
-	@ToDate AS [ToDatetime];;
+	@StartDate AS [StartDatetime],
+	@EndDate AS [EndDatetime];;
 
 
 /* BlitzFirst data */
@@ -216,7 +216,7 @@ MAX(CheckDate) AS [LastOccurrence]
 FROM '+@FullOutputTableNameBlitzFirst+N'
 WHERE [ServerName] = @Servername
 AND [Priority] BETWEEN 1 AND @MaxBlitzFirstPriority
-AND CheckDate BETWEEN @FromDate AND @ToDate
+AND CheckDate BETWEEN @StartDate AND @EndDate
 AND [CheckID] > -1
 GROUP BY [Priority],[FindingsGroup],[Finding];
 
@@ -250,7 +250,7 @@ SELECT
 FROM '+@FullOutputTableNameBlitzFirst+N' Findings
 WHERE [ServerName] = @Servername
 AND [Priority] BETWEEN 1 AND @MaxBlitzFirstPriority
-AND [CheckDate] BETWEEN @FromDate AND @ToDate
+AND [CheckDate] BETWEEN @StartDate AND @EndDate
 AND [CheckID] > -1
 ORDER BY CheckDate ASC,[Priority] ASC
 OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
@@ -280,12 +280,12 @@ END
 ELSE /* Table exists then run the query */
 BEGIN 
 	EXEC sp_executesql @Sql,
-	N'@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7),
+	N'@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@MaxBlitzFirstPriority INT',
-	@FromDate=@FromDate, 
-	@ToDate=@ToDate,
+	@StartDate=@StartDate, 
+	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@MaxBlitzFirstPriority = @MaxBlitzFirstPriority;
 END
@@ -322,7 +322,7 @@ FROM
 	ROW_NUMBER() OVER(PARTITION BY [CheckDate] ORDER BY [CheckDate] ASC,[wait_time_ms_delta] DESC) AS [WaitsRank]
 	FROM '+@FullOutputTableNameWaitStats+N' AS [Waits]
 	WHERE [ServerName] = @Servername
-	AND [CheckDate] BETWEEN @FromDate AND @ToDate
+	AND [CheckDate] BETWEEN @StartDate AND @EndDate
 ) TopWaits
 WHERE [WaitsRank] <= @WaitStatsTop
 ORDER BY 
@@ -353,12 +353,12 @@ END
 ELSE /* Table exists then run the query */
 BEGIN
 	EXEC sp_executesql @Sql,
-	N'@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7),
+	N'@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@WaitStatsTop TINYINT',
-	@FromDate=@FromDate, 
-	@ToDate=@ToDate,
+	@StartDate=@StartDate, 
+	@EndDate=@EndDate,
 	@Servername=@Servername, 
 	@WaitStatsTop=@WaitStatsTop;
 END
@@ -388,7 +388,7 @@ SUM([num_of_writes]) AS [num_of_writes],
 SUM([megabytes_written]) AS [megabytes_written]
 FROM '+@FullOutputTableNameFileStats+N'
 WHERE [ServerName] = @Servername
-AND [CheckDate] BETWEEN @FromDate AND @ToDate
+AND [CheckDate] BETWEEN @StartDate AND @EndDate
 '
 +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] IN (N''tempdb'',@Databasename)
@@ -427,14 +427,14 @@ END
 ELSE /* Table exists then run the query */
 BEGIN 
 	EXEC sp_executesql @Sql,
-	N'@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7),
+	N'@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128),
 	@ReadLatencyThreshold INT,
 	@WriteLatencyThreshold INT',
-	@FromDate=@FromDate, 
-	@ToDate=@ToDate,
+	@StartDate=@StartDate, 
+	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename,
 	@ReadLatencyThreshold = @ReadLatencyThreshold,
@@ -451,7 +451,7 @@ SELECT
     ,[instance_name]
     ,[cntr_value]
 FROM '+@FullOutputTableNamePerfmonStats+N'
-WHERE CheckDate BETWEEN @FromDate AND @ToDate
+WHERE CheckDate BETWEEN @StartDate AND @EndDate
 ORDER BY 
 	[CheckDate] ASC,
 	[counter_name] ASC
@@ -480,11 +480,11 @@ END
 ELSE /* Table exists then run the query */
 BEGIN 
 	EXEC sp_executesql @Sql,
-	N'@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7),
+	N'@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128)',
-	@FromDate=@FromDate, 
-	@ToDate=@ToDate,
+	@StartDate=@StartDate, 
+	@EndDate=@EndDate,
 	@Servername=@Servername;
 END
 
@@ -498,7 +498,7 @@ FROM '
 +@FullOutputTableNameBlitzCache
 +@NewLine
 +N'WHERE [ServerName] = @Servername
-AND [CheckDate] BETWEEN @FromDate AND @ToDate
+AND [CheckDate] BETWEEN @StartDate AND @EndDate
 '
 +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] = @Databasename
@@ -624,7 +624,7 @@ CROSS APPLY (
 	,'+[SortOptions].[Aliasname]+N'.[QueryPlanCost]
 	FROM '+@FullOutputTableNameBlitzCache+N' AS '+[SortOptions].[Aliasname]+N'
 	WHERE [ServerName] = @Servername
-	AND [CheckDate] BETWEEN @FromDate AND @ToDate
+	AND [CheckDate] BETWEEN @StartDate AND @EndDate
 	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]
 	'
 	+CASE
@@ -734,13 +734,13 @@ BEGIN
 	N'@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128),
 	@BlitzCacheSortorder NVARCHAR(20),
-	@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7)',
+	@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7)',
 	@Servername = @Servername,
 	@Databasename = @Databasename,
 	@BlitzCacheSortorder = @BlitzCacheSortorder,
-	@FromDate = @FromDate,
-	@ToDate = @ToDate;
+	@StartDate = @StartDate,
+	@EndDate = @EndDate;
 END
 
 
@@ -845,7 +845,7 @@ SELECT [ServerName]
       ,[statement_end_offset]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
-  AND ([CheckDate] BETWEEN @FromDate AND @ToDate OR [start_time] BETWEEN CAST(@FromDate AS DATETIME) AND CAST(@ToDate AS DATETIME))
+  AND ([CheckDate] BETWEEN @StartDate AND @EndDate OR [start_time] BETWEEN CAST(@StartDate AS DATETIME) AND CAST(@EndDate AS DATETIME))
   '
   +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
@@ -879,12 +879,12 @@ END
 ELSE
 BEGIN 
 	EXEC sp_executesql @Sql,
-	N'@FromDate DATETIMEOFFSET(7),
-	@ToDate DATETIMEOFFSET(7),
+	N'@StartDate DATETIMEOFFSET(7),
+	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128)',
-	@FromDate=@FromDate, 
-	@ToDate=@ToDate,
+	@StartDate=@StartDate, 
+	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename;
 END
