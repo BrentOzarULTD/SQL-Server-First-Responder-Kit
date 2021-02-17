@@ -373,6 +373,8 @@ Parameters include:
 
 * @StartDate: When you want to start seeing data from , NULL will set @StartDate to 1 hour ago.
 * @EndDate: When you want to see data up to, NULL will get an hour of data since @StartDate.
+* @Databasename: Filter results by database name where possible, Default: NULL which shows all.
+* @Servername: Filter results by server name, Default: @@SERVERNAME.
 * @OutputDatabaseName: Specify the database name where where we can find your logged sp_BlitzFirst Output table data
 * @OutputSchemaName: Schema which the sp_BlitzFirst Output tables belong to
 * @OutputTableNameBlitzFirst: Table name where you are storing sp_BlitzFirst @OutputTableNameBlitzFirst output, we default to BlitzFirst - you can Set to NULL to skip lookups against this table  
