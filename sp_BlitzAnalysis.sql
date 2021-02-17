@@ -1,7 +1,7 @@
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON
 
-IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[sp_BlitzAnalysis]') AND type in (N'P', N'PC'))
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE [object_id] = OBJECT_ID(N'[dbo].[sp_BlitzAnalysis]') AND [type] in (N'P', N'PC'))
 BEGIN
 EXEC dbo.sp_executesql @statement = N'CREATE PROCEDURE [dbo].[sp_BlitzAnalysis] AS' 
 END
@@ -11,7 +11,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Help TINYINT = 0,
 @StartDate DATETIMEOFFSET(7) = NULL,
 @EndDate DATETIMEOFFSET(7) = NULL,
-@OutputDatabaseName NVARCHAR(256) = NULL,
+@OutputDatabaseName NVARCHAR(256) = 'DBAtools',
 @OutputSchemaName NVARCHAR(256) = N'dbo',
 @OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', 
 @OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',
@@ -36,7 +36,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210204';
+SELECT @Version = '1.000', @VersionDate = '20210216';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -80,7 +80,7 @@ DECLARE @FullOutputTableNameWaitStats NVARCHAR(1000);
 DECLARE @FullOutputTableNameBlitzCache NVARCHAR(1000);
 DECLARE @FullOutputTableNameBlitzWho NVARCHAR(1000);
 DECLARE @Sql NVARCHAR(MAX);
-DECLARE @NewLine NVARCHAR(2) = CHAR(10)+ CHAR(13);
+DECLARE @NewLine NVARCHAR(2) = CHAR(13);
 DECLARE @IncludeMemoryGrants BIT;
 DECLARE @IncludeSpills BIT;
 
@@ -393,8 +393,7 @@ AND [CheckDate] BETWEEN @StartDate AND @EndDate
 +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] IN (N''tempdb'',@Databasename)
 '
-	ELSE N'
-'
+	ELSE N''
 END
 +N'GROUP BY 
 [ServerName], 
@@ -496,22 +495,22 @@ SET @Sql = N'WITH CheckDates AS (
 SELECT DISTINCT CheckDate 
 FROM '
 +@FullOutputTableNameBlitzCache
++N'
+WHERE [ServerName] = @Servername
+AND [CheckDate] BETWEEN @StartDate AND @EndDate'
 +@NewLine
-+N'WHERE [ServerName] = @Servername
-AND [CheckDate] BETWEEN @StartDate AND @EndDate
-'
 +CASE
-	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] = @Databasename
-'
-	ELSE N'
-'
+	WHEN @Databasename IS NOT NULL THEN N'AND [DatabaseName] = @Databasename'+@NewLine
+	ELSE N''
 END
-+N')';
++N')'
+;
+
+SET @Sql += @NewLine;
 
 /* Append additional CTEs based on sortorder */
 SET @Sql += (
 SELECT CAST(N',' AS NVARCHAR(MAX))
-+@NewLine
 +[SortOptions].[Aliasname]+N' AS (
 SELECT
 	[ServerName]
@@ -569,7 +568,7 @@ SELECT
 	,'+[SortOptions].[Aliasname]+N'.[QueryPlanCost]
 FROM CheckDates
 CROSS APPLY (
-	SELECT TOP 5 	
+	SELECT TOP (5) 	
 	[ServerName]
     ,'+[SortOptions].[Aliasname]+N'.[CheckDate]
 	,'+QUOTENAME(UPPER([SortOptions].[Sortorder]),N'''')+N' AS [Sortorder]
@@ -625,13 +624,11 @@ CROSS APPLY (
 	FROM '+@FullOutputTableNameBlitzCache+N' AS '+[SortOptions].[Aliasname]+N'
 	WHERE [ServerName] = @Servername
 	AND [CheckDate] BETWEEN @StartDate AND @EndDate
-	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]
-	'
+	AND ['+[SortOptions].[Aliasname]+N'].[CheckDate] = [CheckDates].[CheckDate]'
+	+@NewLine
 	+CASE
-		WHEN @Databasename IS NOT NULL THEN N'AND ['+[SortOptions].[Aliasname]+N'].[DatabaseName] = @Databasename
-	'
-		ELSE N'
-	'
+		WHEN @Databasename IS NOT NULL THEN N'AND ['+[SortOptions].[Aliasname]+N'].[DatabaseName] = @Databasename'+@NewLine
+		ELSE N''
 	END
 	+CASE 
 		WHEN [Sortorder] = N'cpu' THEN N'AND [TotalCPU] > 0'
@@ -663,6 +660,7 @@ WHERE
 	END = ISNULL(NULLIF(@BlitzCacheSortorder,N'all'),[SortOptions].[Sortorder])
 FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)');
 
+SET @Sql += @NewLine;
 
 /* Build the select statements to return the data after CTE declarations */
 SET @Sql += (
@@ -692,14 +690,14 @@ FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'),1,11,N'')
 
 /* Append Order By */
 SET @Sql += @NewLine
-+'ORDER BY 
++N'ORDER BY 
 	[Sortorder] ASC,
 	[CheckDate] ASC,
 	[TimeFrameRank] ASC';
 
 /* Append OPTION(RECOMPILE, MAXDOP) to complete the statement */
 SET @Sql += @NewLine
-+'OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
++N'OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 RAISERROR('Getting BlitzCache info from %s',0,0,@FullOutputTableNameBlitzCache) WITH NOWAIT;
 
@@ -710,9 +708,8 @@ BEGIN
 	PRINT SUBSTRING(@Sql, 8000, 12000);
 	PRINT SUBSTRING(@Sql, 12000, 16000);
 	PRINT SUBSTRING(@Sql, 16000, 20000);
+	PRINT SUBSTRING(@Sql, 20000, 24000);
 	PRINT SUBSTRING(@Sql, 24000, 28000);
-	PRINT SUBSTRING(@Sql, 32000, 36000);
-	PRINT SUBSTRING(@Sql, 40000, 44000);
 END
 
 IF (OBJECT_ID(@FullOutputTableNameBlitzCache) IS NULL) 
@@ -850,8 +847,7 @@ SELECT [ServerName]
   +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
   '
-  	ELSE N'
-  '
+  	ELSE N''
   END
 +N'ORDER BY [CheckDate] ASC
   OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
@@ -891,5 +887,3 @@ END
 
 
 GO
-
-
