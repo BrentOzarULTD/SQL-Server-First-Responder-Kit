@@ -4933,7 +4933,8 @@ BEGIN
 	PlanHandle AS [Plan Handle], 
 	SqlHandle AS [SQL Handle], 
     COALESCE(SetOptions, '''') AS [SET Options],
-	QueryHash AS [Query Hash], 
+	QueryHash AS [Query Hash],
+	PlanGenerationNum,
 	[Remove Plan Handle From Cache]';
 END;
 ELSE
