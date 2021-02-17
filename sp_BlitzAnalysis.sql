@@ -36,7 +36,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '1.000', @VersionDate = '20210216';
+SELECT @Version = '1.000', @VersionDate = '20210217';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -234,7 +234,7 @@ BEGIN
 END
 ELSE 
 BEGIN 
-	SELECT ''No findings with a priority greater than -1 found for this period'';
+	SELECT N''No findings with a priority between 1 and ''+CAST(@MaxBlitzFirstPriority AS NVARCHAR(10))+N'' found for this period'';
 END
 SELECT 
  [ServerName]
