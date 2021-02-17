@@ -450,7 +450,8 @@ SELECT
     ,[instance_name]
     ,[cntr_value]
 FROM '+@FullOutputTableNamePerfmonStats+N'
-WHERE CheckDate BETWEEN @StartDate AND @EndDate
+WHERE [ServerName] = @Servername
+AND CheckDate BETWEEN @StartDate AND @EndDate
 ORDER BY 
 	[CheckDate] ASC,
 	[counter_name] ASC
