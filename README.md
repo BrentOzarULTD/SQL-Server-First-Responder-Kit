@@ -22,7 +22,8 @@ Navigation
    - [sp_BlitzInMemoryOLTP: Hekaton Analysis](#sp_blitzinmemoryoltp-hekaton-analysis) 
    - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
    - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
-   - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+   - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)   
+   - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables) 
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
@@ -361,6 +362,88 @@ This is like sp_who, except it goes into way, way, way more details.
 
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
 
+[*Back to top*](#header1)
+
+
+## sp_BlitzAnalysis: Query sp_BlitzFirst output tables
+
+Retrieves data from the output tables where you are storing your sp_BlitzFirst output.
+
+Parameters include:
+
+* @StartDate: When you want to start seeing data from , NULL will set @StartDate to 1 hour ago.
+* @EndDate: When you want to see data up to, NULL will get an hour of data since @StartDate.
+* @Databasename: Filter results by database name where possible, Default: NULL which shows all.
+* @Servername: Filter results by server name, Default: @@SERVERNAME.
+* @OutputDatabaseName: Specify the database name where where we can find your logged sp_BlitzFirst Output table data
+* @OutputSchemaName: Schema which the sp_BlitzFirst Output tables belong to
+* @OutputTableNameBlitzFirst: Table name where you are storing sp_BlitzFirst @OutputTableNameBlitzFirst output, we default to BlitzFirst - you can Set to NULL to skip lookups against this table  
+* @OutputTableNameFileStats: Table name where you are storing sp_BlitzFirst @OutputTableNameFileStats output, we default to BlitzFirst_FileStats - you can Set to NULL to skip lookups against this table.  
+* @OutputTableNamePerfmonStats: Table name where you are storing sp_BlitzFirst @OutputTableNamePerfmonStats output, we default to BlitzFirst_PerfmonStats - you can Set to NULL to skip lookups against this table.	
+* @OutputTableNameWaitStats: Table name where you are storing sp_BlitzFirst @OutputTableNameWaitStats output, we default to BlitzFirst_WaitStats - you can Set to NULL to skip lookups against this table.
+* @OutputTableNameBlitzCache: Table name where you are storing sp_BlitzFirst @OutputTableNameBlitzCache output, we default to BlitzCache - you can Set to NULL to skip lookups against this table.
+* @OutputTableNameBlitzWho: Table name where you are storing sp_BlitzFirst @OutputTableNameBlitzWho output, we default to BlitzWho - you can Set to NULL to skip lookups against this table.	
+* @MaxBlitzFirstPriority: Max priority to include in the results from your BlitzFirst table, Default: 249.
+* @BlitzCacheSortorder: Controls the results returned from your BlitzCache table, you will get a TOP 5 per sort order per CheckDate, Default: 'cpu' Accepted values 'all' 'cpu' 'reads' 'writes' 'duration' 'executions' 'memory grant' 'spills'.
+* @WaitStatsTop: Controls the Top X waits per CheckDate from your  wait stats table, Default: 10.
+* @ReadLatencyThreshold: Sets the threshold in ms to compare against io_stall_read_average_ms in your filestats table, Default: 100.
+* @WriteLatencyThreshold: Sets the threshold in ms to compare against io_stall_write_average_ms in your filestats table, Default: 100.
+* @BringThePain: If you are getting more than 4 hours of data from your BlitzCache table with @BlitzCacheSortorder set to 'all' you will need to set BringThePain to 1.
+* @Maxdop: Control the degree of parallelism that the queries within this proc can use if they want to, Default = 1.
+* @Debug: Show sp_BlitzAnalysis SQL commands in the messages tab as they execute.
+
+Example calls: 
+
+Get information for the last hour from all sp_BlitzFirst output tables
+
+```SQL
+EXEC sp_BlitzAnalysis 
+	@FromDate = NULL,
+	@ToDate = NULL,	
+	@OutputDatabaseName = 'DBAtools',
+	@OutputSchemaName = 'dbo',
+	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
+	@OutputTableNamePerfmonStats  = N'BlitzFirst_PerfmonStats',		
+	@OutputTableNameWaitStats = N'BlitzFirst_WaitStats',		 
+	@OutputTableNameBlitzCache = N'BlitzCache',		 
+	@OutputTableNameBlitzWho = N'BlitzWho';
+```
+
+Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no lookup will occur against the table and a skipped message will appear in the resultset
+
+```SQL
+EXEC sp_BlitzAnalysis 
+	@FromDate = NULL,
+	@ToDate = NULL,	
+	@OutputDatabaseName = 'DBAtools',
+	@OutputSchemaName = 'Blitz',
+	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
+	@OutputTableNamePerfmonStats  = NULL,		
+	@OutputTableNameWaitStats = N'BlitzFirst_WaitStats',		 
+	@OutputTableNameBlitzCache = N'BlitzCache',		 
+	@OutputTableNameBlitzWho = N'BlitzWho';
+```
+
+Known issues: 
+We are likely to be hitting some big tables here and some of these queries will require scans of the clustered indexes as there are no nonclustered indexes to cover the queries by default, keep this in mind if you are planning on running this in a production environment!
+
+I have noticed that the Perfmon query can ask for a big memory grant so be mindful when including this table with large volumes of data:
+
+```SQL
+SELECT 
+    [ServerName]
+	,[CheckDate]
+	,[counter_name]
+    ,[object_name]
+    ,[instance_name]
+    ,[cntr_value]
+FROM [dbo].[BlitzFirst_PerfmonStats_Actuals]
+WHERE CheckDate BETWEEN @FromDate AND @ToDate
+ORDER BY 
+	[CheckDate] ASC,
+	[counter_name] ASC
+```
+	
 [*Back to top*](#header1)
 
 
