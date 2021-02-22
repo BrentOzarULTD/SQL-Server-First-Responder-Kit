@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.0', @VersionDate = '20210117';
+	SELECT @Version = '8.01', @VersionDate = '20210222';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -7128,6 +7128,69 @@ IF @ProductVersionMajor >= 10
    --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
 			--END; --of Check 220.
 
+		/*Check for the last good DBCC CHECKDB date */
+		IF NOT EXISTS ( SELECT  1
+						FROM    #SkipChecks
+						WHERE   DatabaseName IS NULL AND CheckID = 68 )
+			BEGIN
+				
+				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
+				
+				EXEC sp_MSforeachdb N'USE [?];
+				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				INSERT #DBCCs
+					(ParentObject,
+					Object,
+					Field,
+					Value)
+				EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+				UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+
+				WITH    DB2
+							AS ( SELECT DISTINCT
+										Field ,
+										Value ,
+										DbName
+								FROM     #DBCCs
+								INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
+								WHERE    Field = 'dbi_dbccLastKnownGood'
+									AND d.create_date < DATEADD(dd, -14, GETDATE())
+								)
+					INSERT  INTO #BlitzResults
+							( CheckID ,
+								DatabaseName ,
+								Priority ,
+								FindingsGroup ,
+								Finding ,
+								URL ,
+								Details
+							)
+							SELECT  68 AS CheckID ,
+									DB2.DbName AS DatabaseName ,
+									1 AS PRIORITY ,
+									'Reliability' AS FindingsGroup ,
+									'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
+									'https://BrentOzar.com/go/checkdb' AS URL ,
+									'Last successful CHECKDB: '
+									+ CASE DB2.Value
+										WHEN '1900-01-01 00:00:00.000'
+										THEN ' never.'
+										ELSE DB2.Value
+										END AS Details
+							FROM    DB2
+							WHERE   DB2.DbName <> 'tempdb'
+									AND DB2.DbName NOT IN ( SELECT DISTINCT
+															DatabaseName
+														FROM
+															#SkipChecks
+														WHERE CheckID IS NULL OR CheckID = 68)
+									AND DB2.DbName NOT IN ( SELECT  name
+															FROM    sys.databases
+															WHERE   is_read_only = 1)
+									AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
+															-14,
+															CURRENT_TIMESTAMP);
+			END;
 
 		END; /* IF @CheckUserDatabaseObjects = 1 */
 
@@ -7557,69 +7620,6 @@ IF @ProductVersionMajor >= 10
 					WHERE s.service_account IS NULL AND ep.principal_id <> 1;
     		END;
 
-		/*Check for the last good DBCC CHECKDB date */
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 68 )
-					BEGIN
-						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
-						
-						EXEC sp_MSforeachdb N'USE [?];
-                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-						INSERT #DBCCs
-							(ParentObject,
-							Object,
-							Field,
-							Value)
-						EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
-						UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
-
-						WITH    DB2
-								  AS ( SELECT DISTINCT
-												Field ,
-												Value ,
-												DbName
-									   FROM     #DBCCs
-                                       INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
-									   WHERE    Field = 'dbi_dbccLastKnownGood'
-                                         AND d.create_date < DATEADD(dd, -14, GETDATE())
-									 )
-							INSERT  INTO #BlitzResults
-									( CheckID ,
-									  DatabaseName ,
-									  Priority ,
-									  FindingsGroup ,
-									  Finding ,
-									  URL ,
-									  Details
-									)
-									SELECT  68 AS CheckID ,
-											DB2.DbName AS DatabaseName ,
-											1 AS PRIORITY ,
-											'Reliability' AS FindingsGroup ,
-											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
-											'https://BrentOzar.com/go/checkdb' AS URL ,
-											'Last successful CHECKDB: '
-											+ CASE DB2.Value
-												WHEN '1900-01-01 00:00:00.000'
-												THEN ' never.'
-												ELSE DB2.Value
-											  END AS Details
-									FROM    DB2
-									WHERE   DB2.DbName <> 'tempdb'
-											AND DB2.DbName NOT IN ( SELECT DISTINCT
-																  DatabaseName
-																FROM
-																  #SkipChecks
-																WHERE CheckID IS NULL OR CheckID = 68)
-											AND DB2.DbName NOT IN ( SELECT  name
-                                                                    FROM    sys.databases
-                                                                    WHERE   is_read_only = 1)
-											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
-																  -14,
-																  CURRENT_TIMESTAMP);
-					END;
 
 	/*Verify that the servername is set */
 			IF NOT EXISTS ( SELECT  1
@@ -8833,7 +8833,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												250 AS Priority ,
 												''Server Info'' AS FindingsGroup ,
 												''Azure Managed Instance'' AS Finding ,
-												''https://www.BrenOzar.com/go/azurevm'' AS URL ,
+												''https://www.BrentOzar.com/go/azurevm'' AS URL ,
 												''cpu_rate: '' + CAST(COALESCE(cpu_rate, 0) AS VARCHAR(20)) + 
 												'', memory_limit_mb: '' + CAST(COALESCE(memory_limit_mb, 0) AS NVARCHAR(20)) + 
 												'', process_memory_limit_mb: '' + CAST(COALESCE(process_memory_limit_mb, 0) AS NVARCHAR(20)) + 
@@ -8861,7 +8861,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                     CREATE TABLE #services (cmdshell_output varchar(max));
                                     
                                     INSERT INTO #services
-                                    EXEC xp_cmdshell 'net start'
+                                    EXEC /**/xp_cmdshell/**/ 'net start' /* added comments around command since some firewalls block this string TL 20210221 */
                                     
                                     IF EXISTS (SELECT 1 
                                                 FROM #services 

@@ -45,7 +45,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.0', @VersionDate = '20210117';
+SELECT @Version = '8.01', @VersionDate = '20210222';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1641,9 +1641,12 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type '
 
-		IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
+        IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
+        */
 			SET @dsql = @dsql + N' , NULL AS sample_query_plan '
-		ELSE
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
+        ELSE
 		BEGIN
 			SET @dsql = @dsql + N' , sample_query_plan = (SELECT TOP 1 p.query_plan
 				FROM sys.dm_db_missing_index_group_stats gs 
@@ -1655,6 +1658,8 @@ BEGIN TRY
 				CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
 				WHERE gs.group_handle = gs.group_handle) '
 		END
+        */
+        
 
 		SET @dsql = @dsql + N'FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
