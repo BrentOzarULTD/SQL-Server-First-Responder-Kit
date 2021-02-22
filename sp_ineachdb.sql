@@ -34,7 +34,7 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '8.0', @VersionDate = '20210117';
+  SELECT @Version = '8.01', @VersionDate = '20210222';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -262,7 +262,7 @@ OPTION (MAXRECURSION 0);
 
   -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
   -- AG secondary, we skip any database where allow connections is off
-  IF @SQLVersion >= 11
+  IF @SQLVersion >= 11 AND 3 = (SELECT COUNT(*) FROM sys.all_objects WHERE name IN('availability_replicas','dm_hadr_availability_group_states','dm_hadr_database_replica_states'))
   BEGIN
     DELETE dbs FROM #ineachdb AS dbs
     WHERE EXISTS

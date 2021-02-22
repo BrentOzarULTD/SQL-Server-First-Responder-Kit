@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.0', @VersionDate = '20210117';
+	SELECT @Version = '8.01', @VersionDate = '20210222';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -7128,6 +7128,69 @@ IF @ProductVersionMajor >= 10
    --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
 			--END; --of Check 220.
 
+		/*Check for the last good DBCC CHECKDB date */
+		IF NOT EXISTS ( SELECT  1
+						FROM    #SkipChecks
+						WHERE   DatabaseName IS NULL AND CheckID = 68 )
+			BEGIN
+				
+				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
+				
+				EXEC sp_MSforeachdb N'USE [?];
+				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				INSERT #DBCCs
+					(ParentObject,
+					Object,
+					Field,
+					Value)
+				EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+				UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+
+				WITH    DB2
+							AS ( SELECT DISTINCT
+										Field ,
+										Value ,
+										DbName
+								FROM     #DBCCs
+								INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
+								WHERE    Field = 'dbi_dbccLastKnownGood'
+									AND d.create_date < DATEADD(dd, -14, GETDATE())
+								)
+					INSERT  INTO #BlitzResults
+							( CheckID ,
+								DatabaseName ,
+								Priority ,
+								FindingsGroup ,
+								Finding ,
+								URL ,
+								Details
+							)
+							SELECT  68 AS CheckID ,
+									DB2.DbName AS DatabaseName ,
+									1 AS PRIORITY ,
+									'Reliability' AS FindingsGroup ,
+									'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
+									'https://BrentOzar.com/go/checkdb' AS URL ,
+									'Last successful CHECKDB: '
+									+ CASE DB2.Value
+										WHEN '1900-01-01 00:00:00.000'
+										THEN ' never.'
+										ELSE DB2.Value
+										END AS Details
+							FROM    DB2
+							WHERE   DB2.DbName <> 'tempdb'
+									AND DB2.DbName NOT IN ( SELECT DISTINCT
+															DatabaseName
+														FROM
+															#SkipChecks
+														WHERE CheckID IS NULL OR CheckID = 68)
+									AND DB2.DbName NOT IN ( SELECT  name
+															FROM    sys.databases
+															WHERE   is_read_only = 1)
+									AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
+															-14,
+															CURRENT_TIMESTAMP);
+			END;
 
 		END; /* IF @CheckUserDatabaseObjects = 1 */
 
@@ -7557,69 +7620,6 @@ IF @ProductVersionMajor >= 10
 					WHERE s.service_account IS NULL AND ep.principal_id <> 1;
     		END;
 
-		/*Check for the last good DBCC CHECKDB date */
-				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 68 )
-					BEGIN
-						
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
-						
-						EXEC sp_MSforeachdb N'USE [?];
-                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-						INSERT #DBCCs
-							(ParentObject,
-							Object,
-							Field,
-							Value)
-						EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
-						UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
-
-						WITH    DB2
-								  AS ( SELECT DISTINCT
-												Field ,
-												Value ,
-												DbName
-									   FROM     #DBCCs
-                                       INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
-									   WHERE    Field = 'dbi_dbccLastKnownGood'
-                                         AND d.create_date < DATEADD(dd, -14, GETDATE())
-									 )
-							INSERT  INTO #BlitzResults
-									( CheckID ,
-									  DatabaseName ,
-									  Priority ,
-									  FindingsGroup ,
-									  Finding ,
-									  URL ,
-									  Details
-									)
-									SELECT  68 AS CheckID ,
-											DB2.DbName AS DatabaseName ,
-											1 AS PRIORITY ,
-											'Reliability' AS FindingsGroup ,
-											'Last good DBCC CHECKDB over 2 weeks old' AS Finding ,
-											'https://BrentOzar.com/go/checkdb' AS URL ,
-											'Last successful CHECKDB: '
-											+ CASE DB2.Value
-												WHEN '1900-01-01 00:00:00.000'
-												THEN ' never.'
-												ELSE DB2.Value
-											  END AS Details
-									FROM    DB2
-									WHERE   DB2.DbName <> 'tempdb'
-											AND DB2.DbName NOT IN ( SELECT DISTINCT
-																  DatabaseName
-																FROM
-																  #SkipChecks
-																WHERE CheckID IS NULL OR CheckID = 68)
-											AND DB2.DbName NOT IN ( SELECT  name
-                                                                    FROM    sys.databases
-                                                                    WHERE   is_read_only = 1)
-											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
-																  -14,
-																  CURRENT_TIMESTAMP);
-					END;
 
 	/*Verify that the servername is set */
 			IF NOT EXISTS ( SELECT  1
@@ -7741,21 +7741,29 @@ IF @ProductVersionMajor >= 10
 								SELECT  74 AS CheckID ,
 										200 AS Priority ,
 										'Informational' AS FindingsGroup ,
-										'TraceFlag On' AS Finding ,
+										'Trace Flag On' AS Finding ,
 										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
 											 ELSE'https://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' +
-										CASE WHEN [T].[TraceFlag] = '2330' THEN ' 2330 enabled globally. Using this trace Flag disables missing index requests!'
-											 WHEN [T].[TraceFlag] = '1211' THEN ' 1211 enabled globally. Using this Trace Flag disables lock escalation when you least expect it. No Bueno!'
-											 WHEN [T].[TraceFlag] = '1224' THEN ' 1224 enabled globally. Using this Trace Flag disables lock escalation based on the number of locks being taken. You shouldn''t have done that, Dave.'
-											 WHEN [T].[TraceFlag] = '652'  THEN ' 652 enabled globally. Using this Trace Flag disables pre-fetching during index scans. If you hate slow queries, you should turn that off.'
-											 WHEN [T].[TraceFlag] = '661'  THEN ' 661 enabled globally. Using this Trace Flag disables ghost record removal. Who you gonna call? No one, turn that thing off.'
-											 WHEN [T].[TraceFlag] = '1806'  THEN ' 1806 enabled globally. Using this Trace Flag disables Instant File Initialization. I question your sanity.'
-											 WHEN [T].[TraceFlag] = '3505'  THEN ' 3505 enabled globally. Using this Trace Flag disables Checkpoints. Probably not the wisest idea.'
-											 WHEN [T].[TraceFlag] = '8649'  THEN ' 8649 enabled globally. Using this Trace Flag drops cost threshold for parallelism down to 0. I hope this is a dev server.'
-										     WHEN [T].[TraceFlag] = '834' AND @ColumnStoreIndexesInUse = 1 THEN ' 834 is enabled globally. Using this Trace Flag with Columnstore Indexes is not a great idea.'
-											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN ' 8017 is enabled globally, which is the default for express edition.'
-                                             WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN ' 8017 is enabled globally. Using this Trace Flag disables creation schedulers for all logical processors. Not good.'
+										CASE WHEN [T].[TraceFlag] = '652'  THEN '652 enabled globally, which disables pre-fetching during index scans. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '661'  THEN '661 enabled globally, which disables ghost record removal, causing the database to grow in size. This is usually a very bad idea.'
+										     WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN '834 is enabled globally, but you also have columnstore indexes. That combination is not recommended by Microsoft.'
+											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
+											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
+											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '1222' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
+											 WHEN [T].[TraceFlag] = '1224' THEN '1224 enabled globally, which disables lock escalation until the server has memory pressure. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '1806' THEN '1806 enabled globally, which disables Instant File Initialization, causing restores and file growths to take longer. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '2330' THEN '2330 enabled globally, which disables missing index requests. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '2371' THEN '2371 enabled globally, which changes the auto update stats threshold.'
+											 WHEN [T].[TraceFlag] = '3023' THEN '3023 enabled globally, which performs checksums by default when doing database backups.'
+											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
+											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
+											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
+											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN '8017 is enabled globally, but this is the default for Express Edition.'
+                                             WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN '8017 is enabled globally, which disables the creation of schedulers for all logical processors.'
+											 WHEN [T].[TraceFlag] = '8649' THEN '8649 enabled globally, which cost threshold for parallelism down to 0.  This is usually a very bad idea.'
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END
 										AS Details
 								FROM    #TraceStatus T;
@@ -8825,7 +8833,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												250 AS Priority ,
 												''Server Info'' AS FindingsGroup ,
 												''Azure Managed Instance'' AS Finding ,
-												''https://www.BrenOzar.com/go/azurevm'' AS URL ,
+												''https://www.BrentOzar.com/go/azurevm'' AS URL ,
 												''cpu_rate: '' + CAST(COALESCE(cpu_rate, 0) AS VARCHAR(20)) + 
 												'', memory_limit_mb: '' + CAST(COALESCE(memory_limit_mb, 0) AS NVARCHAR(20)) + 
 												'', process_memory_limit_mb: '' + CAST(COALESCE(process_memory_limit_mb, 0) AS NVARCHAR(20)) + 
@@ -8853,7 +8861,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                     CREATE TABLE #services (cmdshell_output varchar(max));
                                     
                                     INSERT INTO #services
-                                    EXEC xp_cmdshell 'net start'
+                                    EXEC /**/xp_cmdshell/**/ 'net start' /* added comments around command since some firewalls block this string TL 20210221 */
                                     
                                     IF EXISTS (SELECT 1 
                                                 FROM #services 

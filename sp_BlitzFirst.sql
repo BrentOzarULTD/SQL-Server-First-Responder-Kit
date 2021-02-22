@@ -45,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.0', @VersionDate = '20210117';
+SELECT @Version = '8.01', @VersionDate = '20210222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1387,7 +1387,7 @@ BEGIN
 						WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 	BEGIN
 		RAISERROR('Logging sp_BlitzWho to table',10,1) WITH NOWAIT;
-		EXEC sp_BlitzWho @OutputDatabaseName = @UnquotedOutputDatabaseName, @OutputSchemaName = @UnquotedOutputSchemaName, @OutputTableName = @OutputTableNameBlitzWho, @CheckDateOverride = @StartSampleTime;
+		EXEC sp_BlitzWho @OutputDatabaseName = @UnquotedOutputDatabaseName, @OutputSchemaName = @UnquotedOutputSchemaName, @OutputTableName = @OutputTableNameBlitzWho, @CheckDateOverride = @StartSampleTime, @OutputTableRetentionDays = @OutputTableRetentionDays;
 	END
 
 	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
@@ -1755,6 +1755,51 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    AND     request_status = N'GRANT'
 		    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
 		WHERE r.status = 'rollback';
+	END
+
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            1 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
 	END
 
     /* Server Performance - Too Much Free Memory - CheckID 34 */
@@ -2859,7 +2904,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND psComp.value_delta > 75 /* Because sp_BlitzFirst does around 50 compilations and re-compilations */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 compilations per second, or more compilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Compilations are more than 10% of batch requests per second */
 
     /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
@@ -2885,7 +2931,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND psComp.value_delta > 75 /* Because sp_BlitzFirst does around 50 compilations and re-compilations */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 recompilations per second, or more recompilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Recompilations are more than 10% of batch requests per second */
 
     /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
@@ -3127,6 +3174,51 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
           CROSS JOIN waits1
           CROSS JOIN waits2;
     END;
+
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            2 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
+	END
 
     /* If we're waiting 30+ seconds, run these checks at the end.
     We get this data from the ring buffers, and it's only updated once per minute, so might

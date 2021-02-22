@@ -30,7 +30,7 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '8.0', @VersionDate = '20210117';
+SELECT @Version = '8.01', @VersionDate = '20210222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -349,7 +349,7 @@ Pollster:
 							SELECT 1
 							FROM msdbCentral.dbo.backup_worker bw WITH (READPAST)
 							WHERE bw.last_log_backup_finish_time < '99991231'
-							AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())				
+							AND bw.last_log_backup_start_time < DATEADD(SECOND, (@rpo * -1), GETDATE())				
 							AND EXISTS (
 									SELECT 1
 									FROM msdb.dbo.backupset b
@@ -369,7 +369,7 @@ Pollster:
 												bw.last_log_backup_start_time = '19000101'
 									FROM msdbCentral.dbo.backup_worker bw
 									WHERE bw.last_log_backup_finish_time < '99991231'
-									AND bw.last_log_backup_start_time < DATEADD(MINUTE, -5, GETDATE())
+									AND bw.last_log_backup_start_time < DATEADD(SECOND, (@rpo * -1), GETDATE())
 									AND EXISTS (
 											SELECT 1
 											FROM msdb.dbo.backupset b
@@ -583,7 +583,7 @@ DiskPollster:
 							SELECT 1
 							FROM msdb.dbo.restore_worker rw WITH (READPAST)
 							WHERE rw.last_log_restore_finish_time < '99991231'
-							AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())				
+							AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE())			
 							AND EXISTS (
 									SELECT 1
 									FROM msdb.dbo.restorehistory r
@@ -603,7 +603,7 @@ DiskPollster:
 												rw.last_log_restore_start_time = '19000101'
 									FROM msdb.dbo.restore_worker rw
 									WHERE rw.last_log_restore_finish_time < '99991231'
-									AND rw.last_log_restore_start_time < DATEADD(MINUTE, -5, GETDATE())
+									AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE())
 									AND EXISTS (
 											SELECT 1
 											FROM msdb.dbo.restorehistory r

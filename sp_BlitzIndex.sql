@@ -45,7 +45,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.0', @VersionDate = '20210117';
+SELECT @Version = '8.01', @VersionDate = '20210222';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1641,9 +1641,12 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type '
 
-		IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
+        IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
+        */
 			SET @dsql = @dsql + N' , NULL AS sample_query_plan '
-		ELSE
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
+        ELSE
 		BEGIN
 			SET @dsql = @dsql + N' , sample_query_plan = (SELECT TOP 1 p.query_plan
 				FROM sys.dm_db_missing_index_group_stats gs 
@@ -1655,6 +1658,8 @@ BEGIN TRY
 				CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
 				WHERE gs.group_handle = gs.group_handle) '
 		END
+        */
+        
 
 		SET @dsql = @dsql + N'FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
                         JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
@@ -2877,7 +2882,7 @@ BEGIN;
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
                         WHERE ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
 						AND ip.is_primary_key = 0
-                        ORDER BY ip.object_id, ip.key_column_names_with_sort_order    
+                        ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names_with_sort_order    
                 OPTION    ( RECOMPILE );
 
         RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
@@ -2915,14 +2920,14 @@ BEGIN;
                                 di.number_dupes > 1    
                         )
 						AND ip.is_primary_key = 0                                          
-                        ORDER BY ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
+                        ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
             OPTION    ( RECOMPILE );
 
         ----------------------------------------
         --Aggressive Indexes: Check_id 10-19
         ----------------------------------------
 
-        RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page) with long average waits', 0,1) WITH NOWAIT;
+        RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                 SELECT  11 AS check_id, 
@@ -2951,7 +2956,7 @@ BEGIN;
                                 WHEN 9 THEN N'Indexes'
                                 ELSE N'Over-Indexing'
                                 END AS findings_group,
-                        N'Total lock wait time > 5 minutes (row + page) with long average waits' AS finding, 
+                        N'Total lock wait time > 5 minutes (row + page)' AS finding, 
                         [database_name] AS [Database Name],
                         N'https://www.brentozar.com/go/AggressiveIndexes' AS URL,
                         (i.db_schema_object_indexid + N': ' +
@@ -2974,67 +2979,10 @@ BEGIN;
                 FROM    #IndexSanity AS i
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
-				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) > 5000
 				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
-                ORDER BY 4, [database_name], 8
+                ORDER BY SUM(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) DESC, 4, [database_name], 8
                 OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 12: Total lock wait time > 5 minutes (row + page) with short average waits', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               secret_columns, index_usage_summary, index_size_summary )
-                SELECT  12 AS check_id, 
-                        i.index_sanity_id,
-                        70 AS Priority,
-                        N'Aggressive ' 
-                            + CASE COALESCE((SELECT SUM(1) 
-							                 FROM #IndexSanity iMe 
-											 INNER JOIN #IndexSanity iOthers 
-												ON iMe.database_id = iOthers.database_id 
-												AND iMe.object_id = iOthers.object_id 
-												AND iOthers.index_id > 1 
-											 WHERE i.index_sanity_id = iMe.index_sanity_id
-											 AND iOthers.is_hypothetical = 0
-											 AND iOthers.is_disabled = 0
-											), 0)
-                                WHEN 0 THEN N'Under-Indexing'
-                                WHEN 1 THEN N'Under-Indexing'
-                                WHEN 2 THEN N'Under-Indexing'
-                                WHEN 3 THEN N'Under-Indexing'
-                                WHEN 4 THEN N'Indexes'
-                                WHEN 5 THEN N'Indexes'
-                                WHEN 6 THEN N'Indexes'
-                                WHEN 7 THEN N'Indexes'
-                                WHEN 8 THEN N'Indexes'
-                                WHEN 9 THEN N'Indexes'
-                                ELSE N'Over-Indexing'
-                                END AS findings_group,
-                        N'Total lock wait time > 5 minutes (row + page) with short average waits' AS finding, 
-                        [database_name] AS [Database Name],
-                        N'https://www.brentozar.com/go/AggressiveIndexes' AS URL,
-                        (i.db_schema_object_indexid + N': ' +
-                            sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
-							 CAST(COALESCE((SELECT SUM(1) 
-							                FROM #IndexSanity iMe 
-											INNER JOIN #IndexSanity iOthers 
-												ON iMe.database_id = iOthers.database_id 
-												AND iMe.object_id = iOthers.object_id 
-												AND iOthers.index_id > 1 
-											WHERE i.index_sanity_id = iMe.index_sanity_id
-											AND iOthers.is_hypothetical = 0
-											AND iOthers.is_disabled = 0
-										   ),0)
-                                         AS NVARCHAR(30))	 AS details, 
-                        i.index_definition,
-                        i.secret_columns,
-                        i.index_usage_summary,
-                        sz.index_size_summary
-                FROM    #IndexSanity AS i
-                JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
-				AND (sz.avg_page_lock_wait_in_ms + sz.avg_row_lock_wait_in_ms) < 5000
-				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
-                ORDER BY 4, [database_name], 8
-                OPTION    ( RECOMPILE );
 
 
         ---------------------------------------- 
