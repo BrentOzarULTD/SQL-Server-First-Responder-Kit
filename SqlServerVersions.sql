@@ -41,6 +41,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
     (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
     (15, 4073, 'CU8', 'https://support.microsoft.com/en-us/help/4577194', '2020-10-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 '),
     (15, 4063, 'CU7', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
@@ -76,6 +77,7 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
     (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/en-us/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
     (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
     (13, 5830, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4564903', '2020-08-06', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 14'),
