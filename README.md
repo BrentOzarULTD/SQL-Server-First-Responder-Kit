@@ -398,8 +398,8 @@ Get information for the last hour from all sp_BlitzFirst output tables
 
 ```SQL
 EXEC sp_BlitzAnalysis 
-	@FromDate = NULL,
-	@ToDate = NULL,	
+	@StartDate = NULL,
+	@EndDate = NULL,
 	@OutputDatabaseName = 'DBAtools',
 	@OutputSchemaName = 'dbo',
 	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
@@ -413,8 +413,8 @@ Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no loo
 
 ```SQL
 EXEC sp_BlitzAnalysis 
-	@FromDate = NULL,
-	@ToDate = NULL,	
+	@StartDate = NULL,
+	@EndDate = NULL,
 	@OutputDatabaseName = 'DBAtools',
 	@OutputSchemaName = 'Blitz',
 	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
