@@ -5747,7 +5747,7 @@ IF @ProductVersionMajor >= 10
 						        'DBCC SHRINK% Ran Recently' AS Finding ,
 						        'https://www.BrentOzar.com/go/dbcc' AS URL ,
 						        'The user ' + COALESCE(d.nt_user_name, d.login_name) + ' has run file shrinks ' + CAST(COUNT(*) AS NVARCHAR(100)) + ' times between ' + CONVERT(NVARCHAR(30), MIN(d.min_start_time)) + ' and ' + CONVERT(NVARCHAR(30),  MAX(d.max_start_time)) +
-								'. So, uh, are they trying cause bad performance on purpose?'
+								'. So, uh, are they trying to cause bad performance on purpose?'
 								AS Details
 						FROM    #dbcc_events_from_trace d
 						WHERE d.dbcc_event_trunc_upper LIKE N'DBCC SHRINK%'
