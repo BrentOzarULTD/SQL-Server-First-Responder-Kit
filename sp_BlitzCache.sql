@@ -1947,7 +1947,7 @@ SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 IF @IgnoreSystemDBs = 1
     BEGIN
 	RAISERROR(N'Ignoring system databases by default', 0, 1) WITH NOWAIT;
-	SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+	SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 	END; 
 
 IF @DatabaseName IS NOT NULL OR @DatabaseName <> N''
