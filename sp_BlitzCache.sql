@@ -397,7 +397,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@IgnoreSystemDBs',
 			N'BIT',
-			N'Ignores plans found in the system databases (master, model, msdb, tempdb, and resourcedb)'
+			N'Ignores plans found in the system databases (master, model, msdb, tempdb, dbmaintenance, dbadmin, dbatools and resourcedb)'
 
 	UNION ALL
 	SELECT N'@OnlyQueryHashes',
