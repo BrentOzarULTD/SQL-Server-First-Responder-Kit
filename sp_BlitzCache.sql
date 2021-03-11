@@ -244,6 +244,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @UseTriggersAnyway BIT = NULL,
     @ExportToExcel BIT = 0,
     @ExpertMode TINYINT = 0,
+	@OutputType VARCHAR(20) = 'TABLE' ,
     @OutputServerName NVARCHAR(258) = NULL ,
     @OutputDatabaseName NVARCHAR(258) = NULL ,
     @OutputSchemaName NVARCHAR(258) = NULL ,
@@ -279,7 +280,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 SELECT @Version = '8.01', @VersionDate = '20210222';
-
+SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -754,6 +755,18 @@ BEGIN
 	PRINT @version_msg;
 	RETURN;
 END;
+
+IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+BEGIN
+    RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);
+    RETURN;
+END;
+
+IF(@OutputType = 'NONE') 
+BEGIN
+    SET @HideSummary = 1;
+END;
+
 
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
@@ -5131,9 +5144,10 @@ IF @Debug = 1
         PRINT SUBSTRING(@sql, 32000, 36000);
         PRINT SUBSTRING(@sql, 36000, 40000);
     END;
-
-EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
-
+IF(@OutputType <> 'NONE')
+BEGIN 
+    EXEC  sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
+END;
 
 /*
 
@@ -6845,11 +6859,12 @@ END;
 						    PRINT SUBSTRING(@AllSortSql, 32000, 36000);
 						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
 						END;
-
+IF(@OutputType <> 'NONE')
+BEGIN
 					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT, @i_SkipAnalysis BIT, @i_OutputDatabaseName NVARCHAR(258), @i_OutputSchemaName NVARCHAR(258), @i_OutputTableName NVARCHAR(258), @i_CheckDateOverride DATETIMEOFFSET, @i_MinutesBack INT ', 
                         @i_DatabaseName = @DatabaseName, @i_Top = @Top, @i_SkipAnalysis = @SkipAnalysis, @i_OutputDatabaseName = @OutputDatabaseName, @i_OutputSchemaName = @OutputSchemaName, @i_OutputTableName = @OutputTableName, @i_CheckDateOverride = @CheckDateOverride, @i_MinutesBack = @MinutesBack;
 
-
+END;
 /*End of AllSort section*/
 
 
