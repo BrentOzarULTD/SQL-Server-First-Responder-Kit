@@ -1947,7 +1947,7 @@ SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 IF @IgnoreSystemDBs = 1
     BEGIN
 	RAISERROR(N'Ignoring system databases by default', 0, 1) WITH NOWAIT;
-	SET @body += N'               AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+	SET @body += N'               AND COALESCE(LOWER(DB_NAME(CAST(xpa.value AS INT))), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 	END; 
 
 IF @DatabaseName IS NOT NULL OR @DatabaseName <> N''
@@ -2382,7 +2382,7 @@ BEGIN
     SET @sql += @body_where ;
 
     IF @IgnoreSystemDBs = 1
-       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+       SET @sql += N' AND COALESCE(LOWER(DB_NAME(database_id)), LOWER(CAST(pa.value AS sysname)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
 	SET @sql += @sort_filter + @nl;
 
@@ -2414,7 +2414,7 @@ BEGIN
     SET @sql += @body_where ;
 
     IF @IgnoreSystemDBs = 1
-       SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+       SET @sql += N' AND COALESCE(LOWER(DB_NAME(database_id)), LOWER(CAST(pa.value AS sysname)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
 	SET @sql += @sort_filter + @nl;
 
@@ -2450,7 +2450,7 @@ BEGIN
    SET @sql += @body_where ;
 
    IF @IgnoreSystemDBs = 1
-      SET @sql += N' AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
+      SET @sql += N' AND COALESCE(LOWER(DB_NAME(database_id)), LOWER(CAST(pa.value AS sysname)), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(database_id), CAST(pa.value AS sysname), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 
    SET @sql += @sort_filter + @nl;   
 
