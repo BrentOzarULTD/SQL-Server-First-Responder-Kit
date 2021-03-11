@@ -369,7 +369,11 @@ IF @Help = 1
 	SELECT N'@ExpertMode',
 			N'TINYINT',
 			N'Default 0. When set to 1, results include more columns. When 2, mode is optimized for Opserver, the open source dashboard.'
-
+    UNION ALL
+	SELECT N'@OutputType',
+			N'NVARCHAR(258)',
+			N'If set to "NONE", this will tell this procedure not to run any query leading to a results set thrown to caller.'
+			
 	UNION ALL
 	SELECT N'@OutputDatabaseName',
 			N'NVARCHAR(128)',
