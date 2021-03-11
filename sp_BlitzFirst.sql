@@ -1406,7 +1406,7 @@ BEGIN
 		    1 AS Priority,
 		    'Maintenance Tasks Running' AS FindingGroup,
 		    'Backup Running' AS Finding,
-		    'http://www.BrentOzar.com/askbrent/backups/' AS URL,
+		    'https://www.brentozar.com/askbrent/backups/' AS URL,
 		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
 		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
 			    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
@@ -1458,7 +1458,7 @@ BEGIN
 		    1 AS Priority,
 		    'Maintenance Tasks Running' AS FindingGroup,
 		    'DBCC CHECK* Running' AS Finding,
-		    'http://www.BrentOzar.com/askbrent/dbcc/' AS URL,
+		    'https://www.brentozar.com/askbrent/dbcc/' AS URL,
 		    'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		    pl.query_plan AS QueryPlan,
@@ -1503,7 +1503,7 @@ BEGIN
 		    1 AS Priority,
 		    'Maintenance Tasks Running' AS FindingGroup,
 		    'Restore Running' AS Finding,
-		    'http://www.BrentOzar.com/askbrent/backups/' AS URL,
+		    'https://www.brentozar.com/askbrent/backups/' AS URL,
 		    'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
 		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		    pl.query_plan AS QueryPlan,
@@ -1544,9 +1544,9 @@ BEGIN
 		    1 AS Priority,
 		    'SQL Server Internal Maintenance' AS FindingGroup,
 		    'Database File Growing' AS Finding,
-		    'http://www.BrentOzar.com/go/instant' AS URL,
+		    'https://www.brentozar.com/go/instant' AS URL,
 		    'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
-		    'Unfortunately, you can''t stop this, but you can prevent it next time. Check out http://www.BrentOzar.com/go/instant for details.' AS HowToStopIt,
+		    'Unfortunately, you can''t stop this, but you can prevent it next time. Check out https://www.brentozar.com/go/instant for details.' AS HowToStopIt,
 		    pl.query_plan AS QueryPlan,
 		    r.start_time AS StartTime,
 		    s.login_name AS LoginName,
@@ -1578,7 +1578,7 @@ BEGIN
                 1 AS Priority,
                 ''Query Problems'' AS FindingGroup,
                 ''Long-Running Query Blocking Others'' AS Finding,
-                ''http://www.BrentOzar.com/go/blocking'' AS URL,
+                ''https://www.brentozar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
                     (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows: ' 
 					+ @LineFeed + @LineFeed + 
@@ -1621,7 +1621,7 @@ BEGIN
             50 AS Priority,
             'Query Problems' AS FindingGroup,
             'Plan Cache Erased Recently' AS Finding,
-            'http://www.BrentOzar.com/askbrent/plan-cache-erased-recently/' AS URL,
+            'https://www.brentozar.com/askbrent/plan-cache-erased-recently/' AS URL,
             'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
                 + 'This indicates that someone ran DBCC FREEPROCCACHE at that time,' + @LineFeed
                 + 'Giving SQL Server temporary amnesia. Now, as queries come in,' + @LineFeed
@@ -1646,7 +1646,7 @@ BEGIN
 		    50 AS Priority,
 		    'Query Problems' AS FindingGroup,
 		    'Sleeping Query with Open Transactions' AS Finding,
-		    'http://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
+		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
 		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
 		    'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		    s.last_request_start_time AS StartTime,
@@ -1732,7 +1732,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    1 AS Priority,
 		    'Query Problems' AS FindingGroup,
 		    'Query Rolling Back' AS Finding,
-		    'http://www.BrentOzar.com/askbrent/rollback/' AS URL,
+		    'https://www.brentozar.com/askbrent/rollback/' AS URL,
 		    'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
 		    'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
 		    r.start_time AS StartTime,
@@ -1813,7 +1813,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
         'Too Much Free Memory' AS Finding,
-        'https://BrentOzar.com/go/freememory' AS URL,
+        'https://www.brentozar.com/go/freememory' AS URL,
 		CAST((CAST(cFree.cntr_value AS BIGINT) / 1024 / 1024 ) AS NVARCHAR(100)) + N'GB of free memory inside SQL Server''s buffer pool,' + @LineFeed + ' which is ' + CAST((CAST(cTotal.cntr_value AS BIGINT) / 1024 / 1024) AS NVARCHAR(100)) + N'GB. You would think lots of free memory would be good, but check out the URL for more information.' AS Details,
         'Run sp_BlitzCache @SortOrder = ''memory grant'' to find queries with huge memory grants and tune them.' AS HowToStopIt
 		FROM sys.dm_os_performance_counters cFree
@@ -1838,7 +1838,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			10 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Target Memory Lower Than Max' AS Finding,
-			'https://BrentOzar.com/go/target' AS URL,
+			'https://www.brentozar.com/go/target' AS URL,
 			N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
 				+ N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
 			'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
@@ -1864,7 +1864,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Database Size, Total GB' AS Finding,
         CAST(SUM (CAST(size AS BIGINT)*8./1024./1024.) AS VARCHAR(100)) AS Details,
         SUM (CAST(size AS BIGINT))*8./1024./1024. AS DetailsInt,
-        'http://www.BrentOzar.com/askbrent/' AS URL
+        'https://www.brentozar.com/askbrent/' AS URL
     FROM #MasterFiles
     WHERE database_id > 4;
 
@@ -1881,7 +1881,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Database Count' AS Finding,
         CAST(SUM(1) AS VARCHAR(100)) AS Details,
         SUM (1) AS DetailsInt,
-        'http://www.BrentOzar.com/askbrent/' AS URL
+        'https://www.brentozar.com/askbrent/' AS URL
     FROM sys.databases
     WHERE database_id > 4;
 
@@ -1936,7 +1936,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
 		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
-		'http://www.BrentOzar.com/askbrent/' AS URL
+		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
 	/* Query Problems - Queries with high memory grants - CheckID 46 */
@@ -2146,7 +2146,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x cardinality misestimations'' AS Findings,
-                          ''https://brentozar.com/go/skewedup'' AS URL,
+                          ''https://www.brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(b.session_id) 
                               + '' has been running for ''
@@ -2197,7 +2197,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x skewed parallelism'' AS Findings,
-                          ''https://brentozar.com/go/skewedup'' AS URL,
+                          ''https://www.brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(p.session_id) 
                               + '' has been running for ''
@@ -2255,7 +2255,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2299,7 +2299,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					'CPU Utilization', 
 					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
 					y.system_idle	, 
-					'http://www.BrentOzar.com/go/cpu',
+					'https://www.brentozar.com/go/cpu',
 					STUFF(( SELECT TOP 2147483647
 							  CHAR(10) + CHAR(13)
 							+ y2.system_idle 
@@ -2321,7 +2321,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
+	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2409,7 +2409,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					50 AS Priority,
 					'Query Problems' AS FindingGroup,
 					'Statistics Updated Recently' AS Finding,
-					'http://www.BrentOzar.com/go/stats' AS URL,
+					'https://www.brentozar.com/go/stats' AS URL,
 					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
 						+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
 						+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
@@ -2539,7 +2539,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			END
 
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://www.BrentOzar.com/go/topqueries',
+            VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'https://www.brentozar.com/go/topqueries',
                 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.');
 
         END;
@@ -2682,7 +2682,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle, QueryHash)
-        SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
+        SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'https://www.brentozar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
             'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
             'Elapsed Time: ' + CAST(qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -2770,7 +2770,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         10 AS Priority,
         'Server Performance' AS FindingGroup,
         'Poison Wait Detected: ' + wNow.wait_type AS Finding,
-        N'http://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
+        N'https://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
         'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
@@ -2793,7 +2793,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Data File Reads' AS Finding,
-			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/go/slow/' AS URL,
 			'Your server is experiencing PAGEIOLATCH% waits due to slow data file reads. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed
@@ -2823,7 +2823,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Log File Writes' AS Finding,
-			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/go/slow/' AS URL,
 			'Your server is experiencing WRITELOG waits due to slow log file writes. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed
@@ -2852,7 +2852,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
         'Log File Growing' AS Finding,
-        'http://www.BrentOzar.com/askbrent/file-growing/' AS URL,
+        'https://www.brentozar.com/askbrent/file-growing/' AS URL,
         'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
         'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.'  AS HowToStopIt
@@ -2874,7 +2874,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
         'Log File Shrinking' AS Finding,
-        'http://www.BrentOzar.com/askbrent/file-shrinking/' AS URL,
+        'https://www.brentozar.com/askbrent/file-shrinking/' AS URL,
         'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
         'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.' AS HowToStopIt
@@ -2895,7 +2895,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
         'Compilations/Sec High' AS Finding,
-        'http://www.BrentOzar.com/askbrent/compilations/' AS URL,
+        'https://www.brentozar.com/askbrent/compilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
@@ -2922,7 +2922,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
         'Re-Compilations/Sec High' AS Finding,
-        'http://www.BrentOzar.com/askbrent/recompilations/' AS URL,
+        'https://www.brentozar.com/askbrent/recompilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
@@ -2949,7 +2949,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         40 AS Priority,
         'Table Problems' AS FindingGroup,
         'Forwarded Fetches/Sec High' AS Finding,
-        'https://BrentOzar.com/go/fetch/' AS URL,
+        'https://www.brentozar.com/go/fetch/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(20)) + ' forwarded fetches (from SQLServer:Access Methods counter)' + @LineFeed
             + 'Check your heaps: they need to be rebuilt, or they need a clustered index applied.' + @LineFeed AS Details,
         'Rebuild your heaps. If you use Ola Hallengren maintenance scripts, those do not rebuild heaps by default: https://www.brentozar.com/archive/2016/07/fix-forwarded-records/' AS HowToStopIt
@@ -2970,7 +2970,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			40 AS Priority,
 			''Table Problems'' AS FindingGroup,
 			''Forwarded Fetches/Sec High: TempDB Object'' AS Finding,
-			''https://BrentOzar.com/go/fetch/'' AS URL,
+			''https://www.brentozar.com/go/fetch/'' AS URL,
 			CAST(COALESCE(os.forwarded_fetch_count,0) - COALESCE(os_prior.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
 				CASE WHEN OBJECT_NAME(os.object_id) IS NULL THEN ''an unknown table ''
 				WHEN LEN(OBJECT_NAME(os.object_id)) < 50 THEN ''a table variable, internal identifier '' + OBJECT_NAME(os.object_id)
@@ -2998,7 +2998,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         50 AS Priority,
         'In-Memory OLTP' AS FindingGroup,
         'Garbage Collection in Progress' AS Finding,
-        'https://BrentOzar.com/go/garbage/' AS URL,
+        'https://www.brentozar.com/go/garbage/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
             + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
             + 'due to transactional workloads that constantly insert/delete data.' AS Details,
@@ -3021,7 +3021,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         100 AS Priority,
         'In-Memory OLTP' AS FindingGroup,
         'Transactions Aborted' AS Finding,
-        'https://BrentOzar.com/go/aborted/' AS URL,
+        'https://www.brentozar.com/go/aborted/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' transactions aborted (from SQL Server YYYY XTP Transactions:Transactions aborted/sec counter)'  + @LineFeed 
             + 'This may indicate that data is changing, or causing folks to retry their transactions, thereby increasing load.' AS Details,
         'Dig into your In-Memory OLTP transactions to figure out which ones are failing and being retried.' AS HowToStopIt
@@ -3043,7 +3043,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         100 AS Priority,
         'Query Problems' AS FindingGroup,
         'Suboptimal Plans/Sec High' AS Finding,
-        'https://BrentOzar.com/go/suboptimal/' AS URL,
+        'https://www.brentozar.com/go/suboptimal/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' plans reported in the ' + CAST(ps.instance_name AS NVARCHAR(100)) + ' workload group (from Workload GroupStats:Suboptimal plans/sec counter)'  + @LineFeed 
             + 'Even if you are not using Resource Governor, it still tracks information about user queries, memory grants, etc.' AS Details,
         'Check out sp_BlitzCache to get more information about recent queries, or try sp_BlitzWho to see currently running queries.' AS HowToStopIt
@@ -3067,7 +3067,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             10 AS Priority,
             'Azure Performance' AS FindingGroup,
             'Database is Maxed Out' AS Finding,
-            'https://BrentOzar.com/go/maxedout' AS URL,
+            'https://www.brentozar.com/go/maxedout' AS URL,
             N'At ' + CONVERT(NVARCHAR(100), s.end_time ,121) + N', your database approached (or hit) your DTU limits:' + @LineFeed
                 + N'Average CPU percent: ' + CAST(avg_cpu_percent AS NVARCHAR(50)) + @LineFeed
                 + N'Average data IO percent: ' + CAST(avg_data_io_percent AS NVARCHAR(50)) + @LineFeed
@@ -3095,7 +3095,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         250 AS Priority,
         'Server Info' AS FindingGroup,
         'Batch Requests per Sec' AS Finding,
-        'http://www.BrentOzar.com/go/measure' AS URL,
+        'https://www.brentozar.com/go/measure' AS URL,
         CAST(CAST(ps.value_delta AS MONEY) / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
         ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
     FROM #PerfmonStats ps
@@ -3121,7 +3121,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    250 AS Priority,
 		    'Server Info' AS FindingGroup,
 		    'SQL Compilations per Sec' AS Finding,
-		    'http://www.BrentOzar.com/go/measure' AS URL,
+		    'https://www.brentozar.com/go/measure' AS URL,
 		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
 		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
 		FROM #PerfmonStats ps
@@ -3144,7 +3144,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    250 AS Priority,
 		    'Server Info' AS FindingGroup,
 		    'SQL Re-Compilations per Sec' AS Finding,
-		    'http://www.BrentOzar.com/go/measure' AS URL,
+		    'https://www.brentozar.com/go/measure' AS URL,
 		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
 		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
 		FROM #PerfmonStats ps
@@ -3170,7 +3170,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             250 AS Priority,
             'Server Info' AS FindingGroup,
             'Wait Time per Core per Sec' AS Finding,
-            'http://www.BrentOzar.com/go/measure' AS URL,
+            'https://www.brentozar.com/go/measure' AS URL,
             CAST((CAST(waits2.waits_ms - waits1.waits_ms AS MONEY)) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
             (waits2.waits_ms - waits1.waits_ms) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
         FROM cores i
@@ -3236,7 +3236,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -3256,7 +3256,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
