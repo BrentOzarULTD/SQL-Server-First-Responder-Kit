@@ -2351,49 +2351,52 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
-			EXEC sp_MSforeachdb N'USE [?];
-			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
-			BEGIN TRY
-				INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-				SELECT HowToStopIt = 
-							QUOTENAME(DB_NAME()) + N''.'' +
-							QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-							QUOTENAME(obj.name) +
-							N'' statistic '' + QUOTENAME(stat.name) + 
-							N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-							N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-							CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-							N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-					sp.rows
-				FROM sys.objects AS obj WITH (NOLOCK)
-				INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
-				CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-				WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-				AND obj.is_ms_shipped = 0
-				AND ''[?]'' <> ''[tempdb]'';
-			END TRY
-			BEGIN CATCH
-				IF (ERROR_NUMBER() = 1222)
-				BEGIN 
-					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = 
-								QUOTENAME(DB_NAME()) +
-							    N'' No information could be retrieved as the lock timeout was exceeded,''+
-								N''  this is likely due to an Index operation in Progress'',
-						-1
-				END
-				ELSE
-				BEGIN
-					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = 
-								QUOTENAME(DB_NAME()) +
-							    N'' No information could be retrieved as a result of error: ''+
-								CAST(ERROR_NUMBER() AS NVARCHAR(10)) +
-								N'' with message: ''+
-								CAST(ERROR_MESSAGE() AS NVARCHAR(128)),
-						-1
-				END
-			END CATCH';
+
+            SET @StringToExecute =  'USE [?];' + @LineFeed +
+                                    'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+                                    'BEGIN TRY' + @LineFeed +
+                                    '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '    SELECT HowToStopIt = ' + @LineFeed +
+                                    '                QUOTENAME(DB_NAME()) + N''.'' +' + @LineFeed +
+                                    '                QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +' + @LineFeed +
+                                    '                QUOTENAME(obj.name) +' + @LineFeed +
+                                    '                N'' statistic '' + QUOTENAME(stat.name) + ' + @LineFeed +
+                                    '                N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + ' + @LineFeed +
+                                    '                N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +' + @LineFeed +
+                                    '                CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  ' + @LineFeed +
+                                    '                N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',' + @LineFeed +
+                                    '        sp.rows' + @LineFeed +
+                                    '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
+                                    '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
+                                    '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
+                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+                                    '    AND obj.is_ms_shipped = 0' + @LineFeed +
+                                    '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
+                                    'END TRY' + @LineFeed +
+                                    'BEGIN CATCH' + @LineFeed +
+                                    '    IF (ERROR_NUMBER() = 1222)' + @LineFeed +
+                                    '    BEGIN ' + @LineFeed +
+                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '        SELECT HowToStopIt = ' + @LineFeed +
+                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+                                    '                    N'' No information could be retrieved as the lock timeout was exceeded,''+' + @LineFeed +
+                                    '                    N''  this is likely due to an Index operation in Progress'',' + @LineFeed +
+                                    '            -1' + @LineFeed +
+                                    '    END' + @LineFeed +
+                                    '    ELSE' + @LineFeed +
+                                    '    BEGIN' + @LineFeed +
+                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '        SELECT HowToStopIt = ' + @LineFeed +
+                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+                                    '                    N'' No information could be retrieved as a result of error: ''+' + @LineFeed +
+                                    '                    CAST(ERROR_NUMBER() AS NVARCHAR(10)) +' + @LineFeed +
+                                    '                    N'' with message: ''+' + @LineFeed +
+                                    '                    CAST(ERROR_MESSAGE() AS NVARCHAR(128)),' + @LineFeed +
+                                    '            -1' + @LineFeed +
+                                    '    END' + @LineFeed +
+                                    'END CATCH'                          
+                                    ;
+            EXEC sp_MSforeachdb @StringToExecute;
 
 			/* Set timeout back to a default value of -1 */
 			SET LOCK_TIMEOUT -1;
