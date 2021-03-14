@@ -2344,6 +2344,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	END
 
 	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
+		AND @Seconds > 0
 	BEGIN
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
@@ -2351,9 +2352,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
+			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+				SET @StringToExecute = N'USE [?];' + @LineFeed;
+			ELSE
+				SET @StringToExecute = N'';
 
-            SET @StringToExecute =  'USE [?];' + @LineFeed +
-                                    'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
@@ -2396,7 +2400,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     '    END' + @LineFeed +
                                     'END CATCH'                          
                                     ;
-            EXEC sp_MSforeachdb @StringToExecute;
+
+			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+	            EXEC sp_MSforeachdb @StringToExecute;
+			ELSE
+				EXEC(@StringToExecute);
 
 			/* Set timeout back to a default value of -1 */
 			SET LOCK_TIMEOUT -1;
