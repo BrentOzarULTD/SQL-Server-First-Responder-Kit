@@ -3419,15 +3419,34 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
                     SET @BlitzCacheMinutesBack = 15;
 
-                EXEC sp_BlitzCache
-                    @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                    @OutputSchemaName = @UnquotedOutputSchemaName,
-                    @OutputTableName = @OutputTableNameBlitzCache,
-                    @CheckDateOverride = @StartSampleTime,
-                    @SortOrder = 'all',
-                    @SkipAnalysis = @BlitzCacheSkipAnalysis,
-                    @MinutesBack = @BlitzCacheMinutesBack,
-                    @Debug = @Debug;
+                IF(@OutputType = 'NONE')
+				BEGIN 
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = 'all',
+                        @SkipAnalysis = @BlitzCacheSkipAnalysis,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug,
+					    @OutputType = @OutputType
+				    ;
+				END;
+				ELSE
+				BEGIN
+				
+				    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = 'all',
+                        @SkipAnalysis = @BlitzCacheSkipAnalysis,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug
+				    ;
+				END;
 
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
