@@ -1295,35 +1295,42 @@ BEGIN
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
-    INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT 
-		x.Pass, 
-		x.SampleTime, 
-		x.wait_type, 
-		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
-		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
-		FROM (
-		SELECT  
-				1 AS Pass,
-				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
-				owt.wait_type,
-		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
-				0 AS sum_signal_wait_time_ms,
-				0 AS sum_waiting_tasks
-			FROM    sys.dm_os_waiting_tasks owt
-			WHERE owt.session_id > 50
-			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
-		UNION ALL
-		SELECT
-		       1 AS Pass,
-		       CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
-		       os.wait_type,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
-		   FROM sys.dm_os_wait_stats os
+	SET @StringToExecute = N'
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+			SELECT 
+			x.Pass, 
+			x.SampleTime, 
+			x.wait_type, 
+			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+			FROM (
+			SELECT  
+					1 AS Pass,
+					CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+					owt.wait_type,
+					CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+						 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
+					0 AS sum_signal_wait_time_ms,
+					0 AS sum_waiting_tasks
+				FROM    sys.dm_os_waiting_tasks owt
+				WHERE owt.session_id > 50
+				AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+			UNION ALL
+			SELECT
+				   1 AS Pass,
+				   CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+				   os.wait_type,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks ';
+
+	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
+	ELSE
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
+
+	SET @StringToExecute = @StringToExecute + N'
 		) x
 		   WHERE NOT EXISTS 
 		   (
@@ -1333,7 +1340,8 @@ BEGIN
 				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
-		ORDER BY sum_wait_time_ms DESC;
+		ORDER BY sum_wait_time_ms DESC;'
+	EXEC sp_executesql @StringToExecute, N'@StartSampleTime DATETIMEOFFSET, @Seconds INT', @StartSampleTime, @Seconds;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -2442,35 +2450,42 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
-    INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT 
-		x.Pass, 
-		x.SampleTime, 
-		x.wait_type, 
-		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
-		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
-		FROM (
-		SELECT  
-				2 AS Pass,
-				SYSDATETIMEOFFSET() AS SampleTime,
-				owt.wait_type,
-		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
-				0 AS sum_signal_wait_time_ms,
-				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
-			FROM    sys.dm_os_waiting_tasks owt
-			WHERE owt.session_id > 50
-			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
-		UNION ALL
-		SELECT
-		       2 AS Pass,
-		       SYSDATETIMEOFFSET() AS SampleTime,
-		       os.wait_type,
-			   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
-			   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
-			   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
-		   FROM sys.dm_os_wait_stats os
+	SET @StringToExecute = N'
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+			SELECT 
+			x.Pass, 
+			x.SampleTime, 
+			x.wait_type, 
+			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+			FROM (
+			SELECT  
+					2 AS Pass,
+					SYSDATETIMEOFFSET() AS SampleTime,
+					owt.wait_type,
+					SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+						 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
+					0 AS sum_signal_wait_time_ms,
+					CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
+				FROM    sys.dm_os_waiting_tasks owt
+				WHERE owt.session_id > 50
+				AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+			UNION ALL
+			SELECT
+				   2 AS Pass,
+				   SYSDATETIMEOFFSET() AS SampleTime,
+				   os.wait_type,
+				   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
+				   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
+				   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks ';
+
+	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
+	ELSE
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
+
+	SET @StringToExecute = @StringToExecute + N'
 		) x
 		   WHERE NOT EXISTS 
 		   (
@@ -2480,7 +2495,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
-		ORDER BY sum_wait_time_ms DESC;
+		ORDER BY sum_wait_time_ms DESC;';
+	EXEC sp_executesql @StringToExecute, N'@Seconds INT', @Seconds;
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
