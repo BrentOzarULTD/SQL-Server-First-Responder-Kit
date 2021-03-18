@@ -179,7 +179,7 @@ Other common parameters include:
 * @Top = 10 - by default, you get 10 plans, but you can ask for more. Just know that the more you get, the slower it goes.
 * @ExportToExcel = 1 - turn this on, and it doesn't return XML fields that would hinder you from copy/pasting the data into Excel.
 * @ExpertMode = 1 - turn this on, and you get more columns with more data. Doesn't take longer to run though.
-* @IgnoreSystemDBs = 0 - if you want to show queries in master/model/msdb. By default we hide these.
+* @IgnoreSystemDBs = 0 - if you want to show queries in master/model/msdb. By default we hide these. Additionally hides queries from databases named `dbadmin`, `dbmaintenance`, and `dbatools`.
 * @MinimumExecutionCount = 0 - in servers like data warehouses where lots of queries only run a few times, you can set a floor number for examination.
 
 [*Back to top*](#header1)
@@ -398,8 +398,8 @@ Get information for the last hour from all sp_BlitzFirst output tables
 
 ```SQL
 EXEC sp_BlitzAnalysis 
-	@FromDate = NULL,
-	@ToDate = NULL,	
+	@StartDate = NULL,
+	@EndDate = NULL,
 	@OutputDatabaseName = 'DBAtools',
 	@OutputSchemaName = 'dbo',
 	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
@@ -413,8 +413,8 @@ Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no loo
 
 ```SQL
 EXEC sp_BlitzAnalysis 
-	@FromDate = NULL,
-	@ToDate = NULL,	
+	@StartDate = NULL,
+	@EndDate = NULL,
 	@OutputDatabaseName = 'DBAtools',
 	@OutputSchemaName = 'Blitz',
 	@OutputTableNameFileStats = N'BlitzFirst_FileStats',		
