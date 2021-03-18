@@ -759,6 +759,7 @@ IF @GetAllDatabases = 1
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
+		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance')
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
 
