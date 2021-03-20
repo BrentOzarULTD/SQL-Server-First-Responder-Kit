@@ -321,6 +321,15 @@ AS
 			);
 		CREATE CLUSTERED INDEX IX_CheckID_DatabaseName ON #SkipChecks(CheckID, DatabaseName);
 
+        INSERT INTO #SkipChecks
+		    (DatabaseName)
+        SELECT
+		    DB_NAME(d.database_id)
+        FROM sys.databases AS d
+        WHERE (DB_NAME(d.database_id) LIKE 'rdsadmin%'
+		         OR LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance'))
+		OPTION(RECOMPILE);
+
         IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
         BEGIN
             EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
