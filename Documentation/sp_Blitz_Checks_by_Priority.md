@@ -110,7 +110,6 @@ If you want to add a new one, start at 257.
 | 150 | Performance | Deadlocks Happening Daily | https://www.BrentOzar.com/go/deadlocks | 124 |
 | 150 | Performance | Forced Parameterization On | https://www.BrentOzar.com/go/forced | 18 |
 | 150 | Performance | Foreign Keys Not Trusted | https://www.BrentOzar.com/go/trust | 48 |
-| 150 | Performance | Inactive Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 39 |
 | 150 | Performance | Leftover Fake Indexes From Wizards | https://www.BrentOzar.com/go/hypo | 46 |
 | 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 150 | Performance | Queries Forcing Join Hints | https://www.BrentOzar.com/go/hints | 45 |
