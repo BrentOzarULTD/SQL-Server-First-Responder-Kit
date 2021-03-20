@@ -6385,38 +6385,6 @@ IF @ProductVersionMajor >= 10
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 38 )
-							BEGIN
-								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 38) WITH NOWAIT;
-								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
-			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-            INSERT INTO #BlitzResults
-			(CheckID,
-			DatabaseName,
-			Priority,
-			FindingsGroup,
-			Finding,
-			URL,
-			Details)
-		  SELECT DISTINCT 38,
-		  N''?'',
-		  110,
-		  ''Performance'',
-		  ''Active Tables Without Clustered Indexes'',
-		  ''https://www.brentozar.com/go/heaps'',
-		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that are being actively queried.'')
-		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
-		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-		  INNER JOIN sys.databases sd ON sd.name = N''?''
-		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
-		  WHERE i.type_desc = ''HEAP'' AND COALESCE(NULLIF(ius.user_seeks,0), NULLIF(ius.user_scans,0), NULLIF(ius.user_lookups,0), NULLIF(ius.user_updates,0)) IS NOT NULL
-		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S'' OPTION (RECOMPILE)';
-							END;
-
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 164 )
                             AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'fn_validate_plan_guide')
 							BEGIN
@@ -6441,38 +6409,6 @@ IF @ProductVersionMajor >= 10
 		  ''https://www.brentozar.com/go/misguided'',
 		  (''The ['' + DB_NAME() + ''] database has plan guides that are no longer valid, so the queries involved may be failing silently.'')
 		  FROM [?].sys.plan_guides g CROSS APPLY fn_validate_plan_guide(g.plan_guide_id) OPTION (RECOMPILE)';
-							END;
-
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 39 )
-							BEGIN
-								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 39) WITH NOWAIT;
-								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
-			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-            INSERT INTO #BlitzResults
-			(CheckID,
-			DatabaseName,
-			Priority,
-			FindingsGroup,
-			Finding,
-			URL,
-			Details)
-		  SELECT DISTINCT 39,
-		  N''?'',
-		  150,
-		  ''Performance'',
-		  ''Inactive Tables Without Clustered Indexes'',
-		  ''https://www.brentozar.com/go/heaps'',
-		  (''The ['' + DB_NAME() + ''] database has heaps - tables without a clustered index - that have not been queried since the last restart.  These may be backup tables carelessly left behind.'')
-		  FROM [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id
-		  INNER JOIN [?].sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-		  INNER JOIN sys.databases sd ON sd.name = N''?''
-		  LEFT OUTER JOIN [?].sys.dm_db_index_usage_stats ius ON i.object_id = ius.object_id AND i.index_id = ius.index_id AND ius.database_id = sd.database_id
-		  WHERE i.type_desc = ''HEAP'' AND COALESCE(NULLIF(ius.user_seeks,0), NULLIF(ius.user_scans,0), NULLIF(ius.user_lookups,0), NULLIF(ius.user_updates,0)) IS NULL
-		  AND sd.name <> ''tempdb'' AND sd.name <> ''DWDiagnostics'' AND o.is_ms_shipped = 0 AND o.type <> ''S'' OPTION (RECOMPILE)';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
