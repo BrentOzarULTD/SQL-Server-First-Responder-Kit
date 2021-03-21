@@ -36,7 +36,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '8.01', @VersionDate = '20210222';
+SELECT @Version = '8.02', @VersionDate = '20210321';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -304,7 +304,7 @@ SET @Sql = N'SELECT
 [wait_time_minutes_per_minute], 
 [signal_wait_time_ms_delta], 
 [waiting_tasks_count_delta],
-CAST(ISNULL((CAST([wait_time_ms_delta] AS MONEY)/NULLIF(CAST([waiting_tasks_count_delta] AS MONEY),0)),0) AS DECIMAL(18,2)) AS [wait_time_ms_per_wait]
+ISNULL((CAST([wait_time_ms_delta] AS DECIMAL(38,2))/NULLIF(CAST([waiting_tasks_count_delta] AS DECIMAL(38,2)),0)),0) AS [wait_time_ms_per_wait]
 FROM 
 (
 	SELECT

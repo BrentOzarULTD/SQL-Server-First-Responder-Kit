@@ -53,6 +53,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3356, 'RTM CU23', 'https://support.microsoft.com/en-us/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
     (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/en-us/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
     (14, 3356, 'RTM CU22', 'https://support.microsoft.com/en-us/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
     (14, 3335, 'RTM CU21', 'https://support.microsoft.com/en-us/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),

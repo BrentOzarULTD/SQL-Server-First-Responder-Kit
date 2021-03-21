@@ -29,7 +29,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.01', @VersionDate = '20210222';
+	SELECT @Version = '8.02', @VersionDate = '20210321';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -444,18 +444,18 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [request_cpu_time], ' + @LineFeed 
 				+ N'			       [degree_of_parallelism], ' + @LineFeed 
 				+ N'			       [request_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_logical_reads] AS MONEY)* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
 				+ N'			       [request_writes], ' + @LineFeed 
-				+ N'			       ((CAST([request_writes] AS MONEY)* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_writes] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
 				+ N'			       [request_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_physical_reads] AS MONEY)* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_cpu], ' + @LineFeed 
 				+ N'			       [session_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_logical_reads] AS MONEY)* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_physical_reads] AS MONEY)* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_writes], ' + @LineFeed 
-				+ N'			       ((CAST([session_writes] AS MONEY)* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_writes] AS DECIMAL(38,2))* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
 				+ N'			       [tempdb_allocations_mb], ' + @LineFeed 
 				+ N'			       [memory_usage], ' + @LineFeed 
 				+ N'			       [estimated_completion_time], ' + @LineFeed 

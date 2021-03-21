@@ -69,7 +69,7 @@ If you want to add a new one, start at 257.
 | 50 | Reliability | Possibly Broken Log Shipping | https://www.BrentOzar.com/go/shipping | 111 |
 | 50 | Reliability | TempDB File Error | https://www.BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
-| 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
+| 50 | Reliability | Default Trace File Error | https://www.brentozar.com/go/defaulttrace | 199 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | https://www.BrentOzar.com/go/hekaton | 147 |
 | 100 | Features | Missing Features (2016 SP1) | https://www.BrentOzar.com/ | 189 |
 | 100 | Features | Missing Features (2017 CU3) | https://www.BrentOzar.com/ | 216 |
@@ -110,7 +110,6 @@ If you want to add a new one, start at 257.
 | 150 | Performance | Deadlocks Happening Daily | https://www.BrentOzar.com/go/deadlocks | 124 |
 | 150 | Performance | Forced Parameterization On | https://www.BrentOzar.com/go/forced | 18 |
 | 150 | Performance | Foreign Keys Not Trusted | https://www.BrentOzar.com/go/trust | 48 |
-| 150 | Performance | Inactive Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 39 |
 | 150 | Performance | Leftover Fake Indexes From Wizards | https://www.BrentOzar.com/go/hypo | 46 |
 | 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 150 | Performance | Queries Forcing Join Hints | https://www.BrentOzar.com/go/hints | 45 |
@@ -155,7 +154,7 @@ If you want to add a new one, start at 257.
 | 200 | Monitoring | Agent Jobs Without Failure Emails | https://www.BrentOzar.com/go/alerts | 94 |
 | 200 | Monitoring | Alerts Configured without Follow Up | https://www.BrentOzar.com/go/alert | 59 |
 | 200 | Monitoring | Alerts Disabled | https://www.BrentOzar.com/go/alerts/ | 98 |
-| 200 | Monitoring | Alerts Without Event Descriptions | https://BrentOzar.com/go/alert | 219 |
+| 200 | Monitoring | Alerts Without Event Descriptions | https://www.brentozar.com/go/alert | 219 |
 | 200 | Monitoring | Extended Events Hyperextension | https://www.BrentOzar.com/go/xe | 176 |
 | 200 | Monitoring | No Alerts for Corruption | https://www.BrentOzar.com/go/alert | 96 |
 | 200 | Monitoring | No Alerts for Sev 19-25 | https://www.BrentOzar.com/go/alert | 61 |

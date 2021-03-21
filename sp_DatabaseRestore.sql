@@ -11,6 +11,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @MoveDataDrive NVARCHAR(260) = NULL, 
     @MoveLogDrive NVARCHAR(260) = NULL, 
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
+	@MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
 	@BufferCount INT = NULL,
 	@MaxTransferSize INT = NULL,
 	@BlockSize INT = NULL,
@@ -39,7 +40,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '8.01', @VersionDate = '20210222';
+SELECT @Version = '8.02', @VersionDate = '20210321';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -425,6 +426,22 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive += N'/';
 END;
+/*Move FullText Catalog File*/
+IF NULLIF(@MoveFullTextCatalogDrive, '') IS NULL
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Setting default data drive for @MoveFullTextCatalogDrive', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive  = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
+END;
+IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveFullTextCatalogDrive) > 0 --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive += N'\';
+END;
+ELSE IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFullTextCatalogDrive) > 0 --Has to end in a '/'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "/"', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive += N'/';
+END;
 /*Standby Undo File*/
 IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' AND CHARINDEX('\', @StandbyUndoPath) > 0 --Has to end in a '\'
 BEGIN
@@ -727,6 +744,7 @@ BEGIN
 				    WHEN Type = 'D' THEN @MoveDataDrive
 				    WHEN Type = 'L' THEN @MoveLogDrive
 				    WHEN Type = 'S' THEN @MoveFilestreamDrive
+					WHEN Type = 'F' THEN @MoveFullTextCatalogDrive
 			    END + CASE 
                         WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
 					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
