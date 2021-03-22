@@ -36,7 +36,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 AS 
 SET NOCOUNT ON;
 
-SELECT @Version = '8.02', @VersionDate = '20210321';
+SELECT @Version = '8.02', @VersionDate = '20210322';
 
 IF(@VersionCheckMode = 1)
 BEGIN

@@ -32,7 +32,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.02', @VersionDate = '20210321';
+SELECT @Version = '8.02', @VersionDate = '20210322';
 
 
 IF(@VersionCheckMode = 1)
@@ -1315,6 +1315,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					dp.is_victim,
 					ISNULL(dp.owner_mode, '-') AS owner_mode,
 					NULL AS owner_waiter_type,
@@ -1371,6 +1372,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					1 AS is_victim,
 					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
@@ -1536,6 +1538,7 @@ ELSE  --Output to database is not set output to client app
 						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						dp.is_victim,
 						ISNULL(dp.owner_mode, '-') AS owner_mode,
 						NULL AS owner_waiter_type,
@@ -1592,6 +1595,7 @@ ELSE  --Output to database is not set output to client app
 						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						1 AS is_victim,
 						cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 						cao.waiter_type AS owner_waiter_type,
