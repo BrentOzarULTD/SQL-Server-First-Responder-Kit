@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
+	@ShowActualParameters BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -813,7 +814,13 @@ IF @ProductVersionMajor >= 11
 						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
 						FOR XML PATH('''')), 1,2,'''')
 						AS Cached_Parameter_Info,
-				   qs_live.Live_Parameter_Info as Live_Parameter_Info,
+						'
+	IF @ShowActualParameters = 1
+	BEGIN
+		SELECT @StringToExecute = @StringToExecute + N'qs_live.Live_Parameter_Info as Live_Parameter_Info,'
+	END
+
+	SELECT @StringToExecute = @StringToExecute + N'
 			       qmg.query_cost ,
 			       s.status ,
 					CASE
@@ -1135,7 +1142,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_plan]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
 	,[Cached_Parameter_Info]'
-	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_parameter_info]' ELSE N'' END + N'
+	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[live_parameter_info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
 	,[wait_info]'
