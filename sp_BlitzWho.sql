@@ -112,9 +112,6 @@ DECLARE  @ProductVersion NVARCHAR(128)
 								AND r.plan_handle = session_stats.plan_handle
 						  AND r.statement_start_offset = session_stats.statement_start_offset
 						  AND r.statement_end_offset = session_stats.statement_end_offset' 
-		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , '
-		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
-		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
 		,@ObjectFullName NVARCHAR(2000)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
 		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
@@ -125,18 +122,6 @@ SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
-
-SET @QueryStatsXMLselect = N' NULL AS live_query_plan , ';
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
- BEGIN
-  SET @QueryStatsXMLselect = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ';
-  SET @QueryStatsXMLSQL = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live';
- END
- ELSE
- BEGIN
-  SET @QueryStatsXMLselect = N' NULL AS live_query_plan , ';
-  SET @QueryStatsXMLSQL = N' ';
- END
 
 SELECT
 	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
@@ -177,6 +162,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[query_text] [nvarchar](max) NULL,
 	[query_plan] [xml] NULL,
 	[live_query_plan] [xml] NULL,
+	[cached_parameter_info] [varchar](max) NULL,
+	[live_parameter_info] [varchar](max) NULL,
 	[query_cost] [float] NULL,
 	[status] [nvarchar](30) NOT NULL,
 	[wait_info] [nvarchar](max) NULL,
@@ -825,10 +812,6 @@ IF @ProductVersionMajor >= 11
 	END
 
 	SELECT @StringToExecute = @StringToExecute + N'
-				   qs_live.Live_Parameter_Info as Live_Parameter_Info,
-			       derp.query_plan ,'
-						     + @QueryStatsXMLselect
-						    +' 
 			       qmg.query_cost ,
 			       s.status ,
 					CASE
