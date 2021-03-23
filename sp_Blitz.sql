@@ -37,7 +37,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.999', @VersionDate = '20201011';
+	SELECT @Version = '8.0', @VersionDate = '20210117';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -45,7 +45,9 @@ AS
 		RETURN;
 	END;
 
-	IF @Help = 1 PRINT '
+	IF @Help = 1 
+	BEGIN
+	PRINT '
 	/*
 	sp_Blitz from http://FirstResponderKit.org
 	
@@ -90,9 +92,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2020.
+	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2021.
 
-	Copyright (c) 2020 Brent Ozar Unlimited
+	Copyright (c) 2021 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -113,6 +115,9 @@ AS
 	SOFTWARE.
 
 	*/';
+	RETURN;
+	END;    /* @Help = 1 */
+
 	ELSE IF @OutputType = 'SCHEMA'
 	BEGIN
 		SELECT FieldList = '[Priority] TINYINT, [FindingsGroup] VARCHAR(50), [Finding] VARCHAR(200), [DatabaseName] NVARCHAR(128), [URL] VARCHAR(200), [Details] NVARCHAR(4000), [QueryPlan] NVARCHAR(MAX), [QueryPlanFiltered] NVARCHAR(MAX), [CheckID] INT';
@@ -1031,6 +1036,64 @@ AS
 					END;
 
 				/*
+				CheckID #256 is searching for backups to NUL.
+				*/
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 256 )
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2) WITH NOWAIT;
+
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  DatabaseName ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+										SELECT DISTINCT
+										256 AS CheckID ,
+										d.name AS DatabaseName,
+										1 AS Priority ,
+										'Backup' AS FindingsGroup ,
+										'Log Backups to NUL' AS Finding ,
+										'https://www.brentozar.com/go/nul' AS URL ,
+										N'The transaction log file has been backed up ' +  CAST((SELECT count(*)
+														 FROM   msdb.dbo.backupset AS b INNER JOIN
+																msdb.dbo.backupmediafamily AS bmf
+																	ON	b.media_set_id = bmf.media_set_id
+														 WHERE  b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS = d.name COLLATE SQL_Latin1_General_CP1_CI_AS
+																AND bmf.physical_device_name = 'NUL'
+																AND b.type = 'L'
+																AND b.backup_finish_date >= DATEADD(dd,
+																  -7, GETDATE())) AS NVARCHAR(8)) + ' time(s) to ''NUL'' in the last week, which means the backup does not exist. This breaks point-in-time recovery.' AS Details
+								FROM    master.sys.databases AS d
+								WHERE   d.recovery_model IN ( 1, 2 )
+										AND d.database_id NOT IN ( 2, 3 )
+										AND d.source_database_id IS NULL
+										AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
+										AND d.is_in_standby = 0 /* Not a log shipping target database */
+										AND d.source_database_id IS NULL /* Excludes database snapshots */
+										--AND d.name NOT IN ( SELECT DISTINCT
+										--						  DatabaseName
+										--					FROM  #SkipChecks
+										--					WHERE CheckID IS NULL OR CheckID = 2)
+										AND EXISTS (	 SELECT *
+														 FROM   msdb.dbo.backupset AS b INNER JOIN
+																msdb.dbo.backupmediafamily AS bmf
+																	ON	b.media_set_id = bmf.media_set_id
+														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																AND bmf.physical_device_name = 'NUL'
+																AND b.type = 'L'
+																AND b.backup_finish_date >= DATEADD(dd,
+																  -7, GETDATE()) );
+					END;
+
+				/*
 				Next up, we've got CheckID 8. (These don't have to go in order.) This one
 				won't work on SQL Server 2005 because it relies on a new DMV that didn't
 				exist prior to SQL Server 2008. This means we have to check the SQL Server
@@ -1607,6 +1670,7 @@ AS
 										  + '] has auto-shrink enabled.  This setting can dramatically decrease performance.' ) AS Details
 								FROM    sys.databases
 								WHERE   is_auto_shrink_on = 1
+										AND state <> 6 /* Offline */
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
 														  FROM    #SkipChecks
@@ -1640,7 +1704,7 @@ AS
 					  FROM sys.databases
 					  WHERE page_verify_option < 2
 					  AND name <> ''tempdb''
-					  AND state <> 1 /* Restoring */
+					  AND state NOT IN (1, 6) /* Restoring, Offline */
 					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 14) OPTION (RECOMPILE);';
 								
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -4396,7 +4460,8 @@ IF @ProductVersionMajor >= 10
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%';
+						  AND [servicename] NOT LIKE 'SQL Server Agent%'
+						  AND [servicename] NOT LIKE 'SQL Server Launchpad%';
 
 					END;
 					END;

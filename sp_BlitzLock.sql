@@ -32,14 +32,16 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.999', @VersionDate = '20201011';
+SELECT @Version = '8.0', @VersionDate = '20210117';
 
 
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
-	IF @Help = 1 PRINT '
+	IF @Help = 1 
+	BEGIN
+	PRINT '
 	/*
 	sp_BlitzLock from http://FirstResponderKit.org
 	
@@ -94,7 +96,7 @@ END;
 
     MIT License
 	   
-	Copyright (c) 2020 Brent Ozar Unlimited
+	Copyright (c) 2021 Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -115,8 +117,9 @@ END;
 	SOFTWARE.
 
 	*/';
-
-
+	RETURN;
+	END;    /* @Help = 1 */
+	
         DECLARE @ProductVersion NVARCHAR(128);
         DECLARE @ProductVersionMajor FLOAT;
         DECLARE @ProductVersionMinor INT;
@@ -187,7 +190,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			finding NVARCHAR(4000)
 		);
 
-		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100);
+		DECLARE @d VARCHAR(40), @StringToExecute NVARCHAR(4000),@StringToExecuteParams NVARCHAR(500),@r NVARCHAR(200),@OutputTableFindings NVARCHAR(100),@DeadlockCount INT;
 		DECLARE @ServerName NVARCHAR(256)
 		DECLARE @OutputDatabaseCheck BIT;
 		SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -299,9 +302,24 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NULL
-		   BEGIN
-		       UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
-           END
+		   BEGIN;
+				BEGIN TRY;
+					UPDATE STATISTICS #t WITH ROWCOUNT = 100000000, PAGECOUNT = 100000000;
+				END TRY
+				BEGIN CATCH;
+					/* Misleading error returned, if run without permissions to update statistics the error returned is "Cannot find object".
+					   Catching specific error, and returning message with better info. If any other error is returned, then throw as normal */
+					IF (ERROR_NUMBER() = 1088)
+					BEGIN;
+						SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+						RAISERROR('Cannot run UPDATE STATISTICS on temp table without db_owner or sysadmin permissions %s', 0, 1, @d) WITH NOWAIT;
+					END;
+					ELSE
+					BEGIN;
+						THROW;
+					END;
+				END CATCH;
+			END;
 
 		/*Grab the initial set of XML to parse*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
@@ -309,23 +327,36 @@ You need to use an Azure storage account, and the path has to look like this: ht
         WITH xml
         AS ( SELECT CONVERT(XML, event_data) AS deadlock_xml
              FROM   sys.fn_xe_file_target_read_file(@EventSessionPath, NULL, NULL, NULL) )
-        SELECT TOP ( @Top ) ISNULL(xml.deadlock_xml, '') AS deadlock_xml
+        SELECT ISNULL(xml.deadlock_xml, '') AS deadlock_xml
         INTO   #deadlock_data
         FROM   xml
         LEFT JOIN #t AS t
         ON 1 = 1
-        WHERE  xml.deadlock_xml.value('(/event/@name)[1]', 'VARCHAR(256)') = 'xml_deadlock_report'
+        CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS x(c)
+        WHERE  1 = 1 
+        AND    x.c.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  > @StartDate
         AND    CONVERT(datetime, SWITCHOFFSET(CONVERT(datetimeoffset, xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ), DATENAME(TzOffset, SYSDATETIMEOFFSET())))  < @EndDate
 		ORDER BY xml.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') DESC
 		OPTION ( RECOMPILE );
 
+		/*Optimization: if we got back more rows than @Top, remove them. This seems to be better than using @Top in the query above as that results in excessive memory grant*/
+		SET @DeadlockCount = @@ROWCOUNT
+		IF( @Top < @DeadlockCount ) BEGIN
+			WITH T
+			AS (
+				SELECT TOP ( @DeadlockCount - @Top) *
+				FROM   #deadlock_data
+				ORDER  BY #deadlock_data.deadlock_xml.value('(/event/@timestamp)[1]', 'datetime') ASC)
+			DELETE FROM T 
+		END
 
 		/*Parse process and input buffer XML*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Parse process and input buffer XML %s', 0, 1, @d) WITH NOWAIT;
         SELECT      q.event_date,
                     q.victim_id,
+					CONVERT(BIT, q.is_parallel) AS is_parallel,
                     q.deadlock_graph,
                     q.id,
                     q.database_id,
@@ -349,6 +380,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
         FROM        (   SELECT      dd.deadlock_xml,
                                     CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dd.event_date ), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
                                     dd.victim_id,
+									CONVERT(tinyint, dd.is_parallel) + CONVERT(tinyint, dd.is_parallel_batch) AS is_parallel,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
                                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
@@ -370,6 +402,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
                         FROM        (   SELECT d1.deadlock_xml,
                                                d1.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
                                                d1.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
+											   d1.deadlock_xml.exist('//deadlock/resource-list/exchangeEvent') AS is_parallel,
+											   d1.deadlock_xml.exist('//deadlock/resource-list/SyncPoint') AS is_parallel_batch,
                                                d1.deadlock_xml.query('/event/data/value/deadlock') AS deadlock_graph
                                         FROM   #deadlock_data AS d1 ) AS dd
                         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
@@ -401,12 +435,19 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/*Grab the full resource list*/
         SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
         RAISERROR('Grab the full resource list %s', 0, 1, @d) WITH NOWAIT;
+        SELECT 
+                    CONVERT(DATETIME2(7), SWITCHOFFSET(CONVERT(datetimeoffset, dr.event_date), DATENAME(TzOffset, SYSDATETIMEOFFSET()))) AS event_date,
+                    dr.victim_id, 
+                    dr.resource_xml
+        INTO        #deadlock_resource
+        FROM 
+        (
         SELECT      dd.deadlock_xml.value('(event/@timestamp)[1]', 'DATETIME2') AS event_date,
 					dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'NVARCHAR(256)') AS victim_id,
 					ISNULL(ca.dp.query('.'), '') AS resource_xml
-        INTO        #deadlock_resource
         FROM        #deadlock_data AS dd
         CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+        ) AS dr
 		OPTION ( RECOMPILE );
 
 
@@ -593,13 +634,13 @@ You need to use an Azure storage account, and the path has to look like this: ht
  			  ca.spilling,
  			  ca.waiting_to_close,
  	   		  w.l.value('@id', 'NVARCHAR(256)') AS waiter_id,
-               o.l.value('@id', 'NVARCHAR(256)') AS owner_id
+              o.l.value('@id', 'NVARCHAR(256)') AS owner_id
  	   INTO #deadlock_resource_parallel
  	   FROM (
         SELECT		dr.event_date,
  					ca.dr.value('@id', 'NVARCHAR(256)') AS id,
-                     ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
-                     ca.dr.value('@nodeId', 'BIGINT') AS node_id,
+                    ca.dr.value('@WaitType', 'NVARCHAR(256)') AS wait_type,
+                    ca.dr.value('@nodeId', 'BIGINT') AS node_id,
  					/* These columns are in 2017 CU5 ONLY */
  					ca.dr.value('@waiterType', 'NVARCHAR(256)') AS waiter_type,
  					ca.dr.value('@ownerActivity', 'NVARCHAR(256)') AS owner_activity,
@@ -814,6 +855,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		AND (dow.event_date < @EndDate OR @EndDate IS NULL)
 		AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
 		AND dow.lock_type NOT IN (N'HEAP', N'RID')
+		AND dow.index_name is not null
 		GROUP BY DB_NAME(dow.database_id), dow.index_name
 		OPTION ( RECOMPILE );
 
@@ -1198,6 +1240,23 @@ You need to use an Azure storage account, and the path has to look like this: ht
         GROUP BY DB_NAME(aj.database_id), aj.job_name, aj.step_name
 		OPTION ( RECOMPILE );
 
+		/*Check 13 is total parallel deadlocks*/
+        SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
+        RAISERROR('Check 13 %s', 0, 1, @d) WITH NOWAIT;
+		INSERT #deadlock_findings WITH (TABLOCKX) 
+        ( check_id, database_name, object_name, finding_group, finding ) 	
+		SELECT 13 AS check_id, 
+			   N'-' AS database_name, 
+			   '-' AS object_name,
+			   'Total parallel deadlocks' AS finding_group,
+			   'There have been ' 
+				+ CONVERT(NVARCHAR(20), COUNT_BIG(DISTINCT drp.event_date)) 
+				+ ' parallel deadlocks.'
+        FROM   #deadlock_resource_parallel AS drp
+		WHERE 1 = 1
+		HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
+		OPTION ( RECOMPILE );
+
 		/*Thank you goodnight*/
 		INSERT #deadlock_findings WITH (TABLOCKX) 
          ( check_id, database_name, object_name, finding_group, finding ) 
@@ -1274,6 +1333,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					dp.deadlock_graph
 		     FROM   #deadlock_process AS dp 
 			 WHERE dp.victim_id IS NOT NULL
+			 AND   dp.is_parallel = 0
 			 
 			 UNION ALL
 			 
@@ -1285,7 +1345,20 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource COLLATE DATABASE_DEFAULT,
-		            CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) AS object_names,
+					CASE WHEN @ExportToExcel = 0 THEN
+						CONVERT(
+							XML,
+							STUFF(( SELECT DISTINCT NCHAR(10) 
+											+ N' <object>' 
+											+ ISNULL(c.object_name, N'') 
+											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+									FROM   #deadlock_owner_waiter AS c
+									WHERE  ( dp.id = c.owner_id
+											OR dp.victim_id = c.waiter_id )
+									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
+									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+								1, 1, N''))
+						ELSE NULL END AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
@@ -1320,8 +1393,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		     FROM   #deadlock_process AS dp 
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
 			 CROSS APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
-			 WHERE dp.victim_id IS NULL
-			 AND dp.login_name IS NOT NULL)
+			 WHERE dp.is_parallel = 1 )
 		insert into DeadLockTbl (
 			ServerName,
 			deadlock_type,
@@ -1488,7 +1560,8 @@ ELSE  --Output to database is not set output to client app
 						dp.deadlock_graph
 				FROM   #deadlock_process AS dp 
 				WHERE dp.victim_id IS NOT NULL
-				
+				AND   dp.is_parallel = 0			
+
 				UNION ALL
 				
 				SELECT N'Parallel Deadlock' AS deadlock_type,
@@ -1499,7 +1572,20 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT,
-						CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'parallel_deadlock' COLLATE DATABASE_DEFAULT) ELSE 'parallel_deadlock' END AS object_names,
+						CASE WHEN @ExportToExcel = 0 THEN
+							CONVERT(
+								XML,
+								STUFF(( SELECT DISTINCT NCHAR(10) 
+												+ N' <object>' 
+												+ ISNULL(c.object_name, N'') 
+												+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+										FROM   #deadlock_owner_waiter AS c
+										WHERE  ( dp.id = c.owner_id
+												OR dp.victim_id = c.waiter_id )
+										AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
+										FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+									1, 1, N''))
+							ELSE NULL END AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -1532,10 +1618,9 @@ ELSE  --Output to database is not set output to client app
 						caw.waiting_to_close AS waiter_waiting_to_close,
 						dp.deadlock_graph
 				FROM   #deadlock_process AS dp 
-				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeNewRow' ORDER BY drp.event_date) AS cao
-				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type = 'e_waitPipeGetRow' ORDER BY drp.event_date) AS caw
-				WHERE dp.victim_id IS NULL
-				AND dp.login_name IS NOT NULL
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type IN ('e_waitPortOpen', 'e_waitPipeNewRow') ORDER BY drp.event_date) AS cao
+				OUTER APPLY (SELECT TOP 1 * FROM  #deadlock_resource_parallel AS drp WHERE drp.owner_id = dp.id AND drp.wait_type IN ('e_waitPortOpen', 'e_waitPipeGetRow') ORDER BY drp.event_date) AS caw
+				WHERE dp.is_parallel = 1
 				)
 				SELECT d.deadlock_type,
 				d.event_date,

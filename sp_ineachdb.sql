@@ -29,12 +29,12 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version             VARCHAR(30)    = NULL OUTPUT,
   @VersionDate         DATETIME       = NULL OUTPUT,
   @VersionCheckMode    BIT            = 0
--- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security your system
+-- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.999', @VersionDate = '20201011';
+  SELECT @Version = '8.0', @VersionDate = '20210117';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -67,7 +67,7 @@ BEGIN
 		
 		    MIT License
 			
-			Copyright (c) 2019 Brent Ozar Unlimited
+			Copyright (c) 2021 Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
@@ -101,10 +101,14 @@ BEGIN
           @thisdb sysname,
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
-		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')); -- Stores the SQL Server Instance name.
+		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
+		  @NoSpaces nvarchar(20) = N'%[^' + CHAR(9) + CHAR(32) + CHAR(10) + CHAR(13) + N']%'; --Pattern for PATINDEX
+
 
   CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
 
+
+/*
   -- first, let's limit to only DBs the caller is interested in
   IF @database_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
@@ -146,7 +150,67 @@ BEGIN
       ON names.name = d.name
       OPTION (MAXRECURSION 0);
   END
+*/
 
+/*
+@database_list and @exclude_list are are processed at the same time
+1)Read the list searching for a comma or [
+2)If we find a comma, save the name
+3)If we find a [, we begin to accumulate the result until we reach closing ], (jumping over escaped ]]).
+4)Finally, tabs, line breaks and spaces are removed from unquoted names
+*/
+WITH C
+AS (SELECT V.SrcList
+         , CAST('' AS nvarchar(MAX)) AS Name
+         , V.DBList
+         , 0 AS InBracket
+         , 0 AS Quoted
+    FROM (VALUES ('In', @database_list + ','), ('Out', @exclude_list + ',')) AS V (SrcList, DBList)
+    UNION ALL
+	SELECT C.SrcList									
+--       , IIF(V.Found = '[', '', SUBSTRING(C.DBList, 1, V.Place - 1))/*remove initial [*/
+         , CASE WHEN V.Found = '[' THEN '' ELSE SUBSTRING(C.DBList, 1, V.Place - 1)  END  /*remove initial [*/
+         , STUFF(C.DBList, 1, V.Place, '')
+--       , IIF(V.Found = '[', 1, 0)
+		 ,Case WHEN V.Found = '[' THEN 1 ELSE 0 END
+         , 0
+    FROM C
+        CROSS APPLY
+    (   VALUES (PATINDEX('%[,[]%', C.DBList), SUBSTRING(C.DBList, PATINDEX('%[,[]%', C.DBList), 1))) AS V (Place, Found)
+    WHERE C.DBList > ''
+          AND C.InBracket = 0
+    UNION ALL
+    SELECT C.SrcList
+--       , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/ 
+	     , ISNULL(C.Name,'') + ISNULL(SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1),'') /*Accumulates only one ] if escaped]] or none if end]*/ 
+         , STUFF(C.DBList, 1, V.Place + W.DoubleBracket, '')
+         , W.DoubleBracket
+         , 1
+    FROM C
+        CROSS APPLY (VALUES (CHARINDEX(']', C.DBList))) AS V (Place)
+	--  CROSS APPLY (VALUES (IIF(SUBSTRING(C.DBList, V.Place + 1, 1) = ']', 1, 0))) AS W (DoubleBracket)
+        CROSS APPLY (VALUES (CASE WHEN SUBSTRING(C.DBList, V.Place + 1, 1) = ']' THEN 1 ELSE 0 END)) AS W (DoubleBracket)							 				 
+    WHERE C.DBList > ''
+          AND C.InBracket = 1)
+   , F
+AS (SELECT C.SrcList
+         , CASE WHEN C.Quoted = 0 THEN 
+                SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
+             ELSE C.Name END						   
+ AS name
+    FROM C
+    WHERE C.InBracket = 0
+          AND C.Name > '')																	 
+INSERT #ineachdb(id,name,is_distributor)
+SELECT d.database_id
+     , d.name
+     , d.is_distributor
+FROM sys.databases AS d
+WHERE (   EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'In')
+          OR @database_list IS NULL)
+      AND NOT EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'Out')
+OPTION (MAXRECURSION 0);
+;
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
   WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))

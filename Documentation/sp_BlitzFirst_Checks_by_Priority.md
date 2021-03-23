@@ -25,6 +25,7 @@ If you want to add a new check, start at 47
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | https://BrentOzar.com/go/logsize | 14 |
 | 10 | Server Performance | Poison Wait Detected | https://BrentOzar.com/go/poison | 30 |
 | 10 | Server Performance | Target Memory Lower Than Max | https://BrentOzar.com/go/target | 35 |
+| 10 | Azure Performance | Database is Maxed Out | https://BrentOzar.com/go/maxedout | 41 |
 | 40 | Table Problems | Forwarded Fetches/Sec High | https://BrentOzar.com/go/fetch | 29 |
 | 50 | In-Memory OLTP | Garbage Collection in Progress | https://BrentOzar.com/go/garbage | 31 |
 | 50 | Query Problems | Compilations/Sec High | https://BrentOzar.com/go/compile | 15 |
