@@ -8407,7 +8407,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													,CASE WHEN ISNULL(logical_volume_name,'''') = '''' THEN '''' ELSE '' ('' + logical_volume_name + '')'' END AS logical_volume_name
 													,total_bytes/1024/1024 AS total_MB
 													,available_bytes/1024/1024 AS available_MB
-													,(CONVERT(DECIMAL(4,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
+													,(CONVERT(DECIMAL(5,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
 												FROM
 													(SELECT TOP 1 WITH TIES 
 														database_id
