@@ -1134,7 +1134,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_plan]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
 	,[Cached_Parameter_Info]'
-	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[live_parameter_info]' ELSE N'' END + N'
+	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
 	,[wait_info]'
