@@ -3982,7 +3982,7 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%'
 	   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
                                    THEN SUBSTRING(s.compile_time_value, 
 												  CHARINDEX('(', s.compile_time_value) + 1,
-												  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+												  CHARINDEX(')', s.compile_time_value, CHARINDEX('(', s.compile_time_value) + 1) - 1 - CHARINDEX('(', s.compile_time_value)
 												  )
 									WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
 									AND s.variable_datatype NOT LIKE '%binary%' 
