@@ -23,6 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @SkipPartitions BIT	= 0,
     @SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
+	@ShowColumnstoreOnly BIT = 0, /* Will show only the Row Group and Segment details for a table with a columnstore index. */
     @BringThePain BIT = 0,
     @IgnoreDatabases NVARCHAR(MAX) = NULL, /* Comma-delimited list of databases you want to skip */
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -2510,7 +2511,8 @@ BEGIN
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
  
-   	
+   	IF (@ShowColumnstoreOnly = 0)
+	BEGIN
 	   WITH table_mode_cte AS (
         SELECT 
             s.db_schema_object_indexid, 
@@ -2701,7 +2703,8 @@ BEGIN
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
-    END
+     END
+	END
 
     /* Visualize columnstore index contents. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2584 */
     IF 2 = (SELECT SUM(1) FROM sys.all_objects WHERE name IN ('column_store_row_groups','column_store_segments'))
@@ -5173,7 +5176,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 										ISNULL(i.index_name, '''') AS [Index Name],
                                         CASE 
 						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
-							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[database_name]) + N''.'' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                    THEN N''--ALTER TABLE '' + QUOTENAME(i.[database_name]) + N''.'' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
 							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
 						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
 						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + QUOTENAME(i.[database_name]) + N''.'' +
