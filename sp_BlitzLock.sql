@@ -85,7 +85,6 @@ END;
 	   I took a long look at this one, and:
 		1) Trying to account for all the weird places these could crop up is a losing effort. 
 		2) Replace is slow af on lots of XML.
-	- Your mom.
 
 
 
