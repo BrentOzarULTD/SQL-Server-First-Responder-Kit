@@ -4463,7 +4463,7 @@ IF @ProductVersionMajor >= 10
 							'Informational' AS [FindingsGroup] ,
 							'SQL Server is running under an NT Service account' AS [Finding] ,
 							'https://www.brentozar.com/go/setup' AS [URL] ,
-							( 'I''m running as ' + [service_account] + '. I wish I had an Active Directory service account instead.'
+							( 'I''m running as ' + [service_account] + '.'
 							   ) AS [Details]
 						  FROM
 							[sys].[dm_server_services]
@@ -4503,7 +4503,7 @@ IF @ProductVersionMajor >= 10
 							'Informational' AS [FindingsGroup] ,
 							'SQL Server Agent is running under an NT Service account' AS [Finding] ,
 							'https://www.brentozar.com/go/setup' AS [URL] ,
-							( 'I''m running as ' + [service_account] + '. I wish I had an Active Directory service account instead.'
+							( 'I''m running as ' + [service_account] + '.'
 							   ) AS [Details]
 						  FROM
 							[sys].[dm_server_services]
