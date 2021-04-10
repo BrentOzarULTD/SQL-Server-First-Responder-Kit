@@ -6942,20 +6942,23 @@ ELSE
 
     IF @ValidOutputLocation = 1
 		BEGIN
-			SET @StringToExecute = 'USE '
+			SET @StringToExecute = N'USE '
 				+ @OutputDatabaseName
-				+ '; IF EXISTS(SELECT * FROM '
+				+ N'; IF EXISTS(SELECT * FROM '
 				+ @OutputDatabaseName
-				+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 				+ @OutputSchemaName
-				+ ''') AND NOT EXISTS (SELECT * FROM '
+				+ N''') AND NOT EXISTS (SELECT * FROM '
 				+ @OutputDatabaseName
-				+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-				+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-				+ @OutputTableName + ''') CREATE TABLE '
-				+ @OutputSchemaName + '.'
+				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+				+ @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
+				+ @OutputTableName + N''') CREATE TABLE '
+				+ @OutputSchemaName + N'.'
 				+ @OutputTableName
-				+ N'(ID bigint NOT NULL IDENTITY(1,1),
+				+ CONVERT
+                  (
+                  nvarchar(MAX),
+				 N'(ID bigint NOT NULL IDENTITY(1,1),
 					ServerName NVARCHAR(258),
 					CheckDate DATETIMEOFFSET,
 					Version NVARCHAR(258),
@@ -7031,27 +7034,28 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
+				  );
 
 			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
 					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 					+@OutputSchemaName
-					+''') AND EXISTS (SELECT * FROM '
+					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
 					+@OutputSchemaName
-					+''' AND QUOTENAME(TABLE_NAME) = '''
+					+N''' AND QUOTENAME(TABLE_NAME) = '''
 					+@OutputTableName
-					+''') AND EXISTS (SELECT * FROM '
+					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
 					+@OutputTableName
-					+''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
+					+N''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
 BEGIN 
 	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
-	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' DROP COLUMN [PlanCreationTimeHours];
-	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
+	ALTER TABLE '+@OutputDatabaseName+N'.'+@OutputSchemaName+N'.'+@OutputTableName+N' DROP COLUMN [PlanCreationTimeHours];
+	ALTER TABLE '+@OutputDatabaseName+N'.'+@OutputSchemaName+N'.'+@OutputTableName+N' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
 END ';
 
             IF @ValidOutputServer = 1
