@@ -2783,9 +2783,9 @@ BEGIN
 				FROM (
 					SELECT c.name AS column_name, p.partition_number,' + IIF(@ShowPartitionRanges = 1, N'
 						CASE WHEN pf.boundary_value_on_right = 0 THEN ''>'' ELSE ''>='' END range_start_op,
-						CASE WHEN pp.system_type_id IN (42, 43, 58, 61) THEN CONVERT(NVARCHAR(4000), prvs.value, 126) ELSE CAST(prvs.value AS NVARCHAR(4000)) END range_start,
+						CASE WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN CONVERT(NVARCHAR(4000), prvs.value, 126) ELSE CAST(prvs.value AS NVARCHAR(4000)) END range_start,
 						CASE WHEN pf.boundary_value_on_right = 0 THEN ''<='' ELSE ''<'' END range_end_op,
-						CASE WHEN pp.system_type_id IN (42, 43, 58, 61) THEN CONVERT(NVARCHAR(4000), prve.value, 126) ELSE CAST(prve.value AS NVARCHAR(4000)) END range_end,', '') + N'
+						CASE WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN CONVERT(NVARCHAR(4000), prve.value, 126) ELSE CAST(prve.value AS NVARCHAR(4000)) END range_end,', '') + N'
 						rg.row_group_id, rg.total_rows, rg.deleted_rows,
 						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
