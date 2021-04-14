@@ -2778,9 +2778,9 @@ BEGIN
 
 			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
 				SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + IIF(@ShowPartitionRanges = 1, N',
-					COALESCE(range_start_op + '' '' + range_start + '' '', '''') + COALESCE(range_end_op + '' '' + range_end, '''') AS partition_range', '') + N'
+					COALESCE(range_start_op + '' '' + range_start + '' '', '''') + COALESCE(range_end_op + '' '' + range_end, '''') AS partition_range
 				FROM (
-					SELECT column_name, partition_number, row_group_id, total_rows, deleted_rows, details' + IIF(@ShowPartitionRanges = 1, N',
+					SELECT column_name, partition_number, row_group_id, total_rows, deleted_rows, details,
 						range_start_op,
 						CASE
 							WHEN format_type IS NULL THEN CAST(range_start_value AS NVARCHAR(4000))
@@ -2811,8 +2811,8 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number', '') + N'
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
-						WHERE rg.object_id = @ObjectID
-					) AS y
+						WHERE rg.object_id = @ObjectID' + IIF(@ShowPartitionRanges = 1, N'
+					) AS y', '') + N'
 				) AS x
 				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
 				ORDER BY partition_number, row_group_id;';
