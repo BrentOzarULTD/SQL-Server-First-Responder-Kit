@@ -34,7 +34,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
-	@ShowPartitionRanges BIT = 1 /* Will add partition range values column to columnstore visualization */,
+	@ShowPartitionRanges BIT = 0 /* Will add partition range values column to columnstore visualization */,
 	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
@@ -2795,6 +2795,7 @@ BEGIN
 							CASE
 								WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN 126
 								WHEN pp.system_type_id IN (59, 62) THEN 3
+								WHEN pp.system_type_id IN (60, 122) THEN 2
 								ELSE NULL END format_type,
 							CASE WHEN pf.boundary_value_on_right = 0 THEN ''>'' ELSE ''>='' END range_start_op,
 							prvs.value range_start_value,
