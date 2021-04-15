@@ -634,8 +634,8 @@ AS
 			DROP TABLE #driveInfo;
 		CREATE TABLE #driveInfo
 			(
-			  drive NVARCHAR,
-              logical_volume_name NVARCHAR(32), --Limit is 32 for NTFS, 11 for FAT
+			  drive NVARCHAR(2),
+              logical_volume_name NVARCHAR(36), --Limit is 32 for NTFS, 11 for FAT
 			  available_MB DECIMAL(18, 0),
               total_MB DECIMAL(18, 0),
               used_percent DECIMAL(18, 2)
@@ -8404,7 +8404,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									inner join (
 												SELECT DISTINCT
 													SUBSTRING(volume_mount_point, 1, 1) AS volume_mount_point
-													,CASE WHEN ISNULL(logical_volume_name,'''') = '''' THEN '''' ELSE '' ('' + logical_volume_name + '')'' END AS logical_volume_name
+													,CASE WHEN ISNULL(logical_volume_name,'''') = '''' THEN '''' ELSE ''('' + logical_volume_name + '')'' END AS logical_volume_name
 													,total_bytes/1024/1024 AS total_MB
 													,available_bytes/1024/1024 AS available_MB
 													,(CONVERT(DECIMAL(5,2),(total_bytes/1.0 - available_bytes)/total_bytes * 100))  AS used_percent
@@ -8441,7 +8441,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													+ '' drive''
 													ELSE CAST(CAST(i.available_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
 													+ '' GB free on '' + i.drive
-													+ '' drive'' + i.logical_volume_name
+													+ '' drive '' + i.logical_volume_name
 													+ '' out of '' + CAST(CAST(i.total_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
 													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''%)'' END
 												 AS Details
