@@ -45,7 +45,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.02', @VersionDate = '20210322';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -4456,8 +4456,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     [FindingsGroup] ,
                     [Finding] ,
                     [URL] ,
-                    CAST(@StockDetailsHeader + [Details] + @StockDetailsFooter AS NVARCHAR(MAX)) AS Details,
-                    CAST([HowToStopIt] AS NVARCHAR(MAX)) AS HowToStopIt,
+                    CAST(LEFT(@StockDetailsHeader + [Details] + @StockDetailsFooter,32000) AS TEXT) AS Details,
+                    CAST(LEFT([HowToStopIt],32000) AS TEXT) AS HowToStopIt,
                     CAST([QueryText] AS NVARCHAR(MAX)) AS QueryText,
                     CAST([QueryPlan] AS NVARCHAR(MAX)) AS QueryPlan
             FROM    #BlitzFirstResults
