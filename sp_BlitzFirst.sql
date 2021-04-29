@@ -2291,7 +2291,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 								 CONVERT(VARCHAR(8000), rb.record) AS record
 					 FROM
 								 (   SELECT CONVERT(XML, dorb.record) AS record,
-											DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+											DATEADD(ms, -( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
 									 FROM   sys.dm_os_ring_buffers AS dorb
 									 CROSS JOIN
 											( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
