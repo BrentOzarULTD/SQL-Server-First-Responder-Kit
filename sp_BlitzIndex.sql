@@ -1674,6 +1674,7 @@ BEGIN TRY
 				  	  ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
 			      ) q2
 				  CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+                  WHERE ig.index_group_handle = gs.group_handle
 			  ) '
 		END
         
