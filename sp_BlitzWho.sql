@@ -20,6 +20,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
+	@ShowActualParameters BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -29,7 +30,7 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.9999', @VersionDate = '20201114';
+	SELECT @Version = '8.03', @VersionDate = '20210420';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -39,6 +40,7 @@ BEGIN
 
 
 	IF @Help = 1
+	BEGIN
 		PRINT '
 sp_BlitzWho from http://FirstResponderKit.org
 
@@ -56,7 +58,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2020 Brent Ozar Unlimited
+Copyright (c) 2021 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -76,6 +78,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ';
+RETURN;
+END;    /* @Help = 1 */
 
 /* Get the major and minor build numbers */
 DECLARE  @ProductVersion NVARCHAR(128)
@@ -108,8 +112,6 @@ DECLARE  @ProductVersion NVARCHAR(128)
 								AND r.plan_handle = session_stats.plan_handle
 						  AND r.statement_start_offset = session_stats.statement_start_offset
 						  AND r.statement_end_offset = session_stats.statement_end_offset' 
-		,@QueryStatsXMLselect NVARCHAR(MAX) = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ' 
-		,@QueryStatsXMLSQL NVARCHAR(MAX) = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live' 
 		,@ObjectFullName NVARCHAR(2000)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
 		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
@@ -120,16 +122,6 @@ SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
- BEGIN
-  SET @QueryStatsXMLselect = N' CAST(COALESCE(qs_live.query_plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan , ';
-  SET @QueryStatsXMLSQL = N'OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live';
- END
- ELSE
- BEGIN
-  SET @QueryStatsXMLselect = N' NULL AS live_query_plan , ';
-  SET @QueryStatsXMLSQL = N' ';
- END
 
 SELECT
 	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
@@ -170,6 +162,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[query_text] [nvarchar](max) NULL,
 	[query_plan] [xml] NULL,
 	[live_query_plan] [xml] NULL,
+	[cached_parameter_info] [nvarchar](max) NULL,
+	[live_parameter_info] [nvarchar](max) NULL,
 	[query_cost] [float] NULL,
 	[status] [nvarchar](30) NOT NULL,
 	[wait_info] [nvarchar](max) NULL,
@@ -266,6 +260,20 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
+	EXEC(@StringToExecute);
+
+	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
+	EXEC(@StringToExecute);
+
+	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* Delete history older than @OutputTableRetentionDays */
@@ -441,18 +449,18 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [request_cpu_time], ' + @LineFeed 
 				+ N'			       [degree_of_parallelism], ' + @LineFeed 
 				+ N'			       [request_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_logical_reads] AS MONEY)* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
 				+ N'			       [request_writes], ' + @LineFeed 
-				+ N'			       ((CAST([request_writes] AS MONEY)* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_writes] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
 				+ N'			       [request_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_physical_reads] AS MONEY)* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([request_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_cpu], ' + @LineFeed 
 				+ N'			       [session_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_logical_reads] AS MONEY)* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_physical_reads] AS MONEY)* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
 				+ N'			       [session_writes], ' + @LineFeed 
-				+ N'			       ((CAST([session_writes] AS MONEY)* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
+				+ N'			       ((CAST([session_writes] AS DECIMAL(38,2))* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
 				+ N'			       [tempdb_allocations_mb], ' + @LineFeed 
 				+ N'			       [memory_usage], ' + @LineFeed 
 				+ N'			       [estimated_completion_time], ' + @LineFeed 
@@ -563,14 +571,34 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
 						FROM sys.sysprocesses AS sys1
 						JOIN sys.sysprocesses AS sys2
-						ON sys1.spid = sys2.blocked;';
+						ON sys1.spid = sys2.blocked;
+
+
+						DECLARE @LiveQueryPlans TABLE
+						(
+							Session_Id INT NOT NULL,
+							Query_Plan XML NOT NULL
+						);
+
+						'
+
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+BEGIN
+	SET @BlockingCheck = @BlockingCheck + N'
+							INSERT INTO @LiveQueryPlans
+							SELECT	s.session_id, query_plan 
+							FROM	sys.dm_exec_sessions AS s
+							CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
+							WHERE	s.session_id <> @@SPID;';
+END
+
 
 IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11
 BEGIN
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
@@ -775,7 +803,7 @@ IF @ProductVersionMajor >= 11
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
@@ -785,9 +813,19 @@ IF @ProductVersionMajor >= 11
 			               ELSE query_stats.statement_end_offset
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
-			       derp.query_plan ,'
-						     + @QueryStatsXMLselect
-						    +' 
+			       derp.query_plan ,
+				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
+					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
+						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
+						FOR XML PATH('''')), 1,2,'''')
+						AS Cached_Parameter_Info,
+						'
+	IF @ShowActualParameters = 1
+	BEGIN
+		SELECT @StringToExecute = @StringToExecute + N'qs_live.Live_Parameter_Info as Live_Parameter_Info,'
+	END
+
+	SELECT @StringToExecute = @StringToExecute + N'
 			       qmg.query_cost ,
 			       s.status ,
 					CASE
@@ -1008,10 +1046,18 @@ IF @ProductVersionMajor >= 11
 			    AND tsu.session_id = r.session_id
 			    AND tsu.session_id = s.session_id
 	    ) as tempdb_allocations
-	    '
-	    + @QueryStatsXMLSQL
-	    + 
-	    N'
+
+		OUTER APPLY (
+			SELECT TOP 1 Query_Plan,
+			STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'') + N'' (Actual: '' + Node.Data.value(''(@ParameterRuntimeValue)[1]'', ''NVARCHAR(4000)'') + N'')''
+					FROM q.Query_Plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
+					FOR XML PATH('''')), 1,2,'''')
+					AS Live_Parameter_Info
+			FROM @LiveQueryPlans q
+			WHERE (s.session_id = q.Session_Id)
+
+		) AS qs_live
+
 	    WHERE s.session_id <> @@SPID 
 	    AND s.host_name IS NOT NULL
 		AND r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs)
@@ -1101,6 +1147,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_text]
 	,[query_plan]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
+	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[cached_parameter_info]'  ELSE N'' END
+	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
 	,[wait_info]'

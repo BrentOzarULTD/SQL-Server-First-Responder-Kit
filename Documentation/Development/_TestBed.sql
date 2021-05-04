@@ -1,4 +1,4 @@
-﻿/*Blitz*/
+/*Blitz*/
 EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1;
 
 EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'Blitz';
@@ -45,9 +45,9 @@ SELECT TOP 100 * FROM DBAtools.dbo.BlitzWho ORDER BY 1 DESC;
 /*BlitzIndex*/
 EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 4;
 
-EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow2010', @Mode = 4;
+EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @Mode = 4;
 
-EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow2010', @Mode = 4, @SkipPartitions = 0, @SkipStatistics = 0;
+EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @Mode = 4, @SkipPartitions = 0, @SkipStatistics = 0;
 
 EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 1;
 
@@ -57,13 +57,13 @@ EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 3;
 
 
 /*BlitzCache*/
-EXEC dbo.sp_BlitzCache @SortOrder = 'all', @Debug = 1;
+EXEC dbo.sp_BlitzCache @SortOrder = 'all';
 
-EXEC dbo.sp_BlitzCache @SortOrder = 'all avg';
+EXEC dbo.sp_BlitzCache @SortOrder = 'all avg', @Debug = 1;
 
 EXEC dbo.sp_BlitzCache @MinimumExecutionCount = 10;
 
-EXEC dbo.sp_BlitzCache @DatabaseName = N'StackOverflow2010';
+EXEC dbo.sp_BlitzCache @DatabaseName = N'StackOverflow';
 
 EXEC dbo.sp_BlitzCache @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache';
 
@@ -72,7 +72,7 @@ EXEC dbo.sp_BlitzCache @ExpertMode = 1;
 EXEC dbo.sp_BlitzCache @ExpertMode = 2;
 
 /*BlitzQueryStore*/
-EXEC dbo.sp_BlitzQueryStore @DatabaseName = 'StackOverflow2010';
+EXEC dbo.sp_BlitzQueryStore @DatabaseName = 'StackOverflow';
 
 /*BlitzBackups*/
 EXEC dbo.sp_BlitzBackups @HoursBack = 1000000;

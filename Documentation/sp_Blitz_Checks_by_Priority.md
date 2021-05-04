@@ -12,6 +12,7 @@ If you want to add a new one, start at 257.
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
+| 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 201 |
 | 0 | Informational | @CheckUserDatabaseObjects Disabled | https://www.BrentOzar.com/blitz/ | 204 |
 | 0 | Informational | Some Checks Skipped | https://www.BrentOzar.com/blitz/ | 223 |
 | 1 | Backup | Backing Up to Same Drive Where Databases Reside | https://www.BrentOzar.com/go/backup | 93 |
@@ -39,10 +40,10 @@ If you want to add a new one, start at 257.
 | 10 | Performance | DBCC DROPCLEANBUFFERS Ran Recently | https://www.BrentOzar.com/go/dbcc | 207 |
 | 10 | Performance | DBCC FREEPROCCACHE Ran Recently | https://www.BrentOzar.com/go/dbcc | 208 |
 | 10 | Performance | DBCC SHRINK% Ran Recently | https://www.BrentOzar.com/go/dbcc | 210 |
-| 10 | Performance | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
 | 10 | Performance | High Memory Use for In-Memory OLTP (Hekaton) | https://www.BrentOzar.com/go/hekaton | 145 |
 | 10 | Performance | Memory Nodes Offline | https://www.BrentOzar.com/go/schedulers | 110 |
 | 10 | Performance | Plan Cache Erased Recently | https://www.BrentOzar.com/askbrent/plan-cache-erased-recently/ | 125 |
+| 10 | Reliability | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
 | 10 | Reliability | Server restarted in last 24 hours | | 221 |
 | 20 | Reliability | Dangerous Build of SQL Server (Corruption) | http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds | 129 |
 | 20 | Reliability | Dangerous Build of SQL Server (Security) | https://technet.microsoft.com/en-us/library/security/MS14-044 | 157 |
@@ -63,13 +64,12 @@ If you want to add a new one, start at 257.
 | 50 | Performance | Snapshotting Too Many Databases | https://www.BrentOzar.com/go/toomanysnaps | 236 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Performance | Wait Stats Cleared Recently| | 205 |
-| 50 | Reliability | DBCC WRITEPAGE Used Recently | https://www.BrentOzar.com/go/dbcc | 209 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | https://www.BrentOzar.com/go/shipping | 111 |
 | 50 | Reliability | TempDB File Error | https://www.BrentOzar.com/go/tempdboops | 191 |
 | 50 | Reliability | Transaction Log Larger than Data File | https://www.BrentOzar.com/go/biglog | 75 |
-| 50 | Reliability | Default Trace File Error | https://BrentOzar.com/go/defaulttrace | 199 |
+| 50 | Reliability | Default Trace File Error | https://www.brentozar.com/go/defaulttrace | 199 |
 | 100 | In-Memory OLTP (Hekaton) | Transaction Errors | https://www.BrentOzar.com/go/hekaton | 147 |
 | 100 | Features | Missing Features (2016 SP1) | https://www.BrentOzar.com/ | 189 |
 | 100 | Features | Missing Features (2017 CU3) | https://www.BrentOzar.com/ | 216 |
@@ -110,7 +110,6 @@ If you want to add a new one, start at 257.
 | 150 | Performance | Deadlocks Happening Daily | https://www.BrentOzar.com/go/deadlocks | 124 |
 | 150 | Performance | Forced Parameterization On | https://www.BrentOzar.com/go/forced | 18 |
 | 150 | Performance | Foreign Keys Not Trusted | https://www.BrentOzar.com/go/trust | 48 |
-| 150 | Performance | Inactive Tables Without Clustered Indexes | https://www.BrentOzar.com/go/heaps | 39 |
 | 150 | Performance | Leftover Fake Indexes From Wizards | https://www.BrentOzar.com/go/hypo | 46 |
 | 150 | Performance | Objects created with dangerous SET Options | https://www.BrentOzar.com/go/badset | 218 |
 | 150 | Performance | Queries Forcing Join Hints | https://www.BrentOzar.com/go/hints | 45 |
@@ -135,7 +134,6 @@ If you want to add a new one, start at 257.
 | 170 | Reliability | Errors Logged Recently in the Default Trace | https://www.BrentOzar.com/go/defaulttrace | 150 |
 | 170 | Reliability | Max File Size Set | https://www.BrentOzar.com/go/maxsize | 80 |
 | 170 | Reliability | Remote Admin Connections Disabled | https://www.BrentOzar.com/go/dac | 100 |
-| 200 | Backup | Backing Up Unneeded Database | https://www.BrentOzar.com/go/reportservertempdb | 127 |
 | 200 | Backup | MSDB Backup History Not Purged | https://www.BrentOzar.com/go/history | 3 |
 | 200 | Backup | MSDB Backup History Purged Too Frequently | https://www.BrentOzar.com/go/history | 186 |
 | 200 | Informational | @@Servername not set | https://www.BrentOzar.com/go/servername | 70 |
@@ -143,7 +141,6 @@ If you want to add a new one, start at 257.
 | 200 | Informational | Backup Compression Default Off | https://www.BrentOzar.com/go/backup | 116 |
 | 200 | Informational | Cluster Node | https://www.BrentOzar.com/go/node | 53 |
 | 200 | Informational | Collation different than tempdb | https://www.BrentOzar.com/go/collate | 76 |
-| 200 | Informational | Database Collation Mismatch | https://www.BrentOzar.com/go/collate | 58 |
 | 200 | Informational | Database Encrypted | https://www.BrentOzar.com/go/tde | 21 |
 | 200 | Informational | Date Correlation On | https://www.BrentOzar.com/go/corr | 20 |
 | 200 | Informational | Linked Server Configured | https://www.BrentOzar.com/go/link | 49 |
@@ -157,7 +154,7 @@ If you want to add a new one, start at 257.
 | 200 | Monitoring | Agent Jobs Without Failure Emails | https://www.BrentOzar.com/go/alerts | 94 |
 | 200 | Monitoring | Alerts Configured without Follow Up | https://www.BrentOzar.com/go/alert | 59 |
 | 200 | Monitoring | Alerts Disabled | https://www.BrentOzar.com/go/alerts/ | 98 |
-| 200 | Monitoring | Alerts Without Event Descriptions | https://BrentOzar.com/go/alert | 219 |
+| 200 | Monitoring | Alerts Without Event Descriptions | https://www.brentozar.com/go/alert | 219 |
 | 200 | Monitoring | Extended Events Hyperextension | https://www.BrentOzar.com/go/xe | 176 |
 | 200 | Monitoring | No Alerts for Corruption | https://www.BrentOzar.com/go/alert | 96 |
 | 200 | Monitoring | No Alerts for Sev 19-25 | https://www.BrentOzar.com/go/alert | 61 |
@@ -258,7 +255,6 @@ If you want to add a new one, start at 257.
 | 210 | Non-Default Database Config | Delayed Durability Enabled | https://www.BrentOzar.com/go/dbdefaults | 143 |
 | 210 | Non-Default Database Config | Forced Parameterization Enabled | https://www.BrentOzar.com/go/dbdefaults | 138 |
 | 210 | Non-Default Database Config | Memory Optimized Enabled | https://www.BrentOzar.com/go/dbdefaults | 144 |
-| 210 | Non-Default Database Config | Query Store Enabled | https://www.BrentOzar.com/go/dbdefaults | 139 |
 | 210 | Non-Default Database Config | Read Committed Snapshot Isolation Enabled | https://www.BrentOzar.com/go/dbdefaults | 133 |
 | 210 | Non-Default Database Config | Recursive Triggers Enabled | https://www.BrentOzar.com/go/dbdefaults | 136 |
 | 210 | Non-Default Database Config | Snapshot Isolation Enabled | https://www.BrentOzar.com/go/dbdefaults | 132 |

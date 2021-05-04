@@ -36,7 +36,7 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SELECT @Version = '3.999', @VersionDate = '20201114';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -115,7 +115,7 @@ BEGIN
 	
 	    MIT License
 		
-		Copyright (c) 2020 Brent Ozar Unlimited
+		Copyright (c) 2021 Brent Ozar Unlimited
 	
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal

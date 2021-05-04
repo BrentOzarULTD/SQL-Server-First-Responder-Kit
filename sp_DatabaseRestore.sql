@@ -11,6 +11,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @MoveDataDrive NVARCHAR(260) = NULL, 
     @MoveLogDrive NVARCHAR(260) = NULL, 
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
+	@MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
 	@BufferCount INT = NULL,
 	@MaxTransferSize INT = NULL,
 	@BlockSize INT = NULL,
@@ -40,7 +41,7 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -72,7 +73,7 @@ BEGIN
 		
 		MIT License
 			
-		Copyright (c) 2020 Brent Ozar Unlimited
+		Copyright (c) 2021 Brent Ozar Unlimited
 		
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -225,7 +226,7 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@LogRecoveryOption AS NVARCHAR(MAX) = N'', --Holds the option to cause logs to be restored in standby mode or with no recovery
 		@DatabaseLastLSN NUMERIC(25, 0), --redo_start_lsn of the current database
 		@i TINYINT = 1,  --Maintains loop to continue logs
-		@LogRestoreRanking SMALLINT = 1, --Holds Log iteration # when multiple paths & backup files are being stripped
+		@LogRestoreRanking INT = 1, --Holds Log iteration # when multiple paths & backup files are being stripped
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
 		@LogLastNameInMsdbAS NVARCHAR(MAX) = N'', -- Holds last TRN file name already restored 
@@ -425,6 +426,22 @@ ELSE IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '/' AND CHARINDEX('/', @MoveF
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive += N'/';
+END;
+/*Move FullText Catalog File*/
+IF NULLIF(@MoveFullTextCatalogDrive, '') IS NULL
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Setting default data drive for @MoveFullTextCatalogDrive', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive  = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
+END;
+IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveFullTextCatalogDrive) > 0 --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive += N'\';
+END;
+ELSE IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFullTextCatalogDrive) > 0 --Has to end in a '/'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "/"', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive += N'/';
 END;
 /*Standby Undo File*/
 IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' AND CHARINDEX('\', @StandbyUndoPath) > 0 --Has to end in a '\'
@@ -728,6 +745,7 @@ BEGIN
 				    WHEN Type = 'D' THEN @MoveDataDrive
 				    WHEN Type = 'L' THEN @MoveLogDrive
 				    WHEN Type = 'S' THEN @MoveFilestreamDrive
+					WHEN Type = 'F' THEN @MoveFullTextCatalogDrive
 			    END + CASE 
                         WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
 					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
@@ -757,7 +775,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
             END
             IF @ExistingDBAction IN (2, 3)
             BEGIN
@@ -776,7 +794,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
                 IF @Debug IN (0, 1) AND @Execute = 'Y'
-			       EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'KILL CONNECTIONS', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			       EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'KILL CONNECTIONS', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
             END
             IF @ExistingDBAction = 3
             BEGIN
@@ -789,7 +807,7 @@ BEGIN
 			        PRINT @sql;
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
-			        EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			        EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
             END
 			IF @ExistingDBAction = 4
 			BEGIN
@@ -802,7 +820,7 @@ BEGIN
 					PRINT @sql;
 				END;
 				IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
-				EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+				EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 			END;
         END
         ELSE
@@ -856,7 +874,7 @@ BEGIN
 		END;
 			
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 
 		-- We already loaded #Headers above
 
@@ -1039,7 +1057,7 @@ BEGIN
 			PRINT @sql;
 		END;  
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 		
 		--get the backup completed data so we can apply tlogs from that point forwards                                                   
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathDiff + @LastDiffBackup);
@@ -1187,16 +1205,24 @@ BEGIN
 	END 
     /*End folder sanity check*/
 
-	
+IF @Debug = 1
+BEGIN 
+	SELECT * FROM @FileList WHERE BackupFile IS NOT NULL;
+END
+
 IF @SkipBackupsAlreadyInMsdb = 1
 BEGIN
+
 	SELECT TOP 1 @LogLastNameInMsdbAS = bf.physical_device_name
-	FROM msdb.dbo.backupmediafamily bf
-	WHERE physical_device_name like @BackupPathLog + '%'
-	ORDER BY physical_device_name DESC
+		FROM msdb.dbo.backupmediafamily bf
+		INNER JOIN msdb.dbo.backupset bs ON bs.media_set_id = bf.media_set_id
+		INNER JOIN msdb.dbo.restorehistory rh ON rh.backup_set_id = bs.backup_set_id
+		WHERE physical_device_name like @BackupPathLog + '%'
+		AND rh.destination_database_name = @UnquotedRestoreDatabaseName
+		ORDER BY physical_device_name DESC
 	
 	IF @Debug = 1
-	BEGIN 
+	BEGIN
 		SELECT 'Keeping LOG backups with name > : ' + @LogLastNameInMsdbAS
 	END
 	
@@ -1205,10 +1231,7 @@ BEGIN
 	WHERE fl.BackupPath + fl.BackupFile <= @LogLastNameInMsdbAS
 END
 
-	IF @Debug = 1
-	BEGIN 
-		SELECT * FROM @FileList WHERE BackupFile IS NOT NULL;
-	END
+
 
 IF (@OnlyLogsAfter IS NOT NULL)
 BEGIN
@@ -1360,7 +1383,7 @@ WHERE BackupFile IS NOT NULL;
 					END; 
 				
 					IF @Debug IN (0, 1) AND @Execute = 'Y'
-						EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 			END;
 			
 			SET @LogRestoreRanking += 1;
@@ -1385,7 +1408,7 @@ IF @RunRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'RECOVER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RECOVER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END;
 
 -- Ensure simple recovery model
@@ -1400,7 +1423,7 @@ IF @ForceSimpleRecovery = 1
 			END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'SIMPLE LOGGING', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'SIMPLE LOGGING', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END;	    
 
  -- Run checkdb against this database
@@ -1415,7 +1438,7 @@ IF @RunCheckDB = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DBCC CHECKDB', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'DBCC CHECKDB', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END;
 
 
@@ -1436,7 +1459,7 @@ IF @DatabaseOwner IS NOT NULL
 					END;
 
 				IF @Debug IN (0, 1) AND @Execute = 'Y'
-					EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'ALTER AUTHORIZATION', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+					EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master',@Command = @sql, @CommandType = 'ALTER AUTHORIZATION', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 			END
 			ELSE
 			BEGIN
@@ -1461,7 +1484,7 @@ IF @TestRestore = 1
 			END; 
 		
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
-			EXECUTE @sql = [dbo].[CommandExecute] @Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master',@Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 
 	END;
 

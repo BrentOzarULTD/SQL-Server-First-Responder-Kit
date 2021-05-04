@@ -17,6 +17,7 @@ IF OBJECT_ID('tempdb.dbo.#ToDelete') IS NOT NULL
 SELECT 'sp_AllNightLog' as ProcedureName INTO #ToDelete UNION
 SELECT 'sp_AllNightLog_Setup' as ProcedureName UNION
 SELECT 'sp_Blitz' as ProcedureName UNION
+SELECT 'sp_BlitzAnalysis' as ProcedureName UNION
 SELECT 'sp_BlitzBackups' as ProcedureName UNION
 SELECT 'sp_BlitzCache' as ProcedureName UNION
 SELECT 'sp_BlitzFirst' as ProcedureName UNION

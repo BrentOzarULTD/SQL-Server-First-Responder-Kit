@@ -45,14 +45,16 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.9999', @VersionDate = '20201114';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
 
-IF @Help = 1 PRINT '
+IF @Help = 1 
+BEGIN
+PRINT '
 sp_BlitzFirst from http://FirstResponderKit.org
 	
 This script gives you a prioritized list of why your SQL Server is slow right now.
@@ -83,7 +85,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2020 Brent Ozar Unlimited
+Copyright (c) 2021 Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -104,7 +106,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ';
-
+RETURN;
+END;    /* @Help = 1 */
 
 RAISERROR('Setting up configuration variables',10,1) WITH NOWAIT;
 DECLARE @StringToExecute NVARCHAR(MAX),
@@ -168,6 +171,7 @@ END;
 IF UPPER(@OutputType) LIKE 'TOP 10%' SET @OutputType = 'Top10';
 IF @OutputType = 'Top10' SET @SinceStartup = 1;
 
+/* Logged Message  - CheckID 38 */
 IF @LogMessage IS NOT NULL
     BEGIN
 
@@ -1291,35 +1295,42 @@ BEGIN
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
-    INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT 
-		x.Pass, 
-		x.SampleTime, 
-		x.wait_type, 
-		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
-		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
-		FROM (
-		SELECT  
-				1 AS Pass,
-				CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
-				owt.wait_type,
-		        CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
-				0 AS sum_signal_wait_time_ms,
-				0 AS sum_waiting_tasks
-			FROM    sys.dm_os_waiting_tasks owt
-			WHERE owt.session_id > 50
-			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
-		UNION ALL
-		SELECT
-		       1 AS Pass,
-		       CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
-		       os.wait_type,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
-		       CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks
-		   FROM sys.dm_os_wait_stats os
+	SET @StringToExecute = N'
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+			SELECT 
+			x.Pass, 
+			x.SampleTime, 
+			x.wait_type, 
+			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+			FROM (
+			SELECT  
+					1 AS Pass,
+					CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+					owt.wait_type,
+					CASE @Seconds WHEN 0 THEN 0 ELSE SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+						 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END END AS sum_wait_time_ms,
+					0 AS sum_signal_wait_time_ms,
+					0 AS sum_waiting_tasks
+				FROM    sys.dm_os_waiting_tasks owt
+				WHERE owt.session_id > 50
+				AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+			UNION ALL
+			SELECT
+				   1 AS Pass,
+				   CASE @Seconds WHEN 0 THEN @StartSampleTime ELSE SYSDATETIMEOFFSET() END AS SampleTime,
+				   os.wait_type,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) END AS sum_wait_time_ms,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
+				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks ';
+
+	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
+	ELSE
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
+
+	SET @StringToExecute = @StringToExecute + N'
 		) x
 		   WHERE NOT EXISTS 
 		   (
@@ -1329,7 +1340,8 @@ BEGIN
 				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
-		ORDER BY sum_wait_time_ms DESC;
+		ORDER BY sum_wait_time_ms DESC;'
+	EXEC sp_executesql @StringToExecute, N'@StartSampleTime DATETIMEOFFSET, @Seconds INT', @StartSampleTime, @Seconds;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -1364,6 +1376,16 @@ BEGIN
             AND counters.[object_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[object_name]) COLLATE SQL_Latin1_General_CP1_CI_AS
             AND (counters.[instance_name] IS NULL OR counters.[instance_name] COLLATE SQL_Latin1_General_CP1_CI_AS = RTRIM(dmv.[instance_name]) COLLATE SQL_Latin1_General_CP1_CI_AS);
 
+	/* For Github #2743: */
+	CREATE TABLE #TempdbOperationalStats (object_id BIGINT PRIMARY KEY CLUSTERED,
+		forwarded_fetch_count BIGINT);
+	INSERT INTO #TempdbOperationalStats (object_id, forwarded_fetch_count)
+		SELECT object_id, forwarded_fetch_count
+		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID('tempdb'), NULL, NULL, NULL) os
+	WHERE os.database_id = DB_ID('tempdb')
+		AND os.forwarded_fetch_count > 100;
+
+
 	/* If they want to run sp_BlitzWho and export to table, go for it. */
 	IF @OutputTableNameBlitzWho IS NOT NULL
 		AND @OutputDatabaseName IS NOT NULL
@@ -1373,7 +1395,7 @@ BEGIN
 						WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 	BEGIN
 		RAISERROR('Logging sp_BlitzWho to table',10,1) WITH NOWAIT;
-		EXEC sp_BlitzWho @OutputDatabaseName = @UnquotedOutputDatabaseName, @OutputSchemaName = @UnquotedOutputSchemaName, @OutputTableName = @OutputTableNameBlitzWho, @CheckDateOverride = @StartSampleTime;
+		EXEC sp_BlitzWho @OutputDatabaseName = @UnquotedOutputDatabaseName, @OutputSchemaName = @UnquotedOutputSchemaName, @OutputTableName = @OutputTableNameBlitzWho, @CheckDateOverride = @StartSampleTime, @OutputTableRetentionDays = @OutputTableRetentionDays;
 	END
 
 	RAISERROR('Beginning investigatory queries',10,1) WITH NOWAIT;
@@ -1381,40 +1403,47 @@ BEGIN
 
     /* Maintenance Tasks Running - Backup Running - CheckID 1 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-    SELECT 1 AS CheckID,
-        1 AS Priority,
-        'Maintenance Tasks Running' AS FindingGroup,
-        'Backup Running' AS Finding,
-        'http://www.BrentOzar.com/askbrent/backups/' AS URL,
-        'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
-            + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
-		    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
-        'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        pl.query_plan AS QueryPlan,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount,
-        r.query_hash
-    FROM sys.dm_exec_requests r
-    INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-    INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-    INNER JOIN (
-    SELECT DISTINCT request_session_id, resource_database_id
-    FROM    sys.dm_tran_locks
-    WHERE resource_type = N'DATABASE'
-    AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'BACKUP%'
-	AND r.start_time <= DATEADD(minute, -5, GETDATE())
-	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 1',10,1) WITH NOWAIT;
+		END
+
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+		SELECT 1 AS CheckID,
+		    1 AS Priority,
+		    'Maintenance Tasks Running' AS FindingGroup,
+		    'Backup Running' AS Finding,
+		    'https://www.brentozar.com/askbrent/backups/' AS URL,
+		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+			    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
+		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    pl.query_plan AS QueryPlan,
+		    r.start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    db.[resource_database_id] AS DatabaseID,
+		    DB_NAME(db.resource_database_id) AS DatabaseName,
+		    0 AS OpenTransactionCount,
+		    r.query_hash
+		FROM sys.dm_exec_requests r
+		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+		INNER JOIN (
+		SELECT DISTINCT request_session_id, resource_database_id
+		FROM    sys.dm_tran_locks
+		WHERE resource_type = N'DATABASE'
+		AND     request_mode = N'S'
+		AND     request_status = N'GRANT'
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+		WHERE r.command LIKE 'BACKUP%'
+		AND r.start_time <= DATEADD(minute, -5, GETDATE())
+		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
     IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
@@ -1426,115 +1455,138 @@ BEGIN
 
     /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
     IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-    SELECT 2 AS CheckID,
-        1 AS Priority,
-        'Maintenance Tasks Running' AS FindingGroup,
-        'DBCC CHECK* Running' AS Finding,
-        'http://www.BrentOzar.com/askbrent/dbcc/' AS URL,
-        'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-        'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        pl.query_plan AS QueryPlan,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount,
-        r.query_hash
-    FROM sys.dm_exec_requests r
-    INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-    INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-    INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
-    FROM    sys.dm_tran_locks l
-    INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
-    WHERE l.resource_type = N'DATABASE'
-    AND     l.request_mode = N'S'
-    AND    l.request_status = N'GRANT'
-    AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
-    WHERE r.command LIKE 'DBCC%'
-	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
-	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
-	AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
-	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 2',10,1) WITH NOWAIT;
+		END
 
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+		SELECT 2 AS CheckID,
+		    1 AS Priority,
+		    'Maintenance Tasks Running' AS FindingGroup,
+		    'DBCC CHECK* Running' AS Finding,
+		    'https://www.brentozar.com/askbrent/dbcc/' AS URL,
+		    'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    pl.query_plan AS QueryPlan,
+		    r.start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    db.[resource_database_id] AS DatabaseID,
+		    DB_NAME(db.resource_database_id) AS DatabaseName,
+		    0 AS OpenTransactionCount,
+		    r.query_hash
+		FROM sys.dm_exec_requests r
+		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+		INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
+		FROM    sys.dm_tran_locks l
+		INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
+		WHERE l.resource_type = N'DATABASE'
+		AND     l.request_mode = N'S'
+		AND    l.request_status = N'GRANT'
+		AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+		OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+		WHERE r.command LIKE 'DBCC%'
+		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
+		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	END
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-    SELECT 3 AS CheckID,
-        1 AS Priority,
-        'Maintenance Tasks Running' AS FindingGroup,
-        'Restore Running' AS Finding,
-        'http://www.BrentOzar.com/askbrent/backups/' AS URL,
-        'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-        'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        pl.query_plan AS QueryPlan,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        0 AS OpenTransactionCount,
-        r.query_hash
-    FROM sys.dm_exec_requests r
-    INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-    INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-    INNER JOIN (
-    SELECT DISTINCT request_session_id, resource_database_id
-    FROM    sys.dm_tran_locks
-    WHERE resource_type = N'DATABASE'
-    AND     request_mode = N'S'
-    AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
-    CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE r.command LIKE 'RESTORE%'
-    AND s.program_name <> 'SQL Server Log Shipping'
-	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 3',10,1) WITH NOWAIT;
+		END
 
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+		SELECT 3 AS CheckID,
+		    1 AS Priority,
+		    'Maintenance Tasks Running' AS FindingGroup,
+		    'Restore Running' AS Finding,
+		    'https://www.brentozar.com/askbrent/backups/' AS URL,
+		    'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    pl.query_plan AS QueryPlan,
+		    r.start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    db.[resource_database_id] AS DatabaseID,
+		    DB_NAME(db.resource_database_id) AS DatabaseName,
+		    0 AS OpenTransactionCount,
+		    r.query_hash
+		FROM sys.dm_exec_requests r
+		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+		INNER JOIN (
+		SELECT DISTINCT request_session_id, resource_database_id
+		FROM    sys.dm_tran_locks
+		WHERE resource_type = N'DATABASE'
+		AND     request_mode = N'S'
+		AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
+		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+		WHERE r.command LIKE 'RESTORE%'
+		AND s.program_name <> 'SQL Server Log Shipping'
+		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	END
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
-    SELECT 4 AS CheckID,
-        1 AS Priority,
-        'SQL Server Internal Maintenance' AS FindingGroup,
-        'Database File Growing' AS Finding,
-        'http://www.BrentOzar.com/go/instant' AS URL,
-        'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
-        'Unfortunately, you can''t stop this, but you can prevent it next time. Check out http://www.BrentOzar.com/go/instant for details.' AS HowToStopIt,
-        pl.query_plan AS QueryPlan,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        NULL AS DatabaseID,
-        NULL AS DatabaseName,
-        0 AS OpenTransactionCount
-    FROM sys.dm_os_waiting_tasks t
-    INNER JOIN sys.dm_exec_connections c ON t.session_id = c.session_id
-    INNER JOIN sys.dm_exec_requests r ON t.session_id = r.session_id
-    INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-    CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-    WHERE t.wait_type = 'PREEMPTIVE_OS_WRITEFILEGATHER'
-	AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 4',10,1) WITH NOWAIT;
+		END
 
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount)
+		SELECT 4 AS CheckID,
+		    1 AS Priority,
+		    'SQL Server Internal Maintenance' AS FindingGroup,
+		    'Database File Growing' AS Finding,
+		    'https://www.brentozar.com/go/instant' AS URL,
+		    'SQL Server is waiting for Windows to provide storage space for a database restore, a data file growth, or a log file growth. This task has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' + @LineFeed + 'Check the query plan (expert mode) to identify the database involved.' AS Details,
+		    'Unfortunately, you can''t stop this, but you can prevent it next time. Check out https://www.brentozar.com/go/instant for details.' AS HowToStopIt,
+		    pl.query_plan AS QueryPlan,
+		    r.start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    NULL AS DatabaseID,
+		    NULL AS DatabaseName,
+		    0 AS OpenTransactionCount
+		FROM sys.dm_os_waiting_tasks t
+		INNER JOIN sys.dm_exec_connections c ON t.session_id = c.session_id
+		INNER JOIN sys.dm_exec_requests r ON t.session_id = r.session_id
+		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+		WHERE t.wait_type = 'PREEMPTIVE_OS_WRITEFILEGATHER'
+		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+	END
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
     IF SERVERPROPERTY('Edition') <> 'SQL Azure' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 5',10,1) WITH NOWAIT;
+		END
+
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
             SELECT 5 AS CheckID,
                 1 AS Priority,
                 ''Query Problems'' AS FindingGroup,
                 ''Long-Running Query Blocking Others'' AS Finding,
-                ''http://www.BrentOzar.com/go/blocking'' AS URL,
+                ''https://www.brentozar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
                     (SELECT TOP 1 t.dbid FROM master..sysprocesses spBlocker CROSS APPLY sys.dm_exec_sql_text(spBlocker.sql_handle) t WHERE spBlocker.spid = tBlocked.blocking_session_id))), ''(Unknown)'') + '' has a last request start time of '' + CAST(s.last_request_start_time AS NVARCHAR(100)) + ''. Query follows: ' 
 					+ @LineFeed + @LineFeed + 
@@ -1564,15 +1616,20 @@ BEGIN
 		EXECUTE sp_executesql @StringToExecute;
     END;
 	
-    /* Query Problems - Plan Cache Erased Recently */
+    /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
     IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 7',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
             50 AS Priority,
             'Query Problems' AS FindingGroup,
             'Plan Cache Erased Recently' AS Finding,
-            'http://www.BrentOzar.com/askbrent/plan-cache-erased-recently/' AS URL,
+            'https://www.brentozar.com/askbrent/plan-cache-erased-recently/' AS URL,
             'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
                 + 'This indicates that someone ran DBCC FREEPROCCACHE at that time,' + @LineFeed
                 + 'Giving SQL Server temporary amnesia. Now, as queries come in,' + @LineFeed
@@ -1586,45 +1643,56 @@ BEGIN
 
     /* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-    SELECT 8 AS CheckID,
-        50 AS Priority,
-        'Query Problems' AS FindingGroup,
-        'Sleeping Query with Open Transactions' AS Finding,
-        'http://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-        'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
-        'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-        s.last_request_start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-        sessions_with_transactions.open_transaction_count AS OpenTransactionCount
-    FROM (SELECT session_id, SUM(open_transaction_count) AS open_transaction_count FROM sys.dm_exec_requests WHERE open_transaction_count > 0 GROUP BY session_id) AS sessions_with_transactions
-    INNER JOIN sys.dm_exec_sessions s ON sessions_with_transactions.session_id = s.session_id
-    INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-    INNER JOIN (
-    SELECT DISTINCT request_session_id, resource_database_id
-    FROM    sys.dm_tran_locks
-    WHERE resource_type = N'DATABASE'
-    AND     request_mode = N'S'
-    AND     request_status = N'GRANT'
-    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    WHERE s.status = 'sleeping'
-    AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
-    AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
-    AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 8',10,1) WITH NOWAIT;
+		END
 
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+		SELECT 8 AS CheckID,
+		    50 AS Priority,
+		    'Query Problems' AS FindingGroup,
+		    'Sleeping Query with Open Transactions' AS Finding,
+		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
+		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
+		    'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    s.last_request_start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    db.[resource_database_id] AS DatabaseID,
+		    DB_NAME(db.resource_database_id) AS DatabaseName,
+		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+		    sessions_with_transactions.open_transaction_count AS OpenTransactionCount
+		FROM (SELECT session_id, SUM(open_transaction_count) AS open_transaction_count FROM sys.dm_exec_requests WHERE open_transaction_count > 0 GROUP BY session_id) AS sessions_with_transactions
+		INNER JOIN sys.dm_exec_sessions s ON sessions_with_transactions.session_id = s.session_id
+		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+		INNER JOIN (
+		SELECT DISTINCT request_session_id, resource_database_id
+		FROM    sys.dm_tran_locks
+		WHERE resource_type = N'DATABASE'
+		AND     request_mode = N'S'
+		AND     request_status = N'GRANT'
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		WHERE s.status = 'sleeping'
+		AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
+		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
+		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
+	END
 
-    /*Query Problems - Clients using implicit transactions */
+    /*Query Problems - Clients using implicit transactions - CheckID 37 */
     IF @Seconds > 0 
 		AND ( @@VERSION NOT LIKE 'Microsoft SQL Server 2005%'
 		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008%'
 		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008 R2%' )
      BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 37',10,1) WITH NOWAIT;
+		END
+
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
 		SELECT  37 AS CheckId,
 		        50 AS Priority,
@@ -1661,43 +1729,99 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
-    SELECT 9 AS CheckID,
-        1 AS Priority,
-        'Query Problems' AS FindingGroup,
-        'Query Rolling Back' AS Finding,
-        'http://www.BrentOzar.com/askbrent/rollback/' AS URL,
-        'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
-        'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
-        r.start_time AS StartTime,
-        s.login_name AS LoginName,
-        s.nt_user_name AS NTUserName,
-        s.[program_name] AS ProgramName,
-        s.[host_name] AS HostName,
-        db.[resource_database_id] AS DatabaseID,
-        DB_NAME(db.resource_database_id) AS DatabaseName,
-        (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-        r.query_hash
-    FROM sys.dm_exec_sessions s
-    INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-    INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
-    LEFT OUTER JOIN (
-        SELECT DISTINCT request_session_id, resource_database_id
-        FROM    sys.dm_tran_locks
-        WHERE resource_type = N'DATABASE'
-        AND     request_mode = N'S'
-        AND     request_status = N'GRANT'
-        AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-    WHERE r.status = 'rollback';
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 9',10,1) WITH NOWAIT;
+		END
 
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
+		SELECT 9 AS CheckID,
+		    1 AS Priority,
+		    'Query Problems' AS FindingGroup,
+		    'Query Rolling Back' AS Finding,
+		    'https://www.brentozar.com/askbrent/rollback/' AS URL,
+		    'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+		    'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
+		    r.start_time AS StartTime,
+		    s.login_name AS LoginName,
+		    s.nt_user_name AS NTUserName,
+		    s.[program_name] AS ProgramName,
+		    s.[host_name] AS HostName,
+		    db.[resource_database_id] AS DatabaseID,
+		    DB_NAME(db.resource_database_id) AS DatabaseName,
+		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+		    r.query_hash
+		FROM sys.dm_exec_sessions s
+		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+		INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+		LEFT OUTER JOIN (
+		    SELECT DISTINCT request_session_id, resource_database_id
+		    FROM    sys.dm_tran_locks
+		    WHERE resource_type = N'DATABASE'
+		    AND     request_mode = N'S'
+		    AND     request_status = N'GRANT'
+		    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		WHERE r.status = 'rollback';
+	END
+
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            1 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
+	END
 
     /* Server Performance - Too Much Free Memory - CheckID 34 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 34',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 34 AS CheckID,
         50 AS Priority,
         'Server Performance' AS FindingGroup,
         'Too Much Free Memory' AS Finding,
-        'https://BrentOzar.com/go/freememory' AS URL,
+        'https://www.brentozar.com/go/freememory' AS URL,
 		CAST((CAST(cFree.cntr_value AS BIGINT) / 1024 / 1024 ) AS NVARCHAR(100)) + N'GB of free memory inside SQL Server''s buffer pool,' + @LineFeed + ' which is ' + CAST((CAST(cTotal.cntr_value AS BIGINT) / 1024 / 1024) AS NVARCHAR(100)) + N'GB. You would think lots of free memory would be good, but check out the URL for more information.' AS Details,
         'Run sp_BlitzCache @SortOrder = ''memory grant'' to find queries with huge memory grants and tune them.' AS HowToStopIt
 		FROM sys.dm_os_performance_counters cFree
@@ -1711,12 +1835,18 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
 	IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 35',10,1) WITH NOWAIT;
+		END
+
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 		SELECT 35 AS CheckID,
 			10 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Target Memory Lower Than Max' AS Finding,
-			'https://BrentOzar.com/go/target' AS URL,
+			'https://www.brentozar.com/go/target' AS URL,
 			N'Max server memory is ' + CAST(cMax.value_in_use AS NVARCHAR(50)) + N' MB but target server memory is only ' + CAST((CAST(cTarget.cntr_value AS BIGINT) / 1024) AS NVARCHAR(50)) + N' MB,' + @LineFeed
 				+ N'indicating that SQL Server may be under external memory pressure or max server memory may be set too high.' AS Details,
 			'Investigate what OS processes are using memory, and double-check the max server memory setting.' AS HowToStopIt
@@ -1727,8 +1857,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				AND CAST(cMax.value_in_use AS BIGINT) >= 1.5 * (CAST(cTarget.cntr_value AS BIGINT) / 1024)
 				AND CAST(cMax.value_in_use AS BIGINT) < 2147483647 /* Not set to default of unlimited */
 				AND CAST(cTarget.cntr_value AS BIGINT) < .8 * (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory); /* Target memory less than 80% of physical memory (in case they set max too high) */
+	END
 
     /* Server Info - Database Size, Total GB - CheckID 21 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 21',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 21 AS CheckID,
         251 AS Priority,
@@ -1736,11 +1872,16 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Database Size, Total GB' AS Finding,
         CAST(SUM (CAST(size AS BIGINT)*8./1024./1024.) AS VARCHAR(100)) AS Details,
         SUM (CAST(size AS BIGINT))*8./1024./1024. AS DetailsInt,
-        'http://www.BrentOzar.com/askbrent/' AS URL
+        'https://www.brentozar.com/askbrent/' AS URL
     FROM #MasterFiles
     WHERE database_id > 4;
 
     /* Server Info - Database Count - CheckID 22 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 22',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 22 AS CheckID,
         251 AS Priority,
@@ -1748,11 +1889,16 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Database Count' AS Finding,
         CAST(SUM(1) AS VARCHAR(100)) AS Details,
         SUM (1) AS DetailsInt,
-        'http://www.BrentOzar.com/askbrent/' AS URL
+        'https://www.brentozar.com/askbrent/' AS URL
     FROM sys.databases
     WHERE database_id > 4;
 
 	/* Server Info - Memory Grants pending - CheckID 39 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 39',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
     SELECT 39 AS CheckID,
         50 AS Priority,
@@ -1772,6 +1918,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	WHERE PendingGrants.Details > 0;
 
 	/* Server Info - Memory Grant/Workspace info - CheckID 40 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 40',10,1) WITH NOWAIT;
+	END
+
 	DECLARE @MaxWorkspace BIGINT
 	SET @MaxWorkspace = (SELECT CAST(cntr_value AS BIGINT)/1024 FROM #PerfmonStats WHERE counter_name = N'Maximum Workspace Memory (KB)')
 	
@@ -1793,21 +1944,26 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
 		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
-		'http://www.BrentOzar.com/askbrent/' AS URL
+		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
 	/* Query Problems - Queries with high memory grants - CheckID 46 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 46',10,1) WITH NOWAIT;
+	END
+
 	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
 	SELECT 46 AS CheckID,
 	    100 AS Priority,
 	    'Query Problems' AS FindingGroup,
-	    'Query with memory a grant exceeding '
+	    'Query with a memory grant exceeding '
 		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
 		+'%' AS Finding,
 		'Granted size: '+ CAST(CAST(Grants.granted_memory_kb / 1024 AS INT) AS NVARCHAR(50))
 		+N'MB '
 		 + @LineFeed
-		+N'Granted pct: ' 
+		+N'Granted pct of max workspace: ' 
 		+ CAST(ISNULL((CAST(Grants.granted_memory_kb / 1024 AS MONEY)
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' 
 		+ @LineFeed
@@ -1821,9 +1977,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
 	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
 
-    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache */
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache - CheckID 45 */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
+			IF (@Debug = 1)
+			BEGIN
+				RAISERROR('Running CheckID 45',10,1) WITH NOWAIT;
+			END
+
         /* SQL 2012+ version */
         SET @StringToExecute = N'
         INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
@@ -1843,6 +2004,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     ELSE
         BEGIN
         /* Antiques Roadshow SQL 2008R2 - version */
+			IF (@Debug = 1)
+			BEGIN
+				RAISERROR('Running CheckID 45 (Legacy version)',10,1) WITH NOWAIT;
+			END
+
         SET @StringToExecute = N'
         INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
         SELECT 45 AS CheckID,
@@ -1976,16 +2142,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                             y.request_id, 
                             y.parallelism_skew;
                    
-                   /*
-                   CheckID 42: Queries in dm_exec_query_profiles showing signs of poor cardinality estimates
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of poor cardinality estimates - CheckID 42 */
+				   IF (@Debug = 1)
+				   BEGIN
+				        RAISERROR(''Running CheckID 42'',10,1) WITH NOWAIT;
+				   END
+
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 42 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x cardinality misestimations'' AS Findings,
-                          ''https://brentozar.com/go/skewedup'' AS URL,
+                          ''https://www.brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(b.session_id) 
                               + '' has been running for ''
@@ -2024,16 +2193,19 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				  
 				SET @StringToExecute = @StringToExecute + N';
 
-                   /*
-                   CheckID 43: Queries in dm_exec_query_profiles showing signs of unbalanced parallelism
-                   */
+                   /* Queries in dm_exec_query_profiles showing signs of unbalanced parallelism - CheckID 43 */
+				   IF (@Debug = 1)
+				   BEGIN
+				        RAISERROR(''Running CheckID 43'',10,1) WITH NOWAIT;
+				   END
+
                    INSERT INTO #BlitzFirstResults 
                    (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount, QueryHash, QueryPlan)
                    SELECT 43 AS CheckID,
                           100 AS Priority,
                           ''Query Performance'' AS FindingsGroup,
                           ''Queries with 10000x skewed parallelism'' AS Findings,
-                          ''https://brentozar.com/go/skewedup'' AS URL,
+                          ''https://www.brentozar.com/go/skewedup'' AS URL,
                           ''The query on SPID '' 
                               + RTRIM(p.session_id) 
                               + '' has been running for ''
@@ -2072,21 +2244,26 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				  
 				SET @StringToExecute = @StringToExecute + N';';
 
-	          EXECUTE sp_executesql @StringToExecute;
+	          EXECUTE sp_executesql @StringToExecute, N'@Debug BIT',@Debug = @Debug;
 			END
    
         END
     END
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+    /* Server Performance - High CPU Utilization - CheckID 24 */
     IF @Seconds < 30
         BEGIN
         /* If we're waiting less than 30 seconds, run this check now rather than wait til the end.
            We get this data from the ring buffers, and it's only updated once per minute, so might
            as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
            end of our sp_BlitzFirst session. */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 24',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2098,6 +2275,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ORDER BY timestamp DESC) AS rb
             ) AS y
             WHERE 100 - SystemIdle >= 50;
+
+        /* CPU Utilization - CheckID 23 */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 23',10,1) WITH NOWAIT;
+		END
 
         IF SERVERPROPERTY('Edition') <> 'SQL Azure'
 			WITH y
@@ -2124,7 +2307,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					'CPU Utilization', 
 					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
 					y.system_idle	, 
-					'http://www.BrentOzar.com/go/cpu',
+					'https://www.brentozar.com/go/cpu',
 					STUFF(( SELECT TOP 2147483647
 							  CHAR(10) + CHAR(13)
 							+ y2.system_idle 
@@ -2139,9 +2322,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			ORDER BY y.event_date DESC;
 
 		
-		/* Highlight if non SQL processes are using >25% CPU */
+		/* Highlight if non SQL processes are using >25% CPU - CheckID 28 */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 28',10,1) WITH NOWAIT;
+		END
+
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'http://www.BrentOzar.com/go/cpu'
+	    SELECT 28,	50,	'Server Performance', 'High CPU Utilization - Not SQL', CONVERT(NVARCHAR(100),100 - (y.SQLUsage + y.SystemIdle)) + N'% - Other Processes (not SQL Server) are using this much CPU. This may impact on the performance of your SQL Server instance', 100 - (y.SQLUsage + y.SystemIdle), 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2158,7 +2346,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         END; /* IF @Seconds < 30 */
 
     /* Query Problems - Statistics Updated Recently - CheckID 44 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 44',10,1) WITH NOWAIT;
+	END
+
 	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
+		AND @Seconds > 0
 	BEGIN
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
@@ -2166,49 +2360,59 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
-			EXEC sp_MSforeachdb N'USE [?];
-			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;
-			BEGIN TRY
-				INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-				SELECT HowToStopIt = 
-							QUOTENAME(DB_NAME()) + N''.'' +
-							QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +
-							QUOTENAME(obj.name) +
-							N'' statistic '' + QUOTENAME(stat.name) + 
-							N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + 
-							N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +
-							CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  
-							N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',
-					sp.rows
-				FROM sys.objects AS obj WITH (NOLOCK)
-				INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  
-				CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  
-				WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())
-				AND obj.is_ms_shipped = 0
-				AND ''[?]'' <> ''[tempdb]'';
-			END TRY
-			BEGIN CATCH
-				IF (ERROR_NUMBER() = 1222)
-				BEGIN 
-					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = 
-								QUOTENAME(DB_NAME()) +
-							    N'' No information could be retrieved as the lock timeout was exceeded,''+
-								N''  this is likely due to an Index operation in Progress'',
-						-1
-				END
-				ELSE
-				BEGIN
-					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = 
-								QUOTENAME(DB_NAME()) +
-							    N'' No information could be retrieved as a result of error: ''+
-								CAST(ERROR_NUMBER() AS NVARCHAR(10)) +
-								N'' with message: ''+
-								CAST(ERROR_MESSAGE() AS NVARCHAR(128)),
-						-1
-				END
-			END CATCH';
+			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+				SET @StringToExecute = N'USE [?];' + @LineFeed;
+			ELSE
+				SET @StringToExecute = N'';
+
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+                                    'BEGIN TRY' + @LineFeed +
+                                    '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '    SELECT HowToStopIt = ' + @LineFeed +
+                                    '                QUOTENAME(DB_NAME()) + N''.'' +' + @LineFeed +
+                                    '                QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +' + @LineFeed +
+                                    '                QUOTENAME(obj.name) +' + @LineFeed +
+                                    '                N'' statistic '' + QUOTENAME(stat.name) + ' + @LineFeed +
+                                    '                N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + ' + @LineFeed +
+                                    '                N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +' + @LineFeed +
+                                    '                CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  ' + @LineFeed +
+                                    '                N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',' + @LineFeed +
+                                    '        sp.rows' + @LineFeed +
+                                    '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
+                                    '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
+                                    '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
+                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+                                    '    AND obj.is_ms_shipped = 0' + @LineFeed +
+                                    '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
+                                    'END TRY' + @LineFeed +
+                                    'BEGIN CATCH' + @LineFeed +
+                                    '    IF (ERROR_NUMBER() = 1222)' + @LineFeed +
+                                    '    BEGIN ' + @LineFeed +
+                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '        SELECT HowToStopIt = ' + @LineFeed +
+                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+                                    '                    N'' No information could be retrieved as the lock timeout was exceeded,''+' + @LineFeed +
+                                    '                    N''  this is likely due to an Index operation in Progress'',' + @LineFeed +
+                                    '            -1' + @LineFeed +
+                                    '    END' + @LineFeed +
+                                    '    ELSE' + @LineFeed +
+                                    '    BEGIN' + @LineFeed +
+                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+                                    '        SELECT HowToStopIt = ' + @LineFeed +
+                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+                                    '                    N'' No information could be retrieved as a result of error: ''+' + @LineFeed +
+                                    '                    CAST(ERROR_NUMBER() AS NVARCHAR(10)) +' + @LineFeed +
+                                    '                    N'' with message: ''+' + @LineFeed +
+                                    '                    CAST(ERROR_MESSAGE() AS NVARCHAR(128)),' + @LineFeed +
+                                    '            -1' + @LineFeed +
+                                    '    END' + @LineFeed +
+                                    'END CATCH'                          
+                                    ;
+
+			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+	            EXEC sp_MSforeachdb @StringToExecute;
+			ELSE
+				EXEC(@StringToExecute);
 
 			/* Set timeout back to a default value of -1 */
 			SET LOCK_TIMEOUT -1;
@@ -2221,7 +2425,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					50 AS Priority,
 					'Query Problems' AS FindingGroup,
 					'Statistics Updated Recently' AS Finding,
-					'http://www.BrentOzar.com/go/stats' AS URL,
+					'https://www.brentozar.com/go/stats' AS URL,
 					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
 						+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
 						+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
@@ -2246,35 +2450,42 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
-    INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
-		SELECT 
-		x.Pass, 
-		x.SampleTime, 
-		x.wait_type, 
-		SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-		SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
-		SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
-		FROM (
-		SELECT  
-				2 AS Pass,
-				SYSDATETIMEOFFSET() AS SampleTime,
-				owt.wait_type,
-		        SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
-					 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
-				0 AS sum_signal_wait_time_ms,
-				CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
-			FROM    sys.dm_os_waiting_tasks owt
-			WHERE owt.session_id > 50
-			AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
-		UNION ALL
-		SELECT
-		       2 AS Pass,
-		       SYSDATETIMEOFFSET() AS SampleTime,
-		       os.wait_type,
-			   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
-			   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
-			   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks
-		   FROM sys.dm_os_wait_stats os
+	SET @StringToExecute = N'
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+			SELECT 
+			x.Pass, 
+			x.SampleTime, 
+			x.wait_type, 
+			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
+			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
+			FROM (
+			SELECT  
+					2 AS Pass,
+					SYSDATETIMEOFFSET() AS SampleTime,
+					owt.wait_type,
+					SUM(owt.wait_duration_ms) OVER (PARTITION BY owt.wait_type, owt.session_id)
+						 - CASE WHEN @Seconds = 0 THEN 0 ELSE (@Seconds * 1000) END AS sum_wait_time_ms,
+					0 AS sum_signal_wait_time_ms,
+					CASE @Seconds WHEN 0 THEN 0 ELSE 1 END AS sum_waiting_tasks
+				FROM    sys.dm_os_waiting_tasks owt
+				WHERE owt.session_id > 50
+				AND owt.wait_duration_ms >= CASE @Seconds WHEN 0 THEN 0 ELSE @Seconds * 1000 END
+			UNION ALL
+			SELECT
+				   2 AS Pass,
+				   SYSDATETIMEOFFSET() AS SampleTime,
+				   os.wait_type,
+				   SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) AS sum_wait_time_ms,
+				   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
+				   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks ';
+
+	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
+	ELSE
+		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
+
+	SET @StringToExecute = @StringToExecute + N'
 		) x
 		   WHERE NOT EXISTS 
 		   (
@@ -2284,7 +2495,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				AND wc.Ignorable = 1
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
-		ORDER BY sum_wait_time_ms DESC;
+		ORDER BY sum_wait_time_ms DESC;';
+	EXEC sp_executesql @StringToExecute, N'@Seconds INT', @Seconds;
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
@@ -2342,12 +2554,16 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WHERE  DATEDIFF(ss, pFirst.SampleTime, pNow.SampleTime) > 0;
 
 
-    /* If we're within 10 seconds of our projected finish time, do the plan cache analysis. */
+    /* Query Stats - If we're within 10 seconds of our projected finish time, do the plan cache analysis. - CheckID 18 */
     IF DATEDIFF(ss, @FinishSampleTime, SYSDATETIMEOFFSET()) > 10 AND @CheckProcedureCache = 1
         BEGIN
+			IF (@Debug = 1)
+			BEGIN
+				RAISERROR('Running CheckID 18',10,1) WITH NOWAIT;
+			END
 
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-            VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'http://www.BrentOzar.com/go/topqueries',
+            VALUES (18, 210, 'Query Stats', 'Plan Cache Analysis Skipped', 'https://www.brentozar.com/go/topqueries',
                 'Due to excessive load, the plan cache analysis was skipped. To override this, use @ExpertMode = 1.');
 
         END;
@@ -2483,9 +2699,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             FROM #QueryStats qs
             INNER JOIN qsTop ON qs.ID = qsTop.ID;
 
-        /* Query Stats - CheckID 17 - Most Resource-Intensive Queries */
+        /* Query Stats - Most Resource-Intensive Queries - CheckID 17 */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 17',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, QueryStatsNowID, QueryStatsFirstID, PlanHandle, QueryHash)
-        SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'http://www.BrentOzar.com/go/topqueries',
+        SELECT 17, 210, 'Query Stats', 'Most Resource-Intensive Queries', 'https://www.brentozar.com/go/topqueries',
             'Query stats during the sample:' + @LineFeed +
             'Executions: ' + CAST(qsNow.execution_count - (COALESCE(qsFirst.execution_count, 0)) AS NVARCHAR(100)) + @LineFeed +
             'Elapsed Time: ' + CAST(qsNow.total_elapsed_time - (COALESCE(qsFirst.total_elapsed_time, 0)) AS NVARCHAR(100)) + @LineFeed +
@@ -2543,6 +2764,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Wait Stats - CheckID 6 */
     /* Compare the current wait stats to the sample we took at the start, and insert the top 10 waits. */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 6',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
     SELECT TOP 10 6 AS CheckID,
         200 AS Priority,
@@ -2558,12 +2784,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     ORDER BY (wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) DESC;
 
     /* Server Performance - Poison Wait Detected - CheckID 30 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 30',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DetailsInt)
     SELECT 30 AS CheckID,
         10 AS Priority,
         'Server Performance' AS FindingGroup,
         'Poison Wait Detected: ' + wNow.wait_type AS Finding,
-        N'http://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
+        N'https://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
         'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
@@ -2576,12 +2807,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     /* Server Performance - Slow Data File Reads - CheckID 11 */
 	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE Finding LIKE 'PAGEIOLATCH%')
 	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 11',10,1) WITH NOWAIT;
+		END
+
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
 		SELECT TOP 10 11 AS CheckID,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Data File Reads' AS Finding,
-			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/go/slow/' AS URL,
 			'Your server is experiencing PAGEIOLATCH% waits due to slow data file reads. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed
@@ -2601,12 +2837,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     /* Server Performance - Slow Log File Writes - CheckID 12 */
 	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE Finding LIKE 'WRITELOG%')
 	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 12',10,1) WITH NOWAIT;
+		END
+
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, DatabaseID, DatabaseName)
 		SELECT TOP 10 12 AS CheckID,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Log File Writes' AS Finding,
-			'http://www.BrentOzar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/go/slow/' AS URL,
 			'Your server is experiencing WRITELOG waits due to slow log file writes. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed
@@ -2625,12 +2866,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 13',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 13 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
         'Log File Growing' AS Finding,
-        'http://www.BrentOzar.com/askbrent/file-growing/' AS URL,
+        'https://www.brentozar.com/askbrent/file-growing/' AS URL,
         'Number of growths during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
         'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.'  AS HowToStopIt
@@ -2642,12 +2888,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 
     /* SQL Server Internal Maintenance - Log File Shrinking - CheckID 14 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 14',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 14 AS CheckID,
         1 AS Priority,
         'SQL Server Internal Maintenance' AS FindingGroup,
         'Log File Shrinking' AS Finding,
-        'http://www.BrentOzar.com/askbrent/file-shrinking/' AS URL,
+        'https://www.brentozar.com/askbrent/file-shrinking/' AS URL,
         'Number of shrinks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
         'Pre-grow data and log files during maintenance windows so that they do not grow during production loads. See the URL for more details.' AS HowToStopIt
@@ -2658,12 +2909,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND value_delta > 0;
 
     /* Query Problems - Compilations/Sec High - CheckID 15 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 15',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 15 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
         'Compilations/Sec High' AS Finding,
-        'http://www.BrentOzar.com/askbrent/compilations/' AS URL,
+        'https://www.brentozar.com/askbrent/compilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of compilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'For OLTP environments, Microsoft recommends that 90% of batch requests should hit the plan cache, and not be compiled from scratch. We are exceeding that threshold.' + @LineFeed AS Details,
@@ -2675,16 +2931,22 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND psComp.value_delta > 75 /* Because sp_BlitzFirst does around 50 compilations and re-compilations */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 compilations per second, or more compilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Compilations are more than 10% of batch requests per second */
 
     /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 16',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 16 AS CheckID,
         50 AS Priority,
         'Query Problems' AS FindingGroup,
         'Re-Compilations/Sec High' AS Finding,
-        'http://www.BrentOzar.com/askbrent/recompilations/' AS URL,
+        'https://www.brentozar.com/askbrent/recompilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'Number of recompilations during the sample: ' + CAST(psComp.value_delta AS NVARCHAR(20)) + @LineFeed
             + 'More than 10% of our queries are being recompiled. This is typically due to statistics changing on objects.' + @LineFeed AS Details,
@@ -2696,17 +2958,23 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     WHERE ps.Pass = 2
         AND ps.object_name = @ServiceName + ':SQL Statistics'
         AND ps.counter_name = 'Batch Requests/sec'
-        AND ps.value_delta > (1000 * @Seconds) /* Ignore servers sitting idle */
+        AND psComp.value_delta > 75 /* Because sp_BlitzFirst does around 50 compilations and re-compilations */
+        AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 recompilations per second, or more recompilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Recompilations are more than 10% of batch requests per second */
 
     /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 29',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 29 AS CheckID,
         40 AS Priority,
         'Table Problems' AS FindingGroup,
         'Forwarded Fetches/Sec High' AS Finding,
-        'https://BrentOzar.com/go/fetch/' AS URL,
-        CAST(ps.value_delta AS NVARCHAR(20)) + ' Forwarded Records (from SQLServer:Access Methods counter)' + @LineFeed
+        'https://www.brentozar.com/go/fetch/' AS URL,
+        CAST(ps.value_delta AS NVARCHAR(20)) + ' forwarded fetches (from SQLServer:Access Methods counter)' + @LineFeed
             + 'Check your heaps: they need to be rebuilt, or they need a clustered index applied.' + @LineFeed AS Details,
         'Rebuild your heaps. If you use Ola Hallengren maintenance scripts, those do not rebuild heaps by default: https://www.brentozar.com/archive/2016/07/fix-forwarded-records/' AS HowToStopIt
     FROM #PerfmonStats ps
@@ -2725,25 +2993,36 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		SELECT TOP 10 29 AS CheckID,
 			40 AS Priority,
 			''Table Problems'' AS FindingGroup,
-			''Forwarded Fetches/Sec High: Temp Table'' AS Finding,
-			''https://BrentOzar.com/go/fetch/'' AS URL,
-			CAST(COALESCE(os.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on temp table '' + COALESCE(OBJECT_NAME(os.object_id), ''Unknown'') AS Details,
-			''Look through your source code to find the object creating these temp tables, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
+			''Forwarded Fetches/Sec High: TempDB Object'' AS Finding,
+			''https://www.brentozar.com/go/fetch/'' AS URL,
+			CAST(COALESCE(os.forwarded_fetch_count,0) - COALESCE(os_prior.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
+				CASE WHEN OBJECT_NAME(os.object_id) IS NULL THEN ''an unknown table ''
+				WHEN LEN(OBJECT_NAME(os.object_id)) < 50 THEN ''a table variable, internal identifier '' + OBJECT_NAME(os.object_id)
+				ELSE ''a temp table '' + OBJECT_NAME(os.object_id)
+				END AS Details,
+			''Look through your source code to find the object creating these objects, and tune the creation and population to reduce fetches. See the URL for details.'' AS HowToStopIt
 		FROM tempdb.sys.dm_db_index_operational_stats(DB_ID(''tempdb''), NULL, NULL, NULL) os
+			LEFT OUTER JOIN #TempdbOperationalStats os_prior ON os.object_id = os_prior.object_id
+				AND os.forwarded_fetch_count > os_prior.forwarded_fetch_count
 		WHERE os.database_id = DB_ID(''tempdb'')
-			AND os.forwarded_fetch_count > 100
+			AND os.forwarded_fetch_count - COALESCE(os_prior.forwarded_fetch_count,0) > 100
 		ORDER BY os.forwarded_fetch_count DESC;'
 
 		EXECUTE sp_executesql @StringToExecute;
 		END
 
     /* In-Memory OLTP - Garbage Collection in Progress - CheckID 31 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 31',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 31 AS CheckID,
         50 AS Priority,
         'In-Memory OLTP' AS FindingGroup,
         'Garbage Collection in Progress' AS Finding,
-        'https://BrentOzar.com/go/garbage/' AS URL,
+        'https://www.brentozar.com/go/garbage/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
             + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
             + 'due to transactional workloads that constantly insert/delete data.' AS Details,
@@ -2756,12 +3035,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.value_delta > (100 * @Seconds); /* Ignore servers sitting idle */
 
     /* In-Memory OLTP - Transactions Aborted - CheckID 32 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 32',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 32 AS CheckID,
         100 AS Priority,
         'In-Memory OLTP' AS FindingGroup,
         'Transactions Aborted' AS Finding,
-        'https://BrentOzar.com/go/aborted/' AS URL,
+        'https://www.brentozar.com/go/aborted/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' transactions aborted (from SQL Server YYYY XTP Transactions:Transactions aborted/sec counter)'  + @LineFeed 
             + 'This may indicate that data is changing, or causing folks to retry their transactions, thereby increasing load.' AS Details,
         'Dig into your In-Memory OLTP transactions to figure out which ones are failing and being retried.' AS HowToStopIt
@@ -2773,12 +3057,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
     /* Query Problems - Suboptimal Plans/Sec High - CheckID 33 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 33',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 32 AS CheckID,
         100 AS Priority,
         'Query Problems' AS FindingGroup,
         'Suboptimal Plans/Sec High' AS Finding,
-        'https://BrentOzar.com/go/suboptimal/' AS URL,
+        'https://www.brentozar.com/go/suboptimal/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' plans reported in the ' + CAST(ps.instance_name AS NVARCHAR(100)) + ' workload group (from Workload GroupStats:Suboptimal plans/sec counter)'  + @LineFeed 
             + 'Even if you are not using Resource Governor, it still tracks information about user queries, memory grants, etc.' AS Details,
         'Check out sp_BlitzCache to get more information about recent queries, or try sp_BlitzWho to see currently running queries.' AS HowToStopIt
@@ -2791,12 +3080,18 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Azure Performance - Database is Maxed Out - CheckID 41 */
     IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 41',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT 41 AS CheckID,
             10 AS Priority,
             'Azure Performance' AS FindingGroup,
             'Database is Maxed Out' AS Finding,
-            'https://BrentOzar.com/go/maxedout' AS URL,
+            'https://www.brentozar.com/go/maxedout' AS URL,
             N'At ' + CONVERT(NVARCHAR(100), s.end_time ,121) + N', your database approached (or hit) your DTU limits:' + @LineFeed
                 + N'Average CPU percent: ' + CAST(avg_cpu_percent AS NVARCHAR(50)) + @LineFeed
                 + N'Average data IO percent: ' + CAST(avg_data_io_percent AS NVARCHAR(50)) + @LineFeed
@@ -2811,14 +3106,20 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                OR avg_log_write_percent >=90
                OR max_worker_percent >= 90
                OR max_session_percent >= 90);
+	END
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 19',10,1) WITH NOWAIT;
+	END
+
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
     SELECT 19 AS CheckID,
         250 AS Priority,
         'Server Info' AS FindingGroup,
         'Batch Requests per Sec' AS Finding,
-        'http://www.BrentOzar.com/go/measure' AS URL,
+        'https://www.brentozar.com/go/measure' AS URL,
         CAST(CAST(ps.value_delta AS MONEY) / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
         ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
     FROM #PerfmonStats ps
@@ -2833,39 +3134,58 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
     /* Server Info - SQL Compilations/sec - CheckID 25 */
     IF @ExpertMode = 1
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
-    SELECT 25 AS CheckID,
-        250 AS Priority,
-        'Server Info' AS FindingGroup,
-        'SQL Compilations per Sec' AS Finding,
-        'http://www.BrentOzar.com/go/measure' AS URL,
-        CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
-    FROM #PerfmonStats ps
-        INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
-    WHERE ps.Pass = 2
-        AND ps.object_name = @ServiceName + ':SQL Statistics'
-        AND ps.counter_name = 'SQL Compilations/sec';
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 25',10,1) WITH NOWAIT;
+		END
+
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+		SELECT 25 AS CheckID,
+		    250 AS Priority,
+		    'Server Info' AS FindingGroup,
+		    'SQL Compilations per Sec' AS Finding,
+		    'https://www.brentozar.com/go/measure' AS URL,
+		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		FROM #PerfmonStats ps
+		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
+		WHERE ps.Pass = 2
+		    AND ps.object_name = @ServiceName + ':SQL Statistics'
+		    AND ps.counter_name = 'SQL Compilations/sec';
+	END
 
     /* Server Info - SQL Re-Compilations/sec - CheckID 26 */
     IF @ExpertMode = 1
-    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
-    SELECT 26 AS CheckID,
-        250 AS Priority,
-        'Server Info' AS FindingGroup,
-        'SQL Re-Compilations per Sec' AS Finding,
-        'http://www.BrentOzar.com/go/measure' AS URL,
-        CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
-    FROM #PerfmonStats ps
-        INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
-    WHERE ps.Pass = 2
-        AND ps.object_name = @ServiceName + ':SQL Statistics'
-        AND ps.counter_name = 'SQL Re-Compilations/sec';
+	BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 26',10,1) WITH NOWAIT;
+		END
+
+		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+		SELECT 26 AS CheckID,
+		    250 AS Priority,
+		    'Server Info' AS FindingGroup,
+		    'SQL Re-Compilations per Sec' AS Finding,
+		    'https://www.brentozar.com/go/measure' AS URL,
+		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		FROM #PerfmonStats ps
+		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
+		WHERE ps.Pass = 2
+		    AND ps.object_name = @ServiceName + ':SQL Statistics'
+		    AND ps.counter_name = 'SQL Re-Compilations/sec';
+	END
 
     /* Server Info - Wait Time per Core per Sec - CheckID 20 */
     IF @Seconds > 0
     BEGIN;
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 20',10,1) WITH NOWAIT;
+		END;
+
         WITH waits1(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws1.wait_time_ms) FROM #WaitStats ws1 WHERE ws1.Pass = 1 GROUP BY SampleTime),
         waits2(SampleTime, waits_ms) AS (SELECT SampleTime, SUM(ws2.wait_time_ms) FROM #WaitStats ws2 WHERE ws2.Pass = 2 GROUP BY SampleTime),
         cores(cpu_count) AS (SELECT SUM(1) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1)
@@ -2874,7 +3194,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             250 AS Priority,
             'Server Info' AS FindingGroup,
             'Wait Time per Core per Sec' AS Finding,
-            'http://www.BrentOzar.com/go/measure' AS URL,
+            'https://www.brentozar.com/go/measure' AS URL,
             CAST((CAST(waits2.waits_ms - waits1.waits_ms AS MONEY)) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
             (waits2.waits_ms - waits1.waits_ms) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
         FROM cores i
@@ -2882,15 +3202,65 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
           CROSS JOIN waits2;
     END;
 
-    /* Server Performance - High CPU Utilization CheckID 24 */
+	IF @Seconds > 0
+	BEGIN
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+    SELECT
+        47 AS CheckId,
+    	50 AS Priority,
+    	'Query Problems' AS FindingsGroup,
+    	'High Percentage Of Runnable Queries' AS Finding, 
+    	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
+    	'On the ' 
+    	+ CASE WHEN y.pass = 1 
+    	       THEN '1st' 
+    		   ELSE '2nd'
+    	   END
+    	+ ' pass, '
+    	+ RTRIM(y.runnable_pct)
+    	+ '% of your queries were waiting to get on a CPU to run. '
+    	+ ' This can indicate CPU pressure.'
+    FROM
+    (
+        SELECT 
+            2 AS pass,
+            x.total, 
+        	x.runnable,
+            CONVERT(decimal(5,2),
+                (
+                    x.runnable / 
+                        (1. * NULLIF(x.total, 0))
+                )
+            ) * 100. AS runnable_pct
+        FROM 
+        (
+            SELECT 
+                COUNT_BIG(*) AS total, 
+                SUM(CASE WHEN status = 'runnable' 
+        		         THEN 1 
+        				 ELSE 0 
+        		    END) AS runnable
+            FROM sys.dm_exec_requests
+            WHERE session_id > 50
+        ) AS x
+    ) AS y
+    WHERE y.runnable_pct > 20.;
+	END
+
+    /* If we're waiting 30+ seconds, run these checks at the end.
+    We get this data from the ring buffers, and it's only updated once per minute, so might
+    as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
+    end of our sp_BlitzFirst session. */
     IF @Seconds >= 30
-        BEGIN
-        /* If we're waiting 30+ seconds, run this check at the end.
-           We get this data from the ring buffers, and it's only updated once per minute, so might
-           as well get it now - whereas if we're checking 30+ seconds, it might get updated by the
-           end of our sp_BlitzFirst session. */
+    BEGIN
+        /* Server Performance - High CPU Utilization CheckID 24 */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 24',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2903,8 +3273,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             ) AS y
             WHERE 100 - SystemIdle >= 50;
 
+        /* Server Performance - CPU Utilization CheckID 23 */
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 23',10,1) WITH NOWAIT;
+		END
+
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'http://www.BrentOzar.com/go/cpu'
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
             FROM (
                 SELECT record,
                     record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
@@ -2916,7 +3292,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ORDER BY timestamp DESC) AS rb
             ) AS y;
 
-        END; /* IF @Seconds >= 30 */
+	END; /* IF @Seconds >= 30 */
 
 
     /* If we didn't find anything, apologize. */
@@ -2975,7 +3351,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   'We hope you found this tool useful.'
                 );
 
-                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old */
+                /* Outdated sp_BlitzFirst - sp_BlitzFirst is Over 6 Months Old - CheckID 27 */
+				IF (@Debug = 1)
+				BEGIN
+					RAISERROR('Running CheckID 27',10,1) WITH NOWAIT;
+				END
+
                 IF DATEDIFF(MM, @VersionDate, SYSDATETIMEOFFSET()) > 6
                     BEGIN
                         INSERT  INTO #BlitzFirstResults
@@ -3038,15 +3419,34 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 IF @BlitzCacheMinutesBack IS NULL OR @BlitzCacheMinutesBack < 1 OR @BlitzCacheMinutesBack > 60
                     SET @BlitzCacheMinutesBack = 15;
 
-                EXEC sp_BlitzCache
-                    @OutputDatabaseName = @UnquotedOutputDatabaseName,
-                    @OutputSchemaName = @UnquotedOutputSchemaName,
-                    @OutputTableName = @OutputTableNameBlitzCache,
-                    @CheckDateOverride = @StartSampleTime,
-                    @SortOrder = 'all',
-                    @SkipAnalysis = @BlitzCacheSkipAnalysis,
-                    @MinutesBack = @BlitzCacheMinutesBack,
-                    @Debug = @Debug;
+                IF(@OutputType = 'NONE')
+				BEGIN 
+                    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = 'all',
+                        @SkipAnalysis = @BlitzCacheSkipAnalysis,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug,
+					    @OutputType = @OutputType
+				    ;
+				END;
+				ELSE
+				BEGIN
+				
+				    EXEC sp_BlitzCache
+                        @OutputDatabaseName = @UnquotedOutputDatabaseName,
+                        @OutputSchemaName = @UnquotedOutputSchemaName,
+                        @OutputTableName = @OutputTableNameBlitzCache,
+                        @CheckDateOverride = @StartSampleTime,
+                        @SortOrder = 'all',
+                        @SkipAnalysis = @BlitzCacheSkipAnalysis,
+                        @MinutesBack = @BlitzCacheMinutesBack,
+                        @Debug = @Debug
+				    ;
+				END;
 
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -3064,8 +3464,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
             END;
 
-        ELSE /* No sp_BlitzCache found, or it's outdated */
+        ELSE 
             BEGIN
+                /* No sp_BlitzCache found, or it's outdated - CheckID 36 */
+				IF (@Debug = 1)
+				BEGIN
+					RAISERROR('Running CheckID 36',10,1) WITH NOWAIT;
+				END
+
                 INSERT  INTO #BlitzFirstResults
                         ( CheckID ,
                             Priority ,
@@ -4050,8 +4456,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     [FindingsGroup] ,
                     [Finding] ,
                     [URL] ,
-                    CAST(@StockDetailsHeader + [Details] + @StockDetailsFooter AS NVARCHAR(MAX)) AS Details,
-                    CAST([HowToStopIt] AS NVARCHAR(MAX)) AS HowToStopIt,
+                    CAST(LEFT(@StockDetailsHeader + [Details] + @StockDetailsFooter,32000) AS TEXT) AS Details,
+                    CAST(LEFT([HowToStopIt],32000) AS TEXT) AS HowToStopIt,
                     CAST([QueryText] AS NVARCHAR(MAX)) AS QueryText,
                     CAST([QueryPlan] AS NVARCHAR(MAX)) AS QueryPlan
             FROM    #BlitzFirstResults
