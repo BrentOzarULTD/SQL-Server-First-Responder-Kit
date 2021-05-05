@@ -21,6 +21,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinBlockingSeconds INT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
+	@GetOuterCommand BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -573,6 +574,56 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						JOIN sys.sysprocesses AS sys2
 						ON sys1.spid = sys2.blocked;
 
+						'+CASE
+							WHEN (@GetOuterCommand = 1 AND (NOT EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer'))) THEN N'DECLARE @Iteration INT = 1;
+						DECLARE @DBCCCommand NVARCHAR(50);
+						DECLARE @Sessioncount INT;
+						DECLARE @SessionID INT = 0;
+
+						DECLARE @Sessions TABLE 
+						(
+							session_id INT
+						);
+
+						DECLARE @inputbuffer TABLE 
+						(
+						ID INT IDENTITY(1,1),
+						session_id INT,
+						event_type	NVARCHAR(30),
+						parameters	SMALLINT,
+						event_info	NVARCHAR(4000)
+						);
+
+						INSERT INTO @Sessions (session_id) 
+						SELECT session_id
+						FROM sys.dm_exec_sessions
+						WHERE session_id <> @@SPID
+						AND session_id > 50;
+
+						SELECT @Sessioncount = COUNT(*) FROM @Sessions;
+
+						WHILE (@Iteration <= @Sessioncount) 
+						BEGIN 
+							SELECT TOP 1 @SessionID = session_id
+							FROM @Sessions
+							WHERE session_id > @SessionID
+							ORDER BY session_id ASC;
+
+							SET @DBCCCommand = ''DBCC INPUTBUFFER (''+CAST(@SessionID AS NVARCHAR(10))+'') WITH NO_INFOMSGS;'';
+
+							INSERT INTO @inputbuffer (event_type,parameters,event_info) 
+							EXEC(@DBCCCommand);
+
+							UPDATE @inputbuffer 
+							SET session_id = @SessionID 
+							WHERE ID = SCOPE_IDENTITY();
+
+							SET @Iteration += 1;
+
+						END'
+						ELSE N''
+						END+
+						N' 
 
 						DECLARE @LiveQueryPlans TABLE
 						(
@@ -581,7 +632,6 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
@@ -608,6 +658,10 @@ BEGIN
 			               ELSE query_stats.statement_end_offset
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
+						  '+CASE
+								WHEN @GetOuterCommand = 1 THEN N'event_info AS outer_command,'
+							ELSE N''
+							END+N'
 			       derp.query_plan ,
 						    qmg.query_cost ,										   		   
 						    s.status ,
@@ -727,6 +781,14 @@ BEGIN
 				
     SET @StringToExecute += 			 
 	    N'FROM sys.dm_exec_sessions AS s
+			 '+
+			 CASE
+				WHEN @GetOuterCommand = 1 THEN CASE
+													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
+													ELSE N'LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
+													END
+				ELSE N''
+			 END+N'
 			 LEFT JOIN sys.dm_exec_requests AS r
 			 ON   r.session_id = s.session_id
 			 LEFT JOIN ( SELECT DISTINCT
@@ -813,6 +875,10 @@ IF @ProductVersionMajor >= 11
 			               ELSE query_stats.statement_end_offset
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
+						  '+CASE
+								WHEN @GetOuterCommand = 1 THEN N'event_info AS outer_command,'
+							ELSE N''
+							END+N'
 			       derp.query_plan ,
 				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
@@ -991,6 +1057,14 @@ IF @ProductVersionMajor >= 11
 					
     SET @StringToExecute += 	
 	    N' FROM sys.dm_exec_sessions AS s
+			 '+
+			 CASE
+				WHEN @GetOuterCommand = 1 THEN CASE
+													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
+													ELSE N'LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
+													END
+				ELSE N''
+			 END+N'
 	    LEFT JOIN sys.dm_exec_requests AS r
 					    ON   r.session_id = s.session_id
 	    LEFT JOIN ( SELECT DISTINCT
