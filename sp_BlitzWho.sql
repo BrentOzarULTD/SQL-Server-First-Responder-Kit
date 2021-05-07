@@ -674,7 +674,7 @@ BEGIN
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
-								WHEN @GetOuterCommand = 1 THEN N'event_info AS outer_command,'
+								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
@@ -891,7 +891,7 @@ IF @ProductVersionMajor >= 11
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
-								WHEN @GetOuterCommand = 1 THEN N'event_info AS outer_command,'
+								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
@@ -1071,13 +1071,14 @@ IF @ProductVersionMajor >= 11
     END /* IF @ExpertMode = 1 */
 					
     SET @StringToExecute += 	
-	    N' FROM sys.dm_exec_sessions AS s
-			 '+
+	    N' FROM sys.dm_exec_sessions AS s'+
 			 CASE
 				WHEN @GetOuterCommand = 1 THEN CASE
-													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
-													ELSE N'LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
-													END
+													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'
+		OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
+													ELSE N'
+		LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
+											   END
 				ELSE N''
 			 END+N'
 	    LEFT JOIN sys.dm_exec_requests AS r
