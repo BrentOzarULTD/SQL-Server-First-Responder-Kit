@@ -4747,4 +4747,5 @@ EXEC sp_BlitzFirst
 , @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
 , @OutputTableNameBlitzCache = 'BlitzCache'
 , @OutputTableNameBlitzWho = 'BlitzWho'
+, @OutputType = 'none'
 */
