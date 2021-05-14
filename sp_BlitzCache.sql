@@ -2015,7 +2015,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(MILLISECOND, (x.last_elapsed_time / 1000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -2134,7 +2134,7 @@ SELECT TOP (@Top)
             END AS WritesPerMinute,
        qs.cached_time AS PlanCreationTime,
        qs.last_execution_time AS LastExecutionTime,
-	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+	   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
 	   NULL AS PlanGenerationNum, 
@@ -2245,7 +2245,7 @@ BEGIN
                 END AS WritesPerMinute,
            qs.creation_time AS PlanCreationTime,
            qs.last_execution_time AS LastExecutionTime,
-		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+		   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
            qs.statement_end_offset AS StatementEndOffset,
 		   qs.plan_generation_num AS PlanGenerationNum, ';
