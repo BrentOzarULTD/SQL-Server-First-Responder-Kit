@@ -1563,10 +1563,10 @@ database_id INT
 
 CREATE TABLE #plan_usage
 (
-    duplicate_plan_handles BIGINT NULL,
-    percent_duplicate NUMERIC(7, 2) NULL,
+    duplicate_plan_hashes BIGINT NULL,
+    percent_duplicate DECIMAL(5, 2) NULL,
     single_use_plan_count BIGINT NULL,
-    percent_single NUMERIC(7, 2) NULL,
+    percent_single DECIMAL(5, 2) NULL,
     total_plans BIGINT NULL,
 	spid INT
 );
@@ -1600,49 +1600,85 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
 WITH total_plans AS 
 (
-    SELECT COUNT_BIG(*) AS total_plans
-    FROM sys.dm_exec_cached_plans AS deqs
-    WHERE deqs.cacheobjtype = N'Compiled Plan'
+    SELECT
+	    COUNT_BIG(deqs.query_plan_hash) AS total_plans
+    FROM sys.dm_exec_query_stats AS deqs
 ),
      many_plans AS 
 (
-    SELECT SUM(x.duplicate_plan_handles) AS duplicate_plan_handles
-    FROM (
-        SELECT COUNT_BIG(DISTINCT plan_handle) AS duplicate_plan_handles
+    SELECT
+	    SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
+    FROM
+	(
+        SELECT
+		    COUNT_BIG(DISTINCT qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-            CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
-        GROUP BY qs.query_hash, pa.value
-        HAVING COUNT_BIG(DISTINCT plan_handle) > 5
+        GROUP BY
+		    qs.query_plan_hash,
+			pa.value
+        HAVING COUNT_BIG(DISTINCT qs.query_plan_hash) > 5
     ) AS x
 ),
      single_use_plans AS 
 (
-    SELECT COUNT_BIG(*) AS single_use_plan_count
+    SELECT
+	    COUNT_BIG(*) AS single_use_plan_count
     FROM sys.dm_exec_cached_plans AS cp
     WHERE cp.usecounts = 1
     AND   cp.objtype = N'Adhoc'
-    AND   EXISTS ( SELECT 1/0
-                   FROM sys.configurations AS c
-                   WHERE c.name = N'optimize for ad hoc workloads'
-                   AND   c.value_in_use = 0 )
+    AND   EXISTS
+	      (
+		      SELECT
+			      1/0
+              FROM sys.configurations AS c
+              WHERE c.name = N'optimize for ad hoc workloads'
+              AND   c.value_in_use = 0
+		  )
     HAVING COUNT_BIG(*) > 1
 )
-INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
-SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
-       s.single_use_plan_count, 
-       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
-       t.total_plans,
-	   @@SPID
-FROM   	many_plans AS m
-		CROSS APPLY single_use_plans AS s 
-		CROSS APPLY total_plans AS t;
+INSERT
+    #plan_usage
+(
+    duplicate_plan_hashes,
+	percent_duplicate,
+	single_use_plan_count,
+	percent_single,
+	total_plans,
+	spid
+)
+SELECT
+    m.duplicate_plan_hashes, 
+    CONVERT
+	(
+	    decimal(5,2),
+		m.duplicate_plan_hashes
+		    / (1. * NULLIF(t.total_plans, 0))
+    ) * 100. AS percent_duplicate,
+    s.single_use_plan_count, 
+    CONVERT
+	(
+	    decimal(5,2),
+		s.single_use_plan_count
+		    / (1. * NULLIF(t.total_plans, 0))
+	) * 100. AS percent_single,
+    t.total_plans,
+	@@SPID
+FROM many_plans AS m
+CROSS APPLY single_use_plans AS s 
+CROSS APPLY total_plans AS t;
 
+
+/*
+Erik Darling:
+   Quoting this out to see if the above query fixes the issue
+   2021-05-17, Issue #2909
 
 UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
 	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+*/
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
