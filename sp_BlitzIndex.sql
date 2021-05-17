@@ -2118,12 +2118,12 @@ UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
-                            + N' {' + system_type_name + N' ' +
-							CASE max_length WHEN -1 THEN N'(max)' ELSE
+                            + N' {' + system_type_name +
+							CASE max_length WHEN -1 THEN N' (max)' ELSE
 								CASE  
-									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
-									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
-									ELSE '' 
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE N' ' + CAST(max_length AS NVARCHAR(50))
 								END
 							END
 							+ N'}'
@@ -2162,12 +2162,12 @@ FROM    #IndexSanity si
                             WHEN 1 THEN N' DESC'
                             ELSE N''
 							END
-                            + N' {' + system_type_name + N' ' +
-							CASE max_length WHEN -1 THEN N'(max)' ELSE
+                            + N' {' + system_type_name +
+							CASE max_length WHEN -1 THEN N' (max)' ELSE
 								CASE  
-									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
-									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
-									ELSE '' 
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE N' ' + CAST(max_length AS NVARCHAR(50))
 								END
 							END
 							+ N'}'
@@ -2207,7 +2207,15 @@ UPDATE    #IndexSanity
 SET        include_column_names = D3.include_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name
-                        + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+								+ N' {' + system_type_name +
+								CASE max_length WHEN -1 THEN N' (max)' ELSE
+									CASE
+										WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')'
+										WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')'
+										ELSE N' ' + CAST(max_length AS NVARCHAR(50))
+									END
+								END
+								+ N'}'
                         FROM    #IndexColumns c
                         WHERE    c.database_id= si.database_id
 								AND c.schema_name = si.schema_name
