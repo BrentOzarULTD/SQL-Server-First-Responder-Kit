@@ -2828,15 +2828,23 @@ UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
         plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
-FROM (
-        SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
-                COUNT(QueryHash) AS number_of_plans,
-                QueryHash,
-				DatabaseName
-        FROM    ##BlitzCacheProcs
-		WHERE SPID = @@SPID
-        GROUP BY QueryHash,
-		         DatabaseName
+FROM
+    (
+    SELECT    
+        DatabaseName = 
+            DB_NAME(CONVERT(int, pa.value)),
+        QueryHash = 
+            qs.query_hash,
+        number_of_plans =
+           COUNT_BIG(qs.query_plan_hash),
+        distinct_plan_count = 
+            COUNT_BIG(DISTINCT qs.query_plan_hash)
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+    WHERE pa.attribute = 'dbid'
+    GROUP BY 
+        DB_NAME(CONVERT(int, pa.value)), 
+        qs.query_hash
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
