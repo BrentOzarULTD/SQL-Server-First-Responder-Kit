@@ -2833,8 +2833,8 @@ FROM
     SELECT    
         DatabaseName = 
             DB_NAME(CONVERT(int, pa.value)),
-        QueryPlanHash = 
-            qs.query_plan_hash,
+        QueryHash = 
+            qs.query_hash,
         number_of_plans =
            COUNT_BIG(qs.query_plan_hash),
         distinct_plan_count = 
@@ -2844,9 +2844,9 @@ FROM
     WHERE pa.attribute = 'dbid'
     GROUP BY 
         DB_NAME(CONVERT(int, pa.value)), 
-        qs.query_plan_hash
+        qs.query_hash
 ) AS x
-WHERE ##BlitzCacheProcs.QueryPlanHash = x.QueryPlanHash
+WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
 OPTION (RECOMPILE) ;
 
