@@ -3253,11 +3253,6 @@ AS
 										'The job ' + [name]
 										+ ' has not been set up to notify an operator if it fails.' AS Details
 								FROM    msdb.[dbo].[sysjobs] j
-										INNER JOIN ( SELECT DISTINCT
-															[job_id]
-													 FROM   [msdb].[dbo].[sysjobschedules]
-													 WHERE  next_run_date > 0
-												   ) s ON j.job_id = s.job_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
