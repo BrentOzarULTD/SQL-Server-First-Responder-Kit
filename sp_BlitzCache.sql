@@ -1611,14 +1611,19 @@ WITH total_plans AS
     FROM
 	(
         SELECT
-		    COUNT_BIG(DISTINCT qs.query_plan_hash) AS duplicate_plan_hashes
+		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
+        LEFT JOIN sys.dm_exec_procedure_stats ps 
+            ON qs.sql_handle = ps.sql_handle
         CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
+        AND   qs.query_plan_hash <> 0x0000000000000000
         GROUP BY
 		    qs.query_plan_hash,
-			pa.value
-        HAVING COUNT_BIG(DISTINCT qs.query_plan_hash) > 5
+            qs.query_hash,
+			ps.object_id,
+            pa.value
+        HAVING COUNT_BIG(qs.query_plan_hash) > 5
     ) AS x
 ),
      single_use_plans AS 
@@ -1666,8 +1671,8 @@ SELECT
     t.total_plans,
 	@@SPID
 FROM many_plans AS m
-CROSS APPLY single_use_plans AS s 
-CROSS APPLY total_plans AS t;
+CROSS JOIN single_use_plans AS s 
+CROSS JOIN total_plans AS t;
 
 
 /*
