@@ -1619,7 +1619,7 @@ WITH total_plans AS
         WHERE pa.attribute = N'dbid'
         AND   qs.query_plan_hash <> 0x0000000000000000
         GROUP BY
-		    qs.query_plan_hash,
+		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
             qs.query_hash,
 			ps.object_id,
             pa.value
