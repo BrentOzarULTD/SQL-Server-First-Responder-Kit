@@ -37,6 +37,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @VersionCheckMode BIT = 0
 AS
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 
 /*Versioning details*/
 

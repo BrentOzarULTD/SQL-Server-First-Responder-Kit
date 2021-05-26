@@ -33,6 +33,7 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
 AS
 BEGIN
   SET NOCOUNT ON;
+  SET STATISTICS XML OFF;
 
   SELECT @Version = '8.03', @VersionDate = '20210420';
   
