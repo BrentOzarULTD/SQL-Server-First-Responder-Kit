@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
