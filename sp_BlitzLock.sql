@@ -30,9 +30,10 @@ AS
 BEGIN
 
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 
 IF(@VersionCheckMode = 1)
@@ -1163,8 +1164,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				SELECT DISTINCT
 				PARSENAME(dow.object_name, 3) AS database_name,
 				dow.object_name,
-				CONVERT(VARCHAR(10), (SUM(DISTINCT dp.wait_time) / 1000) / 86400) AS wait_days,
-				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT dp.wait_time) / 1000), 0), 108) AS wait_time_hms
+				CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000) / 86400) AS wait_days,
+				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000), 0), 108) AS wait_time_hms
 				FROM #deadlock_owner_waiter AS dow
 				JOIN #deadlock_process AS dp
 				ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
@@ -1216,8 +1217,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
 				'This database has had ' 
-				+ CONVERT(VARCHAR(10), (SUM(DISTINCT wt.total_wait_time_ms) / 1000) / 86400) 
-				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT wt.total_wait_time_ms) / 1000), 0), 108)
+				+ CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000), 0), 108)
 				+ ' [d/h/m/s] of deadlock wait time.'
 		FROM wait_time AS wt
 		GROUP BY wt.database_name

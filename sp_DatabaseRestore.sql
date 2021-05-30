@@ -37,10 +37,11 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @VersionCheckMode BIT = 0
 AS
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -998,7 +999,11 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
-    SELECT @LastDiffBackup = MAX(BackupFile)
+	SELECT @LastDiffBackup = MAX(CASE
+		WHEN @StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt THEN
+			BackupFile
+		ELSE ''
+		END)
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
         AND
@@ -1245,50 +1250,26 @@ BEGIN
 	
 END
 
-
+IF (@StopAt IS NOT NULL)
+BEGIN
+	
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+	
+    DELETE fl
+	FROM @FileList AS fl
+	WHERE BackupFile LIKE N'%.trn'
+	AND BackupFile LIKE N'%' + @Database + N'%' 
+	AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt;
+	
+END
 
 -- Check for log backups
-IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
+IF(@BackupDateTime IS NOT NULL AND @BackupDateTime <> '')
 	BEGIN 
 		DELETE FROM @FileList
 		WHERE BackupFile LIKE N'%.trn'
 		AND BackupFile LIKE N'%' + @Database + N'%'
 		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime));
-	END;
-
-
-IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
-	BEGIN
-		DELETE FROM @FileList
-		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%'
-		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @OnlyLogsAfter));
-	END;
-
-
-IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
-	BEGIN
-		DELETE FROM @FileList
-		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%'
-		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-		AND NOT ((@ContinueLogs = 1 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-
-	END;
-
-IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NOT NULL)	
-	BEGIN
-		DECLARE BackupFiles CURSOR FOR
-			SELECT BackupFile
-			FROM @FileList
-			WHERE BackupFile LIKE N'%.trn'
-			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
-			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
-			  ORDER BY BackupFile;
-		
-		OPEN BackupFiles;
 	END;
 
 

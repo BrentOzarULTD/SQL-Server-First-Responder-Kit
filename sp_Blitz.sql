@@ -34,10 +34,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 WITH RECOMPILE
 AS
     SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -428,33 +429,38 @@ AS
 		   AND db_id('rdsadmin') IS NOT NULL
 		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
-						INSERT INTO #SkipChecks (CheckID) VALUES (6);
-						INSERT INTO #SkipChecks (CheckID) VALUES (29);
-						INSERT INTO #SkipChecks (CheckID) VALUES (30);
-						INSERT INTO #SkipChecks (CheckID) VALUES (31);
-						INSERT INTO #SkipChecks (CheckID) VALUES (40); /* TempDB only has one data file */
-						INSERT INTO #SkipChecks (CheckID) VALUES (57);
-						INSERT INTO #SkipChecks (CheckID) VALUES (59);
-						INSERT INTO #SkipChecks (CheckID) VALUES (61);
-						INSERT INTO #SkipChecks (CheckID) VALUES (62);
-						INSERT INTO #SkipChecks (CheckID) VALUES (68);
-						INSERT INTO #SkipChecks (CheckID) VALUES (69);
-						INSERT INTO #SkipChecks (CheckID) VALUES (73);
-						INSERT INTO #SkipChecks (CheckID) VALUES (79);
-						INSERT INTO #SkipChecks (CheckID) VALUES (92);
-						INSERT INTO #SkipChecks (CheckID) VALUES (94);
-						INSERT INTO #SkipChecks (CheckID) VALUES (96);
-						INSERT INTO #SkipChecks (CheckID) VALUES (98);
+						INSERT INTO #SkipChecks (CheckID) VALUES (6); /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (29); /* tables in model database created by users - not allowed */
+						INSERT INTO #SkipChecks (CheckID) VALUES (40); /* TempDB only has one data file in RDS */
+						INSERT INTO #SkipChecks (CheckID) VALUES (62); /* Database compatibility level - cannot change in RDS */
+						INSERT INTO #SkipChecks (CheckID) VALUES (68); /*Check for the last good DBCC CHECKDB date - can't run DBCC DBINFO() */
+						INSERT INTO #SkipChecks (CheckID) VALUES (69); /* High VLF check - requires DBCC LOGINFO permission */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* No Failsafe Operator Configured check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (92); /* Drive info check - requires xp_Fixeddrives permission */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100); /* Remote DAC disabled */
-						INSERT INTO #SkipChecks (CheckID) VALUES (123);
-						INSERT INTO #SkipChecks (CheckID) VALUES (177);
-						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
-						INSERT INTO #SkipChecks (CheckID) VALUES (181);
-						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* xp_readerrorlog checking for IFI */
-						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
-						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
-						INSERT INTO #SkipChecks (CheckID) VALUES (219);
+						INSERT INTO #SkipChecks (CheckID) VALUES (177); /* Disabled Internal Monitoring Features check - requires dm_server_registry access */
+						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans checks - Maint plans not available in RDS*/
+						INSERT INTO #SkipChecks (CheckID) VALUES (181); /*Find repetitive maintenance tasks*/
+
+						-- can check errorlog using rdsadmin.dbo.rds_read_error_log, so allow this check
+						--INSERT INTO #SkipChecks (CheckID) VALUES (193); /* xp_readerrorlog checking for IFI */
+
+						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread not allowed - checking for power saving */
+						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread not allowed - checking for additional instances */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins called by Invalid login defined with Windows Authentication */
+
+						-- Following are skipped due to limited permissions in msdb/SQLAgent in RDS
+						INSERT INTO #SkipChecks (CheckID) VALUES (30); /* SQL Server Agent alerts not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (31); /* check whether we have NO ENABLED operators */
+						INSERT INTO #SkipChecks (CheckID) VALUES (57); /* SQL Agent Job Runs at Startup */
+						INSERT INTO #SkipChecks (CheckID) VALUES (59); /* Alerts Configured without Follow Up */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61); /*SQL Server Agent alerts do not exist for severity levels 19 through 25*/
+						INSERT INTO #SkipChecks (CheckID) VALUES (79); /* Shrink Database Job check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (94); /* job failure without operator notification check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+						INSERT INTO #SkipChecks (CheckID) VALUES (98); /* check for disabled alerts */
+						INSERT INTO #SkipChecks (CheckID) VALUES (123); /* Agent Jobs Starting Simultaneously */
+						INSERT INTO #SkipChecks (CheckID) VALUES (219); /* check for alerts that do NOT include event descriptions in their outputs via email/pager/net-send */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
 				            Priority ,
@@ -3248,11 +3254,6 @@ AS
 										'The job ' + [name]
 										+ ' has not been set up to notify an operator if it fails.' AS Details
 								FROM    msdb.[dbo].[sysjobs] j
-										INNER JOIN ( SELECT DISTINCT
-															[job_id]
-													 FROM   [msdb].[dbo].[sysjobschedules]
-													 WHERE  next_run_date > 0
-												   ) s ON j.job_id = s.job_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
@@ -8130,16 +8131,30 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 			*/
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 184 )
-							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
+									WHERE   DatabaseName IS NULL AND CheckID = 193 )
+							AND ((@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000))
 						BEGIN
 							
-							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 184) WITH NOWAIT;
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 193) WITH NOWAIT;
 							
-							INSERT INTO #ErrorLog
-							EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
+							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND db_id('rdsadmin') IS NOT NULL
+							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+								BEGIN
+								INSERT INTO #ErrorLog
+								EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+								END
+							ELSE
+								BEGIN
+								INSERT INTO #ErrorLog
+								EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+								END
 
 							IF @@ROWCOUNT > 0
+								begin
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  [Priority] ,
@@ -8155,6 +8170,37 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Instant File Initialization Enabled' AS [Finding] ,
 												'https://www.brentozar.com/go/instant' AS [URL] ,
 												'The service account has the Perform Volume Maintenance Tasks permission.';
+								end
+							else -- if version of sql server has instant_file_initialization_enabled column in dm_server_services, check that too
+							     --  in the event the error log has been cycled and the startup messages are not in the current error log
+								begin
+								if EXISTS ( SELECT  *
+												FROM    sys.all_objects o
+														INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+												WHERE   o.name = 'dm_server_services'
+														AND c.name = 'instant_file_initialization_enabled' )
+									begin
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  [Priority] ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+											SELECT
+													193 AS [CheckID] ,
+													250 AS [Priority] ,
+													'Server Info' AS [FindingsGroup] ,
+													'Instant File Initialization Enabled' AS [Finding] ,
+													'https://www.brentozar.com/go/instant' AS [URL] ,
+													'The service account has the Perform Volume Maintenance Tasks permission.'
+											where exists (select 1 FROM sys.dm_server_services
+											               WHERE instant_file_initialization_enabled = 'Y'
+											               AND filename LIKE '%sqlservr.exe%')
+											OPTION (RECOMPILE);
+									end;
+								end;
 						END;
 
 			/* Server Info - Instant File Initialization Not Enabled - Check 192 - SQL Server 2016 SP1 and newer */

@@ -43,9 +43,10 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
 AS
 BEGIN
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2288,10 +2289,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				 (
 					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
 								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
-								 CONVERT(VARCHAR(8000), rb.record) AS record
+								 CONVERT(VARCHAR(8000), rb.record) AS record,
+								 event_date as event_date_raw
 					 FROM
 								 (   SELECT CONVERT(XML, dorb.record) AS record,
-											DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+											DATEADD(ms, -( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
 									 FROM   sys.dm_os_ring_buffers AS dorb
 									 CROSS JOIN
 											( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
@@ -2316,10 +2318,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							+ ' Ring buffer details:  '
 							+ y2.record
 					FROM   y AS y2
-					ORDER BY y2.event_date DESC
+					ORDER BY y2.event_date_raw DESC
 					FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
 			FROM   y
-			ORDER BY y.event_date DESC;
+			ORDER BY y.event_date_raw DESC;
 
 		
 		/* Highlight if non SQL processes are using >25% CPU - CheckID 28 */
@@ -4746,4 +4748,5 @@ EXEC sp_BlitzFirst
 , @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
 , @OutputTableNameBlitzCache = 'BlitzCache'
 , @OutputTableNameBlitzWho = 'BlitzWho'
+, @OutputType = 'none'
 */
