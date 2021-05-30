@@ -34,10 +34,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 WITH RECOMPILE
 AS
     SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -428,33 +429,38 @@ AS
 		   AND db_id('rdsadmin') IS NOT NULL
 		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
-						INSERT INTO #SkipChecks (CheckID) VALUES (6);
-						INSERT INTO #SkipChecks (CheckID) VALUES (29);
-						INSERT INTO #SkipChecks (CheckID) VALUES (30);
-						INSERT INTO #SkipChecks (CheckID) VALUES (31);
-						INSERT INTO #SkipChecks (CheckID) VALUES (40); /* TempDB only has one data file */
-						INSERT INTO #SkipChecks (CheckID) VALUES (57);
-						INSERT INTO #SkipChecks (CheckID) VALUES (59);
-						INSERT INTO #SkipChecks (CheckID) VALUES (61);
-						INSERT INTO #SkipChecks (CheckID) VALUES (62);
-						INSERT INTO #SkipChecks (CheckID) VALUES (68);
-						INSERT INTO #SkipChecks (CheckID) VALUES (69);
-						INSERT INTO #SkipChecks (CheckID) VALUES (73);
-						INSERT INTO #SkipChecks (CheckID) VALUES (79);
-						INSERT INTO #SkipChecks (CheckID) VALUES (92);
-						INSERT INTO #SkipChecks (CheckID) VALUES (94);
-						INSERT INTO #SkipChecks (CheckID) VALUES (96);
-						INSERT INTO #SkipChecks (CheckID) VALUES (98);
+						INSERT INTO #SkipChecks (CheckID) VALUES (6); /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (29); /* tables in model database created by users - not allowed */
+						INSERT INTO #SkipChecks (CheckID) VALUES (40); /* TempDB only has one data file in RDS */
+						INSERT INTO #SkipChecks (CheckID) VALUES (62); /* Database compatibility level - cannot change in RDS */
+						INSERT INTO #SkipChecks (CheckID) VALUES (68); /*Check for the last good DBCC CHECKDB date - can't run DBCC DBINFO() */
+						INSERT INTO #SkipChecks (CheckID) VALUES (69); /* High VLF check - requires DBCC LOGINFO permission */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73); /* No Failsafe Operator Configured check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (92); /* Drive info check - requires xp_Fixeddrives permission */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100); /* Remote DAC disabled */
-						INSERT INTO #SkipChecks (CheckID) VALUES (123);
-						INSERT INTO #SkipChecks (CheckID) VALUES (177);
-						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans */
-						INSERT INTO #SkipChecks (CheckID) VALUES (181);
-						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* xp_readerrorlog checking for IFI */
-						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread checking for power saving */
-						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread */
-						INSERT INTO #SkipChecks (CheckID) VALUES (219);
+						INSERT INTO #SkipChecks (CheckID) VALUES (177); /* Disabled Internal Monitoring Features check - requires dm_server_registry access */
+						INSERT INTO #SkipChecks (CheckID) VALUES (180); /* 180/181 are maintenance plans checks - Maint plans not available in RDS*/
+						INSERT INTO #SkipChecks (CheckID) VALUES (181); /*Find repetitive maintenance tasks*/
+
+						-- can check errorlog using rdsadmin.dbo.rds_read_error_log, so allow this check
+						--INSERT INTO #SkipChecks (CheckID) VALUES (193); /* xp_readerrorlog checking for IFI */
+
+						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread not allowed - checking for power saving */
+						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread not allowed - checking for additional instances */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins called by Invalid login defined with Windows Authentication */
+
+						-- Following are skipped due to limited permissions in msdb/SQLAgent in RDS
+						INSERT INTO #SkipChecks (CheckID) VALUES (30); /* SQL Server Agent alerts not configured */
+						INSERT INTO #SkipChecks (CheckID) VALUES (31); /* check whether we have NO ENABLED operators */
+						INSERT INTO #SkipChecks (CheckID) VALUES (57); /* SQL Agent Job Runs at Startup */
+						INSERT INTO #SkipChecks (CheckID) VALUES (59); /* Alerts Configured without Follow Up */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61); /*SQL Server Agent alerts do not exist for severity levels 19 through 25*/
+						INSERT INTO #SkipChecks (CheckID) VALUES (79); /* Shrink Database Job check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (94); /* job failure without operator notification check */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
+						INSERT INTO #SkipChecks (CheckID) VALUES (98); /* check for disabled alerts */
+						INSERT INTO #SkipChecks (CheckID) VALUES (123); /* Agent Jobs Starting Simultaneously */
+						INSERT INTO #SkipChecks (CheckID) VALUES (219); /* check for alerts that do NOT include event descriptions in their outputs via email/pager/net-send */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
 				            Priority ,
@@ -3248,11 +3254,6 @@ AS
 										'The job ' + [name]
 										+ ' has not been set up to notify an operator if it fails.' AS Details
 								FROM    msdb.[dbo].[sysjobs] j
-										INNER JOIN ( SELECT DISTINCT
-															[job_id]
-													 FROM   [msdb].[dbo].[sysjobschedules]
-													 WHERE  next_run_date > 0
-												   ) s ON j.job_id = s.job_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
@@ -8130,16 +8131,30 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 			*/
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 184 )
-							AND (@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000)
+									WHERE   DatabaseName IS NULL AND CheckID = 193 )
+							AND ((@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000))
 						BEGIN
 							
-							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 184) WITH NOWAIT;
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 193) WITH NOWAIT;
 							
-							INSERT INTO #ErrorLog
-							EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
+							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+							   AND db_id('rdsadmin') IS NOT NULL
+							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+								BEGIN
+								INSERT INTO #ErrorLog
+								EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+								END
+							ELSE
+								BEGIN
+								INSERT INTO #ErrorLog
+								EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+								END
 
 							IF @@ROWCOUNT > 0
+								begin
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  [Priority] ,
@@ -8155,6 +8170,37 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Instant File Initialization Enabled' AS [Finding] ,
 												'https://www.brentozar.com/go/instant' AS [URL] ,
 												'The service account has the Perform Volume Maintenance Tasks permission.';
+								end
+							else -- if version of sql server has instant_file_initialization_enabled column in dm_server_services, check that too
+							     --  in the event the error log has been cycled and the startup messages are not in the current error log
+								begin
+								if EXISTS ( SELECT  *
+												FROM    sys.all_objects o
+														INNER JOIN sys.all_columns c ON o.object_id = c.object_id
+												WHERE   o.name = 'dm_server_services'
+														AND c.name = 'instant_file_initialization_enabled' )
+									begin
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  [Priority] ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+											SELECT
+													193 AS [CheckID] ,
+													250 AS [Priority] ,
+													'Server Info' AS [FindingsGroup] ,
+													'Instant File Initialization Enabled' AS [Finding] ,
+													'https://www.brentozar.com/go/instant' AS [URL] ,
+													'The service account has the Perform Volume Maintenance Tasks permission.'
+											where exists (select 1 FROM sys.dm_server_services
+											               WHERE instant_file_initialization_enabled = 'Y'
+											               AND filename LIKE '%sqlservr.exe%')
+											OPTION (RECOMPILE);
+									end;
+								end;
 						END;
 
 			/* Server Info - Instant File Initialization Not Enabled - Check 192 - SQL Server 2016 SP1 and newer */
@@ -9431,8 +9477,9 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 )
 AS 
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -10307,9 +10354,10 @@ WITH RECOMPILE
 AS
 	BEGIN
     SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12087,9 +12135,10 @@ WITH RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -13373,10 +13422,10 @@ database_id INT
 
 CREATE TABLE #plan_usage
 (
-    duplicate_plan_handles BIGINT NULL,
-    percent_duplicate NUMERIC(7, 2) NULL,
+    duplicate_plan_hashes BIGINT NULL,
+    percent_duplicate DECIMAL(5, 2) NULL,
     single_use_plan_count BIGINT NULL,
-    percent_single NUMERIC(7, 2) NULL,
+    percent_single DECIMAL(5, 2) NULL,
     total_plans BIGINT NULL,
 	spid INT
 );
@@ -13410,49 +13459,90 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
 WITH total_plans AS 
 (
-    SELECT COUNT_BIG(*) AS total_plans
-    FROM sys.dm_exec_cached_plans AS deqs
-    WHERE deqs.cacheobjtype = N'Compiled Plan'
+    SELECT
+	    COUNT_BIG(deqs.query_plan_hash) AS total_plans
+    FROM sys.dm_exec_query_stats AS deqs
 ),
      many_plans AS 
 (
-    SELECT SUM(x.duplicate_plan_handles) AS duplicate_plan_handles
-    FROM (
-        SELECT COUNT_BIG(DISTINCT plan_handle) AS duplicate_plan_handles
+    SELECT
+	    SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
+    FROM
+	(
+        SELECT
+		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-            CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+        LEFT JOIN sys.dm_exec_procedure_stats ps 
+            ON qs.sql_handle = ps.sql_handle
+        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
-        GROUP BY qs.query_hash, pa.value
-        HAVING COUNT_BIG(DISTINCT plan_handle) > 5
+        AND   qs.query_plan_hash <> 0x0000000000000000
+        GROUP BY
+		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
+            qs.query_hash,
+			ps.object_id,
+            pa.value
+        HAVING COUNT_BIG(qs.query_plan_hash) > 5
     ) AS x
 ),
      single_use_plans AS 
 (
-    SELECT COUNT_BIG(*) AS single_use_plan_count
+    SELECT
+	    COUNT_BIG(*) AS single_use_plan_count
     FROM sys.dm_exec_cached_plans AS cp
     WHERE cp.usecounts = 1
     AND   cp.objtype = N'Adhoc'
-    AND   EXISTS ( SELECT 1/0
-                   FROM sys.configurations AS c
-                   WHERE c.name = N'optimize for ad hoc workloads'
-                   AND   c.value_in_use = 0 )
+    AND   EXISTS
+	      (
+		      SELECT
+			      1/0
+              FROM sys.configurations AS c
+              WHERE c.name = N'optimize for ad hoc workloads'
+              AND   c.value_in_use = 0
+		  )
     HAVING COUNT_BIG(*) > 1
 )
-INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
-SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
-       s.single_use_plan_count, 
-       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
-       t.total_plans,
-	   @@SPID
-FROM   	many_plans AS m
-		CROSS APPLY single_use_plans AS s 
-		CROSS APPLY total_plans AS t;
+INSERT
+    #plan_usage
+(
+    duplicate_plan_hashes,
+	percent_duplicate,
+	single_use_plan_count,
+	percent_single,
+	total_plans,
+	spid
+)
+SELECT
+    m.duplicate_plan_hashes, 
+    CONVERT
+	(
+	    decimal(5,2),
+		m.duplicate_plan_hashes
+		    / (1. * NULLIF(t.total_plans, 0))
+    ) * 100. AS percent_duplicate,
+    s.single_use_plan_count, 
+    CONVERT
+	(
+	    decimal(5,2),
+		s.single_use_plan_count
+		    / (1. * NULLIF(t.total_plans, 0))
+	) * 100. AS percent_single,
+    t.total_plans,
+	@@SPID
+FROM many_plans AS m
+CROSS JOIN single_use_plans AS s 
+CROSS JOIN total_plans AS t;
 
+
+/*
+Erik Darling:
+   Quoting this out to see if the above query fixes the issue
+   2021-05-17, Issue #2909
 
 UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
 	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+*/
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
@@ -13825,7 +13915,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(MILLISECOND, (x.last_elapsed_time / 1000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -13944,7 +14034,7 @@ SELECT TOP (@Top)
             END AS WritesPerMinute,
        qs.cached_time AS PlanCreationTime,
        qs.last_execution_time AS LastExecutionTime,
-	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+	   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
 	   NULL AS PlanGenerationNum, 
@@ -14055,7 +14145,7 @@ BEGIN
                 END AS WritesPerMinute,
            qs.creation_time AS PlanCreationTime,
            qs.last_execution_time AS LastExecutionTime,
-		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+		   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
            qs.statement_end_offset AS StatementEndOffset,
 		   qs.plan_generation_num AS PlanGenerationNum, ';
@@ -14638,15 +14728,23 @@ UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
         plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
-FROM (
-        SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
-                COUNT(QueryHash) AS number_of_plans,
-                QueryHash,
-				DatabaseName
-        FROM    ##BlitzCacheProcs
-		WHERE SPID = @@SPID
-        GROUP BY QueryHash,
-		         DatabaseName
+FROM
+    (
+    SELECT    
+        DatabaseName = 
+            DB_NAME(CONVERT(int, pa.value)),
+        QueryHash = 
+            qs.query_hash,
+        number_of_plans =
+           COUNT_BIG(qs.query_plan_hash),
+        distinct_plan_count = 
+            COUNT_BIG(DISTINCT qs.query_plan_hash)
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+    WHERE pa.attribute = 'dbid'
+    GROUP BY 
+        DB_NAME(CONVERT(int, pa.value)), 
+        qs.query_hash
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
@@ -19286,6 +19384,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputTableName NVARCHAR(256) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
+	@ShowPartitionRanges BIT = 0 /* Will add partition range values column to columnstore visualization */,
 	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
@@ -19296,9 +19395,10 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -19377,6 +19477,7 @@ DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
+DECLARE @PartitionCount INT;
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -20926,6 +21027,7 @@ BEGIN TRY
 				  	  ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
 			      ) q2
 				  CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+                  WHERE ig.index_group_handle = gs.group_handle
 			  ) '
 		END
         
@@ -21370,12 +21472,12 @@ UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
-                            + N' {' + system_type_name + N' ' +
-							CASE max_length WHEN -1 THEN N'(max)' ELSE
+                            + N' {' + system_type_name +
+							CASE max_length WHEN -1 THEN N' (max)' ELSE
 								CASE  
-									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
-									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
-									ELSE '' 
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE N' ' + CAST(max_length AS NVARCHAR(50))
 								END
 							END
 							+ N'}'
@@ -21414,12 +21516,12 @@ FROM    #IndexSanity si
                             WHEN 1 THEN N' DESC'
                             ELSE N''
 							END
-                            + N' {' + system_type_name + N' ' +
-							CASE max_length WHEN -1 THEN N'(max)' ELSE
+                            + N' {' + system_type_name +
+							CASE max_length WHEN -1 THEN N' (max)' ELSE
 								CASE  
-									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')' 
-									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N'(' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
-									ELSE '' 
+									WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')' 
+									WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')' 
+									ELSE N' ' + CAST(max_length AS NVARCHAR(50))
 								END
 							END
 							+ N'}'
@@ -21459,7 +21561,15 @@ UPDATE    #IndexSanity
 SET        include_column_names = D3.include_column_names
 FROM    #IndexSanity si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name
-                        + N' {' + system_type_name + N' ' + CAST(max_length AS NVARCHAR(50)) +  N'}'
+								+ N' {' + system_type_name +
+								CASE max_length WHEN -1 THEN N' (max)' ELSE
+									CASE
+										WHEN system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(max_length AS NVARCHAR(20)) + N')'
+										WHEN system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(max_length/2 AS NVARCHAR(20)) + N')'
+										ELSE N' ' + CAST(max_length AS NVARCHAR(50))
+									END
+								END
+								+ N'}'
                         FROM    #IndexColumns c
                         WHERE    c.database_id= si.database_id
 								AND c.schema_name = si.schema_name
@@ -21996,6 +22106,7 @@ BEGIN
 				SELECT @ColumnList = @ColumnList + column_name + N'', ''
 					FROM DistinctColumns
 					ORDER BY column_id;
+				SELECT @PartitionCount = COUNT(1) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions WHERE object_id = @ObjectID AND data_compression IN (3,4);
 				END';
 
 		IF @Debug = 1
@@ -22012,27 +22123,62 @@ BEGIN
 				PRINT SUBSTRING(@dsql, 36000, 40000);
 			END;
 
-        EXEC sp_executesql @dsql, N'@ObjectID INT, @ColumnList NVARCHAR(MAX) OUTPUT', @ObjectID, @ColumnList OUTPUT;
+        EXEC sp_executesql @dsql, N'@ObjectID INT, @ColumnList NVARCHAR(MAX) OUTPUT, @PartitionCount INT OUTPUT', @ObjectID, @ColumnList OUTPUT, @PartitionCount OUTPUT;
+
+		IF @PartitionCount < 2
+			SET @ShowPartitionRanges = 0;
 
 		IF @Debug = 1
-			SELECT @ColumnList AS ColumnstoreColumnList;
+			SELECT @ColumnList AS ColumnstoreColumnList, @PartitionCount AS PartitionCount, @ShowPartitionRanges AS ShowPartitionRanges;
 
 		IF @ColumnList <> ''
 		BEGIN
 			/* Remove the trailing comma */
 			SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
 
-			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; SELECT partition_number, row_group_id, total_rows, deleted_rows, ' + @ColumnList + N'
+			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
+				SELECT partition_number, '
+				+ CASE WHEN @ShowPartitionRanges = 1 THEN N' COALESCE(range_start_op + '' '' + range_start + '' '', '''') + COALESCE(range_end_op + '' '' + range_end, '''') AS partition_range, ' ELSE N' ' END
+				+ N' row_group_id, total_rows, deleted_rows, ' 
+				+ @ColumnList
+				+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
 				FROM (
-					SELECT c.name AS column_name, p.partition_number,
-						rg.row_group_id, rg.total_rows, rg.deleted_rows,
-						details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''
-					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
-					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
-					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
-                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id
-					LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
-					WHERE rg.object_id = @ObjectID
+					SELECT column_name, partition_number, row_group_id, total_rows, deleted_rows, details,
+						range_start_op,
+						CASE
+							WHEN format_type IS NULL THEN CAST(range_start_value AS NVARCHAR(4000))
+							ELSE CONVERT(NVARCHAR(4000), range_start_value, format_type) END range_start,
+						range_end_op,
+						CASE
+							WHEN format_type IS NULL THEN CAST(range_end_value AS NVARCHAR(4000))
+							ELSE CONVERT(NVARCHAR(4000), range_end_value, format_type) END range_end' ELSE N' ' END + N'
+					FROM (
+						SELECT c.name AS column_name, p.partition_number, rg.row_group_id, rg.total_rows, rg.deleted_rows,
+							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
+							+ CASE WHEN @ShowPartitionRanges = 1 THEN N',
+							CASE
+								WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN 126
+								WHEN pp.system_type_id IN (59, 62) THEN 3
+								WHEN pp.system_type_id IN (60, 122) THEN 2
+								ELSE NULL END format_type,
+							CASE WHEN pf.boundary_value_on_right = 0 THEN ''>'' ELSE ''>='' END range_start_op,
+							prvs.value range_start_value,
+							CASE WHEN pf.boundary_value_on_right = 0 THEN ''<='' ELSE ''<'' END range_end_op,
+							prve.value range_end_value ' ELSE N' ' END + N'
+						FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
+						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
+						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
+						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes i ON i.object_id = rg.object_id AND i.index_id = rg.index_id
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_schemes ps ON ps.data_space_id = i.data_space_id
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_functions pf ON pf.function_id = ps.function_id
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_parameters pp ON pp.function_id = pf.function_id
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
+						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
+						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+						WHERE rg.object_id = @ObjectID' 
+						+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
+					) AS y ' ELSE N' ' END + N'
 				) AS x
 				PIVOT (MAX(details) FOR column_name IN ( ' + @ColumnList + N')) AS pivot1
 				ORDER BY partition_number, row_group_id;';
@@ -24788,9 +24934,10 @@ AS
 BEGIN
 
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 
 IF(@VersionCheckMode = 1)
@@ -25922,8 +26069,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				SELECT DISTINCT
 				PARSENAME(dow.object_name, 3) AS database_name,
 				dow.object_name,
-				CONVERT(VARCHAR(10), (SUM(DISTINCT dp.wait_time) / 1000) / 86400) AS wait_days,
-				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT dp.wait_time) / 1000), 0), 108) AS wait_time_hms
+				CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000) / 86400) AS wait_days,
+				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000), 0), 108) AS wait_time_hms
 				FROM #deadlock_owner_waiter AS dow
 				JOIN #deadlock_process AS dp
 				ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
@@ -25975,8 +26122,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
 				'This database has had ' 
-				+ CONVERT(VARCHAR(10), (SUM(DISTINCT wt.total_wait_time_ms) / 1000) / 86400) 
-				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT wt.total_wait_time_ms) / 1000), 0), 108)
+				+ CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000), 0), 108)
 				+ ' [d/h/m/s] of deadlock wait time.'
 		FROM wait_time AS wt
 		GROUP BY wt.database_name
@@ -26594,9 +26741,10 @@ AS
 BEGIN /*First BEGIN*/
 
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -32322,9 +32470,10 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 AS
 BEGIN
 	SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -32844,6 +32993,7 @@ END
 
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
    
+						SET LOCK_TIMEOUT 1000; /* To avoid blocking on live query plans. See Github issue #2907. */
 						DECLARE @blocked TABLE 
 								(
 								    dbid SMALLINT NOT NULL,
@@ -33440,8 +33590,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[database_name]
 	,[query_text]
 	,[query_plan]'
-    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
-	,[cached_parameter_info]'
+    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END 
+	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[cached_parameter_info]'  ELSE N'' END
 	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
@@ -33609,7 +33759,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
+    (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
     (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
     (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
     (15, 4073, 'CU8', 'https://support.microsoft.com/en-us/help/4577194', '2020-10-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 '),
@@ -33622,6 +33772,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3391, 'RTM CU24', 'https://support.microsoft.com/en-us/help/5001228', '2021-05-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 24'),
     (14, 3381, 'RTM CU23', 'https://support.microsoft.com/en-us/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
     (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/en-us/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
     (14, 3356, 'RTM CU22', 'https://support.microsoft.com/en-us/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
@@ -33647,6 +33798,7 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
     (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
     (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/en-us/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
     (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
@@ -33996,9 +34148,10 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
 AS
 BEGIN
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -36241,10 +36394,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				 (
 					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
 								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
-								 CONVERT(VARCHAR(8000), rb.record) AS record
+								 CONVERT(VARCHAR(8000), rb.record) AS record,
+								 event_date as event_date_raw
 					 FROM
 								 (   SELECT CONVERT(XML, dorb.record) AS record,
-											DATEADD(ms, ( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
+											DATEADD(ms, -( ts.ms_ticks - dorb.timestamp ), GETDATE()) AS event_date
 									 FROM   sys.dm_os_ring_buffers AS dorb
 									 CROSS JOIN
 											( SELECT dosi.ms_ticks FROM sys.dm_os_sys_info AS dosi ) AS ts
@@ -36269,10 +36423,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							+ ' Ring buffer details:  '
 							+ y2.record
 					FROM   y AS y2
-					ORDER BY y2.event_date DESC
+					ORDER BY y2.event_date_raw DESC
 					FOR XML PATH(N''), TYPE ).value(N'.[1]', N'VARCHAR(MAX)'), 1, 1, N'') AS query
 			FROM   y
-			ORDER BY y.event_date DESC;
+			ORDER BY y.event_date_raw DESC;
 
 		
 		/* Highlight if non SQL processes are using >25% CPU - CheckID 28 */
@@ -38699,4 +38853,5 @@ EXEC sp_BlitzFirst
 , @OutputTableNameWaitStats = 'BlitzFirst_WaitStats'
 , @OutputTableNameBlitzCache = 'BlitzCache'
 , @OutputTableNameBlitzWho = 'BlitzWho'
+, @OutputType = 'none'
 */
