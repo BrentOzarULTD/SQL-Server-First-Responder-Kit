@@ -1666,9 +1666,8 @@ BEGIN
 		    db.[resource_database_id] AS DatabaseID,
 		    DB_NAME(db.resource_database_id) AS DatabaseName,
 		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    sessions_with_transactions.open_transaction_count AS OpenTransactionCount
-		FROM (SELECT session_id, SUM(open_transaction_count) AS open_transaction_count FROM sys.dm_exec_requests WHERE open_transaction_count > 0 GROUP BY session_id) AS sessions_with_transactions
-		INNER JOIN sys.dm_exec_sessions s ON sessions_with_transactions.session_id = s.session_id
+		    s.open_transaction_count AS OpenTransactionCount
+		FROM sys.dm_exec_sessions s
 		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
 		INNER JOIN (
 		SELECT DISTINCT request_session_id, resource_database_id
@@ -1678,6 +1677,7 @@ BEGIN
 		AND     request_status = N'GRANT'
 		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
 		WHERE s.status = 'sleeping'
+		AND s.open_transaction_count > 0
 		AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
 		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
 		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
