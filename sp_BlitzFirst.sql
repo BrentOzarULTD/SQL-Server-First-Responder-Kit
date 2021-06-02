@@ -139,7 +139,9 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
     @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)),
-	@dm_exec_query_statistics_xml BIT = 0;
+	@dm_exec_query_statistics_xml BIT = 0,
+	@thread_time_sql NVARCHAR(MAX) = N'',
+	@thread_time_ms BIGINT
 
 /* Sanitize our inputs */
 SELECT
@@ -342,7 +344,15 @@ BEGIN
 
     IF OBJECT_ID('tempdb..#WaitStats') IS NOT NULL
         DROP TABLE #WaitStats;
-    CREATE TABLE #WaitStats (Pass TINYINT NOT NULL, wait_type NVARCHAR(60), wait_time_ms BIGINT, signal_wait_time_ms BIGINT, waiting_tasks_count BIGINT, SampleTime DATETIMEOFFSET);
+    CREATE TABLE #WaitStats (
+	    Pass TINYINT NOT NULL,
+		wait_type NVARCHAR(60),
+		wait_time_ms BIGINT,
+		thread_time_ms BIGINT,
+		signal_wait_time_ms BIGINT,
+		waiting_tasks_count BIGINT,
+		SampleTime datetimeoffset
+		);
 
     IF OBJECT_ID('tempdb..#FileStats') IS NOT NULL
         DROP TABLE #FileStats;
@@ -1293,16 +1303,63 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transactions','Transactions created/sec',NULL);
         END;
 
+    SET @thread_time_sql = N'
+        SELECT
+            @thread_time_ms =
+			    t.total_thread_time_ms
+        FROM 
+        (    
+            SELECT
+                total_thread_time_ms =
+                    CONVERT
+                    (
+                        float,
+                        -- time spent waiting by threads running user queries
+                        SUM(w.wait_time_ms) + 
+                        -- time spent running on a visible scheduler
+                        (
+                            SELECT 
+                                SUM(s.total_cpu_usage_ms)
+                            FROM sys.dm_os_schedulers AS s
+                            WHERE  s.status = ''VISIBLE ONLINE''
+                            AND    s.is_online = 1
+                        )
+                    )
+            FROM sys.dm_os_wait_stats AS w
+            WHERE w.waiting_tasks_count > 0
+                  AND NOT EXISTS 
+                  (
+                      -- Exclude waits unrelated to user queries
+                      SELECT
+                          1/0
+                      FROM ##WaitCategories AS wc
+                      WHERE wc.WaitType = w.wait_type
+                      AND   wc.Ignorable = 1
+                  )
+        ) AS t;'
+
+	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	BEGIN
+	    SET @thread_time_sql = REPLACE(@thread_time_sql, N'sys.dm_os_wait_stats', N'sys.dm_db_wait_stats');
+	END
+
+	EXEC sys.sp_executesql
+	    @thread_time_sql,
+		N'@thread_time_ms BIGINT OUTPUT',
+		@thread_time_ms OUT;
+
+
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
 	SET @StringToExecute = N'
-		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, thread_time_ms, signal_wait_time_ms, waiting_tasks_count)
 			SELECT 
 			x.Pass, 
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			CASE @Seconds WHEN 0 THEN 0 ELSE @thread_time_ms END AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -1342,7 +1399,15 @@ BEGIN
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;'
-	EXEC sp_executesql @StringToExecute, N'@StartSampleTime DATETIMEOFFSET, @Seconds INT', @StartSampleTime, @Seconds;
+
+		EXEC sp_executesql
+	    @StringToExecute,
+      N'@StartSampleTime DATETIMEOFFSET,
+		@Seconds INT,
+		@thread_time_ms BIGINT',
+		@StartSampleTime,
+		@Seconds,
+		@thread_time_ms;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -2450,15 +2515,22 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WAITFOR TIME @FinishSampleTimeWaitFor;
         END;
 
+	EXEC sys.sp_executesql
+	    @thread_time_sql,
+		N'@thread_time_ms BIGINT OUTPUT',
+		@thread_time_ms OUT;
+
+
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
 	SET @StringToExecute = N'
-		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, signal_wait_time_ms, waiting_tasks_count)
+		INSERT #WaitStats(Pass, SampleTime, wait_type, wait_time_ms, thread_time_ms, signal_wait_time_ms, waiting_tasks_count)
 			SELECT 
 			x.Pass, 
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
+			@thread_time_ms AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -2498,7 +2570,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;';
-	EXEC sp_executesql @StringToExecute, N'@Seconds INT', @Seconds;
+
+		EXEC sp_executesql
+		    @StringToExecute,
+		  N'@Seconds INT,
+		    @thread_time_ms BIGINT',
+		    @Seconds,
+			@thread_time_ms;
+
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
@@ -4405,10 +4484,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 )
                 SELECT TOP 10
                     CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
+					CAST(c.[Total Thread Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Thread Time (Hours)],
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
-                    CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST(c.[Wait Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Wait Time (Hours)],
+					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
@@ -4423,8 +4503,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
-                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Signal Wait Time (Seconds)],
+					CAST((wd2.thread_time_ms - wd1.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
+					) AS c
 				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
@@ -4546,10 +4628,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 SELECT
                     'WAIT STATS' AS Pattern,
                     b.SampleTime AS [Sample Ended],
-                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60.0 AS DECIMAL(18,1)) AS [Hours Sample],
+                    CAST(DATEDIFF(mi,wd1.SampleTime, wd2.SampleTime) / 60. AS DECIMAL(18,1)) AS [Hours Sample],
+					CAST(c.[Total Thread Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Thread Time (Hours)],
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
-                    CAST(c.[Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Wait Time (Hours)],
+                    CAST(c.[Wait Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Wait Time (Hours)],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
@@ -4570,8 +4653,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd2.SampleTime > wd1.SampleTime
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
-                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
-                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Wait Time (Seconds)],
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Signal Wait Time (Seconds)],
+					CAST((wd2.thread_time_ms - wd1.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
+					) AS c
 				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
@@ -4588,6 +4673,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     'WAIT STATS' AS Pattern,
                     b.SampleTime AS [Sample Ended],
                     DATEDIFF(ss,wd1.SampleTime, wd2.SampleTime) AS [Seconds Sample],
+					c.[Total Thread Time (Seconds)],
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     c.[Wait Time (Seconds)],
@@ -4612,7 +4698,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 CROSS APPLY (SELECT SUM(1) AS cpu_count FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE' AND is_online = 1) AS cores
                 CROSS APPLY (SELECT
                     CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Wait Time (Seconds)],
-                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)]) AS c
+                    CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS NUMERIC(12,1)) AS [Signal Wait Time (Seconds)],
+					CAST((wd2.thread_time_ms - wd1.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
+					) AS c
 				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
