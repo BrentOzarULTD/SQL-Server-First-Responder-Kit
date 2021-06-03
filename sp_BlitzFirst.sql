@@ -139,9 +139,7 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
     @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)),
-	@dm_exec_query_statistics_xml BIT = 0,
-	@thread_time_sql NVARCHAR(MAX) = N'',
-	@thread_time_ms FLOAT
+	@dm_exec_query_statistics_xml BIT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -1303,73 +1301,6 @@ BEGIN
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES ('SQL Server 2017 XTP Transactions','Transactions created/sec',NULL);
         END;
 
-    SET @thread_time_sql = N'
-	    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-
-	    SELECT
-            @thread_time_ms =
-			    ROUND
-				(
-			        t.total_thread_time_ms,
-					2
-				)
-        FROM 
-        (    
-            SELECT
-                total_thread_time_ms =
-                    CONVERT
-                    (
-                        float,
-                        -- time spent waiting by threads running user queries
-                        SUM(w.wait_time_ms) + 
-                        -- time spent running on a visible scheduler
-                        (
-                            SELECT 
-                                SUM(s.total_cpu_usage_ms)
-                            FROM sys.dm_os_schedulers AS s
-                            WHERE  s.status = ''VISIBLE ONLINE''
-                            AND    s.is_online = 1
-                        )
-                    )
-            FROM
-			(
-			    SELECT
-				    os.wait_type,
-					wait_time_ms =
-					    os.wait_time_ms
-				FROM sys.dm_os_wait_stats AS os
-
-				UNION ALL
-
-				SELECT
-				    owt.wait_type,
-					wait_time_ms = 
-					    owt.wait_duration_ms
-				FROM sys.dm_os_waiting_tasks AS owt
-				WHERE owt.session_id > 50
-
-			) AS w
-            WHERE NOT EXISTS 
-                  (
-                      -- Exclude waits unrelated to user queries
-                      SELECT
-                          1/0
-                      FROM ##WaitCategories AS wc
-                      WHERE wc.WaitType = w.wait_type
-                      AND   wc.Ignorable = 1
-                  )
-        ) AS t;'
-
-	IF SERVERPROPERTY('Edition') = 'SQL Azure'
-	BEGIN
-	    SET @thread_time_sql =
-		        REPLACE(@thread_time_sql, N'sys.dm_os_wait_stats', N'sys.dm_db_wait_stats');
-	END
-
-	EXEC sys.sp_executesql
-	    @thread_time_sql,
-	  N'@thread_time_ms FLOAT OUTPUT',
-		@thread_time_ms OUT;
 
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
@@ -1381,7 +1312,18 @@ BEGIN
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-			CASE @Seconds WHEN 0 THEN 0 ELSE @thread_time_ms END AS thread_time_ms,
+			CASE @Seconds
+			     WHEN 0
+			     THEN 0
+			     ELSE
+			         (
+			             SELECT 
+                             SUM(s.total_cpu_usage_ms)
+                         FROM sys.dm_os_schedulers AS s
+                         WHERE  s.status = ''VISIBLE ONLINE''
+                         AND    s.is_online = 1
+			         )
+			END AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -1425,12 +1367,29 @@ BEGIN
 		EXEC sp_executesql
 	    @StringToExecute,
       N'@StartSampleTime DATETIMEOFFSET,
-		@Seconds INT,
-		@thread_time_ms float',
+		@Seconds INT',
 		@StartSampleTime,
-		@Seconds,
-		@thread_time_ms;
+		@Seconds;
 
+    WITH w AS
+	(
+	    SELECT
+		    total_waits =
+			    CONVERT
+				(
+				    FLOAT,
+			        SUM(ws.wait_time_ms)
+				)
+		FROM #WaitStats AS ws
+		WHERE Pass = 1
+	)
+    UPDATE ws
+	    SET	ws.thread_time_ms =
+		       ws.thread_time_ms + w.total_waits
+	FROM #WaitStats AS ws
+	CROSS JOIN w
+	WHERE ws.Pass = 1
+	OPTION(RECOMPILE);
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
@@ -2537,11 +2496,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WAITFOR TIME @FinishSampleTimeWaitFor;
         END;
 
-	EXEC sys.sp_executesql
-	    @thread_time_sql,
-	  N'@thread_time_ms FLOAT OUTPUT',
-		@thread_time_ms OUT;
-
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
@@ -2552,7 +2506,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-			@thread_time_ms AS thread_time_ms,
+			(
+			    SELECT 
+                    SUM(s.total_cpu_usage_ms)
+                FROM sys.dm_os_schedulers AS s
+                WHERE  s.status = ''VISIBLE ONLINE''
+                AND    s.is_online = 1
+			) AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -2595,11 +2555,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		EXEC sp_executesql
 		    @StringToExecute,
-		  N'@Seconds INT,
-		    @thread_time_ms FLOAT',
-		    @Seconds,
-			@thread_time_ms;
+		  N'@Seconds INT',
+		    @Seconds;
 
+    WITH w AS
+	(
+	    SELECT
+		    total_waits =
+			    CONVERT
+				(
+				    FLOAT,
+			        SUM(ws.wait_time_ms)
+				)
+		FROM #WaitStats AS ws
+		WHERE Pass = 2
+	)
+    UPDATE ws
+	    SET	ws.thread_time_ms =
+		       ws.thread_time_ms + w.total_waits
+	FROM #WaitStats AS ws
+	CROSS JOIN w
+	WHERE ws.Pass = 2
+	OPTION(RECOMPILE);
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
