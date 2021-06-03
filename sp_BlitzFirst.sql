@@ -1318,7 +1318,11 @@ BEGIN
 			     ELSE
 			         (
 			             SELECT 
-                             SUM(s.total_cpu_usage_ms)
+						     CONVERT
+							 (
+							     FLOAT,
+						         SUM(s.total_cpu_usage_ms)
+							 )
                          FROM sys.dm_os_schedulers AS s
                          WHERE  s.status = ''VISIBLE ONLINE''
                          AND    s.is_online = 1
@@ -1363,14 +1367,14 @@ BEGIN
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;'
-
+		
 		EXEC sp_executesql
 	    @StringToExecute,
       N'@StartSampleTime DATETIMEOFFSET,
 		@Seconds INT',
 		@StartSampleTime,
 		@Seconds;
-
+		
     WITH w AS
 	(
 	    SELECT
@@ -1382,15 +1386,24 @@ BEGIN
 				)
 		FROM #WaitStats AS ws
 		WHERE Pass = 1
+	),
+	    m AS
+    (
+	    SELECT
+		    max_thread = 
+		        MAX(ws.thread_time_ms)
+		FROM #WaitStats AS ws
+		WHERE Pass = 1
 	)
     UPDATE ws
 	    SET	ws.thread_time_ms =
-		       ws.thread_time_ms + w.total_waits
+		       m.max_thread + w.total_waits
 	FROM #WaitStats AS ws
 	CROSS JOIN w
+	CROSS JOIN m
 	WHERE ws.Pass = 1
 	OPTION(RECOMPILE);
-
+	
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc)
     SELECT
@@ -2508,7 +2521,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
 			(
 			    SELECT 
-                    SUM(s.total_cpu_usage_ms)
+				    CONVERT
+					 (
+					     FLOAT,
+				         SUM(s.total_cpu_usage_ms)
+					 )
                 FROM sys.dm_os_schedulers AS s
                 WHERE  s.status = ''VISIBLE ONLINE''
                 AND    s.is_online = 1
@@ -2552,7 +2569,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		   )
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;';
-
+		
 		EXEC sp_executesql
 		    @StringToExecute,
 		  N'@Seconds INT',
@@ -2569,14 +2586,24 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				)
 		FROM #WaitStats AS ws
 		WHERE Pass = 2
+	),
+	    m AS
+    (
+	    SELECT
+		    max_thread = 
+		        MAX(ws.thread_time_ms)
+		FROM #WaitStats AS ws
+		WHERE Pass = 2
 	)
     UPDATE ws
 	    SET	ws.thread_time_ms =
-		       ws.thread_time_ms + w.total_waits
+		       m.max_thread + w.total_waits
 	FROM #WaitStats AS ws
 	CROSS JOIN w
+	CROSS JOIN m
 	WHERE ws.Pass = 2
 	OPTION(RECOMPILE);
+	
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
         num_of_reads, [bytes_read] , io_stall_write_ms,num_of_writes, [bytes_written], PhysicalName, TypeDesc, avg_stall_read_ms, avg_stall_write_ms)
