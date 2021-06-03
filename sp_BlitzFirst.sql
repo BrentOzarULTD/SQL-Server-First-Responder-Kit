@@ -1366,6 +1366,11 @@ BEGIN
 		        REPLACE(@thread_time_sql, N'sys.dm_os_wait_stats', N'sys.dm_db_wait_stats');
 	END
 
+	EXEC sys.sp_executesql
+	    @thread_time_sql,
+	  N'@thread_time_ms FLOAT OUTPUT',
+		@thread_time_ms OUT;
+
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
@@ -1376,7 +1381,7 @@ BEGIN
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-			0 AS thread_time_ms,
+			CASE @Seconds WHEN 0 THEN 0 ELSE @thread_time_ms END AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -1420,9 +1425,11 @@ BEGIN
 		EXEC sp_executesql
 	    @StringToExecute,
       N'@StartSampleTime DATETIMEOFFSET,
-		@Seconds INT',
+		@Seconds INT,
+		@thread_time_ms float',
 		@StartSampleTime,
-		@Seconds;
+		@Seconds,
+		@thread_time_ms;
 
 
     INSERT INTO #FileStats (Pass, SampleTime, DatabaseID, FileID, DatabaseName, FileLogicalName, SizeOnDiskMB, io_stall_read_ms ,
@@ -4714,7 +4721,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 CROSS APPLY (SELECT
                     CAST((wd2.wait_time_ms-wd1.wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Wait Time (Seconds)],
                     CAST((wd2.signal_wait_time_ms - wd1.signal_wait_time_ms)/1000. AS DECIMAL(18,1)) AS [Signal Wait Time (Seconds)],
-					CAST((wd2.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
+					CAST((wd2.thread_time_ms - wd1.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
 					) AS c
 				LEFT OUTER JOIN ##WaitCategories wcat ON wd1.wait_type = wcat.WaitType
                 WHERE (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
