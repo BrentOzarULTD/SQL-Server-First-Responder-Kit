@@ -8180,6 +8180,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												WHERE   o.name = 'dm_server_services'
 														AND c.name = 'instant_file_initialization_enabled' )
 									begin
+									SET @StringToExecute = N'
 									INSERT  INTO #BlitzResults
 											( CheckID ,
 											  [Priority] ,
@@ -8191,14 +8192,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											SELECT
 													193 AS [CheckID] ,
 													250 AS [Priority] ,
-													'Server Info' AS [FindingsGroup] ,
-													'Instant File Initialization Enabled' AS [Finding] ,
-													'https://www.brentozar.com/go/instant' AS [URL] ,
-													'The service account has the Perform Volume Maintenance Tasks permission.'
+													''Server Info'' AS [FindingsGroup] ,
+													''Instant File Initialization Enabled'' AS [Finding] ,
+													''https://www.brentozar.com/go/instant'' AS [URL] ,
+													''The service account has the Perform Volume Maintenance Tasks permission.''
 											where exists (select 1 FROM sys.dm_server_services
-											               WHERE instant_file_initialization_enabled = 'Y'
-											               AND filename LIKE '%sqlservr.exe%')
-											OPTION (RECOMPILE);
+											               WHERE instant_file_initialization_enabled = ''Y''
+											               AND filename LIKE ''%sqlservr.exe%'')
+											OPTION (RECOMPILE);';
+									EXEC(@StringToExecute);
 									end;
 								end;
 						END;
