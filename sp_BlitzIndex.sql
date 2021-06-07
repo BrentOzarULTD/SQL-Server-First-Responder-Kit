@@ -3988,7 +3988,7 @@ BEGIN;
                                 i.index_sanity_id, 
                                 150 AS Priority,
                                 N'Index Hoarder' AS findings_group,
-                                N'Non-Unique Clustered JIndex' AS finding,
+                                N'Non-Unique Clustered Index' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
                                 N'Uniquifiers will be required! Clustered index: ' + i.db_schema_object_name 
