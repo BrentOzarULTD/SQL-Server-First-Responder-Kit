@@ -277,9 +277,10 @@ WITH RECOMPILE
 AS
 BEGIN
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.01', @VersionDate = '20210222';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1563,10 +1564,10 @@ database_id INT
 
 CREATE TABLE #plan_usage
 (
-    duplicate_plan_handles BIGINT NULL,
-    percent_duplicate NUMERIC(7, 2) NULL,
+    duplicate_plan_hashes BIGINT NULL,
+    percent_duplicate DECIMAL(5, 2) NULL,
     single_use_plan_count BIGINT NULL,
-    percent_single NUMERIC(7, 2) NULL,
+    percent_single DECIMAL(5, 2) NULL,
     total_plans BIGINT NULL,
 	spid INT
 );
@@ -1600,49 +1601,90 @@ OPTION (RECOMPILE);
 RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
 WITH total_plans AS 
 (
-    SELECT COUNT_BIG(*) AS total_plans
-    FROM sys.dm_exec_cached_plans AS deqs
-    WHERE deqs.cacheobjtype = N'Compiled Plan'
+    SELECT
+	    COUNT_BIG(deqs.query_plan_hash) AS total_plans
+    FROM sys.dm_exec_query_stats AS deqs
 ),
      many_plans AS 
 (
-    SELECT SUM(x.duplicate_plan_handles) AS duplicate_plan_handles
-    FROM (
-        SELECT COUNT_BIG(DISTINCT plan_handle) AS duplicate_plan_handles
+    SELECT
+	    SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
+    FROM
+	(
+        SELECT
+		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-            CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+        LEFT JOIN sys.dm_exec_procedure_stats ps 
+            ON qs.sql_handle = ps.sql_handle
+        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
-        GROUP BY qs.query_hash, pa.value
-        HAVING COUNT_BIG(DISTINCT plan_handle) > 5
+        AND   qs.query_plan_hash <> 0x0000000000000000
+        GROUP BY
+		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
+            qs.query_hash,
+			ps.object_id,
+            pa.value
+        HAVING COUNT_BIG(qs.query_plan_hash) > 5
     ) AS x
 ),
      single_use_plans AS 
 (
-    SELECT COUNT_BIG(*) AS single_use_plan_count
+    SELECT
+	    COUNT_BIG(*) AS single_use_plan_count
     FROM sys.dm_exec_cached_plans AS cp
     WHERE cp.usecounts = 1
     AND   cp.objtype = N'Adhoc'
-    AND   EXISTS ( SELECT 1/0
-                   FROM sys.configurations AS c
-                   WHERE c.name = N'optimize for ad hoc workloads'
-                   AND   c.value_in_use = 0 )
+    AND   EXISTS
+	      (
+		      SELECT
+			      1/0
+              FROM sys.configurations AS c
+              WHERE c.name = N'optimize for ad hoc workloads'
+              AND   c.value_in_use = 0
+		  )
     HAVING COUNT_BIG(*) > 1
 )
-INSERT #plan_usage ( duplicate_plan_handles, percent_duplicate, single_use_plan_count, percent_single, total_plans, spid )
-SELECT m.duplicate_plan_handles, 
-       CONVERT(DECIMAL(5,2), m.duplicate_plan_handles / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_duplicate,
-       s.single_use_plan_count, 
-       CONVERT(DECIMAL(5,2), s.single_use_plan_count / (1. * NULLIF(t.total_plans, 0))) * 100. AS percent_single,
-       t.total_plans,
-	   @@SPID
-FROM   	many_plans AS m
-		CROSS APPLY single_use_plans AS s 
-		CROSS APPLY total_plans AS t;
+INSERT
+    #plan_usage
+(
+    duplicate_plan_hashes,
+	percent_duplicate,
+	single_use_plan_count,
+	percent_single,
+	total_plans,
+	spid
+)
+SELECT
+    m.duplicate_plan_hashes, 
+    CONVERT
+	(
+	    decimal(5,2),
+		m.duplicate_plan_hashes
+		    / (1. * NULLIF(t.total_plans, 0))
+    ) * 100. AS percent_duplicate,
+    s.single_use_plan_count, 
+    CONVERT
+	(
+	    decimal(5,2),
+		s.single_use_plan_count
+		    / (1. * NULLIF(t.total_plans, 0))
+	) * 100. AS percent_single,
+    t.total_plans,
+	@@SPID
+FROM many_plans AS m
+CROSS JOIN single_use_plans AS s 
+CROSS JOIN total_plans AS t;
 
+
+/*
+Erik Darling:
+   Quoting this out to see if the above query fixes the issue
+   2021-05-17, Issue #2909
 
 UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
 	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+*/
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
@@ -2015,7 +2057,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(MILLISECOND, (x.last_elapsed_time / 1000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -2134,7 +2176,7 @@ SELECT TOP (@Top)
             END AS WritesPerMinute,
        qs.cached_time AS PlanCreationTime,
        qs.last_execution_time AS LastExecutionTime,
-	   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+	   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
        NULL AS StatementStartOffset,
        NULL AS StatementEndOffset,
 	   NULL AS PlanGenerationNum, 
@@ -2245,7 +2287,7 @@ BEGIN
                 END AS WritesPerMinute,
            qs.creation_time AS PlanCreationTime,
            qs.last_execution_time AS LastExecutionTime,
-		   DATEADD(MILLISECOND, (qs.last_elapsed_time / 1000.), qs.last_execution_time) AS LastCompletionTime,
+		   DATEADD(SECOND, (qs.last_elapsed_time / 1000000.), qs.last_execution_time) AS LastCompletionTime,
            qs.statement_start_offset AS StatementStartOffset,
            qs.statement_end_offset AS StatementEndOffset,
 		   qs.plan_generation_num AS PlanGenerationNum, ';
@@ -2828,15 +2870,23 @@ UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
         plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
-FROM (
-        SELECT  COUNT(DISTINCT QueryHash) AS distinct_plan_count,
-                COUNT(QueryHash) AS number_of_plans,
-                QueryHash,
-				DatabaseName
-        FROM    ##BlitzCacheProcs
-		WHERE SPID = @@SPID
-        GROUP BY QueryHash,
-		         DatabaseName
+FROM
+    (
+    SELECT    
+        DatabaseName = 
+            DB_NAME(CONVERT(int, pa.value)),
+        QueryHash = 
+            qs.query_hash,
+        number_of_plans =
+           COUNT_BIG(qs.query_plan_hash),
+        distinct_plan_count = 
+            COUNT_BIG(DISTINCT qs.query_plan_hash)
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+    WHERE pa.attribute = 'dbid'
+    GROUP BY 
+        DB_NAME(CONVERT(int, pa.value)), 
+        qs.query_hash
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
@@ -3982,7 +4032,7 @@ SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%'
 	   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
                                    THEN SUBSTRING(s.compile_time_value, 
 												  CHARINDEX('(', s.compile_time_value) + 1,
-												  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+												  CHARINDEX(')', s.compile_time_value, CHARINDEX('(', s.compile_time_value) + 1) - 1 - CHARINDEX('(', s.compile_time_value)
 												  )
 									WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
 									AND s.variable_datatype NOT LIKE '%binary%' 
@@ -6942,20 +6992,23 @@ ELSE
 
     IF @ValidOutputLocation = 1
 		BEGIN
-			SET @StringToExecute = 'USE '
+			SET @StringToExecute = N'USE '
 				+ @OutputDatabaseName
-				+ '; IF EXISTS(SELECT * FROM '
+				+ N'; IF EXISTS(SELECT * FROM '
 				+ @OutputDatabaseName
-				+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 				+ @OutputSchemaName
-				+ ''') AND NOT EXISTS (SELECT * FROM '
+				+ N''') AND NOT EXISTS (SELECT * FROM '
 				+ @OutputDatabaseName
-				+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-				+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-				+ @OutputTableName + ''') CREATE TABLE '
-				+ @OutputSchemaName + '.'
+				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
+				+ @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
+				+ @OutputTableName + N''') CREATE TABLE '
+				+ @OutputSchemaName + N'.'
 				+ @OutputTableName
-				+ N'(ID bigint NOT NULL IDENTITY(1,1),
+				+ CONVERT
+                  (
+                  nvarchar(MAX),
+				 N'(ID bigint NOT NULL IDENTITY(1,1),
 					ServerName NVARCHAR(258),
 					CheckDate DATETIMEOFFSET,
 					Version NVARCHAR(258),
@@ -7031,27 +7084,28 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
-					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
+					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
+				  );
 
 			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
 					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
 					+@OutputSchemaName
-					+''') AND EXISTS (SELECT * FROM '
+					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
 					+@OutputSchemaName
-					+''' AND QUOTENAME(TABLE_NAME) = '''
+					+N''' AND QUOTENAME(TABLE_NAME) = '''
 					+@OutputTableName
-					+''') AND EXISTS (SELECT * FROM '
+					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
 					+@OutputTableName
-					+''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
+					+N''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
 BEGIN 
 	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
-	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' DROP COLUMN [PlanCreationTimeHours];
-	ALTER TABLE '+@OutputDatabaseName+'.'+@OutputSchemaName+'.'+@OutputTableName+' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
+	ALTER TABLE '+@OutputDatabaseName+N'.'+@OutputSchemaName+N'.'+@OutputTableName+N' DROP COLUMN [PlanCreationTimeHours];
+	ALTER TABLE '+@OutputDatabaseName+N'.'+@OutputSchemaName+N'.'+@OutputTableName+N' ADD [PlanCreationTimeHours] AS DATEDIFF(HOUR,CONVERT(DATETIMEOFFSET(7),[PlanCreationTime]),[CheckDate]);
 END ';
 
             IF @ValidOutputServer = 1

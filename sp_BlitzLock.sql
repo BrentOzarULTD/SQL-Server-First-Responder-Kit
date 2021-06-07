@@ -30,9 +30,10 @@ AS
 BEGIN
 
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.01', @VersionDate = '20210222';
+SELECT @Version = '8.04', @VersionDate = '20210530';
 
 
 IF(@VersionCheckMode = 1)
@@ -735,6 +736,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
                              ) AS step_id
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE 'SQLAgent - %'
+			AND   dp.client_app <> 'SQLAgent - Initial Boot Probe'
         ) AS x
 		OPTION ( RECOMPILE );
 
@@ -1163,8 +1165,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				SELECT DISTINCT
 				PARSENAME(dow.object_name, 3) AS database_name,
 				dow.object_name,
-				CONVERT(VARCHAR(10), (SUM(DISTINCT dp.wait_time) / 1000) / 86400) AS wait_days,
-				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT dp.wait_time) / 1000), 0), 108) AS wait_time_hms
+				CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000) / 86400) AS wait_days,
+				CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, dp.wait_time)) / 1000), 0), 108) AS wait_time_hms
 				FROM #deadlock_owner_waiter AS dow
 				JOIN #deadlock_process AS dp
 				ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
@@ -1216,8 +1218,8 @@ You need to use an Azure storage account, and the path has to look like this: ht
 				'-' AS object_name,
 				'Total database deadlock wait time' AS finding_group,
 				'This database has had ' 
-				+ CONVERT(VARCHAR(10), (SUM(DISTINCT wt.total_wait_time_ms) / 1000) / 86400) 
-				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT wt.total_wait_time_ms) / 1000), 0), 108)
+				+ CONVERT(VARCHAR(10), (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000) / 86400) 
+				+ ':' + CONVERT(VARCHAR(20), DATEADD(SECOND, (SUM(DISTINCT CONVERT(BIGINT, wt.total_wait_time_ms)) / 1000), 0), 108)
 				+ ' [d/h/m/s] of deadlock wait time.'
 		FROM wait_time AS wt
 		GROUP BY wt.database_name
@@ -1288,18 +1290,18 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
-		            CONVERT(
-		                XML,
-		                STUFF(( SELECT DISTINCT NCHAR(10) 
+				    CONVERT(
+						XML,
+						STUFF(( SELECT DISTINCT NCHAR(10) 
 										+ N' <object>' 
 										+ ISNULL(c.object_name, N'') 
 										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-		                        FROM   #deadlock_owner_waiter AS c
+								FROM   #deadlock_owner_waiter AS c
 								WHERE  ( dp.id = c.owner_id
-								         OR dp.victim_id = c.waiter_id )
-								AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-		                        FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-		                    1, 1, N'')) AS object_names,
+										OR dp.victim_id = c.waiter_id )
+								AND dp.event_date = c.event_date
+								FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+					1, 1, N'')) AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
@@ -1312,9 +1314,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.login_name,
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					dp.is_victim,
 					ISNULL(dp.owner_mode, '-') AS owner_mode,
 					NULL AS owner_waiter_type,
@@ -1345,20 +1347,18 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.priority,
 		            dp.log_used,
 		            dp.wait_resource COLLATE DATABASE_DEFAULT,
-					CASE WHEN @ExportToExcel = 0 THEN
-						CONVERT(
-							XML,
-							STUFF(( SELECT DISTINCT NCHAR(10) 
-											+ N' <object>' 
-											+ ISNULL(c.object_name, N'') 
-											+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-									FROM   #deadlock_owner_waiter AS c
-									WHERE  ( dp.id = c.owner_id
-											OR dp.victim_id = c.waiter_id )
-									AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-									FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-								1, 1, N''))
-						ELSE NULL END AS object_names,
+				    CONVERT(
+						XML,
+						STUFF(( SELECT DISTINCT NCHAR(10) 
+										+ N' <object>' 
+										+ ISNULL(c.object_name, N'') 
+										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+								FROM   #deadlock_owner_waiter AS c
+								WHERE  ( dp.id = c.owner_id
+										OR dp.victim_id = c.waiter_id )
+								AND dp.event_date = c.event_date
+								FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+					1, 1, N'')) AS object_names,
 		            dp.wait_time,
 		            dp.transaction_name,
 		            dp.last_tran_started,
@@ -1371,9 +1371,9 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		            dp.login_name,
 		            dp.isolation_level,
 		            dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-		            ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 					ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+					ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 					1 AS is_victim,
 					cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 					cao.waiter_type AS owner_waiter_type,
@@ -1473,7 +1473,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		FROM   deadlocks AS d
 		WHERE  d.dn = 1
 		AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
-		AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
+		AND d.qn < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END  
 		AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 		AND (d.event_date >= @StartDate OR @StartDate IS NULL)
 		AND (d.event_date < @EndDate OR @EndDate IS NULL)
@@ -1513,20 +1513,18 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT AS wait_resource,
-						CASE WHEN @ExportToExcel = 0 THEN
-							CONVERT(
-								XML,
-								STUFF(( SELECT DISTINCT NCHAR(10) 
-												+ N' <object>' 
-												+ ISNULL(c.object_name, N'') 
-												+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-										FROM   #deadlock_owner_waiter AS c
-										WHERE  ( dp.id = c.owner_id
-												OR dp.victim_id = c.waiter_id )
-										AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-										FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-									1, 1, N''))
-							ELSE NULL END AS object_names,
+					    CONVERT(
+						XML,
+						STUFF(( SELECT DISTINCT NCHAR(10) 
+										+ N' <object>' 
+										+ ISNULL(c.object_name, N'') 
+										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+								FROM   #deadlock_owner_waiter AS c
+								WHERE  ( dp.id = c.owner_id
+										OR dp.victim_id = c.waiter_id )
+								AND dp.event_date = c.event_date
+								FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+					    1, 1, N'')) AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -1539,9 +1537,9 @@ ELSE  --Output to database is not set output to client app
 						dp.login_name,
 						dp.isolation_level,
 						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						dp.is_victim,
 						ISNULL(dp.owner_mode, '-') AS owner_mode,
 						NULL AS owner_waiter_type,
@@ -1572,20 +1570,18 @@ ELSE  --Output to database is not set output to client app
 						dp.priority,
 						dp.log_used,
 						dp.wait_resource COLLATE DATABASE_DEFAULT,
-						CASE WHEN @ExportToExcel = 0 THEN
-							CONVERT(
-								XML,
-								STUFF(( SELECT DISTINCT NCHAR(10) 
-												+ N' <object>' 
-												+ ISNULL(c.object_name, N'') 
-												+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
-										FROM   #deadlock_owner_waiter AS c
-										WHERE  ( dp.id = c.owner_id
-												OR dp.victim_id = c.waiter_id )
-										AND CONVERT(DATE, dp.event_date) = CONVERT(DATE, c.event_date)
-										FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
-									1, 1, N''))
-							ELSE NULL END AS object_names,
+					    CONVERT(
+						XML,
+						STUFF(( SELECT DISTINCT NCHAR(10) 
+										+ N' <object>' 
+										+ ISNULL(c.object_name, N'') 
+										+ N'</object> ' COLLATE DATABASE_DEFAULT AS object_name
+								FROM   #deadlock_owner_waiter AS c
+								WHERE  ( dp.id = c.owner_id
+										OR dp.victim_id = c.waiter_id )
+								AND dp.event_date = c.event_date
+								FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(4000)'),
+					    1, 1, N'')) AS object_names,
 						dp.wait_time,
 						dp.transaction_name,
 						dp.last_tran_started,
@@ -1598,9 +1594,9 @@ ELSE  --Output to database is not set output to client app
 						dp.login_name,
 						dp.isolation_level,
 						dp.process_xml.value('(//process/inputbuf/text())[1]', 'NVARCHAR(MAX)') AS inputbuf,
-						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						DENSE_RANK() OVER ( ORDER BY dp.event_date ) AS en,
 						ROW_NUMBER() OVER ( PARTITION BY dp.event_date ORDER BY dp.event_date ) -1 AS qn,
+						ROW_NUMBER() OVER ( PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date ) AS dn,
 						1 AS is_victim,
 						cao.wait_type COLLATE DATABASE_DEFAULT AS owner_mode,
 						cao.waiter_type AS owner_waiter_type,
@@ -1631,8 +1627,8 @@ ELSE  --Output to database is not set output to client app
 				+ CASE WHEN d.qn = 0 THEN N'1' ELSE CONVERT(NVARCHAR(10), d.qn) END 
 				+ CASE WHEN d.is_victim = 1 THEN ' - VICTIM' ELSE '' END
 				AS deadlock_group, 
-				CASE WHEN @ExportToExcel = 0 THEN CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>')  
-					ELSE SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(d.inputbuf)),' ','<>'),'><',''),NCHAR(10), ' '),NCHAR(13), ' '),'<>',' '), 1, 32000) END AS query,
+				CONVERT(XML, N'<inputbuf><![CDATA[' + d.inputbuf + N']]></inputbuf>') AS query_xml,
+				d.inputbuf AS query_string,
 				d.object_names,
 				d.isolation_level,
 				d.owner_mode,
@@ -1661,11 +1657,13 @@ ELSE  --Output to database is not set output to client app
 				d.waiter_merging,
 				d.waiter_spilling,
 				d.waiter_waiting_to_close,
-				CASE WHEN @ExportToExcel = 0 THEN d.deadlock_graph ELSE NULL END AS deadlock_graph
-			FROM   deadlocks AS d
+				d.deadlock_graph,
+				d.is_victim
+			INTO #deadlock_results
+			FROM deadlocks AS d
 			WHERE  d.dn = 1
-			AND (is_victim = @VictimsOnly OR @VictimsOnly = 0)
-			AND d.en < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
+			AND (d.is_victim = @VictimsOnly OR @VictimsOnly = 0)
+			AND d.qn < CASE WHEN d.deadlock_type = N'Parallel Deadlock' THEN 2 ELSE 2147483647 END 
 			AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
 			AND (d.event_date >= @StartDate OR @StartDate IS NULL)
 			AND (d.event_date < @EndDate OR @EndDate IS NULL)
@@ -1673,9 +1671,67 @@ ELSE  --Output to database is not set output to client app
 			AND (d.client_app = @AppName OR @AppName IS NULL)
 			AND (d.host_name = @HostName OR @HostName IS NULL)
 			AND (d.login_name = @LoginName OR @LoginName IS NULL)
-			ORDER BY d.event_date, is_victim DESC
 			OPTION ( RECOMPILE );
 			
+
+			DECLARE @deadlock_result NVARCHAR(MAX) = N''
+
+			SET @deadlock_result += N'
+			SELECT
+			   dr.deadlock_type,
+               dr.event_date,
+               dr.database_name,
+               dr.deadlock_group,
+			   '
+			   + CASE @ExportToExcel
+			     WHEN 1
+				 THEN N'dr.query_string AS query,
+				        REPLACE(REPLACE(CONVERT(NVARCHAR(MAX), dr.object_names), ''<object>'', ''''), ''</object>'', '''') AS object_names,'
+				 ELSE N'dr.query_xml AS query,
+				        dr.object_names,'
+				 END +
+			   N'
+               dr.isolation_level,
+               dr.owner_mode,
+               dr.waiter_mode,
+               dr.transaction_count,
+               dr.login_name,
+               dr.host_name,
+               dr.client_app,
+               dr.wait_time,
+               dr.priority,
+               dr.log_used,
+               dr.last_tran_started,
+               dr.last_batch_started,
+               dr.last_batch_completed,
+               dr.transaction_name,
+               dr.owner_waiter_type,
+               dr.owner_activity,
+               dr.owner_waiter_activity,
+               dr.owner_merging,
+               dr.owner_spilling,
+               dr.owner_waiting_to_close,
+               dr.waiter_waiter_type,
+               dr.waiter_owner_activity,
+               dr.waiter_waiter_activity,
+               dr.waiter_merging,
+               dr.waiter_spilling,
+               dr.waiter_waiting_to_close'
+			   + CASE @ExportToExcel
+			     WHEN 1
+				 THEN N''
+				 ELSE N',
+				 dr.deadlock_graph'
+				 END +
+			   '
+			FROM #deadlock_results AS dr
+			ORDER BY dr.event_date, dr.is_victim DESC
+			OPTION(RECOMPILE);
+			'
+
+			EXEC sys.sp_executesql
+			    @deadlock_result;
+
 			SET @d = CONVERT(VARCHAR(40), GETDATE(), 109);
 			RAISERROR('Findings %s', 0, 1, @d) WITH NOWAIT;
 			SELECT df.check_id, df.database_name, df.object_name, df.finding_group, df.finding
@@ -1715,7 +1771,11 @@ ELSE  --Output to database is not set output to client app
                 SELECT '#deadlock_stack' AS table_name, *
                 FROM   #deadlock_stack AS ds
 				OPTION ( RECOMPILE );
-				
+
+                SELECT '#deadlock_results' AS table_name, *
+                FROM   #deadlock_results AS dr
+				OPTION ( RECOMPILE );
+
             END; -- End debug
 
     END; --Final End
