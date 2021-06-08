@@ -959,9 +959,17 @@ FROM #Ignore_Databases i;
 
 
 /* Last startup */
-SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
-FROM    sys.databases
-WHERE   database_id = 2;
+IF COLUMNPROPERTY(OBJECT_ID('sys.dm_os_sys_info'),'sqlserver_start_time','ColumnID') IS NOT NULL
+BEGIN
+	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, GETDATE()) / 24. AS NUMERIC (23,2))
+	FROM sys.dm_os_sys_info;
+END
+ELSE
+BEGIN
+	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
+	FROM    sys.databases
+	WHERE   database_id = 2;
+END
 
 IF @DaysUptime = 0 OR @DaysUptime IS NULL 
   SET @DaysUptime = .01;
