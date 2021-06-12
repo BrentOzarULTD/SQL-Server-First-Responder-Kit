@@ -1565,9 +1565,9 @@ database_id INT
 CREATE TABLE #plan_usage
 (
     duplicate_plan_hashes BIGINT NULL,
-    percent_duplicate DECIMAL(5, 2) NULL,
+    percent_duplicate DECIMAL(9, 2) NULL,
     single_use_plan_count BIGINT NULL,
-    percent_single DECIMAL(5, 2) NULL,
+    percent_single DECIMAL(9, 2) NULL,
     total_plans BIGINT NULL,
 	spid INT
 );
