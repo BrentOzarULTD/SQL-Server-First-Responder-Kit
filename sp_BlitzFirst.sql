@@ -139,7 +139,10 @@ DECLARE @StringToExecute NVARCHAR(MAX),
     @UnquotedOutputDatabaseName NVARCHAR(256) = @OutputDatabaseName ,
     @UnquotedOutputSchemaName NVARCHAR(256) = @OutputSchemaName ,
     @LocalServerName NVARCHAR(128) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)),
-	@dm_exec_query_statistics_xml BIT = 0;
+	@dm_exec_query_statistics_xml BIT = 0,
+	@total_cpu_usage BIT = 0,
+	@get_thread_time_ms NVARCHAR(MAX) = N'',
+	@thread_time_ms FLOAT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -292,6 +295,36 @@ BEGIN
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
                 @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
 
+
+    IF EXISTS
+	   (
+
+	       SELECT
+		       1/0
+		   FROM sys.all_columns AS ac
+		   WHERE ac.object_id = OBJECT_ID('sys.dm_os_schedulers')
+		   AND   ac.name = 'total_cpu_usage_ms'
+
+	   )
+	BEGIN
+
+	    SELECT
+		    @total_cpu_usage = 1,
+			@get_thread_time_ms +=
+			    N'
+			     SELECT 
+				     @thread_time_ms = 
+				         CONVERT
+					     (
+					         FLOAT,
+				             SUM(s.total_cpu_usage_ms)
+					     )
+                 FROM sys.dm_os_schedulers AS s
+                 WHERE  s.status = ''VISIBLE ONLINE''
+                 AND    s.is_online = 1;
+			     ';
+
+	END
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
 
@@ -1302,6 +1335,14 @@ BEGIN
         END;
 
 
+    IF @total_cpu_usage = 1
+	BEGIN
+	    EXEC sys.sp_executesql
+		    @get_thread_time_ms,
+			N'@thread_time_ms FLOAT OUTPUT',
+			@thread_time_ms OUTPUT;		    
+	END
+
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data.
         After we finish doing our checks, we'll take another sample and compare them. */
 	RAISERROR('Capturing first pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
@@ -1315,18 +1356,7 @@ BEGIN
 			CASE @Seconds
 			     WHEN 0
 			     THEN 0
-			     ELSE
-			         (
-			             SELECT 
-						     CONVERT
-							 (
-							     FLOAT,
-						         SUM(s.total_cpu_usage_ms)
-							 )
-                         FROM sys.dm_os_schedulers AS s
-                         WHERE  s.status = ''VISIBLE ONLINE''
-                         AND    s.is_online = 1
-			         )
+			     ELSE @thread_time_ms
 			END AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
@@ -1368,12 +1398,14 @@ BEGIN
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;'
 		
-		EXEC sp_executesql
-	    @StringToExecute,
-      N'@StartSampleTime DATETIMEOFFSET,
-		@Seconds INT',
-		@StartSampleTime,
-		@Seconds;
+		EXEC sys.sp_executesql
+	        @StringToExecute,
+          N'@StartSampleTime DATETIMEOFFSET,
+	        @Seconds INT,
+	        @thread_time_ms FLOAT',
+	        @StartSampleTime,
+	        @Seconds,
+	        @thread_time_ms;
 		
     WITH w AS
 	(
@@ -1386,21 +1418,11 @@ BEGIN
 				)
 		FROM #WaitStats AS ws
 		WHERE Pass = 1
-	),
-	    m AS
-    (
-	    SELECT
-		    max_thread = 
-		        MAX(ws.thread_time_ms)
-		FROM #WaitStats AS ws
-		WHERE Pass = 1
 	)
     UPDATE ws
-	    SET	ws.thread_time_ms =
-		       m.max_thread + w.total_waits
+	    SET	ws.thread_time_ms += w.total_waits
 	FROM #WaitStats AS ws
 	CROSS JOIN w
-	CROSS JOIN m
 	WHERE ws.Pass = 1
 	OPTION(RECOMPILE);
 	
@@ -2509,6 +2531,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WAITFOR TIME @FinishSampleTimeWaitFor;
         END;
 
+    IF @total_cpu_usage = 1
+	BEGIN
+	    EXEC sys.sp_executesql
+		    @get_thread_time_ms,
+			N'@thread_time_ms FLOAT OUTPUT',
+			@thread_time_ms OUTPUT;		    
+	END
 
 	RAISERROR('Capturing second pass of wait stats, perfmon counters, file stats',10,1) WITH NOWAIT;
     /* Populate #FileStats, #PerfmonStats, #WaitStats with DMV data. In a second, we'll compare these. */
@@ -2519,17 +2548,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			x.SampleTime, 
 			x.wait_type, 
 			SUM(x.sum_wait_time_ms) AS sum_wait_time_ms, 
-			(
-			    SELECT 
-				    CONVERT
-					 (
-					     FLOAT,
-				         SUM(s.total_cpu_usage_ms)
-					 )
-                FROM sys.dm_os_schedulers AS s
-                WHERE  s.status = ''VISIBLE ONLINE''
-                AND    s.is_online = 1
-			) AS thread_time_ms,
+			@thread_time_ms AS thread_time_ms,
 			SUM(x.sum_signal_wait_time_ms) AS sum_signal_wait_time_ms, 
 			SUM(x.sum_waiting_tasks) AS sum_waiting_tasks
 			FROM (
@@ -2570,10 +2589,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		GROUP BY x.Pass, x.SampleTime, x.wait_type
 		ORDER BY sum_wait_time_ms DESC;';
 		
-		EXEC sp_executesql
-		    @StringToExecute,
-		  N'@Seconds INT',
-		    @Seconds;
+		EXEC sys.sp_executesql
+	        @StringToExecute,
+          N'@StartSampleTime DATETIMEOFFSET,
+	        @Seconds INT,
+	        @thread_time_ms FLOAT',
+	        @StartSampleTime,
+	        @Seconds,
+	        @thread_time_ms;
 
     WITH w AS
 	(
@@ -2586,21 +2609,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				)
 		FROM #WaitStats AS ws
 		WHERE Pass = 2
-	),
-	    m AS
-    (
-	    SELECT
-		    max_thread = 
-		        MAX(ws.thread_time_ms)
-		FROM #WaitStats AS ws
-		WHERE Pass = 2
 	)
     UPDATE ws
-	    SET	ws.thread_time_ms =
-		       m.max_thread + w.total_waits
+	    SET	ws.thread_time_ms += w.total_waits
 	FROM #WaitStats AS ws
 	CROSS JOIN w
-	CROSS JOIN m
 	WHERE ws.Pass = 2
 	OPTION(RECOMPILE);
 	
@@ -3401,6 +3414,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END; /* IF @Seconds >= 30 */
 
+	IF /* Let people on <2016 know about the thread time column */
+	(
+	    @Seconds > 0
+		AND @total_cpu_usage = 0
+	)
+	BEGIN
+	    INSERT INTO
+		    #BlitzFirstResults
+		(
+		    CheckID,
+			Priority,
+			FindingsGroup,
+			Finding,
+			Details,
+			URL
+		)
+		SELECT
+		    48,
+			254,
+			N'Informational',
+			N'Thread Time will always be 0 in versions prior to SQL Server 2016',
+			N'sys.dm_os_schedulers doesn''t have total_cpu_usage_ms',
+			N'https://docs.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-os-schedulers-transact-sql'
+
+	END /* Let people on <2016 know about the thread time column */
 
     /* If we didn't find anything, apologize. */
     IF NOT EXISTS (SELECT * FROM #BlitzFirstResults WHERE Priority < 250)
