@@ -321,9 +321,27 @@ BEGIN
 					     )
                  FROM sys.dm_os_schedulers AS s
                  WHERE  s.status = ''VISIBLE ONLINE''
-                 AND    s.is_online = 1;
+                 AND    s.is_online = 1
+				 OPTION(RECOMPILE);
 			     ';
 
+	END
+	ELSE
+	BEGIN
+	    SELECT
+		    @total_cpu_usage = 0,
+			@get_thread_time_ms +=
+			    N'
+			     SELECT 
+				     @thread_time_ms = 
+				         CONVERT
+					     (
+					         FLOAT,
+				             SUM(s.total_worker_time / 1000.)
+					     )
+                 FROM sys.dm_exec_query_stats AS s
+                 OPTION(RECOMPILE);
+			     ';
 	END
 
     RAISERROR('Now starting diagnostic analysis',10,1) WITH NOWAIT;
@@ -1335,7 +1353,7 @@ BEGIN
         END;
 
 
-    IF @total_cpu_usage = 1
+    IF @total_cpu_usage IN (0, 1)
 	BEGIN
 	    EXEC sys.sp_executesql
 		    @get_thread_time_ms,
@@ -2531,7 +2549,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         WAITFOR TIME @FinishSampleTimeWaitFor;
         END;
 
-    IF @total_cpu_usage = 1
+    IF @total_cpu_usage IN (0, 1)
 	BEGIN
 	    EXEC sys.sp_executesql
 		    @get_thread_time_ms,
@@ -3434,10 +3452,15 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    48,
 			254,
 			N'Informational',
-			N'Thread Time will always be 0 in versions prior to SQL Server 2016',
-			N'sys.dm_os_schedulers doesn''t have total_cpu_usage_ms',
+			N'Thread Time comes from the plan cache in versions earlier than 2016, and is not as reliable',
+			N'The oldest plan in your cache is from ' +
+			CONVERT(nvarchar(30), MIN(s.creation_time)) +
+			N' and your server was last restarted on ' +
+			CONVERT(nvarchar(30), MAX(o.sqlserver_start_time)),
 			N'https://docs.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-os-schedulers-transact-sql'
-
+        FROM sys.dm_exec_query_stats AS s
+        CROSS JOIN sys.dm_os_sys_info AS o
+        OPTION(RECOMPILE);
 	END /* Let people on <2016 know about the thread time column */
 
     /* If we didn't find anything, apologize. */
