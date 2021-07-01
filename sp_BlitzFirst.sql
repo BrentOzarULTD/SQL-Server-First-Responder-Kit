@@ -1439,7 +1439,7 @@ BEGIN
 		WHERE resource_type = N'DATABASE'
 		AND     request_mode = N'S'
 		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id AND s.database_id = db.resource_database_id
 		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
 		WHERE r.command LIKE 'BACKUP%'
 		AND r.start_time <= DATEADD(minute, -5, GETDATE())
