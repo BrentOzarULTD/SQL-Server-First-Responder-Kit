@@ -29,9 +29,10 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 AS
 BEGIN
 	SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.04', @VersionDate = '20210530';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -559,6 +560,7 @@ END
 
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
    
+						SET LOCK_TIMEOUT 1000; /* To avoid blocking on live query plans. See Github issue #2907. */
 						DECLARE @blocked TABLE 
 								(
 								    dbid SMALLINT NOT NULL,
@@ -1237,8 +1239,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_text]'
 	+ CASE WHEN @GetOuterCommand = 1 THEN N',[outer_command]' ELSE N'' END + N'
 	,[query_plan]'
-    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
-	,[cached_parameter_info]'
+    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END 
+	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[cached_parameter_info]'  ELSE N'' END
 	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]

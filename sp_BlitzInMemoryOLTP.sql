@@ -82,7 +82,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 AS 
 DECLARE @ScriptVersion VARCHAR(30);
-SELECT @ScriptVersion = '1.8', @VersionDate = '20210420';
+SELECT @ScriptVersion = '1.8', @VersionDate = '20210530';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -93,6 +93,7 @@ END;
 BEGIN TRY
 
     SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 
     DECLARE @RunningOnAzureSQLDB BIT = 0;
 

@@ -39,6 +39,10 @@ BEGIN
     FROM sys.procedures P
     JOIN #ToDelete D ON D.ProcedureName = P.name;
 
+    SELECT @SQL += N'DROP TABLE dbo.SqlServerVersions;' + CHAR(10)
+    FROM sys.tables 
+    WHERE schema_id = 1 AND name = 'SqlServerVersions';
+
 END
 ELSE
 BEGIN
@@ -64,6 +68,12 @@ BEGIN
 
         EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
 
+        SET @innerSQL = N'    SELECT @SQL += N''USE  ' + @dbname + N';' + NCHAR(10) + N'DROP TABLE dbo.SqlServerVersions;'' + NCHAR(10)
+        FROM ' + @dbname + N'.sys.tables
+        WHERE schema_id = 1 AND name = ''SqlServerVersions''';
+
+        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
+
         FETCH NEXT FROM c INTO @dbname;
     
     END
@@ -72,9 +82,6 @@ BEGIN
     DEALLOCATE c;
 
 END
-
-IF OBJECT_ID('dbo.SqlServerVersions') IS NOT NULL
-    DROP TABLE dbo.SqlServerVersions;
 
 PRINT @SQL;
 
