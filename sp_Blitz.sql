@@ -4312,10 +4312,10 @@ AS
 						  SELECT 'containment', 0, 141, 210, 'Containment Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'containment' AND object_id = OBJECT_ID('sys.databases');
-						INSERT INTO #DatabaseDefaults
-						  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'https://www.brentozar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns
-						  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
+						--INSERT INTO #DatabaseDefaults
+						--  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'https://www.brentozar.com/go/dbdefaults', NULL
+						--  FROM sys.all_columns
+						--  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'delayed_durability', 0, 143, 210, 'Delayed Durability Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
@@ -4359,6 +4359,79 @@ AS
 
 						CLOSE DatabaseDefaultsLoop;
 						DEALLOCATE DatabaseDefaultsLoop;
+
+/* Check if target recovery interval <> 60 */
+IF
+    @ProductVersionMajor >= 10
+    AND NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM  #SkipChecks AS sc
+            WHERE sc.DatabaseName IS NULL
+            AND   sc.CheckID = 257
+        )
+    BEGIN
+        IF EXISTS
+           (
+               SELECT
+                   1/0
+               FROM sys.all_columns AS ac
+               WHERE ac.name = 'target_recovery_time_in_seconds'
+               AND   ac.object_id = OBJECT_ID('sys.databases')
+           )
+           BEGIN
+               IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 257) WITH NOWAIT;
+        
+               DECLARE
+                   @tri nvarchar(max) = N'
+                   SELECT
+                       DatabaseName = 
+                           d.name,
+                       CheckId = 
+                           257,
+                       Priority = 
+                           50,
+                       FindingsGroup = 
+                           N''Performance'',
+                       Finding =
+                           N''Suboptimal recovery interval'',
+                       URL = 
+                           N''https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints'',
+                       Details = 
+                           N''The database '' +
+                           QUOTENAME(d.name) +
+                           N'' has a target recovery interval of '' +
+                           RTRIM(d.target_recovery_time_in_seconds) + 
+                           CASE
+                               WHEN d.target_recovery_time_in_seconds = 0
+                               THEN N'', which is a legacy default, and should be changed to 60.''
+                               WHEN d.target_recovery_time_in_seconds <> 0 
+                               THEN N'', which is probably a mistake, and should be changed to 60.''
+                           END
+                   FROM sys.databases AS d
+                   WHERE d.database_id > 4
+                   AND   d.is_read_only = 0
+                   AND   d.is_in_standby = 0
+                   AND   d.target_recovery_time_in_seconds <> 60;
+                   ';
+
+               INSERT INTO
+			       #BlitzResults
+               (
+			       DatabaseName,
+			       CheckID,
+                   Priority,
+                   FindingsGroup,
+                   Finding,
+                   URL,
+                   Details
+               )
+               EXEC sys.sp_executesql
+                   @tri;
+
+            END;
+        END;
 							
 
 /*This checks to see if Agent is Offline*/

@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 256.
-If you want to add a new one, start at 257.
+CURRENT HIGH CHECKID: 257.
+If you want to add a new one, start at 258.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -64,6 +64,7 @@ If you want to add a new one, start at 257.
 | 50 | Performance | Snapshotting Too Many Databases | https://www.BrentOzar.com/go/toomanysnaps | 236 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Performance | Wait Stats Cleared Recently| | 205 |
+| 50 | Performance | Suboptimal recovery interval| https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints | 257 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | https://www.BrentOzar.com/go/shipping | 111 |
