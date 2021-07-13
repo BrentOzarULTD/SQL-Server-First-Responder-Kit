@@ -4395,7 +4395,7 @@ IF
                        FindingsGroup = 
                            N''Performance'',
                        Finding =
-                           N''Suboptimal recovery interval'',
+                           N''Recovery Interval Not Optimal'',
                        URL = 
                            N''https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints'',
                        Details = 
