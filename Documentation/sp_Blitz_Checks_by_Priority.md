@@ -61,10 +61,10 @@ If you want to add a new one, start at 258.
 | 50 | Performance | Poison Wait Detected | https://www.BrentOzar.com/go/poison | 107 |
 | 50 | Performance | Poison Wait Detected: CMEMTHREAD & NUMA | https://www.BrentOzar.com/go/poison | 162 |
 | 50 | Performance | Poison Wait Detected: Serializable Locking | https://www.BrentOzar.com/go/serializable | 121 |
+| 50 | Performance | Recovery Interval Not Optimal| https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints | 257 |
 | 50 | Performance | Snapshotting Too Many Databases | https://www.BrentOzar.com/go/toomanysnaps | 236 |
 | 50 | Performance | Too Much Free Memory | https://www.BrentOzar.com/go/freememory | 165 |
 | 50 | Performance | Wait Stats Cleared Recently| | 205 |
-| 50 | Performance | Suboptimal recovery interval| https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints | 257 |
 | 50 | Reliability | Full Text Indexes Not Updating | https://www.BrentOzar.com/go/fulltext | 113 |
 | 50 | Reliability | Page Verification Not Optimal | https://www.BrentOzar.com/go/torn | 14 |
 | 50 | Reliability | Possibly Broken Log Shipping | https://www.BrentOzar.com/go/shipping | 111 |
