@@ -2725,17 +2725,18 @@ BEGIN
     /* Show histograms for all stats on this table. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1900 */
     IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
     BEGIN
-        SET @dsql=N'SELECT s.name AS [Stat Name], c.name AS [Leading Column Name], hist.step_number AS [Step Number], 
+        SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N';
+					SELECT s.name AS [Stat Name], c.name AS [Leading Column Name], hist.step_number AS [Step Number], 
                         hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
                         hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
                         s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
                         props.last_updated AS [Last Updated], props.modification_counter AS [Modification Counter], props.rows AS [Table Rows],
 						props.rows_sampled AS [Rows Sampled], s.stats_id AS [StatsID]
-                    FROM ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
-                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
-                    INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
-                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
-                    CROSS APPLY ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
+                    FROM sys.stats AS s
+                    INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
+                    INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
+                    CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
+                    CROSS APPLY sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
