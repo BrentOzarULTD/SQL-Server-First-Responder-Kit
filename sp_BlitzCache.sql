@@ -280,7 +280,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.04', @VersionDate = '20210530';
+SELECT @Version = '8.05', @VersionDate = '20210725';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1565,9 +1565,9 @@ database_id INT
 CREATE TABLE #plan_usage
 (
     duplicate_plan_hashes BIGINT NULL,
-    percent_duplicate DECIMAL(5, 2) NULL,
+    percent_duplicate DECIMAL(9, 2) NULL,
     single_use_plan_count BIGINT NULL,
-    percent_single DECIMAL(5, 2) NULL,
+    percent_single DECIMAL(9, 2) NULL,
     total_plans BIGINT NULL,
 	spid INT
 );
