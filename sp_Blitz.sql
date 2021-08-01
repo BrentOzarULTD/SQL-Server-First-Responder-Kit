@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.04', @VersionDate = '20210530';
+	SELECT @Version = '8.05', @VersionDate = '20210725';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -356,7 +356,7 @@ AS
 					SET @StringToExecute += QUOTENAME(@SkipChecksServer) + N'.';
 					END
 				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + N'.' + QUOTENAME(@SkipChecksSchema) + N'.' + QUOTENAME(@SkipChecksTable)
-					+ N' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
+					+ N' WHERE ServerName IS NULL OR ServerName = CAST(SERVERPROPERTY(''ServerName'') AS NVARCHAR(128)) OPTION (RECOMPILE);';
 				EXEC(@StringToExecute);
 			END;
 
