@@ -263,7 +263,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               is_indexed_view BIT NOT NULL ,
               is_unique BIT NOT NULL ,
               is_primary_key BIT NOT NULL ,
-              is_XML BIT NOT NULL,
+			  is_unique_constraint BIT NOT NULL ,
+			  is_XML bit NOT NULL,
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
@@ -311,7 +312,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
                     ELSE N'' END + CASE WHEN is_in_memory_oltp = 1 THEN N'[IN-MEMORY] '
                     ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
                     ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
-                    ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 THEN N'[UNIQUE] '
+                    ELSE N'' END + CASE WHEN is_unique = 1 AND is_primary_key = 0 AND is_unique_constraint = 0 THEN N'[UNIQUE] '
+					ELSE N'' END + CASE WHEN is_unique_constraint = 1 AND is_primary_key = 0 THEN N'[UNIQUE CONSTRAINT] '
                     ELSE N'' END + CASE WHEN count_key_columns > 0 THEN 
                         N'[' + CAST(count_key_columns AS NVARCHAR(10)) + N' KEY' 
                             + CASE WHEN count_key_columns > 1 THEN  N'S' ELSE N'' END
@@ -1275,7 +1277,8 @@ BEGIN TRY
                         CASE    WHEN so.[type] = CAST(''V'' AS CHAR(2)) THEN 1 ELSE 0 END, 
                         si.is_unique, 
                         si.is_primary_key, 
-                        CASE when si.type = 3 THEN 1 ELSE 0 END AS is_XML,
+						si.is_unique_constraint,
+						CASE when si.type = 3 THEN 1 ELSE 0 END AS is_XML,
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
@@ -1335,7 +1338,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition, user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -2404,7 +2407,14 @@ SELECT
                     N'] PRIMARY KEY ' + 
                     CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
                     key_column_names_with_sort_order_no_types + N' )' 
-                WHEN is_CX_columnstore= 1 THEN
+				WHEN is_unique_constraint = 1 AND is_primary_key = 0
+				THEN
+			   N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
+                    N'.' + QUOTENAME([object_name]) + 
+                    N' ADD CONSTRAINT [' +
+                    index_name + 
+                    N'] UNIQUE;'
+				WHEN is_CX_columnstore= 1 THEN
                         N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
             ELSE /*Else not a PK or cx columnstore */ 
                 N'CREATE ' + 
@@ -2578,6 +2588,9 @@ BEGIN
             ct.create_tsql,
             CASE 
                 WHEN s.is_primary_key = 1 AND s.index_definition <> '[HEAP]'
+                THEN N'--ALTER TABLE ' + QUOTENAME(s.[database_name]) + N'.' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
+                        + N' DROP CONSTRAINT ' + QUOTENAME(s.index_name) + N';'
+                WHEN s.is_primary_key = 0 AND is_unique_constraint = 1 AND s.index_definition <> '[HEAP]'
                 THEN N'--ALTER TABLE ' + QUOTENAME(s.[database_name]) + N'.' + QUOTENAME(s.[schema_name]) + N'.' + QUOTENAME(s.[object_name])
                         + N' DROP CONSTRAINT ' + QUOTENAME(s.index_name) + N';'
                 WHEN s.is_primary_key = 0 AND s.index_definition <> '[HEAP]'
@@ -5078,7 +5091,8 @@ ELSE IF (@Mode=1) /*Summarize*/
 											[partition_key_column_name] NVARCHAR(MAX), 
 											[filter_definition] NVARCHAR(MAX), 
 											[is_indexed_view] BIT, 
-											[is_primary_key] BIT, 
+											[is_primary_key] BIT,
+											[is_unique_constraint] BIT,
 											[is_XML] BIT, 
 											[is_spatial] BIT, 
 											[is_NC_columnstore] BIT, 
@@ -5188,7 +5202,8 @@ ELSE IF (@Mode=1) /*Summarize*/
 											[partition_key_column_name], 
 											[filter_definition], 
 											[is_indexed_view], 
-											[is_primary_key], 
+											[is_primary_key],
+											[is_unique_constraint],
 											[is_XML], 
 											[is_spatial], 
 											[is_NC_columnstore], 
@@ -5251,6 +5266,9 @@ ELSE IF (@Mode=1) /*Summarize*/
 						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
 							                    THEN N''--ALTER TABLE '' + QUOTENAME(i.[database_name]) + N''.'' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
 							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
+						                    WHEN i.is_primary_key = 0 AND i.is_unique_constraint = 1 AND i.index_definition <> ''[HEAP]''
+							                    THEN N''--ALTER TABLE '' + QUOTENAME(i.[database_name]) + N''.'' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
 						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
 						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + QUOTENAME(i.[database_name]) + N''.'' +
 							                         QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) + N'';''
@@ -5275,6 +5293,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 										ISNULL(filter_definition, '''') AS [Filter Definition], 
 										is_indexed_view AS [Is Indexed View], 
 										is_primary_key AS [Is Primary Key],
+										is_unique_constraint AS [Is Unique Constraint],
 										is_XML AS [Is XML],
 										is_spatial AS [Is Spatial],
 										is_NC_columnstore AS [Is NC Columnstore],
@@ -5368,6 +5387,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 					ISNULL(filter_definition, '') AS [Filter Definition], 
 					is_indexed_view AS [Is Indexed View], 
 					is_primary_key AS [Is Primary Key],
+					is_unique_constraint AS [Is Unique Constraint] ,
 					is_XML AS [Is XML],
 					is_spatial AS [Is Spatial],
 					is_NC_columnstore AS [Is NC Columnstore],
@@ -5418,6 +5438,9 @@ ELSE IF (@Mode=1) /*Summarize*/
 					more_info AS [More Info],
                     CASE 
 						 WHEN i.is_primary_key = 1 AND i.index_definition <> '[HEAP]'
+							THEN N'--ALTER TABLE ' + QUOTENAME(i.[database_name]) + N'.' + QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name])
+							     + N' DROP CONSTRAINT ' + QUOTENAME(i.index_name) + N';'
+						 WHEN i.is_primary_key = 0 AND i.is_unique_constraint = 1 AND i.index_definition <> '[HEAP]'
 							THEN N'--ALTER TABLE ' + QUOTENAME(i.[database_name]) + N'.' + QUOTENAME(i.[schema_name]) + N'.' + QUOTENAME(i.[object_name])
 							     + N' DROP CONSTRAINT ' + QUOTENAME(i.index_name) + N';'
 						 WHEN i.is_primary_key = 0 AND i.index_definition <> '[HEAP]'
