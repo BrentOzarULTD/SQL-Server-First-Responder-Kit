@@ -35,6 +35,7 @@ If you want to add a new check, start at 121.
 | 100 | Serial Forcer | Computed Column with Scalar UDF | https://www.brentozar.com/go/serialudf | 99 |
 | 100 | Serial Forcer | Check Constraint with Scalar UDF | https://www.brentozar.com/go/computedscalar | 94 |
 | 150 | Abnormal Psychology | Cascading Updates or Deletes | https://www.brentozar.com/go/AbnormalPsychology | 71 |
+| 100 | Abnormal Psychology | Unindexed Foreign Keys | https://www.brentozar.com/go/AbnormalPsychology | 72 |
 | 150 | Abnormal Psychology | Columnstore Index | https://www.brentozar.com/go/AbnormalPsychology | 61 |
 | 150 | Abnormal Psychology | Column Collation Does Not Match Database Collation| https://www.brentozar.com/go/AbnormalPsychology | 69 |
 | 150 | Abnormal Psychology | Compressed Index | https://www.brentozar.com/go/AbnormalPsychology | 63 |
