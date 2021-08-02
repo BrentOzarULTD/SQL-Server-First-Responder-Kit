@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 120
-If you want to add a new check, start at 121.
+CURRENT HIGH CHECKID: 121
+If you want to add a new check, start at 122.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -67,3 +67,4 @@ If you want to add a new check, start at 121.
 | 250 | Feature-Phobic Indexes | No Filtered Indexes or Indexed Views | https://www.brentozar.com/go/IndexFeatures | 32 |
 | 250 | Feature-Phobic Indexes | No Indexes Use Includes | https://www.brentozar.com/go/IndexFeatures | 30 |
 | 250 | Feature-Phobic Indexes | Potential Filtered Index (Based on Column Name) | https://www.brentozar.com/go/IndexFeatures | 33 |
+| 250 | Medicated Indexes | Optimized For Sequential Keys |  | 121 |
