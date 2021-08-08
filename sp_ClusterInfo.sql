@@ -38,7 +38,17 @@ PRINT '
 /*
 sp_ClusterInfo from http://FirstResponderKit.org
        
-This script analyzes collect and show the cluster information of the database server.
+This script collect and show the cluster information of the database server.
+This has been tested to work on SQL Server 2008 R2 and higher.
+
+Displays the following information.
+1. Instance Name
+2. Server (Cluster Node) Name/s
+3. Is it Standalone or Clustered
+4. If Clustered, which node is Active/Primary and Passive/Secondary
+4. If Clustered, is it using Always On Availability Group (AG), Failover Cluster Instance (FCI) or combination of FCI and AG
+5. If using Availability Group, it shows Availability Group Name and Listener Name.
+6. SQL Server version and patch level
 Shared by RATG.
 
 To learn more, visit http://FirstResponderKit.org where you can download new
