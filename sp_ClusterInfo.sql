@@ -8,11 +8,11 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
-IF OBJECT_ID('dbo.sp_BlitzClusterInfo') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_BlitzClusterInfo AS RETURN 0;');
+IF OBJECT_ID('dbo.sp_ClusterInfo') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_ClusterInfo AS RETURN 0;');
 GO
 
-ALTER PROCEDURE dbo.sp_BlitzClusterInfo
+ALTER PROCEDURE dbo.sp_ClusterInfo
     @Help TINYINT = 0
        --@Debug BIT = 0,
 --   @Version     VARCHAR(30) = NULL OUTPUT,

@@ -28,7 +28,9 @@ SELECT 'sp_BlitzQueryStore' as ProcedureName UNION
 SELECT 'sp_BlitzWho' as ProcedureName UNION
 SELECT 'sp_DatabaseRestore' as ProcedureName UNION
 SELECT 'sp_foreachdb' as ProcedureName UNION
-SELECT 'sp_ineachdb' as ProcedureName
+SELECT 'sp_ineachdb' as ProcedureName UNION
+SELECT 'sp_ClusterInfo' as ProcedureName 
+
 
 --End Variables
 
