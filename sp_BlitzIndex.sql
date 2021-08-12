@@ -2413,7 +2413,7 @@ SELECT
                     N'.' + QUOTENAME([object_name]) + 
                     N' ADD CONSTRAINT [' +
                     index_name + 
-                    N'] UNIQUE;'
+                    N'] UNIQUE'
 				WHEN is_CX_columnstore= 1 THEN
                         N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
             ELSE /*Else not a PK or cx columnstore */ 
