@@ -91,7 +91,7 @@ END;    /* @Help = 1 */
 DECLARE @SQLServerMajorBuildVersion AS INT 
 SELECT @SQLServerMajorBuildVersion = LEFT(CAST(SERVERPROPERTY('ProductVersion') AS VARCHAR), CHARINDEX('.',CAST(SERVERPROPERTY('ProductVersion') AS VARCHAR))-1)
 
-IF @SQLServerMajorBuildVersion < 11
+IF @SQLServerMajorBuildVersion < 12
 BEGIN
        IF (SELECT SERVERPROPERTY('IsClustered')) = 1
        BEGIN
@@ -133,16 +133,15 @@ BEGIN
               ,SERVERPROPERTY ('IsHadrEnabled') AS IsAvailabilityGroupEnabled
               ,ag.name AS AvailabilityGroupName
               ,agl.dns_name AS AvailabilityGroupListenerName
-              ,CASE WHEN dhars.role_desc IS NULL THEN 'PRIMARY'
-              ELSE dhars.role_desc 
+                       ,CASE ar.replica_server_name WHEN hags.primary_replica THEN 'PRIMARY'
+                       ELSE 'SECONDARY'
               END AS HighAvailabilityRoleDesc
               ,'FCI/AG' AS SQLServerClusteringMethod
               ,@@VERSION AS SQLServerVersion  
               FROM sys.availability_groups AS ag
               LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
               LEFT OUTER JOIN sys.availability_group_listeners AS agl ON ag.group_id = agl.group_id
-              LEFT OUTER JOIN sys.dm_hadr_availability_replica_states AS dhars ON ag.group_id = dhars.group_id AND ar.replica_id = dhars.replica_id
-              --WHERE ar.replica_server_name = @@SERVERNAME
+              LEFT OUTER JOIN sys.dm_hadr_availability_group_states as hags ON ag.group_id = hags.group_id
               WHERE UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) <> ar.replica_server_name
               UNION ALL
               SELECT UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) AS InstanceName  
@@ -164,24 +163,22 @@ BEGIN
        BEGIN
               IF (SELECT SERVERPROPERTY('IsHadrEnabled')) = 1 
               BEGIN
-                     SELECT UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) AS InstanceName
-                     ,UPPER(ar.replica_server_name) AS ServerName
-                     ,SERVERPROPERTY('IsClustered') AS IsClustered
-                     ,SERVERPROPERTY ('IsHadrEnabled') AS IsAvailabilityGroupEnabled
-                     ,ag.name AS AvailabilityGroupName
-                     ,agl.dns_name AS AvailabilityGroupListenerName
-                     ,CASE WHEN dhars.role_desc IS NULL THEN 'PRIMARY'
-                     ELSE dhars.role_desc
-                     END AS HighAvailabilityRoleDesc
-                     ,'AG' AS SQLServerClusteringMethod
-                     ,@@VERSION AS SQLServerVersion  
-                     FROM sys.availability_groups AS ag
-                     LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
-                     LEFT OUTER JOIN sys.availability_group_listeners AS agl ON ag.group_id = agl.group_id
-                     LEFT OUTER JOIN sys.dm_hadr_availability_replica_states AS dhars ON ag.group_id = dhars.group_id AND ar.replica_id = dhars.replica_id
-                     --WHERE ar.replica_server_name = @@SERVERNAME
-                     --WHERE UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) <> ar.replica_server_name
-                     ORDER BY 5,2;  
+                           SELECT UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) AS InstanceName
+                           ,UPPER(ar.replica_server_name) AS ServerName
+                           ,SERVERPROPERTY('IsClustered') AS IsClustered
+                           ,SERVERPROPERTY ('IsHadrEnabled') AS IsAvailabilityGroupEnabled
+                           ,ag.name AS AvailabilityGroupName
+                           ,agl.dns_name AS AvailabilityGroupListenerName
+                           ,CASE ar.replica_server_name WHEN hags.primary_replica THEN 'PRIMARY'
+                           ELSE 'SECONDARY'
+                           END AS HighAvailabilityRoleDesc
+                           ,'AG' AS SQLServerClusteringMethod
+                           ,@@VERSION AS SQLServerVersion
+                           FROM sys.availability_groups AS ag
+                           LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                           LEFT OUTER JOIN sys.availability_group_listeners AS agl ON ag.group_id = agl.group_id
+                           LEFT OUTER JOIN sys.dm_hadr_availability_group_states as hags ON ag.group_id = hags.group_id
+                           ORDER BY 5,2;  
               END
               ELSE 
               BEGIN
