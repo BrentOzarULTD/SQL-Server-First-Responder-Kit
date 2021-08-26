@@ -29,6 +29,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @SimpleFolderEnumeration BIT = 0,
 	@SkipBackupsAlreadyInMsdb BIT = 0,
 	@DatabaseOwner sysname = NULL,
+	@SetTrustworthyON BIT = 0,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
     @Help BIT = 0,
@@ -1449,6 +1450,34 @@ IF @DatabaseOwner IS NOT NULL
 			PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to change the database owner to [' + @DatabaseOwner + '].';
 		END
 	END;
+
+	IF @SetTrustworthyON = 1
+		BEGIN
+			IF @RunRecovery = 1
+			BEGIN
+				IF IS_SRVROLEMEMBER('sysadmin') = 1
+				BEGIN
+					SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET TRUSTWORTHY ON;';
+
+						IF @Debug = 1 OR @Execute = 'N'
+						BEGIN
+							IF @sql IS NULL PRINT '@sql is NULL for SET TRUSTWORTHY ON';
+							PRINT @sql;
+						END;
+
+					IF @Debug IN (0, 1) AND @Execute = 'Y'
+						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+				END
+				ELSE
+				BEGIN
+					PRINT 'Current user''s login is NOT a member of the sysadmin role. Database TRUSTWORHY bit has not been enabled.';
+				END
+			END
+			ELSE
+			BEGIN
+				PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to enable the TRUSTWORHY bit.';
+			END
+		END;
 
  -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
