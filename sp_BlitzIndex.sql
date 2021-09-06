@@ -202,6 +202,9 @@ IF OBJECT_ID('tempdb..#MissingIndexes') IS NOT NULL
 IF OBJECT_ID('tempdb..#ForeignKeys') IS NOT NULL 
     DROP TABLE #ForeignKeys;
 
+IF OBJECT_ID('tempdb..#UnindexedForeignKeys') IS NOT NULL 
+    DROP TABLE #UnindexedForeignKeys;
+
 IF OBJECT_ID('tempdb..#BlitzIndexResults') IS NOT NULL 
     DROP TABLE #BlitzIndexResults;
         
@@ -648,6 +651,18 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
             referenced_fk_columns NVARCHAR(MAX),
             update_referential_action_desc NVARCHAR(16),
             delete_referential_action_desc NVARCHAR(60)
+        );
+
+        CREATE TABLE #UnindexedForeignKeys 
+        (
+        	[database_id] INT NOT NULL,
+            [database_name] NVARCHAR(128) NOT NULL ,
+        	[schema_name] NVARCHAR(128) NOT NULL ,
+            foreign_key_name NVARCHAR(256),
+            parent_object_name NVARCHAR(256),
+			parent_object_id INT,
+			referenced_object_name NVARCHAR(256),
+			referenced_object_id INT
         );
         
         CREATE TABLE #IndexCreateTsql (
@@ -1817,6 +1832,77 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
+        SET @dsql = N'
+                SELECT 
+                    DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+			        @i_DatabaseName AS database_name,
+                    foreign_key_schema = 
+                        s.name,
+                    foreign_key_name = 
+                        fk.name,
+                    foreign_key_table = 
+                        OBJECT_NAME(fk.parent_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+					fk.parent_object_id,
+					foreign_key_referenced_table = 
+                        OBJECT_NAME(fk.referenced_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+					fk.referenced_object_id
+                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
+                JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+                    ON s.schema_id = fk.schema_id
+                WHERE fk.is_disabled = 0
+                AND   EXISTS
+                      (
+                          SELECT  
+                              1/0
+                          FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
+                          WHERE fkc.constraint_object_id = fk.object_id
+                          AND NOT EXISTS
+                              (
+                                  SELECT  
+                                      1/0
+                                  FROM  ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic
+                                  WHERE ic.object_id = fkc.parent_object_id
+                                  AND   ic.column_id = fkc.parent_column_id
+                                  AND   ic.index_column_id = fkc.constraint_column_id
+                              )
+                      )
+				OPTION (RECOMPILE);'
+        IF @dsql IS NULL 
+            RAISERROR('@dsql is null',16,1);
+
+        RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
+        IF @Debug = 1
+            BEGIN
+                PRINT SUBSTRING(@dsql, 0, 4000);
+                PRINT SUBSTRING(@dsql, 4000, 8000);
+                PRINT SUBSTRING(@dsql, 8000, 12000);
+                PRINT SUBSTRING(@dsql, 12000, 16000);
+                PRINT SUBSTRING(@dsql, 16000, 20000);
+                PRINT SUBSTRING(@dsql, 20000, 24000);
+                PRINT SUBSTRING(@dsql, 24000, 28000);
+                PRINT SUBSTRING(@dsql, 28000, 32000);
+                PRINT SUBSTRING(@dsql, 32000, 36000);
+                PRINT SUBSTRING(@dsql, 36000, 40000);
+            END;
+
+        INSERT
+		    #UnindexedForeignKeys
+        (
+            database_id,
+            database_name,
+            schema_name,
+            foreign_key_name,
+            parent_object_name,
+			parent_object_id,
+			referenced_object_name,
+			referenced_object_id
+        )
+        EXEC sys.sp_executesql
+            @dsql,
+            N'@i_DatabaseName sysname',
+            @DatabaseName;
+
+
 		IF @SkipStatistics = 0 /* AND DB_NAME() = @DatabaseName /* Can only get stats in the current database - see https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1947 */ */
 			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
@@ -2551,6 +2637,7 @@ BEGIN
     SELECT '#IndexColumns' AS table_name, * FROM  #IndexColumns;
     SELECT '#MissingIndexes' AS table_name, * FROM  #MissingIndexes;
     SELECT '#ForeignKeys' AS table_name, * FROM  #ForeignKeys;
+	SELECT '#UnindexedForeignKeys' AS table_name, * FROM  #UnindexedForeignKeys;
     SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults;
     SELECT '#IndexCreateTsql' AS table_name, * FROM  #IndexCreateTsql;
     SELECT '#DatabaseList' AS table_name, * FROM  #DatabaseList;
@@ -4545,15 +4632,14 @@ BEGIN;
                     N'Cascading Updates or Deletes' AS finding, 
                     [database_name] AS [Database Name],
                     N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
-                    N'Foreign Key ' + foreign_key_name +
+                    N'Foreign Key ' + QUOTENAME(foreign_key_name) +
                     N' on ' + QUOTENAME(parent_object_name)  + N'(' + LTRIM(parent_fk_columns) + N')'
                         + N' referencing ' + QUOTENAME(referenced_object_name) + N'(' + LTRIM(referenced_fk_columns) + N')'
                         + N' has settings:'
                         + CASE [delete_referential_action_desc] WHEN N'NO_ACTION' THEN N'' ELSE N' ON DELETE ' +[delete_referential_action_desc] END
                         + CASE [update_referential_action_desc] WHEN N'NO_ACTION' THEN N'' ELSE N' ON UPDATE ' + [update_referential_action_desc] END
                             AS details, 
-                    [fk].[database_name] 
-                            AS index_definition, 
+                    [fk].[database_name] AS index_definition, 
                     N'N/A' AS secret_columns,
                     N'N/A' AS index_usage_summary,
                     N'N/A' AS index_size_summary,
@@ -4562,6 +4648,29 @@ BEGIN;
             FROM #ForeignKeys fk
             WHERE ([delete_referential_action_desc] <> N'NO_ACTION'
             OR [update_referential_action_desc] <> N'NO_ACTION')
+			OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 72: Unindexed foreign keys.', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary, more_info )
+            SELECT  72 AS check_id, 
+                    NULL AS index_sanity_id,
+                    150 AS Priority,
+                    N'Abnormal Psychology' AS findings_group,
+                    N'Unindexed Foreign Keys' AS finding, 
+                    [database_name] AS [Database Name],
+                    N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
+                    N'Foreign Key ' + QUOTENAME(foreign_key_name) +
+                    N' on ' + QUOTENAME(parent_object_name)  + N''
+                        + N' referencing ' + QUOTENAME(referenced_object_name) + N''
+                        + N' does not appear to have a supporting index.' AS details, 
+                    N'N/A' AS index_definition, 
+                    N'N/A' AS secret_columns,
+                    N'N/A' AS index_usage_summary,
+                    N'N/A' AS index_size_summary,
+                    (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
+                        AS more_info
+            FROM #UnindexedForeignKeys AS fk
 			OPTION    ( RECOMPILE );
 
 
