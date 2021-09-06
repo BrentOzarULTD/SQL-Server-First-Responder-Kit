@@ -287,6 +287,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
+	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
+	EXEC(@StringToExecute);
+
 	/* Delete history older than @OutputTableRetentionDays */
 	SET @OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE);
 	SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
