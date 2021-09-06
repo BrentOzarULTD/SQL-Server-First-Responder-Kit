@@ -4620,7 +4620,7 @@ BEGIN;
                                                secret_columns, index_usage_summary, index_size_summary, more_info )
             SELECT  72 AS check_id, 
                     NULL AS index_sanity_id,
-                    100 AS Priority,
+                    150 AS Priority,
                     N'Abnormal Psychology' AS findings_group,
                     N'Unindexed Foreign Keys' AS finding, 
                     [database_name] AS [Database Name],
