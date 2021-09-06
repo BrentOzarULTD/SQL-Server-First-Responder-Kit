@@ -131,4 +131,3 @@ test-results/*
 x64/
 ~$*
 ~*.*
-/.vs/slnx.sqlite
