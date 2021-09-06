@@ -128,6 +128,7 @@ DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
+DECLARE @OptimizeForSequentialKey BIT = 0;
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -139,6 +140,20 @@ SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We de
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
 SET @IgnoreDatabases = REPLACE(REPLACE(LTRIM(RTRIM(@IgnoreDatabases)), CHAR(10), ''), CHAR(13), '');
+
+SELECT
+    @OptimizeForSequentialKey =
+	    CASE WHEN EXISTS
+		          (
+                      SELECT
+                          1/0
+                      FROM sys.all_columns AS ac
+                      WHERE ac.object_id = OBJECT_ID('sys.indexes')
+                      AND   ac.name = N'optimize_for_sequential_key'
+				  )
+			THEN 1
+			ELSE 0
+		END;
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
@@ -260,7 +275,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               count_included_columns INT NULL ,
               partition_key_column_name NVARCHAR(MAX) NULL,
               filter_definition NVARCHAR(MAX) NOT NULL ,
-              is_indexed_view BIT NOT NULL ,
+			  optimize_for_sequential_key BIT NULL,
+			  is_indexed_view BIT NOT NULL ,
               is_unique BIT NOT NULL ,
               is_primary_key BIT NOT NULL ,
 			  is_unique_constraint BIT NOT NULL ,
@@ -1290,8 +1306,14 @@ BEGIN TRY
                         + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'
                         CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
                              ELSE N''''
-                        END AS filter_definition' ELSE N''''' AS filter_definition' END + N'
-                        , ISNULL(us.user_seeks, 0),
+                        END AS filter_definition' ELSE N''''' AS filter_definition' END 
+						+ CASE
+						      WHEN @OptimizeForSequentialKey = 1
+						      THEN N', si.optimize_for_sequential_key'
+							  ELSE N', CONVERT(BIT, NULL) AS optimize_for_sequential_key'
+						  END
+						+ N',
+						ISNULL(us.user_seeks, 0),
                         ISNULL(us.user_scans, 0),
                         ISNULL(us.user_lookups, 0),
                         ISNULL(us.user_updates, 0),
@@ -2522,6 +2544,7 @@ FROM    #IndexSanity si
 
 IF @Debug = 1
 BEGIN
+    SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults AS bir;
     SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
     SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
     SELECT '#IndexSanitySize' AS table_name, * FROM  #IndexSanitySize;
@@ -4147,7 +4170,6 @@ BEGIN;
 					OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
-
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  33 AS check_id, 
@@ -4731,6 +4753,24 @@ BEGIN;
 		FROM #TemporalTables AS t
 		OPTION    ( RECOMPILE );
 
+		RAISERROR(N'check_id 121: Optimized For Sequental Keys.', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+
+				SELECT  121 AS check_id, 
+				200 AS Priority,
+				'Medicated Indexes' AS findings_group,
+				'Optimized For Sequential Keys',
+				i.database_name,
+				'' AS URL,
+				'The table ' + QUOTENAME(i.schema_name) + '.' + QUOTENAME(i.object_name) + ' is optimized for sequential keys.' AS details,
+				'' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #IndexSanity AS i
+		WHERE i.optimize_for_sequential_key = 1
+		OPTION    ( RECOMPILE );
 
 
 
