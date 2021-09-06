@@ -3126,7 +3126,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		This has to be done as dynamic SQL because we have to execute OBJECT_NAME inside TempDB. */
 	IF @@ROWCOUNT > 0
 		BEGIN
-		SET @StringToExecute = N'USE tempdb;
+		SET @StringToExecute = N'
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 		SELECT TOP 10 29 AS CheckID,
 			40 AS Priority,
