@@ -7770,6 +7770,7 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
 											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
 											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '1204' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1222' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1224' THEN '1224 enabled globally, which disables lock escalation until the server has memory pressure. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '1806' THEN '1806 enabled globally, which disables Instant File Initialization, causing restores and file growths to take longer. This is usually a very bad idea.'
