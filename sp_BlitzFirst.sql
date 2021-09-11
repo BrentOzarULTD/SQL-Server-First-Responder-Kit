@@ -1755,30 +1755,30 @@ BEGIN
 		    'Query Problems' AS FindingGroup,
 		    'Sleeping Query with Open Transactions' AS Finding,
 		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    s.last_request_start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
+		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
+		    'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    s.last_batch AS StartTime,
+		    s.loginame AS LoginName,
+		    s.nt_username AS NTUserName,
 		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
+		    s.hostname AS HostName,
 		    db.[resource_database_id] AS DatabaseID,
 		    DB_NAME(db.resource_database_id) AS DatabaseName,
 		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    s.open_transaction_count AS OpenTransactionCount
-		FROM sys.dm_exec_sessions s
-		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+		    s.open_tran AS OpenTransactionCount
+		FROM sys.sysprocesses s
+		INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
 		INNER JOIN (
 		SELECT DISTINCT request_session_id, resource_database_id
 		FROM    sys.dm_tran_locks
 		WHERE resource_type = N'DATABASE'
 		AND     request_mode = N'S'
 		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
 		WHERE s.status = 'sleeping'
-		AND s.open_transaction_count > 0
-		AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
-		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
+		AND s.open_tran > 0
+		AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
 		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 

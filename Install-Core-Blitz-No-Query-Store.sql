@@ -10274,6 +10274,7 @@ SELECT [ServerName]
       ,[query_cost]
       ,[status]
       ,[wait_info]
+      ,[wait_resource]
       ,[top_session_waits]
       ,[blocking_session_id]
       ,[open_transaction_count]
@@ -26941,6 +26942,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[query_cost] [float] NULL,
 	[status] [nvarchar](30) NOT NULL,
 	[wait_info] [nvarchar](max) NULL,
+	[wait_resource] [nvarchar](max) NULL,
 	[top_session_waits] [nvarchar](max) NULL,
 	[blocking_session_id] [smallint] NULL,
 	[open_transaction_count] [int] NULL,
@@ -27112,6 +27114,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'    [query_cost], ' + @LineFeed 
 				+ N'    [status], ' + @LineFeed 
 				+ N'    [wait_info], ' + @LineFeed 
+				+ N'    [wait_resource], ' + @LineFeed 
 				+ N'    [top_session_waits], ' + @LineFeed 
 				+ N'    [blocking_session_id], ' + @LineFeed 
 				+ N'    [open_transaction_count], ' + @LineFeed 
@@ -27213,6 +27216,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [query_cost], ' + @LineFeed 
 				+ N'			       [status], ' + @LineFeed 
 				+ N'			       [wait_info], ' + @LineFeed 
+				+ N'			       [wait_resource], ' + @LineFeed 
 				+ N'			       [top_session_waits], ' + @LineFeed 
 				+ N'			       [blocking_session_id], ' + @LineFeed 
 				+ N'			       [open_transaction_count], ' + @LineFeed 
@@ -27457,6 +27461,7 @@ BEGIN
 								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
 								ELSE NULL
 							END AS wait_info ,																					
+							r.wait_resource ,
 						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							       THEN r.blocking_session_id
 							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
@@ -27685,7 +27690,8 @@ IF @ProductVersionMajor >= 11
 					CASE
 						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
 						ELSE NULL
-					END AS wait_info ,'
+					END AS wait_info ,
+					r.wait_resource ,'
 						    +
 						    CASE @SessionWaits
 							     WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
@@ -28015,7 +28021,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
-	,[wait_info]'
+	,[wait_info]
+	,[wait_resource]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[top_session_waits]' ELSE N'' END + N'
 	,[blocking_session_id]
 	,[open_transaction_count]
