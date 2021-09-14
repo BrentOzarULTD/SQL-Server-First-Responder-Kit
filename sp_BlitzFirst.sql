@@ -46,7 +46,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.05', @VersionDate = '20210725';
+SELECT @Version = '8.06', @VersionDate = '20210914';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1517,28 +1517,32 @@ BEGIN
 		    'https://www.brentozar.com/askbrent/backups/' AS URL,
 		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
 		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
-			    + CASE WHEN COALESCE(s.nt_user_name, s.login_name) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_user_name, s.login_name) + ' ') ELSE '' END AS Details,
+			    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
 		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
 		    pl.query_plan AS QueryPlan,
 		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
+		    s.loginame AS LoginName,
+		    s.nt_username AS NTUserName,
 		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
+		    s.[hostname] AS HostName,
 		    db.[resource_database_id] AS DatabaseID,
 		    DB_NAME(db.resource_database_id) AS DatabaseName,
 		    0 AS OpenTransactionCount,
 		    r.query_hash
 		FROM sys.dm_exec_requests r
 		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id AND s.database_id = db.resource_database_id
+		INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
+		INNER JOIN
+		(
+		    SELECT DISTINCT
+			    t.request_session_id,
+				t.resource_database_id
+		    FROM sys.dm_tran_locks AS t
+		    WHERE t.resource_type = N'DATABASE'
+		    AND   t.request_mode = N'S'
+		    AND   t.request_status = N'GRANT'
+		    AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
+		) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
 		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
 		WHERE r.command LIKE 'BACKUP%'
 		AND r.start_time <= DATEADD(minute, -5, GETDATE())
@@ -1755,30 +1759,30 @@ BEGIN
 		    'Query Problems' AS FindingGroup,
 		    'Sleeping Query with Open Transactions' AS Finding,
 		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.[host_name] + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_request_end_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(s.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    s.last_request_start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
+		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
+		    'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
+		    s.last_batch AS StartTime,
+		    s.loginame AS LoginName,
+		    s.nt_username AS NTUserName,
 		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
+		    s.hostname AS HostName,
 		    db.[resource_database_id] AS DatabaseID,
 		    DB_NAME(db.resource_database_id) AS DatabaseName,
 		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    s.open_transaction_count AS OpenTransactionCount
-		FROM sys.dm_exec_sessions s
-		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+		    s.open_tran AS OpenTransactionCount
+		FROM sys.sysprocesses s
+		INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
 		INNER JOIN (
 		SELECT DISTINCT request_session_id, resource_database_id
 		FROM    sys.dm_tran_locks
 		WHERE resource_type = N'DATABASE'
 		AND     request_mode = N'S'
 		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
 		WHERE s.status = 'sleeping'
-		AND s.open_transaction_count > 0
-		AND s.last_request_end_time < DATEADD(ss, -10, SYSDATETIME())
-		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.session_id
+		AND s.open_tran > 0
+		AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
 		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 
@@ -3126,7 +3130,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		This has to be done as dynamic SQL because we have to execute OBJECT_NAME inside TempDB. */
 	IF @@ROWCOUNT > 0
 		BEGIN
-		SET @StringToExecute = N'USE tempdb;
+		SET @StringToExecute = N'
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 		SELECT TOP 10 29 AS CheckID,
 			40 AS Priority,
