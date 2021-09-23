@@ -30,6 +30,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	@DatabaseOwner SYSNAME = NULL,
 	@SkipBackupsAlreadyInMsdb BIT = 0,
 	@DatabaseOwner sysname = NULL,
+	@SetTrustworthyON BIT = 0,
     @Execute CHAR(1) = Y,
     @Debug INT = 0, 
     @Help BIT = 0,
@@ -38,10 +39,11 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @VersionCheckMode BIT = 0
 AS
 SET NOCOUNT ON;
+SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.03', @VersionDate = '20210420';
+SELECT @Version = '8.06', @VersionDate = '20210914';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -344,40 +346,40 @@ CREATE TABLE #Headers
 );
 
 /*
-Correct paths in case people forget a final "\" 
+Correct paths in case people forget a final "\" or "/"
 */
 /*Full*/
-IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' AND CHARINDEX('\', @BackupPathFull) > 0 --Has to end in a '\'
-BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
-	SET @BackupPathFull += N'\';
-END;
-ELSE IF (SELECT RIGHT(@BackupPathFull, 1)) <> '/' AND CHARINDEX('/', @BackupPathFull) > 0 --Has to end in a '/'
+IF (SELECT RIGHT(@BackupPathFull, 1)) <> '/' AND CHARINDEX('/', @BackupPathFull) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathFull += N'/';
 END;
-/*Diff*/
-IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' AND CHARINDEX('\', @BackupPathDiff) > 0 --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
 BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
-	SET @BackupPathDiff += N'\';
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
+	SET @BackupPathFull += N'\';
 END;
-ELSE IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '/' AND CHARINDEX('/', @BackupPathDiff) > 0 --Has to end in a '/'
+/*Diff*/
+IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '/' AND CHARINDEX('/', @BackupPathDiff) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathDiff to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathDiff += N'/';
 END;
-/*Log*/
-IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' AND CHARINDEX('\', @BackupPathLog) > 0 --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
 BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
-	SET @BackupPathLog += N'\';
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
+	SET @BackupPathDiff += N'\';
 END;
-ELSE IF (SELECT RIGHT(@BackupPathLog, 1)) <> '/' AND CHARINDEX('/', @BackupPathLog) > 0 --Has to end in a '/'
+/*Log*/
+IF (SELECT RIGHT(@BackupPathLog, 1)) <> '/' AND CHARINDEX('/', @BackupPathLog) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathLog to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathLog += N'/';
+END;
+IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
+	SET @BackupPathLog += N'\';
 END;
 /*Move Data File*/
 IF NULLIF(@MoveDataDrive, '') IS NULL
@@ -385,15 +387,15 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Getting default data drive for @MoveDataDrive', 0, 1) WITH NOWAIT;
 	SET @MoveDataDrive = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
 END;
-IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' AND CHARINDEX('\', @MoveDataDrive) > 0 --Has to end in a '\'
-BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
-	SET @MoveDataDrive += N'\';
-END;
-ELSE IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '/' AND CHARINDEX('/', @MoveDataDrive) > 0 --Has to end in a '/'
+IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '/' AND CHARINDEX('/', @MoveDataDrive) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveDataDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveDataDrive += N'/';
+END;
+ELSE IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveDataDrive += N'\';
 END;
 /*Move Log File*/
 IF NULLIF(@MoveLogDrive, '') IS NULL
@@ -401,15 +403,15 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Getting default log drive for @MoveLogDrive', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive  = CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(260));
 END;
-IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveLogDrive) > 0 --Has to end in a '\'
-BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "\"', 0, 1) WITH NOWAIT;
-	SET @MoveLogDrive += N'\';
-END;
-ELSE IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveLogDrive) > 0 --Has to end in a '/'
+IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveLogDrive) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing@MoveLogDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive += N'/';
+END;
+ELSE IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveLogDrive += N'\';
 END;
 /*Move Filestream File*/
 IF NULLIF(@MoveFilestreamDrive, '') IS NULL
@@ -417,15 +419,15 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Setting default data drive for @MoveFilestreamDrive', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive  = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
 END;
-IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '\' AND CHARINDEX('\', @MoveFilestreamDrive) > 0 --Has to end in a '\'
-BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "\"', 0, 1) WITH NOWAIT;
-	SET @MoveFilestreamDrive += N'\';
-END;
-ELSE IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFilestreamDrive) > 0 --Has to end in a '/'
+IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFilestreamDrive) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive += N'/';
+END;
+ELSE IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '\' --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveFilestreamDrive += N'\';
 END;
 /*Move FullText Catalog File*/
 IF NULLIF(@MoveFullTextCatalogDrive, '') IS NULL
@@ -433,26 +435,26 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Setting default data drive for @MoveFullTextCatalogDrive', 0, 1) WITH NOWAIT;
 	SET @MoveFullTextCatalogDrive  = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(260));
 END;
-IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '\' AND CHARINDEX('\', @MoveFullTextCatalogDrive) > 0 --Has to end in a '\'
-BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "\"', 0, 1) WITH NOWAIT;
-	SET @MoveFullTextCatalogDrive += N'\';
-END;
-ELSE IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFullTextCatalogDrive) > 0 --Has to end in a '/'
+IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveFullTextCatalogDrive) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFullTextCatalogDrive += N'/';
 END;
-/*Standby Undo File*/
-IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' AND CHARINDEX('\', @StandbyUndoPath) > 0 --Has to end in a '\'
+IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '\' --Has to end in a '\'
 BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
-	SET @StandbyUndoPath += N'\';
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "\"', 0, 1) WITH NOWAIT;
+	SET @MoveFullTextCatalogDrive += N'\';
 END;
-ELSE IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '/' AND CHARINDEX('/', @StandbyUndoPath) > 0 --Has to end in a '/'
+/*Standby Undo File*/
+IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '/' AND CHARINDEX('/', @StandbyUndoPath) > 0 --Has to end in a '/'
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "/"', 0, 1) WITH NOWAIT;
 	SET @StandbyUndoPath += N'/';
+END;
+IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' --Has to end in a '\'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
+	SET @StandbyUndoPath += N'\';
 END;
 
 IF @RestoreDatabaseName IS NULL OR @RestoreDatabaseName LIKE N'' /*use LIKE instead of =, otherwise N'' = N' '. See: https://www.brentozar.com/archive/2017/04/surprising-behavior-trailing-spaces/ */
@@ -774,8 +776,18 @@ BEGIN
 			        IF @sql IS NULL PRINT '@sql is NULL for SINGLE_USER';
 			        PRINT @sql;
 		        END;
-		        IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
-			        EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+		        IF @Debug IN (0, 1) AND @Execute = 'Y'
+				BEGIN
+					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING' 
+					BEGIN
+						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+					END
+					ELSE IF @Debug = 1
+					BEGIN
+						IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') IS NULL PRINT 'Unable to retrieve STATUS from "' + @UnquotedRestoreDatabaseName + '" database. Skipping setting database to SINGLE_USER';
+						ELSE IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') = 'RESTORING' PRINT @UnquotedRestoreDatabaseName + ' database STATUS is RESTORING. Skiping setting database to SINGLE_USER';
+			        END
+		        END
             END
             IF @ExistingDBAction IN (2, 3)
             BEGIN
@@ -819,8 +831,18 @@ BEGIN
 					IF @sql IS NULL PRINT '@sql is NULL for Offline database';
 					PRINT @sql;
 				END;
-				IF @Debug IN (0, 1) AND @Execute = 'Y' AND DATABASEPROPERTYEX(@RestoreDatabaseName,'STATUS') != 'RESTORING' 
-				EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+		        IF @Debug IN (0, 1) AND @Execute = 'Y'
+				BEGIN
+					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING' 
+					BEGIN
+						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+					END
+					ELSE IF @Debug = 1
+					BEGIN
+						IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') IS NULL PRINT 'Unable to retrieve STATUS from "' + @UnquotedRestoreDatabaseName + '" database. Skipping setting database OFFLINE';
+						ELSE IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') = 'RESTORING' PRINT @UnquotedRestoreDatabaseName + ' database STATUS is RESTORING. Skiping setting database OFFLINE';
+			        END
+		        END
 			END;
         END
         ELSE
@@ -999,7 +1021,11 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
-    SELECT @LastDiffBackup = MAX(BackupFile)
+	SELECT @LastDiffBackup = MAX(CASE
+		WHEN @StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt THEN
+			BackupFile
+		ELSE ''
+		END)
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
         AND
@@ -1246,50 +1272,26 @@ BEGIN
 	
 END
 
-
+IF (@StopAt IS NOT NULL)
+BEGIN
+	
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+	
+    DELETE fl
+	FROM @FileList AS fl
+	WHERE BackupFile LIKE N'%.trn'
+	AND BackupFile LIKE N'%' + @Database + N'%' 
+	AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt;
+	
+END
 
 -- Check for log backups
-IF(@StopAt IS NULL AND @OnlyLogsAfter IS NULL)
+IF(@BackupDateTime IS NOT NULL AND @BackupDateTime <> '')
 	BEGIN 
 		DELETE FROM @FileList
 		WHERE BackupFile LIKE N'%.trn'
 		AND BackupFile LIKE N'%' + @Database + N'%'
 		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime));
-	END;
-
-
-IF (@StopAt IS NULL AND @OnlyLogsAfter IS NOT NULL)	
-	BEGIN
-		DELETE FROM @FileList
-		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%'
-		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @OnlyLogsAfter));
-	END;
-
-
-IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NULL)	
-	BEGIN
-		DELETE FROM @FileList
-		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%'
-		AND NOT (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-		AND NOT ((@ContinueLogs = 1 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) >= @BackupDateTime) AND REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-
-	END;
-
-IF (@StopAt IS NOT NULL AND @OnlyLogsAfter IS NOT NULL)	
-	BEGIN
-		DECLARE BackupFiles CURSOR FOR
-			SELECT BackupFile
-			FROM @FileList
-			WHERE BackupFile LIKE N'%.trn'
-			  AND BackupFile LIKE N'%' + @Database + N'%'
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
-			  AND ((@ContinueLogs = 1 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt) OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @BackupDateTime) AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') <= @StopAt)
-			  AND (@ContinueLogs = 1 OR (@ContinueLogs = 0 AND REPLACE(LEFT(RIGHT(BackupFile, 19), 15),'_','') >= @OnlyLogsAfter))
-			  ORDER BY BackupFile;
-		
-		OPEN BackupFiles;
 	END;
 
 
@@ -1471,6 +1473,34 @@ IF @DatabaseOwner IS NOT NULL
 			PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to change the database owner to [' + @DatabaseOwner + '].';
 		END
 	END;
+
+	IF @SetTrustworthyON = 1
+		BEGIN
+			IF @RunRecovery = 1
+			BEGIN
+				IF IS_SRVROLEMEMBER('sysadmin') = 1
+				BEGIN
+					SET @sql = N'ALTER DATABASE ' + @RestoreDatabaseName + N' SET TRUSTWORTHY ON;';
+
+						IF @Debug = 1 OR @Execute = 'N'
+						BEGIN
+							IF @sql IS NULL PRINT '@sql is NULL for SET TRUSTWORTHY ON';
+							PRINT @sql;
+						END;
+
+					IF @Debug IN (0, 1) AND @Execute = 'Y'
+						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+				END
+				ELSE
+				BEGIN
+					PRINT 'Current user''s login is NOT a member of the sysadmin role. Database TRUSTWORHY bit has not been enabled.';
+				END
+			END
+			ELSE
+			BEGIN
+				PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to enable the TRUSTWORHY bit.';
+			END
+		END;
 
  -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1

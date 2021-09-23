@@ -21,6 +21,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinBlockingSeconds INT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
+	@GetOuterCommand BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -28,9 +29,10 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 AS
 BEGIN
 	SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.06', @VersionDate = '20210914';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -160,6 +162,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[session_id] [smallint] NOT NULL,
 	[database_name] [nvarchar](128) NULL,
 	[query_text] [nvarchar](max) NULL,
+	[outer_command] NVARCHAR(4000) NULL,
 	[query_plan] [xml] NULL,
 	[live_query_plan] [xml] NULL,
 	[cached_parameter_info] [nvarchar](max) NULL,
@@ -167,6 +170,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[query_cost] [float] NULL,
 	[status] [nvarchar](30) NOT NULL,
 	[wait_info] [nvarchar](max) NULL,
+	[wait_resource] [nvarchar](max) NULL,
 	[top_session_waits] [nvarchar](max) NULL,
 	[blocking_session_id] [smallint] NULL,
 	[open_transaction_count] [int] NULL,
@@ -276,6 +280,20 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
+	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
+	EXEC(@StringToExecute);
+
+	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
+	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
+		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
+	EXEC(@StringToExecute);
+
 	/* Delete history older than @OutputTableRetentionDays */
 	SET @OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE);
 	SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
@@ -331,6 +349,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'    [query_cost], ' + @LineFeed 
 				+ N'    [status], ' + @LineFeed 
 				+ N'    [wait_info], ' + @LineFeed 
+				+ N'    [wait_resource], ' + @LineFeed 
 				+ N'    [top_session_waits], ' + @LineFeed 
 				+ N'    [blocking_session_id], ' + @LineFeed 
 				+ N'    [open_transaction_count], ' + @LineFeed 
@@ -432,6 +451,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [query_cost], ' + @LineFeed 
 				+ N'			       [status], ' + @LineFeed 
 				+ N'			       [wait_info], ' + @LineFeed 
+				+ N'			       [wait_resource], ' + @LineFeed 
 				+ N'			       [top_session_waits], ' + @LineFeed 
 				+ N'			       [blocking_session_id], ' + @LineFeed 
 				+ N'			       [open_transaction_count], ' + @LineFeed 
@@ -550,6 +570,7 @@ END
 
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
    
+						SET LOCK_TIMEOUT 1000; /* To avoid blocking on live query plans. See Github issue #2907. */
 						DECLARE @blocked TABLE 
 								(
 								    dbid SMALLINT NOT NULL,
@@ -572,7 +593,64 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						FROM sys.sysprocesses AS sys1
 						JOIN sys.sysprocesses AS sys2
 						ON sys1.spid = sys2.blocked;
+						'+CASE
+							WHEN (@GetOuterCommand = 1 AND (NOT EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer'))) THEN N'
+						DECLARE @session_id SMALLINT;
+						DECLARE @Sessions TABLE 
+						(
+							session_id INT
+						);
 
+						DECLARE @inputbuffer TABLE 
+						(
+						ID INT IDENTITY(1,1),
+						session_id INT,
+						event_type	NVARCHAR(30),
+						parameters	SMALLINT,
+						event_info	NVARCHAR(4000)
+						);
+
+						DECLARE inputbuffer_cursor
+						
+						CURSOR LOCAL FAST_FORWARD
+						FOR 
+						SELECT session_id
+						FROM sys.dm_exec_sessions
+						WHERE session_id <> @@SPID
+						AND is_user_process = 1;
+						
+						OPEN inputbuffer_cursor;
+						
+						FETCH NEXT FROM inputbuffer_cursor INTO @session_id;
+						
+						WHILE (@@FETCH_STATUS = 0)
+						BEGIN;
+							BEGIN TRY;
+
+								INSERT INTO @inputbuffer ([event_type],[parameters],[event_info])
+								EXEC sp_executesql
+									N''DBCC INPUTBUFFER(@session_id) WITH NO_INFOMSGS;'',
+									N''@session_id SMALLINT'',
+									@session_id;
+						
+								UPDATE @inputbuffer 
+								SET session_id = @session_id 
+								WHERE ID = SCOPE_IDENTITY();
+
+							END TRY
+							BEGIN CATCH
+								RAISERROR(''DBCC inputbuffer failed for session %d'',0,0,@session_id) WITH NOWAIT;
+							END CATCH;
+						
+							FETCH NEXT FROM inputbuffer_cursor INTO @session_id
+						
+						END;
+						
+						CLOSE inputbuffer_cursor;
+						DEALLOCATE inputbuffer_cursor;'
+						ELSE N''
+						END+
+						N' 
 
 						DECLARE @LiveQueryPlans TABLE
 						(
@@ -581,7 +659,6 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
@@ -608,6 +685,10 @@ BEGIN
 			               ELSE query_stats.statement_end_offset
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
+						  '+CASE
+								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
+							ELSE N''
+							END+N'
 			       derp.query_plan ,
 						    qmg.query_cost ,										   		   
 						    s.status ,
@@ -615,6 +696,7 @@ BEGIN
 								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
 								ELSE NULL
 							END AS wait_info ,																					
+							r.wait_resource ,
 						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							       THEN r.blocking_session_id
 							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
@@ -727,6 +809,14 @@ BEGIN
 				
     SET @StringToExecute += 			 
 	    N'FROM sys.dm_exec_sessions AS s
+			 '+
+			 CASE
+				WHEN @GetOuterCommand = 1 THEN CASE
+													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
+													ELSE N'LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
+												END
+				ELSE N''
+			 END+N'
 			 LEFT JOIN sys.dm_exec_requests AS r
 			 ON   r.session_id = s.session_id
 			 LEFT JOIN ( SELECT DISTINCT
@@ -813,6 +903,10 @@ IF @ProductVersionMajor >= 11
 			               ELSE query_stats.statement_end_offset
 			             END - query_stats.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
+						  '+CASE
+								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
+							ELSE N''
+							END+N'
 			       derp.query_plan ,
 				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
@@ -831,7 +925,8 @@ IF @ProductVersionMajor >= 11
 					CASE
 						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
 						ELSE NULL
-					END AS wait_info ,'
+					END AS wait_info ,
+					r.wait_resource ,'
 						    +
 						    CASE @SessionWaits
 							     WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
@@ -990,7 +1085,16 @@ IF @ProductVersionMajor >= 11
     END /* IF @ExpertMode = 1 */
 					
     SET @StringToExecute += 	
-	    N' FROM sys.dm_exec_sessions AS s
+	    N' FROM sys.dm_exec_sessions AS s'+
+			 CASE
+				WHEN @GetOuterCommand = 1 THEN CASE
+													WHEN EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer') THEN N'
+		OUTER APPLY sys.dm_exec_input_buffer (s.session_id, 0) AS ib'
+													ELSE N'
+		LEFT JOIN @inputbuffer ib ON s.session_id = ib.session_id'
+											   END
+				ELSE N''
+			 END+N'
 	    LEFT JOIN sys.dm_exec_requests AS r
 					    ON   r.session_id = s.session_id
 	    LEFT JOIN ( SELECT DISTINCT
@@ -1144,14 +1248,16 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[elapsed_time]
 	,[session_id]
 	,[database_name]
-	,[query_text]
+	,[query_text]'
+	+ CASE WHEN @GetOuterCommand = 1 THEN N',[outer_command]' ELSE N'' END + N'
 	,[query_plan]'
-    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END + N'
+    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END 
 	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[cached_parameter_info]'  ELSE N'' END
 	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
 	,[status]
-	,[wait_info]'
+	,[wait_info]
+	,[wait_resource]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[top_session_waits]' ELSE N'' END + N'
 	,[blocking_session_id]
 	,[open_transaction_count]

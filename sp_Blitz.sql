@@ -34,10 +34,11 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
 WITH RECOMPILE
 AS
     SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.03', @VersionDate = '20210420';
+	SELECT @Version = '8.06', @VersionDate = '20210914';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -355,7 +356,7 @@ AS
 					SET @StringToExecute += QUOTENAME(@SkipChecksServer) + N'.';
 					END
 				SET @StringToExecute += QUOTENAME(@SkipChecksDatabase) + N'.' + QUOTENAME(@SkipChecksSchema) + N'.' + QUOTENAME(@SkipChecksTable)
-					+ N' WHERE ServerName IS NULL OR ServerName = SERVERPROPERTY(''ServerName'') OPTION (RECOMPILE);';
+					+ N' WHERE ServerName IS NULL OR ServerName = CAST(SERVERPROPERTY(''ServerName'') AS NVARCHAR(128)) OPTION (RECOMPILE);';
 				EXEC(@StringToExecute);
 			END;
 
@@ -3253,11 +3254,6 @@ AS
 										'The job ' + [name]
 										+ ' has not been set up to notify an operator if it fails.' AS Details
 								FROM    msdb.[dbo].[sysjobs] j
-										INNER JOIN ( SELECT DISTINCT
-															[job_id]
-													 FROM   [msdb].[dbo].[sysjobschedules]
-													 WHERE  next_run_date > 0
-												   ) s ON j.job_id = s.job_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
@@ -4316,10 +4312,10 @@ AS
 						  SELECT 'containment', 0, 141, 210, 'Containment Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'containment' AND object_id = OBJECT_ID('sys.databases');
-						INSERT INTO #DatabaseDefaults
-						  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'https://www.brentozar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns
-						  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
+						--INSERT INTO #DatabaseDefaults
+						--  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'https://www.brentozar.com/go/dbdefaults', NULL
+						--  FROM sys.all_columns
+						--  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'delayed_durability', 0, 143, 210, 'Delayed Durability Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
@@ -4346,12 +4342,12 @@ AS
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.state <> 1 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.state <> 1 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 						
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -4363,6 +4359,79 @@ AS
 
 						CLOSE DatabaseDefaultsLoop;
 						DEALLOCATE DatabaseDefaultsLoop;
+
+/* Check if target recovery interval <> 60 */
+IF
+    @ProductVersionMajor >= 10
+    AND NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM  #SkipChecks AS sc
+            WHERE sc.DatabaseName IS NULL
+            AND   sc.CheckID = 257
+        )
+    BEGIN
+        IF EXISTS
+           (
+               SELECT
+                   1/0
+               FROM sys.all_columns AS ac
+               WHERE ac.name = 'target_recovery_time_in_seconds'
+               AND   ac.object_id = OBJECT_ID('sys.databases')
+           )
+           BEGIN
+               IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 257) WITH NOWAIT;
+        
+               DECLARE
+                   @tri nvarchar(max) = N'
+                   SELECT
+                       DatabaseName = 
+                           d.name,
+                       CheckId = 
+                           257,
+                       Priority = 
+                           50,
+                       FindingsGroup = 
+                           N''Performance'',
+                       Finding =
+                           N''Recovery Interval Not Optimal'',
+                       URL = 
+                           N''https://sqlperformance.com/2020/05/system-configuration/0-to-60-switching-to-indirect-checkpoints'',
+                       Details = 
+                           N''The database '' +
+                           QUOTENAME(d.name) +
+                           N'' has a target recovery interval of '' +
+                           RTRIM(d.target_recovery_time_in_seconds) + 
+                           CASE
+                               WHEN d.target_recovery_time_in_seconds = 0
+                               THEN N'', which is a legacy default, and should be changed to 60.''
+                               WHEN d.target_recovery_time_in_seconds <> 0 
+                               THEN N'', which is probably a mistake, and should be changed to 60.''
+                           END
+                   FROM sys.databases AS d
+                   WHERE d.database_id > 4
+                   AND   d.is_read_only = 0
+                   AND   d.is_in_standby = 0
+                   AND   d.target_recovery_time_in_seconds <> 60;
+                   ';
+
+               INSERT INTO
+			       #BlitzResults
+               (
+			       DatabaseName,
+			       CheckID,
+                   Priority,
+                   FindingsGroup,
+                   Finding,
+                   URL,
+                   Details
+               )
+               EXEC sys.sp_executesql
+                   @tri;
+
+            END;
+        END;
 							
 
 /*This checks to see if Agent is Offline*/
@@ -6089,7 +6158,7 @@ IF @ProductVersionMajor >= 10
 							END;
 
 						
-						IF @ProductVersionMajor >= 13 AND @ProductVersionMinor < 2149 --CU1 has the fix in it
+						IF @ProductVersionMajor = 13 AND @ProductVersionMinor < 2149 --2016 CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
 											 FROM    #SkipChecks
 											 WHERE   DatabaseName IS NULL AND CheckID = 182 )
@@ -7701,6 +7770,7 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
 											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
 											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
+											 WHEN [T].[TraceFlag] = '1204' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1222' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1224' THEN '1224 enabled globally, which disables lock escalation until the server has memory pressure. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '1806' THEN '1806 enabled globally, which disables Instant File Initialization, causing restores and file growths to take longer. This is usually a very bad idea.'
@@ -8184,6 +8254,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												WHERE   o.name = 'dm_server_services'
 														AND c.name = 'instant_file_initialization_enabled' )
 									begin
+									SET @StringToExecute = N'
 									INSERT  INTO #BlitzResults
 											( CheckID ,
 											  [Priority] ,
@@ -8195,14 +8266,15 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 											SELECT
 													193 AS [CheckID] ,
 													250 AS [Priority] ,
-													'Server Info' AS [FindingsGroup] ,
-													'Instant File Initialization Enabled' AS [Finding] ,
-													'https://www.brentozar.com/go/instant' AS [URL] ,
-													'The service account has the Perform Volume Maintenance Tasks permission.'
+													''Server Info'' AS [FindingsGroup] ,
+													''Instant File Initialization Enabled'' AS [Finding] ,
+													''https://www.brentozar.com/go/instant'' AS [URL] ,
+													''The service account has the Perform Volume Maintenance Tasks permission.''
 											where exists (select 1 FROM sys.dm_server_services
-											               WHERE instant_file_initialization_enabled = 'Y'
-											               AND filename LIKE '%sqlservr.exe%')
-											OPTION (RECOMPILE);
+											               WHERE instant_file_initialization_enabled = ''Y''
+											               AND filename LIKE ''%sqlservr.exe%'')
+											OPTION (RECOMPILE);';
+									EXEC(@StringToExecute);
 									end;
 								end;
 						END;
@@ -9031,7 +9103,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
 					SELECT * INTO ##BlitzResults FROM #BlitzResults;
 					SET @query_result_separator = char(9);
-					SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup, Finding, Details; SET NOCOUNT OFF;';
+					SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details; SET NOCOUNT OFF;';
 					SET @EmailSubject = 'sp_Blitz Results for ' + @@SERVERNAME;
 					SET @EmailBody = 'sp_Blitz ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. http://FirstResponderKit.org';
 					IF @EmailProfile IS NULL
@@ -9176,7 +9248,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								+ @OutputTableName
 								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details';
 
 								EXEC(@StringToExecute);
 							END;
@@ -9193,7 +9265,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								+ @OutputTableName
 								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, CAST(QueryPlan AS NVARCHAR(MAX)), QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details';
 								END;
 								ELSE
                                 begin
@@ -9206,7 +9278,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								+ @OutputTableName
 								+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 								+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+								+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details';
 								END;
 								EXEC(@StringToExecute);
 							
@@ -9242,7 +9314,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									+ @OutputTableName
 									+ ' (ServerName, CheckDate, CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered) SELECT '''
 									+ CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
-									+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , Details';
+									+ ''', SYSDATETIMEOFFSET(), CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details, QueryPlan, QueryPlanFiltered FROM #BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details';
 							
 									EXEC(@StringToExecute);
 							END;
