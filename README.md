@@ -194,6 +194,10 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 * @DatabaseName - if you only want to analyze plans in a single database. However, keep in mind that this is only the database context. A single query that runs in Database1 can join across objects in Database2 and Database3, but we can only know that it ran in Database1.
 * @SlowlySearchPlansFor - lets you search for strings, but will not find all results due to a [bug in the way SQL Server removes spaces from XML.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2202) If your search string includes spaces, SQL Server may remove those before the search runs, unfortunately.
 
+### sp_BlitzCache Known Issues
+
+* We skip databases in an Availability Group that require read-only intent. If you wanted to contribute code to enable read-only intent databases to work, look for this phrase in the code: "Checking for Read intent databases to exclude".
+
 [*Back to top*](#header1)
 
 ## sp_BlitzFirst: Real-Time Performance Advice
@@ -443,7 +447,7 @@ ORDER BY
 	[CheckDate] ASC,
 	[counter_name] ASC
 ```
-	
+
 [*Back to top*](#header1)
 
 
