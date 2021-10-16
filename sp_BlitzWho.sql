@@ -660,7 +660,7 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @IncludeLiveQueryPlan=1)
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
 							INSERT INTO @LiveQueryPlans
@@ -909,9 +909,9 @@ IF @ProductVersionMajor >= 11
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @IncludeLiveQueryPlan=1 
+				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
 				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
-						ELSE '''<?Live Query Plans were not retrieved. Set @IncludeLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
+						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
 						END
 					+') AS XML
 				   
