@@ -220,7 +220,7 @@ Common sp_BlitzFirst parameters include:
 
 ### Logging sp_BlitzFirst to Tables
 
-You can log sp_BlitzFirst performance data to tables and then analyze the results with the Power BI dashboard. To do it, schedule an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
+You can log sp_BlitzFirst performance data to tables by scheduling an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
 
 * @OutputDatabaseName = typically 'DBAtools'
 * @OutputSchemaName = 'dbo'
@@ -233,16 +233,14 @@ You can log sp_BlitzFirst performance data to tables and then analyze the result
 
 All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
 
-Then fire up the [First Responder Kit Power BI dashboard.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
-
 ### Logging Performance Tuning Activities
 
-On the Power BI Dashboard, you can show lines for your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
+You can also log your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
 
 * @OutputDatabaseName = typically 'DBAtools'
 * @OutputSchemaName = 'dbo'
 * @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
-* @LogMessage = 'Whatever you wanna show in the Power BI dashboard'
+* @LogMessage = 'Whatever you wanna show in your monitoring tool'
 
 Optionally, you can also pass in:
 
