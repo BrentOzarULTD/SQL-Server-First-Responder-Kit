@@ -73,9 +73,7 @@ When you have a question about what the scripts found, first make sure you read 
 
 
 ## sp_Blitz: Overall Health Check
-Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now:
-
-![sp_Blitz](http://u.brentozar.com/github-images/sp_Blitz.png)
+Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now.
 
 Output columns include:
 
