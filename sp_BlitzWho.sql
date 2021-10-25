@@ -22,6 +22,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
+	@GetLiveQueryPlan BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -659,7 +660,7 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
 							INSERT INTO @LiveQueryPlans
@@ -908,7 +909,14 @@ IF @ProductVersionMajor >= 11
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
+				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
+				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
+						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
+						END
+					+') AS XML
+				   
+				   
+				   ) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
 						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
 						FOR XML PATH('''')), 1,2,'''')

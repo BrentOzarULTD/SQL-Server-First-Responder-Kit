@@ -41,8 +41,9 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
-    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
+    (15, 4178, 'CU13', 'https://support.microsoft.com/en-us/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
+    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
+    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
     (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
     (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
     (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
