@@ -264,21 +264,28 @@ IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND v
 		END 
 
 /*
-Make sure Ola Hallengren's scripts are installed in master
+Make sure Ola Hallengren's scripts are installed in same database
 */
-IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
+DECLARE @CurrentDatabaseContext nvarchar(128) = DB_NAME();
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'CommandExecute')
 		BEGIN 		
-			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			RAISERROR('Ola Hallengren''s CommandExecute must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s DatabaseBackup must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
 
 /*
-Make sure sp_DatabaseRestore is installed in master
+Make sure sp_DatabaseRestore is installed in same database
 */
-IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_DatabaseRestore')
 		BEGIN 		
-			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			RAISERROR('sp_DatabaseRestore must be installed in the same database (%s) as SQL Server First Responder Kit. To get it: http://FirstResponderKit.org', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
