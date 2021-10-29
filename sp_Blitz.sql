@@ -9092,7 +9092,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 						  'Rundate' ,
 						  GETDATE() ,
 						  'http://FirstResponderKit.org/' ,
-						  GETDATE();
+						  'Captain''s log: stardate something and something...';
 						
 				IF @EmailRecipients IS NOT NULL
 					BEGIN
