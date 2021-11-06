@@ -31,7 +31,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1526,7 +1526,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2859,7 +2859,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.07', @VersionDate = '20211106';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -2903,7 +2903,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list (including server info, excluding security findings) | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
@@ -10591,7 +10591,7 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
 											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
 											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
-											 WHEN [T].[TraceFlag] = '1204' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
+											 WHEN [T].[TraceFlag] = '1204' THEN '1204 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1222' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1224' THEN '1224 enabled globally, which disables lock escalation until the server has memory pressure. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '1806' THEN '1806 enabled globally, which disables Instant File Initialization, causing restores and file growths to take longer. This is usually a very bad idea.'
@@ -12204,10 +12204,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
 									ELSE N''
 								END
-								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
 									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
-									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
 								END + @crlf
 							  FROM Results r
 							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
@@ -12376,7 +12376,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13254,7 +13254,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.07', @VersionDate = '20211106';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -15035,7 +15035,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21470,15 +21470,17 @@ SET @AllSortSql += N'
 						END; 
 
 				    END;
-					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern 
-										  FROM #bou_allsort 
-										  ORDER BY Id 
-										  OPTION(RECOMPILE);  ';
 
-				
+					IF(@OutputType <> 'NONE')
+					BEGIN
+						SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern 
+											  FROM #bou_allsort 
+											  ORDER BY Id 
+											  OPTION(RECOMPILE);  ';
+					END;
 END; 			
 
 
@@ -21646,13 +21648,16 @@ SET @AllSortSql += N'
 
 				    END;
 
-					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern
-										  FROM #bou_allsort 
-										  ORDER BY Id 
-										  OPTION(RECOMPILE);  ';
+					IF(@OutputType <> 'NONE')
+					BEGIN
+						SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern
+											  FROM #bou_allsort 
+											  ORDER BY Id 
+											  OPTION(RECOMPILE);  ';
+					END;
 END;
 
 					IF @Debug = 1
@@ -21668,12 +21673,10 @@ END;
 						    PRINT SUBSTRING(@AllSortSql, 32000, 36000);
 						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
 						END;
-IF(@OutputType <> 'NONE')
-BEGIN
+
 					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT, @i_SkipAnalysis BIT, @i_OutputDatabaseName NVARCHAR(258), @i_OutputSchemaName NVARCHAR(258), @i_OutputTableName NVARCHAR(258), @i_CheckDateOverride DATETIMEOFFSET, @i_MinutesBack INT ', 
                         @i_DatabaseName = @DatabaseName, @i_Top = @Top, @i_SkipAnalysis = @SkipAnalysis, @i_OutputDatabaseName = @OutputDatabaseName, @i_OutputSchemaName = @OutputSchemaName, @i_OutputTableName = @OutputTableName, @i_CheckDateOverride = @CheckDateOverride, @i_MinutesBack = @MinutesBack;
 
-END;
 /*End of AllSort section*/
 
 
@@ -22295,7 +22298,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -24768,7 +24771,9 @@ SELECT
                     N'.' + QUOTENAME([object_name]) + 
                     N' ADD CONSTRAINT [' +
                     index_name + 
-                    N'] UNIQUE'
+                    N'] UNIQUE ' + 
+                    CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+                    key_column_names_with_sort_order_no_types + N' )' 
 				WHEN is_CX_columnstore= 1 THEN
                         N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
             ELSE /*Else not a PK or cx columnstore */ 
@@ -28015,7 +28020,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 
 IF(@VersionCheckMode = 1)
@@ -29822,7 +29827,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -35542,6 +35547,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
+	@GetLiveQueryPlan BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -35552,7 +35558,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.07', @VersionDate = '20211106';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -36179,7 +36185,7 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
 							INSERT INTO @LiveQueryPlans
@@ -36428,7 +36434,14 @@ IF @ProductVersionMajor >= 11
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
+				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
+				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
+						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
+						END
+					+') AS XML
+				   
+				   
+				   ) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
 						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
 						FOR XML PATH('''')), 1,2,'''')
@@ -36942,7 +36955,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -38457,7 +38470,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.06', @VersionDate = '20210914';
+  SELECT @Version = '8.07', @VersionDate = '20211106';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -38803,8 +38816,9 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
-    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
+    (15, 4178, 'CU13', 'https://support.microsoft.com/en-us/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
+    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
+    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
     (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
     (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
     (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
@@ -38818,7 +38832,9 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
-    (14, 3401, 'RTM CU25', 'https://support.microsoft.com/en-us/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
+	(14, 3421, 'RTM CU27', 'https://support.microsoft.com/en-us/help/5006944', '2021-10-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 27'),
+	(14, 3411, 'RTM CU26', 'https://support.microsoft.com/en-us/help/5005226', '2021-09-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 26'),
+	(14, 3401, 'RTM CU25', 'https://support.microsoft.com/en-us/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
     (14, 3391, 'RTM CU24', 'https://support.microsoft.com/en-us/help/5001228', '2021-05-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 24'),
     (14, 3381, 'RTM CU23', 'https://support.microsoft.com/en-us/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
     (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/en-us/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
@@ -38845,7 +38861,9 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
-    (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
+	(13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+	(13, 6300, 'SP3 ', 'https://support.microsoft.com/en-us/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
+	(13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
     (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
     (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/en-us/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
     (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
@@ -39198,7 +39216,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.07', @VersionDate = '20211106';
 
 IF(@VersionCheckMode = 1)
 BEGIN
