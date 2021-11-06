@@ -73,9 +73,7 @@ When you have a question about what the scripts found, first make sure you read 
 
 
 ## sp_Blitz: Overall Health Check
-Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now:
-
-![sp_Blitz](http://u.brentozar.com/github-images/sp_Blitz.png)
+Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now.
 
 Output columns include:
 
@@ -194,6 +192,10 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 * @DatabaseName - if you only want to analyze plans in a single database. However, keep in mind that this is only the database context. A single query that runs in Database1 can join across objects in Database2 and Database3, but we can only know that it ran in Database1.
 * @SlowlySearchPlansFor - lets you search for strings, but will not find all results due to a [bug in the way SQL Server removes spaces from XML.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2202) If your search string includes spaces, SQL Server may remove those before the search runs, unfortunately.
 
+### sp_BlitzCache Known Issues
+
+* We skip databases in an Availability Group that require read-only intent. If you wanted to contribute code to enable read-only intent databases to work, look for this phrase in the code: "Checking for Read intent databases to exclude".
+
 [*Back to top*](#header1)
 
 ## sp_BlitzFirst: Real-Time Performance Advice
@@ -216,7 +218,7 @@ Common sp_BlitzFirst parameters include:
 
 ### Logging sp_BlitzFirst to Tables
 
-You can log sp_BlitzFirst performance data to tables and then analyze the results with the Power BI dashboard. To do it, schedule an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
+You can log sp_BlitzFirst performance data to tables by scheduling an Agent job to run sp_BlitzFirst every 15 minutes with these parameters populated:
 
 * @OutputDatabaseName = typically 'DBAtools'
 * @OutputSchemaName = 'dbo'
@@ -229,16 +231,14 @@ You can log sp_BlitzFirst performance data to tables and then analyze the result
 
 All of the above OutputTableName parameters are optional: if you don't want to collect all of the stats, you don't have to. Keep in mind that the sp_BlitzCache results will get large, fast, because each execution plan is megabytes in size.
 
-Then fire up the [First Responder Kit Power BI dashboard.](https://www.brentozar.com/first-aid/first-responder-kit-power-bi-dashboard/)
-
 ### Logging Performance Tuning Activities
 
-On the Power BI Dashboard, you can show lines for your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
+You can also log your own activities like tuning queries, adding indexes, or changing configuration settings. To do it, run sp_BlitzFirst with these parameters:
 
 * @OutputDatabaseName = typically 'DBAtools'
 * @OutputSchemaName = 'dbo'
 * @OutputTableName = 'BlitzFirst' - the quick diagnosis result set goes here
-* @LogMessage = 'Whatever you wanna show in the Power BI dashboard'
+* @LogMessage = 'Whatever you wanna show in your monitoring tool'
 
 Optionally, you can also pass in:
 
@@ -443,7 +443,7 @@ ORDER BY
 	[CheckDate] ASC,
 	[counter_name] ASC
 ```
-	
+
 [*Back to top*](#header1)
 
 
