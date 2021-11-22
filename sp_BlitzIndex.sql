@@ -2960,7 +2960,8 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
 						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
-						WHERE rg.object_id = @ObjectID' 
+						WHERE rg.object_id = @ObjectID
+						AND c.name IN ( ' + REPLACE(REPLACE(@ColumnList,'[',''''),']','''') + N')'
 						+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
 					) AS y ' ELSE N' ' END + N'
 				) AS x
