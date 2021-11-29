@@ -238,7 +238,7 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
 
             END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
 		
-		SELECT @restore_move_files = CONVERT(NVARCHAR(512), configuration_setting)
+		SELECT @restore_move_files = CONVERT(BIT, configuration_setting)
 		FROM msdb.dbo.restore_configuration c
 		WHERE configuration_name = N'move files';
 		
