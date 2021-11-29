@@ -124,6 +124,7 @@ DECLARE @servercertificate NVARCHAR(MAX); --Config table: server certificate tha
 DECLARE @restore_path_base NVARCHAR(MAX); --Used to hold the base backup path in our configuration table
 DECLARE @restore_path_full NVARCHAR(MAX); --Used to hold the full backup path in our configuration table
 DECLARE @restore_path_log NVARCHAR(MAX); --Used to hold the log backup path in our configuration table
+DECLARE @restore_move_files INT; -- used to hold the move files bit in our configuration table
 DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
@@ -236,7 +237,17 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
                     END;
 
             END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
-                    
+		
+		SELECT @restore_move_files = CONVERT(NVARCHAR(512), configuration_setting)
+		FROM msdb.dbo.restore_configuration c
+		WHERE configuration_name = N'move files';
+		
+		IF @restore_move_files is NULL
+		BEGIN
+			-- Set to default value of 1
+			SET @restore_move_files = 1
+		END
+
     END /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
 
@@ -1317,6 +1328,7 @@ IF @Restore = 1
 																				   @ContinueLogs = 1,
 																				   @RunRecovery = 0,
 																				   @OnlyLogsAfter = @only_logs_after,
+																				   @MoveFiles = @restore_move_files,
 																				   @Debug = @Debug
 	
 											END
@@ -1333,6 +1345,7 @@ IF @Restore = 1
 																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 0,
 																				   @RunRecovery = 0,
+																				   @MoveFiles = @restore_move_files,
 																				   @Debug = @Debug
 	
 											END
