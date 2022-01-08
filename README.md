@@ -494,7 +494,7 @@ For more information about how this works, see [sp_AllNightLog documentation.](h
 Known issues:
 
 * The msdbCentral database name is hard-coded.
-* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We're not checking for it right now.)
+* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We expect it to be installed in the same database as the SQL Server First Responder Kit.)
 
 
 [*Back to top*](#header1)
