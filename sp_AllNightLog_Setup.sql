@@ -26,6 +26,7 @@ ALTER PROCEDURE dbo.sp_AllNightLog_Setup
 				@Debug BIT = 0,
 				@FirstFullBackup BIT = 0,
 				@FirstDiffBackup BIT = 0,
+				@MoveFiles BIT = 1,
 				@Help BIT = 0,
 				@Version     VARCHAR(30) = NULL OUTPUT,
 				@VersionDate DATETIME = NULL OUTPUT,
@@ -37,7 +38,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.07', @VersionDate = '20211106';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -72,6 +73,7 @@ BEGIN
 				* Holds variables used by stored proc to make runtime decisions
 					* RTO: Seconds, how often to look for log backups to restore
 					* Restore Path: The path we feed to sp_DatabaseRestore 
+					* Move Files: Whether to move files to default data/log directories.
 			* dbo.restore_worker
 				* Holds list of databases and some information that helps our Agent jobs figure out if they need to look for files to restore
 	
@@ -102,6 +104,7 @@ BEGIN
 		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO/RTO and database backup/restore paths.
 		  @RPOSeconds BIGINT, defaults to 30. Value in seconds you want to use to determine if a new log backup needs to be taken.
 		  @BackupPath NVARCHAR(MAX), This is REQUIRED if @Runsetup=1. This tells Ola''s job where to put backups.
+		  @MoveFiles BIT, defaults to 1. When this is set to 1, it will move files to default data/log directories
 		  @Debug BIT, defaults to 0. Whent this is set to 1, it prints out dynamic SQL commands
 	
 	    Sample call:
@@ -264,21 +267,28 @@ IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND v
 		END 
 
 /*
-Make sure Ola Hallengren's scripts are installed in master
+Make sure Ola Hallengren's scripts are installed in same database
 */
-IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
+DECLARE @CurrentDatabaseContext nvarchar(128) = DB_NAME();
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'CommandExecute')
 		BEGIN 		
-			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			RAISERROR('Ola Hallengren''s CommandExecute must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s DatabaseBackup must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
 
 /*
-Make sure sp_DatabaseRestore is installed in master
+Make sure sp_DatabaseRestore is installed in same database
 */
-IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_DatabaseRestore')
 		BEGIN 		
-			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			RAISERROR('sp_DatabaseRestore must be installed in the same database (%s) as SQL Server First Responder Kit. To get it: http://FirstResponderKit.org', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
@@ -619,6 +629,8 @@ BEGIN
 								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
 												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
 
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'move files', 'Determines if we move database files to default data/log directories.', @MoveFiles);	
 
 						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
 							

@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.07', @VersionDate = '20211106';
+	SELECT @Version = '8.08', @VersionDate = '20220108';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3028,22 +3028,148 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 53) WITH NOWAIT;
 
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT TOP 1
-										53 AS CheckID ,
-										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Cluster Node' AS Finding ,
-										'https://www.brentozar.com/go/node' AS URL ,
-										'This is a node in a cluster.' AS Details
-								FROM    sys.dm_os_cluster_nodes;
+						--INSERT  INTO #BlitzResults
+                                         --            ( CheckID ,
+                                         --              Priority ,
+                                         --              FindingsGroup ,
+                                         --              Finding ,
+                                         --              URL ,
+                                         --              Details
+                                         --            )
+                                         --            SELECT TOP 1
+                                         --                         53 AS CheckID ,
+                                         --                         200 AS Priority ,
+                                         --                         'Informational' AS FindingsGroup ,
+                                         --                         'Cluster Node' AS Finding ,
+                                         --                         'https://BrentOzar.com/go/node' AS URL ,
+                                         --                         'This is a node in a cluster.' AS Details
+                                         --            FROM    sys.dm_os_cluster_nodes;
+
+                                         DECLARE @AOFCI AS INT, @AOAG AS INT, @HAType AS VARCHAR(10), @errmsg AS VARCHAR(200)
+
+                                         SELECT @AOAG = CAST(SERVERPROPERTY('IsHadrEnabled') AS INT)
+                                         SELECT @AOFCI = CAST(SERVERPROPERTY('IsClustered') AS INT)
+
+                                         IF (SELECT COUNT(DISTINCT join_state_desc) FROM sys.dm_hadr_availability_replica_cluster_states) = 2 
+                                         BEGIN --if count is 2 both JOINED_STANDALONE and JOINED_FCI is configured
+                                                       SET @AOFCI = 1
+                                         END
+
+                                         SELECT @HAType =
+                                         CASE
+                                                       WHEN @AOFCI = 1 AND @AOAG =1 THEN 'FCIAG'
+                                                       WHEN @AOFCI = 1 AND @AOAG =0 THEN 'FCI'
+                                                       WHEN @AOFCI = 0 AND @AOAG =1 THEN 'AG'
+                                                       ELSE 'STANDALONE'
+                                         END
+
+                                         IF (@HAType IN ('FCIAG','FCI','AG'))
+                                         BEGIN
+
+                                                   INSERT  INTO #BlitzResults
+                                                               ( CheckID ,
+                                                                      Priority ,
+                                                                      FindingsGroup ,
+                                                                      Finding ,
+                                                                      URL ,
+                                                                      Details
+                                                               )
+
+                                                   SELECT 53 AS CheckID ,
+                                                   200 AS Priority ,
+                                                   'Informational' AS FindingsGroup ,
+                                                   'Cluster Node' AS Finding ,
+                                                   'https://BrentOzar.com/go/node' AS URL ,
+                                                   'This is a node in a cluster.' AS Details
+
+                                                   IF @HAType = 'AG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                  FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(ar.replica_server_name) 
+                                                                FROM sys.availability_groups AS ag
+                                                                LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Availability Group (AG)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCI'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE is_current_owner 
+                                                                            WHEN 1 THEN 'PRIMARY'
+                                                                           ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(NodeName) 
+                                                                FROM sys.dm_os_cluster_nodes
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Failover Cluster Instance (FCI)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCIAG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + HighAvailabilityRoleDesc + '=' + ServerName
+                                                                FROM (SELECT UPPER(ar.replica_server_name) AS ServerName
+                                                                                     ,CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.availability_groups AS ag
+                                                                                     LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                                     LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                                     WHERE UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) <> ar.replica_server_name
+                                                                                     UNION ALL
+                                                                                     SELECT UPPER(NodeName) AS ServerName
+                                                                                     ,CASE is_current_owner 
+                                                                                     WHEN 1 THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.dm_os_cluster_nodes) AS Z
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn FCI with AG (Failover Cluster Instance with Availability Group).'As Details
+                                                   END
+                                         END
+
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -8690,7 +8816,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
 														   @value_name = 'ActivePowerScheme',
-														   @value = @outval OUTPUT;
+														   @value = @outval OUTPUT,
+														   @no_output = 'no_output';
 
 								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
