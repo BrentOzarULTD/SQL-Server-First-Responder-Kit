@@ -1271,19 +1271,6 @@ BEGIN
 	
 END
 
-IF (@StopAt IS NOT NULL)
-BEGIN
-	
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
-	
-    DELETE fl
-	FROM @FileList AS fl
-	WHERE BackupFile LIKE N'%.trn'
-	AND BackupFile LIKE N'%' + @Database + N'%' 
-	AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt;
-	
-END
-
 -- Check for log backups
 IF(@BackupDateTime IS NOT NULL AND @BackupDateTime <> '')
 	BEGIN 
@@ -1308,6 +1295,63 @@ IF (@LogRecoveryOption = N'')
 	BEGIN
 		SET @LogRecoveryOption = N'NORECOVERY';
 	END;
+
+IF (@StopAt IS NOT NULL)
+BEGIN
+	
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+
+	IF LEN(@StopAt) <> 14 OR PATINDEX('%[^0-9]%', @StopAt) > 0
+	BEGIN
+		RAISERROR('@StopAt parameter is incorrect. It should contain exactly 14 digits in the format yyyyMMddhhmmss.', 16, 1) WITH NOWAIT;
+		RETURN
+	END
+
+	IF ISDATE(STUFF(STUFF(STUFF(@StopAt, 13, 0, ':'), 11, 0, ':'), 9, 0, ' ')) = 0
+	BEGIN
+		RAISERROR('@StopAt is not a valid datetime.', 16, 1) WITH NOWAIT;
+		RETURN
+	END
+
+	-- Add the STOPAT parameter to the log recovery options but change the value to a valid DATETIME, e.g. '20211118040230' -> '20211118 04:02:30'
+	SET @LogRecoveryOption += ', STOPAT = ''' + STUFF(STUFF(STUFF(@StopAt, 13, 0, ':'), 11, 0, ':'), 9, 0, ' ') + ''''
+
+	IF @BackupDateTime = @StopAt
+	BEGIN
+		IF @Debug = 1 
+		BEGIN
+			RAISERROR('@StopAt is the end time of a FULL backup, no log files will be restored.', 0, 1) WITH NOWAIT;
+		END
+	END
+	ELSE
+	BEGIN 
+		DECLARE @ExtraLogFile NVARCHAR(255)
+		SELECT TOP 1 @ExtraLogFile = fl.BackupFile
+		FROM @FileList AS fl
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt
+		ORDER BY BackupFile;
+	END
+	
+	IF @ExtraLogFile IS NULL
+	BEGIN
+		DELETE fl
+		FROM @FileList AS fl
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%'
+		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt;
+	END
+	ELSE
+	BEGIN
+		DELETE fl
+		FROM @FileList AS fl
+		WHERE BackupFile LIKE N'%.trn'
+		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND fl.BackupFile >	@ExtraLogFile
+	END
+END
+
 
  -- Group Ordering based on Backup File Name excluding Index {#} to construct coma separated string in "Restore Log" Command
 SELECT BackupPath,BackupFile,DENSE_RANK() OVER (ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' )) AS DenseRank INTO #SplitLogBackups
