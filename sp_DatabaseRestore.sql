@@ -1020,17 +1020,14 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
-	SELECT @LastDiffBackup = MAX(CASE
-		WHEN @StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt THEN
-			BackupFile
-		ELSE ''
-		END)
+	SELECT TOP 1 @LastDiffBackup = BackupFile, @CurrentBackupPathDiff = BackupPath
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
         AND
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
-	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( @LastDiffBackup, RIGHT( @LastDiffBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastDiffBackup ) ) ), '' ), 16 ), '_', '' ) <= @StopAt);
+	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
+	ORDER BY BackUpFile DESC;
 
 	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
 	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
@@ -1041,10 +1038,6 @@ BEGIN
 
     --No file = no backup to restore
 	SET @LastDiffBackupDateTime = REPLACE( RIGHT( REPLACE( @LastDiffBackup, RIGHT( @LastDiffBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastDiffBackup ) ) ), '' ), 16 ), '_', '' );
-
-	-- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as non-split backups
-	SELECT TOP 1 @CurrentBackupPathDiff = BackupPath, @LastDiffBackup = BackupFile FROM @FileList
-	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
 
     IF @RestoreDiff = 1 AND @BackupDateTime < @LastDiffBackupDateTime
 	BEGIN
