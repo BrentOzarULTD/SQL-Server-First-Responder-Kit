@@ -6593,6 +6593,7 @@ IF @ProductVersionMajor >= 10
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			SET QUOTED_IDENTIFIER ON;
             INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
