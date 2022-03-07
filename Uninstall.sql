@@ -37,7 +37,7 @@ BEGIN
 
     SELECT @SQL += N'DROP PROCEDURE dbo.' + D.ProcedureName + ';' + CHAR(10)
     FROM sys.procedures P
-    JOIN #ToDelete D ON D.ProcedureName = P.name;
+    JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT;
 
     SELECT @SQL += N'DROP TABLE dbo.SqlServerVersions;' + CHAR(10)
     FROM sys.tables 
