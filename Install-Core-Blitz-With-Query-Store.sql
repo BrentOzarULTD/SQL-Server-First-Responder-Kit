@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.08', @VersionDate = '20220108';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -82,7 +82,7 @@ AS
 	@CheckProcedureCache		1=top 20-50 resource-intensive cache plans and analyze them for common performance issues.
 	@OutputProcedureCache		1=output the top 20-50 resource-intensive plans even if they did not trigger an alarm
 	@CheckProcedureCacheFilter	''CPU'' | ''Reads'' | ''Duration'' | ''ExecCount''
-	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
+	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list (including server info, excluding security findings) | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
 	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
@@ -3028,22 +3028,148 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 53) WITH NOWAIT;
 
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT TOP 1
-										53 AS CheckID ,
-										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Cluster Node' AS Finding ,
-										'https://www.brentozar.com/go/node' AS URL ,
-										'This is a node in a cluster.' AS Details
-								FROM    sys.dm_os_cluster_nodes;
+						--INSERT  INTO #BlitzResults
+                                         --            ( CheckID ,
+                                         --              Priority ,
+                                         --              FindingsGroup ,
+                                         --              Finding ,
+                                         --              URL ,
+                                         --              Details
+                                         --            )
+                                         --            SELECT TOP 1
+                                         --                         53 AS CheckID ,
+                                         --                         200 AS Priority ,
+                                         --                         'Informational' AS FindingsGroup ,
+                                         --                         'Cluster Node' AS Finding ,
+                                         --                         'https://BrentOzar.com/go/node' AS URL ,
+                                         --                         'This is a node in a cluster.' AS Details
+                                         --            FROM    sys.dm_os_cluster_nodes;
+
+                                         DECLARE @AOFCI AS INT, @AOAG AS INT, @HAType AS VARCHAR(10), @errmsg AS VARCHAR(200)
+
+                                         SELECT @AOAG = CAST(SERVERPROPERTY('IsHadrEnabled') AS INT)
+                                         SELECT @AOFCI = CAST(SERVERPROPERTY('IsClustered') AS INT)
+
+                                         IF (SELECT COUNT(DISTINCT join_state_desc) FROM sys.dm_hadr_availability_replica_cluster_states) = 2 
+                                         BEGIN --if count is 2 both JOINED_STANDALONE and JOINED_FCI is configured
+                                                       SET @AOFCI = 1
+                                         END
+
+                                         SELECT @HAType =
+                                         CASE
+                                                       WHEN @AOFCI = 1 AND @AOAG =1 THEN 'FCIAG'
+                                                       WHEN @AOFCI = 1 AND @AOAG =0 THEN 'FCI'
+                                                       WHEN @AOFCI = 0 AND @AOAG =1 THEN 'AG'
+                                                       ELSE 'STANDALONE'
+                                         END
+
+                                         IF (@HAType IN ('FCIAG','FCI','AG'))
+                                         BEGIN
+
+                                                   INSERT  INTO #BlitzResults
+                                                               ( CheckID ,
+                                                                      Priority ,
+                                                                      FindingsGroup ,
+                                                                      Finding ,
+                                                                      URL ,
+                                                                      Details
+                                                               )
+
+                                                   SELECT 53 AS CheckID ,
+                                                   200 AS Priority ,
+                                                   'Informational' AS FindingsGroup ,
+                                                   'Cluster Node' AS Finding ,
+                                                   'https://BrentOzar.com/go/node' AS URL ,
+                                                   'This is a node in a cluster.' AS Details
+
+                                                   IF @HAType = 'AG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                  FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(ar.replica_server_name) 
+                                                                FROM sys.availability_groups AS ag
+                                                                LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Availability Group (AG)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCI'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE is_current_owner 
+                                                                            WHEN 1 THEN 'PRIMARY'
+                                                                           ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(NodeName) 
+                                                                FROM sys.dm_os_cluster_nodes
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Failover Cluster Instance (FCI)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCIAG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + HighAvailabilityRoleDesc + '=' + ServerName
+                                                                FROM (SELECT UPPER(ar.replica_server_name) AS ServerName
+                                                                                     ,CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.availability_groups AS ag
+                                                                                     LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                                     LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                                     WHERE UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) <> ar.replica_server_name
+                                                                                     UNION ALL
+                                                                                     SELECT UPPER(NodeName) AS ServerName
+                                                                                     ,CASE is_current_owner 
+                                                                                     WHEN 1 THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.dm_os_cluster_nodes) AS Z
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn FCI with AG (Failover Cluster Instance with Availability Group).'As Details
+                                                   END
+                                         END
+
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -7770,7 +7896,7 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
 											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
 											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
-											 WHEN [T].[TraceFlag] = '1204' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
+											 WHEN [T].[TraceFlag] = '1204' THEN '1204 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1222' THEN '1222 enabled globally, which captures deadlock graphs in the error log.'
 											 WHEN [T].[TraceFlag] = '1224' THEN '1224 enabled globally, which disables lock escalation until the server has memory pressure. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '1806' THEN '1806 enabled globally, which disables Instant File Initialization, causing restores and file growths to take longer. This is usually a very bad idea.'
@@ -8690,7 +8816,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
 														   @value_name = 'ActivePowerScheme',
-														   @value = @outval OUTPUT;
+														   @value = @outval OUTPUT,
+														   @no_output = 'no_output';
 
 								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
@@ -9383,10 +9510,10 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
 									ELSE N''
 								END
-								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
 									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
-									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N' - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
+									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
 								END + @crlf
 							  FROM Results r
 							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
@@ -9555,7 +9682,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -10433,7 +10560,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.08', @VersionDate = '20220108';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12214,7 +12341,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -18649,15 +18776,17 @@ SET @AllSortSql += N'
 						END; 
 
 				    END;
-					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern 
-										  FROM #bou_allsort 
-										  ORDER BY Id 
-										  OPTION(RECOMPILE);  ';
 
-				
+					IF(@OutputType <> 'NONE')
+					BEGIN
+						SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern 
+											  FROM #bou_allsort 
+											  ORDER BY Id 
+											  OPTION(RECOMPILE);  ';
+					END;
 END; 			
 
 
@@ -18825,13 +18954,16 @@ SET @AllSortSql += N'
 
 				    END;
 
-					SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-										  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-										  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-										  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern
-										  FROM #bou_allsort 
-										  ORDER BY Id 
-										  OPTION(RECOMPILE);  ';
+					IF(@OutputType <> 'NONE')
+					BEGIN
+						SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
+											  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
+											  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
+											  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern
+											  FROM #bou_allsort 
+											  ORDER BY Id 
+											  OPTION(RECOMPILE);  ';
+					END;
 END;
 
 					IF @Debug = 1
@@ -18847,12 +18979,10 @@ END;
 						    PRINT SUBSTRING(@AllSortSql, 32000, 36000);
 						    PRINT SUBSTRING(@AllSortSql, 36000, 40000);
 						END;
-IF(@OutputType <> 'NONE')
-BEGIN
+
 					EXEC sys.sp_executesql @stmt = @AllSortSql, @params = N'@i_DatabaseName NVARCHAR(128), @i_Top INT, @i_SkipAnalysis BIT, @i_OutputDatabaseName NVARCHAR(258), @i_OutputSchemaName NVARCHAR(258), @i_OutputTableName NVARCHAR(258), @i_CheckDateOverride DATETIMEOFFSET, @i_MinutesBack INT ', 
                         @i_DatabaseName = @DatabaseName, @i_Top = @Top, @i_SkipAnalysis = @SkipAnalysis, @i_OutputDatabaseName = @OutputDatabaseName, @i_OutputSchemaName = @OutputSchemaName, @i_OutputTableName = @OutputTableName, @i_CheckDateOverride = @CheckDateOverride, @i_MinutesBack = @MinutesBack;
 
-END;
 /*End of AllSort section*/
 
 
@@ -19474,7 +19604,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -19553,6 +19683,7 @@ DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
+DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
 
@@ -21947,7 +22078,9 @@ SELECT
                     N'.' + QUOTENAME([object_name]) + 
                     N' ADD CONSTRAINT [' +
                     index_name + 
-                    N'] UNIQUE'
+                    N'] UNIQUE ' + 
+                    CASE WHEN index_id=1 THEN N'CLUSTERED (' ELSE N'(' END +
+                    key_column_names_with_sort_order_no_types + N' )' 
 				WHEN is_CX_columnstore= 1 THEN
                         N'CREATE CLUSTERED COLUMNSTORE INDEX ' + QUOTENAME(index_name) + N' on ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])
             ELSE /*Else not a PK or cx columnstore */ 
@@ -22300,9 +22433,9 @@ BEGIN
 		SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
 			IF EXISTS(SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = @ObjectID)
 				BEGIN
-				SET @ColumnList = N'''';
+				SELECT @ColumnList = N'''', @ColumnListWithApostrophes = N'''';
 				WITH DistinctColumns AS (
-				SELECT DISTINCT QUOTENAME(c.name) AS column_name, c.column_id
+				SELECT DISTINCT QUOTENAME(c.name) AS column_name, QUOTENAME(c.name,'''''''') AS ColumnNameWithApostrophes, c.column_id
 					FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p
 					INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON p.object_id = c.object_id
                     INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id and ic.object_id = c.object_id AND ic.index_id = p.index_id
@@ -22311,9 +22444,10 @@ BEGIN
 					AND EXISTS (SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg WHERE p.partition_id = seg.partition_id AND seg.column_id = ic.index_column_id)
 					AND p.data_compression IN (3,4)
 				)
-				SELECT @ColumnList = @ColumnList + column_name + N'', ''
-					FROM DistinctColumns
-					ORDER BY column_id;
+				SELECT @ColumnList = @ColumnList + column_name + N'', '',
+					@ColumnListWithApostrophes = @ColumnListWithApostrophes + ColumnNameWithApostrophes + N'', ''
+				FROM DistinctColumns
+				ORDER BY column_id;
 				SELECT @PartitionCount = COUNT(1) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.partitions WHERE object_id = @ObjectID AND data_compression IN (3,4);
 				END';
 
@@ -22331,18 +22465,19 @@ BEGIN
 				PRINT SUBSTRING(@dsql, 36000, 40000);
 			END;
 
-        EXEC sp_executesql @dsql, N'@ObjectID INT, @ColumnList NVARCHAR(MAX) OUTPUT, @PartitionCount INT OUTPUT', @ObjectID, @ColumnList OUTPUT, @PartitionCount OUTPUT;
+        EXEC sp_executesql @dsql, N'@ObjectID INT, @ColumnList NVARCHAR(MAX) OUTPUT, @ColumnListWithApostrophes NVARCHAR(MAX) OUTPUT, @PartitionCount INT OUTPUT', @ObjectID, @ColumnList OUTPUT, @ColumnListWithApostrophes OUTPUT, @PartitionCount OUTPUT;
 
 		IF @PartitionCount < 2
 			SET @ShowPartitionRanges = 0;
 
 		IF @Debug = 1
-			SELECT @ColumnList AS ColumnstoreColumnList, @PartitionCount AS PartitionCount, @ShowPartitionRanges AS ShowPartitionRanges;
+			SELECT @ColumnList AS ColumnstoreColumnList, @ColumnListWithApostrophes AS ColumnstoreColumnListWithApostrophes, @PartitionCount AS PartitionCount, @ShowPartitionRanges AS ShowPartitionRanges;
 
 		IF @ColumnList <> ''
 		BEGIN
 			/* Remove the trailing comma */
 			SET @ColumnList = LEFT(@ColumnList, LEN(@ColumnList) - 1);
+			SET @ColumnListWithApostrophes = LEFT(@ColumnListWithApostrophes, LEN(@ColumnListWithApostrophes) - 1);
 
 			SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
 				SELECT partition_number, '
@@ -22384,7 +22519,8 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
 						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
-						WHERE rg.object_id = @ObjectID' 
+						WHERE rg.object_id = @ObjectID
+						AND c.name IN ( ' + @ColumnListWithApostrophes + N')' 
 						+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
 					) AS y ' ELSE N' ' END + N'
 				) AS x
@@ -24627,7 +24763,12 @@ ELSE IF (@Mode=1) /*Summarize*/
 					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
 						SET @SchemaExists = 1
 					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
-						SET @TableExists = 1';
+					BEGIN
+						SET @TableExists = 1
+						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
+										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
+							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
+					END';
 	
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
@@ -24707,6 +24848,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 											[avg_page_lock_wait_in_ms] BIGINT, 
 											[total_index_lock_promotion_attempt_count] BIGINT, 
 											[total_index_lock_promotion_count] BIGINT, 
+											[total_forwarded_fetch_count] BIGINT,
 											[data_compression_desc] NVARCHAR(4000), 
 						                    [page_latch_wait_count] BIGINT,
 								            [page_latch_wait_in_ms] BIGINT,
@@ -24818,6 +24960,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 											[avg_page_lock_wait_in_ms], 
 											[total_index_lock_promotion_attempt_count], 
 											[total_index_lock_promotion_count], 
+											[total_forwarded_fetch_count],
 											[data_compression_desc], 
 						                    [page_latch_wait_count],
 								            [page_latch_wait_in_ms],
@@ -24908,6 +25051,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 										sz.avg_page_lock_wait_in_ms AS [Avg Page Lock Wait ms],
 										sz.total_index_lock_promotion_attempt_count AS [Lock Escalation Attempts],
 										sz.total_index_lock_promotion_count AS [Lock Escalations],
+										sz.total_forwarded_fetch_count AS [Forwarded Fetches],
 										sz.data_compression_desc AS [Data Compression],
 						                sz.page_latch_wait_count,
 								        sz.page_latch_wait_in_ms,
@@ -25194,7 +25338,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 
 
 IF(@VersionCheckMode = 1)
@@ -27001,7 +27145,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -32721,6 +32865,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
+	@GetLiveQueryPlan BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -32731,7 +32876,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.06', @VersionDate = '20210914';
+	SELECT @Version = '8.08', @VersionDate = '20220108';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33358,7 +33503,7 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						'
-IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan')
+IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
 							INSERT INTO @LiveQueryPlans
@@ -33607,7 +33752,14 @@ IF @ProductVersionMajor >= 11
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-				   CAST(COALESCE(qs_live.Query_Plan, ''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'') AS XML) AS live_query_plan ,
+				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
+				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
+						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
+						END
+					+') AS XML
+				   
+				   
+				   ) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
 						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
 						FOR XML PATH('''')), 1,2,'''')
@@ -34120,8 +34272,10 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
-    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-01', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
+    (15, 4188, 'CU14', 'https://support.microsoft.com/en-us/help/5007182', '2021-11-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 14'),
+    (15, 4178, 'CU13', 'https://support.microsoft.com/en-us/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
+    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
+    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
     (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
     (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
     (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
@@ -34135,7 +34289,9 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
-    (14, 3401, 'RTM CU25', 'https://support.microsoft.com/en-us/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
+	(14, 3421, 'RTM CU27', 'https://support.microsoft.com/en-us/help/5006944', '2021-10-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 27'),
+	(14, 3411, 'RTM CU26', 'https://support.microsoft.com/en-us/help/5005226', '2021-09-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 26'),
+	(14, 3401, 'RTM CU25', 'https://support.microsoft.com/en-us/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
     (14, 3391, 'RTM CU24', 'https://support.microsoft.com/en-us/help/5001228', '2021-05-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 24'),
     (14, 3381, 'RTM CU23', 'https://support.microsoft.com/en-us/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
     (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/en-us/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
@@ -34162,7 +34318,9 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
-    (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
+	(13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+	(13, 6300, 'SP3 ', 'https://support.microsoft.com/en-us/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
+	(13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
     (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
     (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/en-us/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
     (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
@@ -34515,7 +34673,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.06', @VersionDate = '20210914';
+SELECT @Version = '8.08', @VersionDate = '20220108';
 
 IF(@VersionCheckMode = 1)
 BEGIN

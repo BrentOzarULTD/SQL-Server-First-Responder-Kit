@@ -4,6 +4,7 @@
 [![stars badge]][stars]
 [![forks badge]][forks]
 [![issues badge]][issues]
+[![contributors_badge]][contributors]
 
 Navigation
  - [How to Install the Scripts](#how-to-install-the-scripts)
@@ -104,8 +105,8 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 #### Writing sp_Blitz Output to a Table
 
-```SQL
-sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzResults';
+```tsql
+EXEC sp_Blitz @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzResults';
 ```
 
 Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if necessary, then adds the output of sp_Blitz into this table. This table is designed to support multiple outputs from multiple servers, so you can track your server's configuration history over time.
@@ -114,16 +115,16 @@ Checks for the existence of a table DBAtools.dbo.BlitzResults, creates it if nec
 
 #### Skipping Checks or Databases
 
-```SQL
+```tsql
 CREATE TABLE dbo.BlitzChecksToSkip (
-ServerName NVARCHAR(128),
-DatabaseName NVARCHAR(128),
-CheckID INT
+    ServerName NVARCHAR(128),
+    DatabaseName NVARCHAR(128),
+    CheckID INT
 );
 GO
 INSERT INTO dbo.BlitzChecksToSkip (ServerName, DatabaseName, CheckID)
 VALUES (NULL, 'SalesDB', 50)
-sp_Blitz @SkipChecksDatabase = 'DBAtools', @SkipChecksSchema = 'dbo', @SkipChecksTable = 'BlitzChecksToSkip'
+sp_Blitz @SkipChecksDatabase = 'DBAtools', @SkipChecksSchema = 'dbo', @SkipChecksTable = 'BlitzChecksToSkip';
 ```
 
 Checks for the existence of a table named Fred - just kidding, named DBAtools.dbo.BlitzChecksToSkip. The table needs at least the columns shown above (ServerName, DatabaseName, and CheckID). For each row:
@@ -396,7 +397,7 @@ Example calls:
 
 Get information for the last hour from all sp_BlitzFirst output tables
 
-```SQL
+```tsql
 EXEC sp_BlitzAnalysis 
 	@StartDate = NULL,
 	@EndDate = NULL,
@@ -411,7 +412,7 @@ EXEC sp_BlitzAnalysis
 
 Exclude specific tables e.g lets exclude PerfmonStats by setting to NULL, no lookup will occur against the table and a skipped message will appear in the resultset
 
-```SQL
+```tsql
 EXEC sp_BlitzAnalysis 
 	@StartDate = NULL,
 	@EndDate = NULL,
@@ -429,19 +430,19 @@ We are likely to be hitting some big tables here and some of these queries will 
 
 I have noticed that the Perfmon query can ask for a big memory grant so be mindful when including this table with large volumes of data:
 
-```SQL
+```tsql
 SELECT 
-    [ServerName]
-	,[CheckDate]
-	,[counter_name]
-    ,[object_name]
-    ,[instance_name]
-    ,[cntr_value]
+      [ServerName]
+    , [CheckDate]
+    , [counter_name]
+    , [object_name]
+    , [instance_name]
+    , [cntr_value]
 FROM [dbo].[BlitzFirst_PerfmonStats_Actuals]
 WHERE CheckDate BETWEEN @FromDate AND @ToDate
 ORDER BY 
-	[CheckDate] ASC,
-	[counter_name] ASC
+      [CheckDate] ASC
+    , [counter_name] ASC;
 ```
 
 [*Back to top*](#header1)
@@ -464,11 +465,11 @@ Parameters include:
 
 An example run of sp_BlitzBackups to push data looks like this:
 
-```
-EXEC sp_BlitzBackups    @PushBackupHistoryToListener = 1, -- Turn it on!
-                        @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
-                        @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
-                        @WriteBackupsLastHours = -24 -- Hours back in time you want to go
+```tsql
+EXEC sp_BlitzBackups @PushBackupHistoryToListener = 1, -- Turn it on!
+                     @WriteBackupsToListenerName = 'AG_LISTENER_NAME', -- Name of AG Listener and Linked Server 
+                     @WriteBackupsToDatabaseName = 'FAKE_MSDB_NAME',  -- Fake MSDB name you want to push to. Remember, can't be real MSDB.
+                     @WriteBackupsLastHours = -24 -- Hours back in time you want to go
 ```
 
 In an effort to not clog your servers up, we've taken some care in batching things as we move data. Inspired by [Michael J. Swart's Take Care When Scripting Batches](http://michaeljswart.com/2014/09/take-care-when-scripting-batches/), we only move data in 10 minute intervals.
@@ -494,7 +495,7 @@ For more information about how this works, see [sp_AllNightLog documentation.](h
 Known issues:
 
 * The msdbCentral database name is hard-coded.
-* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We're not checking for it right now.)
+* sp_AllNightLog depends on Ola Hallengren's DatabaseBackup, which must be installed separately. (We expect it to be installed in the same database as the SQL Server First Responder Kit.)
 
 
 [*Back to top*](#header1)
@@ -508,7 +509,7 @@ Parameters include:
 
 * @Database - the database's name, like LogShipMe
 * @RestoreDatabaseName
-* @BackupPathFull - typically a UNC path like '\\FILESERVER\BACKUPS\SQL2016PROD1A\LogShipMe\FULL\' that points to where the full backups are stored. Note that if the path doesn't exist, we don't create it, and the query might take 30+ seconds if you specify an invalid server name.
+* @BackupPathFull - typically a UNC path like '\\\\FILESERVER\BACKUPS\SQL2016PROD1A\LogShipMe\FULL\' that points to where the full backups are stored. Note that if the path doesn't exist, we don't create it, and the query might take 30+ seconds if you specify an invalid server name.
 * @BackupPathDiff, @BackupPathLog - as with the Full, this should be set to the exact path where the differentials and logs are stored. We don't append anything to these parameters.
 * @MoveFiles, @MoveDataDrive, @MoveLogDrive - if you want to restore to somewhere other than your default database locations.
 * @RunCheckDB - default 0. When set to 1, we run Ola Hallengren's DatabaseIntegrityCheck stored procedure on this database, and log the results to table. We use that stored proc's default parameters, nothing fancy.
@@ -536,14 +537,15 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 
 To check versions of any of the stored procedures, use their output parameters for Version and VersionDate like this:
 
-```
+```tsql
 DECLARE @VersionOutput VARCHAR(30), @VersionDateOutput DATETIME;
 EXEC sp_Blitz 
-	@Version = @VersionOutput OUTPUT, 
-	@VersionDate = @VersionDateOutput OUTPUT,
-	@VersionCheckMode = 1;
-SELECT @VersionOutput AS Version, 
-	@VersionDateOutput AS VersionDate;
+    @Version = @VersionOutput OUTPUT, 
+    @VersionDate = @VersionDateOutput OUTPUT,
+    @VersionCheckMode = 1;
+SELECT
+    @VersionOutput AS Version, 
+    @VersionDateOutput AS VersionDate;
 ```
 
 [*Back to top*](#header1)
@@ -560,8 +562,10 @@ SELECT @VersionOutput AS Version,
 [stars badge]:https://img.shields.io/github/stars/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
 [forks badge]:https://img.shields.io/github/forks/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
 [issues badge]:https://img.shields.io/github/issues/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
+[contributors_badge]:https://img.shields.io/github/contributors/BrentOzarULTD/SQL-Server-First-Responder-Kit.svg
 
 [licence]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/master/LICENSE.md
 [stars]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/stargazers
 [forks]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/network
 [issues]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues
+[contributors]:https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/graphs/contributors
