@@ -46,7 +46,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.08', @VersionDate = '20220108';
+SELECT @Version = '8.09', @VersionDate = '20220408';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2470,7 +2470,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			ELSE
 				SET @StringToExecute = N'';
 
-            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
