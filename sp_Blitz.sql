@@ -6377,7 +6377,8 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
 			                            AND N''?'' <> ''[tempdb]''
 		                              GROUP BY LEFT(physical_name, 1)
-		                              HAVING COUNT(*) > 1 OPTION (RECOMPILE);';
+		                              HAVING COUNT(*) > 1 
+									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
 					        END;
 
 				        IF NOT EXISTS ( SELECT  1
