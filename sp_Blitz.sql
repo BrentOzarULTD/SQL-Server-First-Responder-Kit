@@ -5556,10 +5556,11 @@ IF @ProductVersionMajor >= 10
 							), [maintenance_plan_table] AS (
 						SELECT [mps].[name]
 							,[c].[value]('(@dts:ObjectName)', 'NVARCHAR(128)') AS [step_name]
+                            ,COALESCE([c].[value]('(@dts:Disabled)', 'NVARCHAR(128)'),N'') AS [step_disabled]
 						FROM [maintenance_plan_steps] [mps]
 							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
 						), [mp_steps_pretty] AS (SELECT DISTINCT [m1].[name] ,
-								STUFF((SELECT N', ' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name]
+								STUFF((SELECT N', ' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name] AND step_disabled <> N'True'
 								FOR XML PATH(N'')), 1, 2, N'') AS [maintenance_plan_steps]
 						FROM [maintenance_plan_table] AS [m1])
 						
