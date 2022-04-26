@@ -478,17 +478,6 @@ BEGIN
         DROP TABLE #FilterPlansByDatabase;
     CREATE TABLE #FilterPlansByDatabase (DatabaseID INT PRIMARY KEY CLUSTERED);
 
-    IF OBJECT_ID('tempdb..##WaitCategories') IS NULL
-		BEGIN
-			/* We reuse this one by default rather than recreate it every time. */
-			CREATE TABLE ##WaitCategories
-			(
-				WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED,
-				WaitCategory NVARCHAR(128) NOT NULL,
-				Ignorable BIT DEFAULT 0
-			);
-		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
-
 	IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 		DROP TABLE #checkversion;
 	CREATE TABLE #checkversion (
@@ -500,7 +489,18 @@ BEGIN
 		revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
 	);
 
-	IF 527 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
+    IF OBJECT_ID('tempdb..##WaitCategories') IS NULL
+		BEGIN
+			/* We reuse this one by default rather than recreate it every time. */
+			CREATE TABLE ##WaitCategories
+			(
+				WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED,
+				WaitCategory NVARCHAR(128) NOT NULL,
+				Ignorable BIT DEFAULT 0
+			);
+		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
+
+	IF 527 > (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
 		    TRUNCATE TABLE ##WaitCategories;
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('ASYNC_IO_COMPLETION','Other Disk IO',0);
