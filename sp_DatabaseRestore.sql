@@ -212,11 +212,15 @@ BEGIN
     RETURN;
 END;
 
-IF NOT EXISTS (SELECT name FROM sys.objects WHERE type = 'P' AND name = 'CommandExecute')
+DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
+DECLARE @CommandExecuteCheck VARCHAR(315)
+
+SET @CommandExecuteCheck = 'IF NOT EXISTS (SELECT name FROM ' +@CurrentDatabaseContext+'.sys.objects WHERE type = ''P'' AND name = ''CommandExecute'')
 BEGIN
-	RAISERROR('DatabaseRestore requires the CommandExecute stored procedure from the OLA Hallengren Maintenance solution, are you using the correct database?', 15, 1);
+	RAISERROR(''DatabaseRestore requires the CommandExecute stored procedure from the OLA Hallengren Maintenance solution, are you using the correct database?'', 15, 1);
 	RETURN;
-END;
+END;'
+EXEC (@CommandExecuteCheck)
 
 DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
         @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
