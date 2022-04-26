@@ -180,7 +180,7 @@ BEGIN
 		@StopAt = ''20170508201501'',
 		@Debug = 1;
 
-	--This example NOT execute the restore.  Commands will be printed in a copy/paste ready format only
+	--This example will NOT execute the restore.  Commands will be printed in a copy/paste ready format only
 	EXEC dbo.sp_DatabaseRestore 
 		@Database = ''DBA'', 
 		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
@@ -212,6 +212,11 @@ BEGIN
     RETURN;
 END;
 
+IF NOT EXISTS (SELECT name FROM sys.objects WHERE type = 'P' AND name = 'CommandExecute')
+BEGIN
+	RAISERROR('DatabaseRestore requires the CommandExecute stored procedure from the OLA Hallengren Maintenance solution, are you using the correct database?', 15, 1);
+	RETURN;
+END;
 
 DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
         @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
