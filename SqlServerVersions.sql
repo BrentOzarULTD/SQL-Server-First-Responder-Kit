@@ -41,6 +41,7 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 600, 'CTP2', 'https://support.microsoft.com/en-us/help/5011644', '2022-05-24', '2022-05-24', '2022-05-24', 'SQL Server 2022', 'CTP 2.0'),
     (15, 4223, 'CU16', 'https://support.microsoft.com/en-us/help/5011644', '2022-04-18', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16'),
     (15, 4198, 'CU15', 'https://support.microsoft.com/en-us/help/5008996', '2022-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 15'),
     (15, 4188, 'CU14', 'https://support.microsoft.com/en-us/help/5007182', '2021-11-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 14'),
