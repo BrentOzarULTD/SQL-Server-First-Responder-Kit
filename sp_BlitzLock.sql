@@ -120,9 +120,11 @@ END;
 	RETURN;
 	END;    /* @Help = 1 */
 	
-        DECLARE @ProductVersion NVARCHAR(128);
-        DECLARE @ProductVersionMajor FLOAT;
-        DECLARE @ProductVersionMinor INT;
+        DECLARE @ProductVersion NVARCHAR(128), 
+			@ProductVersionMajor FLOAT,
+			@ProductVersionMinor INT,
+			@ObjectFullName NVARCHAR(2000);
+
 
         SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 
@@ -214,7 +216,23 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 					@OutputTableName = QUOTENAME(@OutputTableName), 
 					@OutputSchemaName = QUOTENAME(@OutputSchemaName) 
-					if(@r is null) --if it is null there is no table, create it from above execution
+					if(@r is not null) --if it is not null, there is a table, so check for newly added columns
+					BEGIN
+						/* If the table doesn't have the new spid column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''spid'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD spid SMALLINT NULL;';
+						EXEC(@StringToExecute);
+
+						/* If the table doesn't have the new wait_resource column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''wait_resource'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
+						EXEC(@StringToExecute);
+					END
+					ELSE --if(@r is not null) --if it is null there is no table, create it from above execution
 					BEGIN
 						select @StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableName + ' (
 							ServerName NVARCHAR(256),
