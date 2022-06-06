@@ -1041,7 +1041,7 @@ BEGIN
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
 	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-	ORDER BY BackUpFile DESC;
+	ORDER BY BackupFile DESC;
 
 	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
 	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
