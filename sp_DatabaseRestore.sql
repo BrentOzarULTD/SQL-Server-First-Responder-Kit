@@ -25,6 +25,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @ForceSimpleRecovery BIT = 0,
     @ExistingDBAction tinyint = 0,
     @StopAt NVARCHAR(14) = NULL,
+	@BackupServerTimezoneOffsetToUtc INT = 0,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
 	@SkipBackupsAlreadyInMsdb BIT = 0,
@@ -1321,7 +1322,11 @@ BEGIN
 	END
 
 	-- Add the STOPAT parameter to the log recovery options but change the value to a valid DATETIME, e.g. '20211118040230' -> '20211118 04:02:30'
-	SET @LogRecoveryOption += ', STOPAT = ''' + STUFF(STUFF(STUFF(@StopAt, 13, 0, ':'), 11, 0, ':'), 9, 0, ' ') + ''''
+	-- The STOPAT parameter in the RESTORE DATABASE command checks times within the file which are in local time. This is usally different to the UTC filenames and therefore a mismatch
+	DECLARE @stopAtDatetime DATETIME = CONVERT(DATETIME, STUFF(STUFF(STUFF(@StopAt, 13, 0, ':'), 11, 0, ':'), 9, 0, ' '))
+	SET @stopAtDateTime  = DATEADD(HOUR, @BackupServerTimezoneOffsetToUtc, @stopAtDatetime)
+
+	SET @LogRecoveryOption += ', STOPAT = ''' + CONVERT(varchar,@stopAtDateTime,112) + ' ' + CONVERT(varchar,@stopAtDateTime,108) + ''''
 
 	IF @BackupDateTime = @StopAt
 	BEGIN
