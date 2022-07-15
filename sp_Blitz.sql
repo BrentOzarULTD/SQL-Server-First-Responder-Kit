@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.08', @VersionDate = '20220108';
+	SELECT @Version = '8.09', @VersionDate = '20220408';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -768,6 +768,7 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_TRAN_LIST');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_SYNC');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK');
+		INSERT INTO #IgnorableWaits VALUES ('POPULATE_LOCK_ORDINALS');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
@@ -4000,11 +4001,11 @@ AS
 			                        ''Performance'' AS FindingsGroup,
 			                        ''In-Memory OLTP (Hekaton) In Use'' AS Finding,
 			                        ''https://www.brentozar.com/go/hekaton'' AS URL,
-			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS INT) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
+			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS DECIMAL(6,1)) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
 			                        FROM sys.configurations c INNER JOIN sys.dm_os_memory_clerks mem ON mem.type = ''MEMORYCLERK_XTP''
                                     WHERE c.name = ''max server memory (MB)''
                                     GROUP BY c.value_in_use
-                                    HAVING SUM(mem.pages_kb / 1024.0) > 10 OPTION (RECOMPILE)';
+                                    HAVING SUM(mem.pages_kb / 1024.0) > 1000 OPTION (RECOMPILE)';
 		
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -6377,7 +6378,8 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
 			                            AND N''?'' <> ''[tempdb]''
 		                              GROUP BY LEFT(physical_name, 1)
-		                              HAVING COUNT(*) > 1 OPTION (RECOMPILE);';
+		                              HAVING COUNT(*) > 1 
+									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
 					        END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -6593,6 +6595,7 @@ IF @ProductVersionMajor >= 10
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			SET QUOTED_IDENTIFIER ON;
             INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,

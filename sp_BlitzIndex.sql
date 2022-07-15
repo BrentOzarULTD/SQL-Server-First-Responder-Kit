@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.08', @VersionDate = '20220108';
+SELECT @Version = '8.09', @VersionDate = '20220408';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -130,6 +130,8 @@ DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
+DECLARE @StringToExecute NVARCHAR(MAX);
+
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -256,7 +258,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               index_usage_summary NVARCHAR(MAX) NULL,
               index_size_summary NVARCHAR(MAX) NULL,
               create_tsql NVARCHAR(MAX) NULL,
-              more_info NVARCHAR(MAX)NULL
+              more_info NVARCHAR(MAX) NULL,
+              sample_query_plan XML NULL
             );
 
         CREATE TABLE #IndexSanity
@@ -1695,7 +1698,7 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type '
 
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
+		/* Get the sample query plan if it's available, and if there are less than 1,000 rows in the DMV: */
         IF NOT EXISTS
 		(
 		    SELECT
@@ -1703,31 +1706,42 @@ BEGIN TRY
 			FROM sys.all_objects AS o
 			WHERE o.name = 'dm_db_missing_index_group_stats_query'
 	    )
-        SELECT
-		    @dsql += N' , NULL AS sample_query_plan '
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
+            SELECT
+                @dsql += N' , NULL AS sample_query_plan '
         ELSE
 		BEGIN
-			SELECT
-			    @dsql += N'
-			, sample_query_plan =
-			  (
-			      SELECT TOP (1)
-				      p.query_plan
-				  FROM sys.dm_db_missing_index_group_stats gs 
-				  CROSS APPLY
-				  (
-				      SELECT TOP (1)
-					      s.plan_handle
-				  	  FROM sys.dm_db_missing_index_group_stats_query q 
-				  	  INNER JOIN sys.dm_exec_query_stats s
-					      ON q.query_plan_hash = s.query_plan_hash
-				  	  WHERE gs.group_handle = q.group_handle 
-				  	  ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
-			      ) q2
-				  CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
-                  WHERE ig.index_group_handle = gs.group_handle
-			  ) '
+            /* The DMV is only supposed to have 600 rows in it. If it's got more,
+            they could see performance slowdowns - see Github #3085. */
+            DECLARE @MissingIndexPlans BIGINT;
+            SET @StringToExecute = N'SELECT @MissingIndexPlans = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query;'
+            EXEC sp_executesql @StringToExecute, N'@MissingIndexPlans BIGINT OUT', @MissingIndexPlans;
+
+            IF @MissingIndexPlans > 1000
+                BEGIN
+                SELECT @dsql += N' , NULL AS sample_query_plan /* Over 1000 plans found, skipping */ ';
+                RAISERROR (N'Over 1000 plans found in sys.dm_db_missing_index_group_stats_query - your SQL Server is hitting a bug: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3085',0,1) WITH NOWAIT;
+                END
+            ELSE
+                SELECT
+                    @dsql += N'
+                , sample_query_plan =
+                (
+                    SELECT TOP (1)
+                        p.query_plan
+                    FROM sys.dm_db_missing_index_group_stats gs 
+                    CROSS APPLY
+                    (
+                        SELECT TOP (1)
+                            s.plan_handle
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query q 
+                        INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_exec_query_stats s
+                            ON q.query_plan_hash = s.query_plan_hash
+                        WHERE gs.group_handle = q.group_handle 
+                        ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
+                    ) q2
+                    CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+                    WHERE ig.index_group_handle = gs.group_handle
+                ) '
 		END
         
         
@@ -3596,10 +3610,10 @@ BEGIN;
                                   AND i.is_disabled = 0
                            GROUP BY    i.database_id, i.schema_name, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               index_usage_summary, index_size_summary, create_tsql, more_info )
+                                               index_usage_summary, index_size_summary, create_tsql, more_info, sample_query_plan )
                         
                         SELECT check_id, t.index_sanity_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
-                                index_estimated_impact, t.index_size_summary, create_tsql, more_info
+                                index_estimated_impact, t.index_size_summary, create_tsql, more_info, sample_query_plan
                         FROM
                         (
                             SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
@@ -3623,7 +3637,8 @@ BEGIN;
                                 mi.create_tsql,
                                 mi.more_info,
                                 magic_benefit_number,
-								mi.is_low
+								mi.is_low,
+                                mi.sample_query_plan
                         FROM    #MissingIndexes mi
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id 
 										  AND mi.database_id = sz.database_id
@@ -5002,7 +5017,8 @@ BEGIN;
 					br.index_size_summary AS [Size],
 					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
 					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
+                    br.sample_query_plan AS [Sample Query Plan]
 				FROM #BlitzIndexResults br
 				LEFT JOIN #IndexSanity sn ON 
 					br.index_sanity_id=sn.index_sanity_id
@@ -5027,7 +5043,8 @@ BEGIN;
 					br.index_size_summary AS [Size],
 					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
 					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
+                    br.sample_query_plan AS [Sample Query Plan]
 				FROM #BlitzIndexResults br
 				LEFT JOIN #IndexSanity sn ON 
 					br.index_sanity_id=sn.index_sanity_id
@@ -5119,7 +5136,6 @@ ELSE IF (@Mode=1) /*Summarize*/
 		DECLARE @LinkedServerDBCheck NVARCHAR(2000);
 		DECLARE @ValidLinkedServerDB INT;
 		DECLARE @tmpdbchk TABLE (cnt INT);
-		DECLARE @StringToExecute NVARCHAR(MAX);
 		
 		IF @OutputServerName IS NOT NULL
 			BEGIN
