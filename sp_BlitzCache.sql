@@ -124,9 +124,9 @@ CREATE TABLE ##BlitzCacheProcs (
             */
         TotalWorkerTimeForType BIGINT,
         TotalElapsedTimeForType BIGINT,
-        TotalReadsForType BIGINT,
+        TotalReadsForType DECIMAL(30),
         TotalExecutionCountForType BIGINT,
-        TotalWritesForType BIGINT,
+        TotalWritesForType DECIMAL(30),
         NumberOfPlans INT,
         NumberOfDistinctPlans INT,
         SerialDesiredMemory FLOAT,
@@ -280,7 +280,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.10', @VersionDate = '20220718';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -2110,8 +2110,8 @@ SET @body += N') AS qs
 	   CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(CAST(total_elapsed_time AS BIGINT) / 1000.0) AS t_TotalElapsed,
                          SUM(CAST(total_worker_time AS BIGINT) / 1000.0) AS t_TotalWorker,
-                         SUM(CAST(total_logical_reads AS BIGINT)) AS t_TotalReads,
-                         SUM(CAST(total_logical_writes AS BIGINT)) AS t_TotalWrites
+                         SUM(CAST(total_logical_reads AS DECIMAL(30))) AS t_TotalReads,
+                         SUM(CAST(total_logical_writes AS DECIMAL(30))) AS t_TotalWrites
                   FROM   sys.#view#) AS t
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
@@ -2322,7 +2322,7 @@ BEGIN
            min_used_grant_kb AS MinUsedGrantKB,
            max_used_grant_kb AS MaxUsedGrantKB,
            CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
-		   CAST(ISNULL(NULLIF(( max_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
+		   CAST(ISNULL(NULLIF(( total_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
     END;
     ELSE
     BEGIN
@@ -4749,8 +4749,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' Function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' CLR Function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
@@ -4777,7 +4777,7 @@ SELECT  DISTINCT
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_table_spool_expensive = 1 THEN + ', Expensive Table Spool' ELSE '' END +
 				  CASE WHEN is_table_spool_more_rows = 1 THEN + ', Many Rows Table Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row Estimate Mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 

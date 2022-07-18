@@ -42,7 +42,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.10', @VersionDate = '20220718';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -180,7 +180,7 @@ BEGIN
 		@StopAt = ''20170508201501'',
 		@Debug = 1;
 
-	--This example NOT execute the restore.  Commands will be printed in a copy/paste ready format only
+	--This example will NOT execute the restore.  Commands will be printed in a copy/paste ready format only
 	EXEC dbo.sp_DatabaseRestore 
 		@Database = ''DBA'', 
 		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
@@ -212,6 +212,20 @@ BEGIN
     RETURN;
 END;
 
+BEGIN TRY 
+DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
+DECLARE @CommandExecuteCheck VARCHAR(315)
+
+SET @CommandExecuteCheck = 'IF NOT EXISTS (SELECT name FROM ' +@CurrentDatabaseContext+'.sys.objects WHERE type = ''P'' AND name = ''CommandExecute'')
+BEGIN
+	RAISERROR (''DatabaseRestore requires the CommandExecute stored procedure from the OLA Hallengren Maintenance solution, are you using the correct database?'', 15, 1);
+	RETURN;
+END;'
+EXEC (@CommandExecuteCheck)
+END TRY
+BEGIN CATCH
+THROW;
+END CATCH
 
 DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
         @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
@@ -1027,7 +1041,7 @@ BEGIN
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
 	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-	ORDER BY BackUpFile DESC;
+	ORDER BY BackupFile DESC;
 
 	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
 	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
