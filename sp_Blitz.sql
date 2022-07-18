@@ -8694,7 +8694,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													+ '' GB free on '' + i.drive
 													+ '' drive '' + i.logical_volume_name
 													+ '' out of '' + CAST(CAST(i.total_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
-													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''%)'' END
+													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''% used)'' END
 												 AS Details
 										FROM    #driveInfo AS i;'
 
