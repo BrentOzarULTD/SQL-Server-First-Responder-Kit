@@ -2466,12 +2466,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5
 				SET @StringToExecute = N'USE [?];' + @LineFeed;
 			ELSE
 				SET @StringToExecute = N'';
 
-            SET @StringToExecute = @StringToExecute + 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
@@ -2515,7 +2515,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     'END CATCH'                          
                                     ;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5
 	            EXEC sp_MSforeachdb @StringToExecute;
 			ELSE
 				EXEC(@StringToExecute);
