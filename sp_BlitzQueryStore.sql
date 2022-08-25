@@ -205,12 +205,12 @@ IF  (	SELECT COUNT(*)
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
-IF (@is_azure_db = 1)
+IF (@is_azure_db = 1 AND SERVERPROPERTY ('ENGINEEDITION') <> 8)
 	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
 
-	/*If we're on Azure we don't need to check all this @DatabaseName stuff...*/
+	/*If we're on Azure SQL DB we don't need to check all this @DatabaseName stuff...*/
 
 	SET @DatabaseName = LTRIM(RTRIM(@DatabaseName));
 
