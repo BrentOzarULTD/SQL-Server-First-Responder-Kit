@@ -2471,7 +2471,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			ELSE
 				SET @StringToExecute = N'';
 
-            SET @StringToExecute = @StringToExecute + 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
