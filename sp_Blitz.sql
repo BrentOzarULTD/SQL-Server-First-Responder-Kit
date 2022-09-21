@@ -889,6 +889,40 @@ AS
 			BEGIN
 
 				/*
+				Extract DBCC DBINFO data from the server. This data is used for check 2 using
+				the dbi_LastLogBackupTime field and check 68 using the dbi_LastKnownGood field.
+				NB: DBCC DBINFO is not available on AWS RDS databases so if the server is RDS
+				(which will have previously triggered inserting a checkID 223 record) and at
+				least one of the relevant checks is not being skipped then we can extract the
+				dbinfo information.
+				*/
+				IF NOT EXISTS ( SELECT 1 
+							FROM #BlitzResults 
+							WHERE CheckID = 223 AND URL = 'https://aws.amazon.com/rds/sqlserver/')
+					AND (
+							NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 2 )
+							OR NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 68 )
+					)
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Extracting DBCC DBINFO data (used in checks 2 and 68).', 0, 1, 68) WITH NOWAIT;
+
+						EXEC sp_MSforeachdb N'USE [?];
+							SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+							INSERT #DBCCs
+								(ParentObject,
+								Object,
+								Field,
+								Value)
+							EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+							UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+					END
+
+				/*
 				Our very first check! We'll put more comments in this one just to
 				explain exactly how it works. First, we check to see if we're
 				supposed to skip CheckID 1 (that's the check we're working on.)
@@ -1033,6 +1067,7 @@ AS
 										'https://www.brentozar.com/go/biglogs' AS URL ,
 										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
+								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = 'dbi_LastLogBackupTime'
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
@@ -1043,12 +1078,23 @@ AS
 																  DatabaseName
 															FROM  #SkipChecks
 															WHERE CheckID IS NULL OR CheckID = 2)
-										AND NOT EXISTS ( SELECT *
-														 FROM   msdb.dbo.backupset b
-														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND b.type = 'L'
-																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE()) );
+										AND	(
+												(
+													/* We couldn't get a value from the DBCC DBINFO data so let's check the msdb backup history information */
+														[ll].[Value] Is Null
+													AND NOT EXISTS ( SELECT *
+																	 FROM   msdb.dbo.backupset b
+																	 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																				AND b.type = 'L'
+																				AND b.backup_finish_date >= DATEADD(dd,-7, GETDATE())
+																	)
+												)
+												OR
+												(
+													Convert(datetime,ll.Value) < DATEADD(dd,-7, GETDATE())
+												)
+
+											);
 					END;
 
 				/*
@@ -7286,15 +7332,16 @@ IF @ProductVersionMajor >= 10
 				
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
 				
-				EXEC sp_MSforeachdb N'USE [?];
-				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-				INSERT #DBCCs
-					(ParentObject,
-					Object,
-					Field,
-					Value)
-				EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
-				UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+				/* Removed as populating the #DBCCs table now done in advance as data is uses for multiple checks*/
+				--EXEC sp_MSforeachdb N'USE [?];
+				--SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				--INSERT #DBCCs
+				--	(ParentObject,
+				--	Object,
+				--	Field,
+				--	Value)
+				--EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+				--UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
 
 				WITH    DB2
 							AS ( SELECT DISTINCT
