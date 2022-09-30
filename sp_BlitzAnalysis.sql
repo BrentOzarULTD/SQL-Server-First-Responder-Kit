@@ -3,7 +3,7 @@ SET QUOTED_IDENTIFIER ON
 
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE [object_id] = OBJECT_ID(N'[dbo].[sp_BlitzAnalysis]') AND [type] in (N'P', N'PC'))
 BEGIN
-EXEC dbo.sp_executesql @statement = N'CREATE PROCEDURE [dbo].[sp_BlitzAnalysis] AS' 
+EXEC dbo.sp_executesql @statement = N'CREATE PROCEDURE [dbo].[sp_BlitzAnalysis] AS'
 END
 GO
 
@@ -13,7 +13,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @EndDate DATETIMEOFFSET(7) = NULL,
 @OutputDatabaseName NVARCHAR(256) = 'DBAtools',
 @OutputSchemaName NVARCHAR(256) = N'dbo',
-@OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst', 
+@OutputTableNameBlitzFirst NVARCHAR(256) = N'BlitzFirst',
 @OutputTableNameFileStats NVARCHAR(256) = N'BlitzFirst_FileStats',
 @OutputTableNamePerfmonStats NVARCHAR(256)  = N'BlitzFirst_PerfmonStats',
 @OutputTableNameWaitStats NVARCHAR(256) = N'BlitzFirst_WaitStats',
@@ -31,9 +31,10 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @VersionCheckMode BIT = 0,
 @BringThePain BIT = 0,
 @Maxdop INT = 1,
-@Debug BIT = 0
+@Debug BIT = 0,
+@SkipDisplayMessages BIT = 0 /* Will skip display messages */
 )
-AS 
+AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
@@ -44,18 +45,18 @@ BEGIN
 	RETURN;
 END;
 
-IF (@Help = 1) 
-BEGIN 
-	PRINT 'EXEC sp_BlitzAnalysis 
+IF (@Help = 1)
+BEGIN
+	PRINT 'EXEC sp_BlitzAnalysis
 @StartDate = NULL,		/* Specify a datetime or NULL will get an hour ago */
 @EndDate = NULL,		/* Specify a datetime or NULL will get an hour of data since @StartDate */
 @OutputDatabaseName = N''DBA'',		/* Specify the database name where where we can find your logged blitz data */
 @OutputSchemaName = N''dbo'',		/* Specify the schema */
-@OutputTableNameBlitzFirst = N''BlitzFirst'',		/* Table name where you are storing sp_BlitzFirst output, Set to NULL to ignore */ 
-@OutputTableNameFileStats = N''BlitzFirst_FileStats'',		/* Table name where you are storing sp_BlitzFirst filestats output, Set to NULL to ignore */ 
-@OutputTableNamePerfmonStats  = N''BlitzFirst_PerfmonStats'',		/* Table name where you are storing sp_BlitzFirst Perfmon output, Set to NULL to ignore */ 
-@OutputTableNameWaitStats = N''BlitzFirst_WaitStats'',		/* Table name where you are storing sp_BlitzFirst Wait stats output, Set to NULL to ignore */ 
-@OutputTableNameBlitzCache = N''BlitzCache'',		/* Table name where you are storing sp_BlitzCache output, Set to NULL to ignore */ 
+@OutputTableNameBlitzFirst = N''BlitzFirst'',		/* Table name where you are storing sp_BlitzFirst output, Set to NULL to ignore */
+@OutputTableNameFileStats = N''BlitzFirst_FileStats'',		/* Table name where you are storing sp_BlitzFirst filestats output, Set to NULL to ignore */
+@OutputTableNamePerfmonStats  = N''BlitzFirst_PerfmonStats'',		/* Table name where you are storing sp_BlitzFirst Perfmon output, Set to NULL to ignore */
+@OutputTableNameWaitStats = N''BlitzFirst_WaitStats'',		/* Table name where you are storing sp_BlitzFirst Wait stats output, Set to NULL to ignore */
+@OutputTableNameBlitzCache = N''BlitzCache'',		/* Table name where you are storing sp_BlitzCache output, Set to NULL to ignore */
 @OutputTableNameBlitzWho = N''BlitzWho'',		/* Table name where you are storing sp_BlitzWho output, Set to NULL to ignore */
 @Databasename = NULL,		/* Filters results for BlitzCache, FileStats (will also include tempdb), BlitzWho. Leave as NULL for all databases */
 @MaxBlitzFirstPriority = 249,		/* Max priority to include in the results */
@@ -74,7 +75,7 @@ Additional parameters:
 END
 
 /* Declare all local variables required */
-DECLARE @FullOutputTableNameBlitzFirst NVARCHAR(1000); 
+DECLARE @FullOutputTableNameBlitzFirst NVARCHAR(1000);
 DECLARE @FullOutputTableNameFileStats NVARCHAR(1000);
 DECLARE @FullOutputTableNamePerfmonStats NVARCHAR(1000);
 DECLARE @FullOutputTableNameWaitStats NVARCHAR(1000);
@@ -88,7 +89,7 @@ DECLARE @IncludeSpills BIT;
 /* Validate the database name */
 IF (DB_ID(@OutputDatabaseName) IS NULL)
 BEGIN
-	RAISERROR('Invalid database name provided for parameter @OutputDatabaseName: %s',11,0,@OutputDatabaseName);
+	IF(@SkipDisplayMessages = 0) RAISERROR ('Invalid database name provided for parameter @OutputDatabaseName: %s',11,0,@OutputDatabaseName);
 	RETURN;
 END
 
@@ -100,7 +101,7 @@ SET @FullOutputTableNameWaitStats = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAM
 SET @FullOutputTableNameBlitzCache = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameBlitzCache);
 SET @FullOutputTableNameBlitzWho = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameBlitzWho+N'_Deltas');
 
-IF OBJECT_ID('tempdb.dbo.#BlitzFirstCounts') IS NOT NULL 
+IF OBJECT_ID('tempdb.dbo.#BlitzFirstCounts') IS NOT NULL
 BEGIN
 	DROP TABLE #BlitzFirstCounts;
 END
@@ -115,16 +116,16 @@ CREATE TABLE #BlitzFirstCounts (
 );
 
 /* Validate variables and set defaults as required */
-IF (@BlitzCacheSortorder IS NULL) 
-BEGIN 
+IF (@BlitzCacheSortorder IS NULL)
+BEGIN
 	SET @BlitzCacheSortorder = N'cpu';
-END 
+END
 
 SET @BlitzCacheSortorder = LOWER(@BlitzCacheSortorder);
 
 IF (@OutputTableNameBlitzCache IS NOT NULL AND @BlitzCacheSortorder NOT IN (N'all',N'cpu',N'reads',N'writes',N'duration',N'executions',N'memory grant',N'spills'))
 BEGIN
-	RAISERROR('Invalid sort option specified for @BlitzCacheSortorder, supported values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
+	IF(@SkipDisplayMessages = 0) RAISERROR ('Invalid sort option specified for @BlitzCacheSortorder, supported values are ''all'', ''cpu'', ''reads'', ''writes'', ''duration'', ''executions'', ''memory grant'', ''spills''',11,0) WITH NOWAIT;
 	RETURN;
 END
 
@@ -141,63 +142,63 @@ BEGIN
 END
 
 /* We need to check if your SQL version has memory grant and spills columns in sys.dm_exec_query_stats */
-SELECT @IncludeMemoryGrants = 
-	CASE 
+SELECT @IncludeMemoryGrants =
+	CASE
 		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')) THEN 1
 		ELSE 0
 	END;
 
-SELECT @IncludeSpills = 
+SELECT @IncludeSpills =
 	CASE
-		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')) THEN 1 
+		WHEN (EXISTS(SELECT * FROM sys.all_columns WHERE [object_id] = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')) THEN 1
 		ELSE 0
 	END;
 
 
 IF (@StartDate IS NULL)
-BEGIN 
-	RAISERROR('Setting @StartDate to: 1 hour ago',0,0) WITH NOWAIT;
+BEGIN
+	IF(@SkipDisplayMessages = 0) RAISERROR ('Setting @StartDate to: 1 hour ago',0,0) WITH NOWAIT;
 	/* Set StartDate to be an hour ago */
 	SET @StartDate = DATEADD(HOUR,-1,SYSDATETIMEOFFSET());
 
 	IF (@EndDate IS NULL)
-	BEGIN 
-		RAISERROR('Setting @EndDate to: Now',0,0) WITH NOWAIT;
+	BEGIN
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Setting @EndDate to: Now',0,0) WITH NOWAIT;
 		/* Get data right up to now */
 		SET @EndDate = SYSDATETIMEOFFSET();
 	END
-END 
+END
 
 IF (@EndDate IS NULL)
-BEGIN 
+BEGIN
 	/* Default to an hour of data or SYSDATETIMEOFFSET() if now is earlier than the hour added to @StartDate */
 	IF(DATEADD(HOUR,1,@StartDate) < SYSDATETIMEOFFSET())
-	BEGIN 
-		RAISERROR('@EndDate was NULL - Setting to return 1 hour of information, if you want more then set @EndDate aswell',0,0) WITH NOWAIT;
+	BEGIN
+		IF(@SkipDisplayMessages = 0) RAISERROR ('@EndDate was NULL - Setting to return 1 hour of information, if you want more then set @EndDate aswell',0,0) WITH NOWAIT;
 		SET @EndDate = DATEADD(HOUR,1,@StartDate);
 	END
-	ELSE 
-	BEGIN 
-		RAISERROR('@EndDate was NULL - Setting to SYSDATETIMEOFFSET()',0,0) WITH NOWAIT;
+	ELSE
+	BEGIN
+		IF(@SkipDisplayMessages = 0) RAISERROR ('@EndDate was NULL - Setting to SYSDATETIMEOFFSET()',0,0) WITH NOWAIT;
 		SET @EndDate = SYSDATETIMEOFFSET();
 	END
-END 
+END
 
 /* Default to dbo schema if NULL is passed in */
-IF (@OutputSchemaName IS NULL) 
-BEGIN 
+IF (@OutputSchemaName IS NULL)
+BEGIN
 	SET @OutputSchemaName = 'dbo';
 END
 
 /* Prompt the user for @BringThePain = 1 if they are searching a timeframe greater than 4 hours and they are using BlitzCacheSortorder = 'all' */
 IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@StartDate,@EndDate) > 4 AND @BringThePain = 0)
 BEGIN
-	RAISERROR('Wow! hold up now, are you sure you wanna do this? Are sure you want to query over 4 hours of data with @BlitzCacheSortorder set to ''all''? IF you do then set @BringThePain = 1 but I gotta warn you this might hurt a bit!',11,1) WITH NOWAIT;
+	IF(@SkipDisplayMessages = 0) RAISERROR ('Wow! hold up now, are you sure you wanna do this? Are sure you want to query over 4 hours of data with @BlitzCacheSortorder set to ''all''? IF you do then set @BringThePain = 1 but I gotta warn you this might hurt a bit!',11,1) WITH NOWAIT;
 	RETURN;
 END
 
 /* Output report window information */
-SELECT 
+SELECT
 	@Servername AS [ServerToReportOn],
 	CAST(1 AS NVARCHAR(20)) + N' - '+ CAST(@MaxBlitzFirstPriority AS NVARCHAR(20)) AS [PrioritesToInclude],
 	@StartDate AS [StartDatetime],
@@ -207,7 +208,7 @@ SELECT
 /* BlitzFirst data */
 SET @Sql = N'
 INSERT INTO #BlitzFirstCounts ([Priority],[FindingsGroup],[Finding],[TotalOccurrences],[FirstOccurrence],[LastOccurrence])
-SELECT 
+SELECT
 [Priority],
 [FindingsGroup],
 [Finding],
@@ -221,9 +222,9 @@ AND CheckDate BETWEEN @StartDate AND @EndDate
 AND [CheckID] > -1
 GROUP BY [Priority],[FindingsGroup],[Finding];
 
-IF EXISTS(SELECT 1 FROM #BlitzFirstCounts) 
-BEGIN 
-	SELECT 
+IF EXISTS(SELECT 1 FROM #BlitzFirstCounts)
+BEGIN
+	SELECT
 	[Priority],
 	[FindingsGroup],
 	[Finding],
@@ -233,11 +234,11 @@ BEGIN
 	FROM #BlitzFirstCounts
 	ORDER BY [Priority] ASC,[TotalOccurrences] DESC;
 END
-ELSE 
-BEGIN 
+ELSE
+BEGIN
 	SELECT N''No findings with a priority between 1 and ''+CAST(@MaxBlitzFirstPriority AS NVARCHAR(10))+N'' found for this period'';
 END
-SELECT 
+SELECT
  [ServerName]
 ,[CheckDate]
 ,[CheckID]
@@ -247,7 +248,7 @@ SELECT
 ,[Details]
 ,[HowToStopIt]
 ,[QueryPlan]
-,[QueryText] 
+,[QueryText]
 FROM '+@FullOutputTableNameBlitzFirst+N' Findings
 WHERE [ServerName] = @Servername
 AND [Priority] BETWEEN 1 AND @MaxBlitzFirstPriority
@@ -257,68 +258,68 @@ ORDER BY CheckDate ASC,[Priority] ASC
 OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
 
-RAISERROR('Getting BlitzFirst info from %s',0,0,@FullOutputTableNameBlitzFirst) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting BlitzFirst info from %s',0,0,@FullOutputTableNameBlitzFirst) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT @Sql;
 END
 
-IF (OBJECT_ID(@FullOutputTableNameBlitzFirst) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNameBlitzFirst) IS NULL)
 BEGIN
 	IF (@OutputTableNameBlitzFirst IS NULL)
 	BEGIN
-		RAISERROR('BlitzFirst data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('BlitzFirst data skipped',10,0);
 		SELECT N'Skipped logged BlitzFirst data as NULL was passed to parameter @OutputTableNameBlitzFirst';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for BlitzFirst data: %s does not exist',10,0,@FullOutputTableNameBlitzFirst);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for BlitzFirst data: %s does not exist',10,0,@FullOutputTableNameBlitzFirst);
 		SELECT N'No BlitzFirst data available as the table cannot be found';
 	END
 
 END
 ELSE /* Table exists then run the query */
-BEGIN 
+BEGIN
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@MaxBlitzFirstPriority INT',
-	@StartDate=@StartDate, 
+	@StartDate=@StartDate,
 	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@MaxBlitzFirstPriority = @MaxBlitzFirstPriority;
 END
 
 /* Blitz WaitStats data */
-SET @Sql = N'SELECT 
-[ServerName], 
-[CheckDate], 
-[wait_type], 
+SET @Sql = N'SELECT
+[ServerName],
+[CheckDate],
+[wait_type],
 [WaitsRank],
-[WaitCategory], 
-[Ignorable], 
-[ElapsedSeconds], 
-[wait_time_ms_delta], 
-[wait_time_minutes_delta], 
-[wait_time_minutes_per_minute], 
-[signal_wait_time_ms_delta], 
+[WaitCategory],
+[Ignorable],
+[ElapsedSeconds],
+[wait_time_ms_delta],
+[wait_time_minutes_delta],
+[wait_time_minutes_per_minute],
+[signal_wait_time_ms_delta],
 [waiting_tasks_count_delta],
 ISNULL((CAST([wait_time_ms_delta] AS DECIMAL(38,2))/NULLIF(CAST([waiting_tasks_count_delta] AS DECIMAL(38,2)),0)),0) AS [wait_time_ms_per_wait]
-FROM 
+FROM
 (
 	SELECT
-	[ServerName], 
-	[CheckDate], 
-	[wait_type], 
-	[WaitCategory], 
-	[Ignorable], 
-	[ElapsedSeconds], 
-	[wait_time_ms_delta], 
-	[wait_time_minutes_delta], 
-	[wait_time_minutes_per_minute], 
-	[signal_wait_time_ms_delta], 
+	[ServerName],
+	[CheckDate],
+	[wait_type],
+	[WaitCategory],
+	[Ignorable],
+	[ElapsedSeconds],
+	[wait_time_ms_delta],
+	[wait_time_minutes_delta],
+	[wait_time_minutes_per_minute],
+	[signal_wait_time_ms_delta],
 	[waiting_tasks_count_delta],
 	ROW_NUMBER() OVER(PARTITION BY [CheckDate] ORDER BY [CheckDate] ASC,[wait_time_ms_delta] DESC) AS [WaitsRank]
 	FROM '+@FullOutputTableNameWaitStats+N' AS [Waits]
@@ -326,28 +327,28 @@ FROM
 	AND [CheckDate] BETWEEN @StartDate AND @EndDate
 ) TopWaits
 WHERE [WaitsRank] <= @WaitStatsTop
-ORDER BY 
-[CheckDate] ASC, 
+ORDER BY
+[CheckDate] ASC,
 [wait_time_ms_delta] DESC
 OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
-RAISERROR('Getting wait stats info from %s',0,0,@FullOutputTableNameWaitStats) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting wait stats info from %s',0,0,@FullOutputTableNameWaitStats) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT @Sql;
 END
 
-IF (OBJECT_ID(@FullOutputTableNameWaitStats) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNameWaitStats) IS NULL)
 BEGIN
 	IF (@OutputTableNameWaitStats IS NULL)
 	BEGIN
-		RAISERROR('Wait stats data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Wait stats data skipped',10,0);
 		SELECT N'Skipped logged wait stats data as NULL was passed to parameter @OutputTableNameWaitStats';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for wait stats data: %s does not exist',10,0,@FullOutputTableNameWaitStats);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for wait stats data: %s does not exist',10,0,@FullOutputTableNameWaitStats);
 		SELECT N'No wait stats data available as the table cannot be found';
 	END
 END
@@ -358,34 +359,34 @@ BEGIN
 	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@WaitStatsTop TINYINT',
-	@StartDate=@StartDate, 
+	@StartDate=@StartDate,
 	@EndDate=@EndDate,
-	@Servername=@Servername, 
+	@Servername=@Servername,
 	@WaitStatsTop=@WaitStatsTop;
 END
 
-/* BlitzFileStats info */ 
+/* BlitzFileStats info */
 SET @Sql = N'
-SELECT 
-[ServerName], 
+SELECT
+[ServerName],
 [CheckDate],
-CASE 
+CASE
 	WHEN MAX([io_stall_read_ms_average]) > @ReadLatencyThreshold THEN ''Yes''
 	WHEN MAX([io_stall_write_ms_average]) > @WriteLatencyThreshold THEN ''Yes''
-	ELSE ''No'' 
+	ELSE ''No''
 END AS [io_stall_ms_breached],
 LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1) AS [PhysicalPath],
-SUM([SizeOnDiskMB]) AS [SizeOnDiskMB], 
-SUM([SizeOnDiskMBgrowth]) AS [SizeOnDiskMBgrowth], 
-MAX([io_stall_read_ms]) AS [max_io_stall_read_ms], 
-MAX([io_stall_read_ms_average]) AS [max_io_stall_read_ms_average], 
+SUM([SizeOnDiskMB]) AS [SizeOnDiskMB],
+SUM([SizeOnDiskMBgrowth]) AS [SizeOnDiskMBgrowth],
+MAX([io_stall_read_ms]) AS [max_io_stall_read_ms],
+MAX([io_stall_read_ms_average]) AS [max_io_stall_read_ms_average],
 @ReadLatencyThreshold AS [is_stall_read_ms_threshold],
-SUM([num_of_reads]) AS [num_of_reads], 
-SUM([megabytes_read]) AS [megabytes_read], 
-MAX([io_stall_write_ms]) AS [max_io_stall_write_ms], 
-MAX([io_stall_write_ms_average]) AS [max_io_stall_write_ms_average], 
+SUM([num_of_reads]) AS [num_of_reads],
+SUM([megabytes_read]) AS [megabytes_read],
+MAX([io_stall_write_ms]) AS [max_io_stall_write_ms],
+MAX([io_stall_write_ms_average]) AS [max_io_stall_write_ms_average],
 @WriteLatencyThreshold AS [io_stall_write_ms_average],
-SUM([num_of_writes]) AS [num_of_writes], 
+SUM([num_of_writes]) AS [num_of_writes],
 SUM([megabytes_written]) AS [megabytes_written]
 FROM '+@FullOutputTableNameFileStats+N'
 WHERE [ServerName] = @Servername
@@ -396,36 +397,36 @@ AND [CheckDate] BETWEEN @StartDate AND @EndDate
 '
 	ELSE N''
 END
-+N'GROUP BY 
-[ServerName], 
++N'GROUP BY
+[ServerName],
 [CheckDate],
 LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1)
-ORDER BY 
+ORDER BY
 [CheckDate] ASC
 OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
-RAISERROR('Getting FileStats info from %s',0,0,@FullOutputTableNameFileStats) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting FileStats info from %s',0,0,@FullOutputTableNameFileStats) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT @Sql;
 END
 
-IF (OBJECT_ID(@FullOutputTableNameFileStats) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNameFileStats) IS NULL)
 BEGIN
 	IF (@OutputTableNameFileStats IS NULL)
 	BEGIN
-		RAISERROR('File stats data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('File stats data skipped',10,0);
 		SELECT N'Skipped logged File stats data as NULL was passed to parameter @OutputTableNameFileStats';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for FileStats data: %s does not exist',10,0,@FullOutputTableNameFileStats);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for FileStats data: %s does not exist',10,0,@FullOutputTableNameFileStats);
 		SELECT N'No File stats data available as the table cannot be found';
 	END
 END
 ELSE /* Table exists then run the query */
-BEGIN 
+BEGIN
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
@@ -433,7 +434,7 @@ BEGIN
 	@Databasename NVARCHAR(128),
 	@ReadLatencyThreshold INT,
 	@WriteLatencyThreshold INT',
-	@StartDate=@StartDate, 
+	@StartDate=@StartDate,
 	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename,
@@ -443,7 +444,7 @@ END
 
 /* Blitz Perfmon stats*/
 SET @Sql = N'
-SELECT 
+SELECT
     [ServerName]
 	,[CheckDate]
 	,[counter_name]
@@ -453,48 +454,48 @@ SELECT
 FROM '+@FullOutputTableNamePerfmonStats+N'
 WHERE [ServerName] = @Servername
 AND CheckDate BETWEEN @StartDate AND @EndDate
-ORDER BY 
+ORDER BY
 	[CheckDate] ASC,
 	[counter_name] ASC
 OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
 
-RAISERROR('Getting Perfmon info from %s',0,0,@FullOutputTableNamePerfmonStats) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting Perfmon info from %s',0,0,@FullOutputTableNamePerfmonStats) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT @Sql;
 END
 
-IF (OBJECT_ID(@FullOutputTableNamePerfmonStats) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNamePerfmonStats) IS NULL)
 BEGIN
 	IF (@OutputTableNamePerfmonStats IS NULL)
 	BEGIN
-		RAISERROR('Perfmon stats data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Perfmon stats data skipped',10,0);
 		SELECT N'Skipped logged Perfmon stats data as NULL was passed to parameter @OutputTableNamePerfmonStats';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for Perfmon stats data: %s does not exist',10,0,@FullOutputTableNamePerfmonStats);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for Perfmon stats data: %s does not exist',10,0,@FullOutputTableNamePerfmonStats);
 		SELECT N'No Perfmon data available as the table cannot be found';
 	END
 END
 ELSE /* Table exists then run the query */
-BEGIN 
+BEGIN
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128)',
-	@StartDate=@StartDate, 
+	@StartDate=@StartDate,
 	@EndDate=@EndDate,
 	@Servername=@Servername;
 END
 
 /* Blitz cache data */
-RAISERROR('Sortorder for BlitzCache data: %s',0,0,@BlitzCacheSortorder) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Sortorder for BlitzCache data: %s',0,0,@BlitzCacheSortorder) WITH NOWAIT;
 
 /* Set intial CTE */
 SET @Sql = N'WITH CheckDates AS (
-SELECT DISTINCT CheckDate 
+SELECT DISTINCT CheckDate
 FROM '
 +@FullOutputTableNameBlitzCache
 +N'
@@ -570,7 +571,7 @@ SELECT
 	,'+[SortOptions].[Aliasname]+N'.[QueryPlanCost]
 FROM CheckDates
 CROSS APPLY (
-	SELECT TOP (5) 	
+	SELECT TOP (5)
 	[ServerName]
     ,'+[SortOptions].[Aliasname]+N'.[CheckDate]
 	,'+QUOTENAME(UPPER([SortOptions].[Sortorder]),N'''')+N' AS [Sortorder]
@@ -632,7 +633,7 @@ CROSS APPLY (
 		WHEN @Databasename IS NOT NULL THEN N'AND ['+[SortOptions].[Aliasname]+N'].[DatabaseName] = @Databasename'+@NewLine
 		ELSE N''
 	END
-	+CASE 
+	+CASE
 		WHEN [Sortorder] = N'cpu' THEN N'AND [TotalCPU] > 0'
 		WHEN [Sortorder] = N'reads' THEN N'AND [TotalReads] > 0'
 		WHEN [Sortorder] = N'writes' THEN N'AND [TotalWrites] > 0'
@@ -692,7 +693,7 @@ FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'),1,11,N'')
 
 /* Append Order By */
 SET @Sql += @NewLine
-+N'ORDER BY 
++N'ORDER BY
 	[Sortorder] ASC,
 	[CheckDate] ASC,
 	[TimeFrameRank] ASC';
@@ -701,10 +702,10 @@ SET @Sql += @NewLine
 SET @Sql += @NewLine
 +N'OPTION(RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
-RAISERROR('Getting BlitzCache info from %s',0,0,@FullOutputTableNameBlitzCache) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting BlitzCache info from %s',0,0,@FullOutputTableNameBlitzCache) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT SUBSTRING(@Sql, 0, 4000);
 	PRINT SUBSTRING(@Sql, 4000, 8000);
 	PRINT SUBSTRING(@Sql, 8000, 12000);
@@ -714,16 +715,16 @@ BEGIN
 	PRINT SUBSTRING(@Sql, 24000, 28000);
 END
 
-IF (OBJECT_ID(@FullOutputTableNameBlitzCache) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNameBlitzCache) IS NULL)
 BEGIN
 	IF (@OutputTableNameBlitzCache IS NULL)
 	BEGIN
-		RAISERROR('BlitzCache data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('BlitzCache data skipped',10,0);
 		SELECT N'Skipped logged BlitzCache data as NULL was passed to parameter @OutputTableNameBlitzCache';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for BlitzCache data: %s does not exist',10,0,@FullOutputTableNameBlitzCache);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for BlitzCache data: %s does not exist',10,0,@FullOutputTableNameBlitzCache);
 		SELECT N'No BlitzCache data available as the table cannot be found';
 	END
 END
@@ -854,34 +855,34 @@ SELECT [ServerName]
 +N'ORDER BY [CheckDate] ASC
   OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');';
 
-RAISERROR('Getting BlitzWho info from %s',0,0,@FullOutputTableNameBlitzWho) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR ('Getting BlitzWho info from %s',0,0,@FullOutputTableNameBlitzWho) WITH NOWAIT;
 
 IF (@Debug = 1)
-BEGIN 
+BEGIN
 	PRINT @Sql;
 END
 
-IF (OBJECT_ID(@FullOutputTableNameBlitzWho) IS NULL) 
+IF (OBJECT_ID(@FullOutputTableNameBlitzWho) IS NULL)
 BEGIN
 	IF (@OutputTableNameBlitzWho IS NULL)
 	BEGIN
-		RAISERROR('BlitzWho data skipped',10,0);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('BlitzWho data skipped',10,0);
 		SELECT N'Skipped logged BlitzWho data as NULL was passed to parameter @OutputTableNameBlitzWho';
 	END
 	ELSE
 	BEGIN
-		RAISERROR('Table provided for BlitzWho data: %s does not exist',10,0,@FullOutputTableNameBlitzWho);
+		IF(@SkipDisplayMessages = 0) RAISERROR ('Table provided for BlitzWho data: %s does not exist',10,0,@FullOutputTableNameBlitzWho);
 		SELECT N'No BlitzWho data available as the table cannot be found';
 	END
 END
 ELSE
-BEGIN 
+BEGIN
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
 	@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128)',
-	@StartDate=@StartDate, 
+	@StartDate=@StartDate,
 	@EndDate=@EndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename;

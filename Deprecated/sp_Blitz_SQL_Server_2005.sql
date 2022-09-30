@@ -2,7 +2,7 @@ USE [master];
 GO
 
 IF EXISTS(SELECT * FROM sys.databases WHERE compatibility_level < 90 AND name = 'master')
-	RAISERROR ('sp_Blitz cannot be installed when master database is still in 2000 compatibility mode. For information: http://BrentOzar.com/blitz/', 20,1) WITH LOG, NOWAIT;
+	IF(@SkipDisplayMessages = 0) RAISERROR ('sp_Blitz cannot be installed when master database is still in 2000 compatibility mode. For information: http://BrentOzar.com/blitz/', 20,1) WITH LOG, NOWAIT;
 GO
 
 IF OBJECT_ID('dbo.sp_Blitz') IS NULL
@@ -374,7 +374,7 @@ AS
         SELECT @TracePath=CAST(value as NVARCHAR(256))
             FROM sys.fn_trace_getinfo(1)
             WHERE traceid=1 AND property=2;
-        
+
         SELECT @MSSinceStartup = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP)
             FROM    sys.databases
             WHERE   name='tempdb';
@@ -909,7 +909,7 @@ AS
 								WHERE   is_auto_close_on = 1
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -939,7 +939,7 @@ AS
 								WHERE   is_auto_shrink_on = 1
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL);
 					END
 
@@ -999,7 +999,7 @@ AS
 								WHERE   is_auto_create_stats_on = 0
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -1028,7 +1028,7 @@ AS
 								WHERE   is_auto_update_stats_on = 0
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -1058,7 +1058,7 @@ AS
 								WHERE   is_auto_update_stats_async_on = 1
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -1087,7 +1087,7 @@ AS
 								FROM    sys.databases
 								WHERE   is_parameterization_forced = 1
 										AND name NOT IN ( SELECT  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -1117,7 +1117,7 @@ AS
 								FROM    sys.databases
 								WHERE   name NOT IN ( SELECT DISTINCT
 																DatabaseName
-													  FROM      #SkipChecks 
+													  FROM      #SkipChecks
 													  WHERE CheckID IS NULL)
 										AND is_published = 1
 										OR is_subscribed = 1
@@ -1170,7 +1170,7 @@ AS
 								WHERE   is_date_correlation_on = 1
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 					END
 
@@ -1773,13 +1773,13 @@ AS
 		  ''Database Corruption Detected'' AS Finding ,
 		  ''http://BrentOzar.com/go/repair'' AS URL ,
 		  ( ''Database mirroring has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_db_mirroring_auto_page_repair.'' ) AS Details
-		  FROM (SELECT rp2.database_id, rp2.modification_time 
-			FROM sys.dm_db_mirroring_auto_page_repair rp2 
+		  FROM (SELECT rp2.database_id, rp2.modification_time
+			FROM sys.dm_db_mirroring_auto_page_repair rp2
 			WHERE rp2.[database_id] not in (
-			SELECT db2.[database_id] 
-			FROM sys.databases as db2 
+			SELECT db2.[database_id]
+			FROM sys.databases as db2
 			WHERE db2.[state] = 1
-			) ) as rp 
+			) ) as rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
 		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) ;'
 								EXECUTE(@StringToExecute)
@@ -2176,7 +2176,7 @@ AS
 								WHERE   SUSER_SNAME(owner_sid) <> SUSER_SNAME(0x01)
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL);
 					END
 
@@ -2327,7 +2327,7 @@ AS
 								FROM    sys.databases
 								WHERE   name NOT IN ( SELECT DISTINCT
 																DatabaseName
-													  FROM      #SkipChecks 
+													  FROM      #SkipChecks
 													  WHERE CheckID IS NULL)
 										AND compatibility_level <> ( SELECT
 																  compatibility_level
@@ -2621,7 +2621,7 @@ AS
 											'Poison Wait Detected: CMEMTHREAD & NUMA'  AS Finding ,
 											'http://BrentOzar.com/go/poison' AS URL ,
 											CAST(SUM([wait_time_ms]) / 1000 AS VARCHAR(100)) + ' seconds of this wait have been recorded. In servers with over 8 cores per NUMA node, when CMEMTHREAD waits are a bottleneck, trace flag 8048 may be needed.'
-									FROM sys.dm_os_nodes n 
+									FROM sys.dm_os_nodes n
 									INNER JOIN sys.[dm_os_wait_stats] w ON w.wait_type = 'CMEMTHREAD'
 									WHERE n.node_id = 0 AND n.online_scheduler_count >= 8
 									GROUP BY w.wait_type
@@ -2765,7 +2765,7 @@ AS
 							SELECT TOP 1 125, 10, 'Performance', 'Plan Cache Erased Recently', 'http://BrentOzar.com/askbrent/plan-cache-erased-recently/',
 								'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. Someone ran DBCC FREEPROCCACHE, restarted SQL Server, or it is under horrific memory pressure.'
 							FROM sys.dm_exec_query_stats WITH (NOLOCK)
-							ORDER BY creation_time	
+							ORDER BY creation_time
 						END;
 
 						IF EXISTS (SELECT * FROM sys.configurations WHERE name = 'priority boost' AND (value = 1 OR value_in_use = 1))
@@ -2812,7 +2812,7 @@ AS
 								END;
 
 							END;
-							
+
 						/* Reliability - Dangerous Build of SQL Server (Corruption) */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
@@ -2948,7 +2948,7 @@ AS
 				                        WHERE mf.physical_name LIKE '\\%'
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
-											                        FROM    #SkipChecks 
+											                        FROM    #SkipChecks
 																	WHERE CheckID IS NULL)
 	                        END
 
@@ -2978,7 +2978,7 @@ AS
 				                        WHERE mf.physical_name LIKE 'http://%'
 						                        AND d.name NOT IN ( SELECT DISTINCT
 													                        DatabaseName
-											                        FROM    #SkipChecks 
+											                        FROM    #SkipChecks
 																	WHERE CheckID IS NULL)
 	                        END
 
@@ -3115,59 +3115,59 @@ AS
 						*/
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_supplemental_logging_enabled', 0, 131, 210, 'Supplemental Logging Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_supplemental_logging_enabled' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'snapshot_isolation_state', 0, 132, 210, 'Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'snapshot_isolation_state' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_read_committed_snapshot_on', 0, 133, 210, 'Read Committed Snapshot Isolation Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_read_committed_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_auto_create_stats_incremental_on', 0, 134, 210, 'Auto Create Stats Incremental Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_auto_create_stats_incremental_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_ansi_null_default_on', 0, 135, 210, 'ANSI NULL Default Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_ansi_null_default_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_recursive_triggers_on', 0, 136, 210, 'Recursive Triggers Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_recursive_triggers_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_trustworthy_on', 0, 137, 210, 'Trustworthy Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_trustworthy_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_parameterization_forced', 0, 138, 210, 'Forced Parameterization Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_parameterization_forced' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_query_store_on', 0, 139, 210, 'Query Store Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_query_store_on' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_cdc_enabled', 0, 140, 210, 'Change Data Capture Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_cdc_enabled' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'containment', 0, 141, 210, 'Containment Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'containment' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'target_recovery_time_in_seconds', 0, 142, 210, 'Target Recovery Time Changed', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'target_recovery_time_in_seconds' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'delayed_durability', 0, 143, 210, 'Delayed Durability Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'delayed_durability' AND object_id = OBJECT_ID('sys.databases');
 						INSERT INTO #DatabaseDefaults
 						  SELECT 'is_memory_optimized_elevate_to_snapshot_on', 0, 144, 210, 'Memory Optimized Enabled', 'http://BrentOzar.com/go/dbdefaults', NULL
-						  FROM sys.all_columns 
+						  FROM sys.all_columns
 						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases');
 
 						DECLARE DatabaseDefaultsLoop CURSOR FOR
@@ -3177,7 +3177,7 @@ AS
 						OPEN DatabaseDefaultsLoop
 						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails
 						WHILE @@FETCH_STATUS = 0
-						BEGIN 
+						BEGIN
 
 						    SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 						       SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
@@ -3185,12 +3185,12 @@ AS
 						        WHERE d.database_id > 4 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL);';
 						    EXEC (@StringToExecute);
 
-						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails 
+						FETCH NEXT FROM DatabaseDefaultsLoop into @CurrentName, @CurrentDefaultValue, @CurrentCheckID, @CurrentPriority, @CurrentFinding, @CurrentURL, @CurrentDetails
 						END
 
 						CLOSE DatabaseDefaultsLoop
 						DEALLOCATE DatabaseDefaultsLoop;
-							
+
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
@@ -3548,7 +3548,7 @@ AS
 														WHERE   dbname IS NOT NULL
 																AND dbname NOT IN ( SELECT DISTINCT
 																						  DatabaseName
-																					FROM  #SkipChecks 
+																					FROM  #SkipChecks
 																					WHERE CheckID IS NULL)
 												DROP TABLE #partdb
 											END
@@ -4075,7 +4075,7 @@ AS
 									WHERE   DB2.DbName NOT IN ( SELECT DISTINCT
 																  DatabaseName
 																FROM
-																  #SkipChecks 
+																  #SkipChecks
 																WHERE CheckID IS NULL)
 											AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 																  -14,
@@ -4333,7 +4333,7 @@ AS
 										AND name NOT LIKE 'ReportServer%'
 										AND name NOT IN ( SELECT DISTINCT
 																  DatabaseName
-														  FROM    #SkipChecks 
+														  FROM    #SkipChecks
 														  WHERE CheckID IS NULL)
 										AND collation_name <> ( SELECT
 																  collation_name
@@ -4714,7 +4714,7 @@ AS
 											FROM    #SkipChecks
 											WHERE   DatabaseName IS NULL AND CheckID = 152 )
 							BEGIN
-								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CPUMSsinceStartup AND waiting_tasks_count > 0 
+								IF EXISTS (SELECT * FROM sys.dm_os_wait_stats WHERE wait_time_ms > .1 * @CPUMSsinceStartup AND waiting_tasks_count > 0
 											AND wait_type NOT IN ('REQUEST_FOR_DEADLOCK_SEARCH',
 												'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',
 												'SQLTRACE_BUFFER_FLUSH',
@@ -4816,21 +4816,21 @@ AS
 													, CAST(ROW_NUMBER() OVER(ORDER BY os.wait_time_ms DESC) AS NVARCHAR(10)) + N' - ' + os.wait_type AS Finding
 													,'http://BrentOzar.com/go/waits' AS URL
 													, Details = CAST(CAST(SUM(os.wait_time_ms / 1000.0 / 60 / 60) OVER (PARTITION BY os.wait_type) AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' hours of waits, ' +
-													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' + 
+													CAST(CAST((SUM(60.0 * os.wait_time_ms) OVER (PARTITION BY os.wait_type) ) / @MSSinceStartup  AS NUMERIC(10,1)) AS NVARCHAR(20)) + N' minutes average wait time per hour, ' +
 													CAST(CAST(
-														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														100.* SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
 														/ (1. * SUM(os.wait_time_ms) OVER () )
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' + 
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% of waits, ' +
 													CAST(CAST(
-														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type) 
+														100. * SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type)
 														/ (1. * SUM(os.wait_time_ms) OVER ())
-														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' + 
+														AS NUMERIC(10,1)) AS NVARCHAR(40)) + N'% signal wait, ' +
 													CAST(SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS NVARCHAR(40)) + N' waiting tasks, ' +
 													CAST(CASE WHEN  SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) > 0
 													THEN
 														CAST(
 															SUM(os.wait_time_ms) OVER (PARTITION BY os.wait_type)
-																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type)) 
+																/ (1. * SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type))
 															AS NUMERIC(10,1))
 													ELSE 0 END AS NVARCHAR(40)) + N' ms average wait time.'
 											FROM    os
@@ -4850,7 +4850,7 @@ AS
 											)
 										VALUES (153, 240, 'Wait Stats', 'No Significant Waits Detected', 'http://BrentOzar.com/go/waits', 'This server might be just sitting around idle, or someone may have cleared wait stats recently.');
 								END
-							END /* CheckID 152 */    
+							END /* CheckID 152 */
 
 					END /* IF @CheckServerInfo = 1 */
 			END /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
@@ -4948,7 +4948,7 @@ AS
 						  GETDATE() ,
 						  'http://www.BrentOzar.com/blitz/' ,
 						  'Captain''s log: stardate something and something...';
-						  
+
 				IF @EmailRecipients IS NOT NULL
 					BEGIN
 					/* Database mail won't work off a local temp table. I'm not happy about this hacky workaround either. */
@@ -5069,7 +5069,7 @@ AS
 					END
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
+						IF(@SkipDisplayMessages = 0) RAISERROR ('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0)
 					END
 
 

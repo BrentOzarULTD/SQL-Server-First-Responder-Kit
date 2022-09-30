@@ -28,6 +28,7 @@ ALTER PROCEDURE dbo.sp_BlitzInMemoryOLTP(
 	  , @Version           VARCHAR(30)    = NULL OUTPUT
 	  , @VersionDate       DATETIME       = NULL OUTPUT
       , @VersionCheckMode  BIT            = 0
+    ,@SkipDisplayMessages BIT = 0 /* Will skip display messages */
 )
 /*
 .SYNOPSIS

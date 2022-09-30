@@ -7,13 +7,13 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @command             nvarchar(max) = NULL,
   @replace_character   nchar(1) = N'?',
   @print_dbname        bit = 0,
-  @select_dbname       bit = 0, 
-  @print_command       bit = 0, 
+  @select_dbname       bit = 0,
+  @print_command       bit = 0,
   @print_command_only  bit = 0,
   @suppress_quotename  bit = 0, -- use with caution
   @system_only         bit = 0,
   @user_only           bit = 0,
-  @name_pattern        nvarchar(300)  = N'%', 
+  @name_pattern        nvarchar(300)  = N'%',
   @database_list       nvarchar(max)  = NULL,
   @exclude_pattern     nvarchar(300)  = NULL,
   @exclude_list        nvarchar(max)  = NULL,
@@ -24,11 +24,12 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @is_auto_close_on    bit = NULL,
   @is_auto_shrink_on   bit = NULL,
   @is_broker_enabled   bit = NULL,
-  @user_access         nvarchar(128)  = NULL, 
+  @user_access         nvarchar(128)  = NULL,
   @Help                BIT = 0,
   @Version             VARCHAR(30)    = NULL OUTPUT,
   @VersionDate         DATETIME       = NULL OUTPUT,
-  @VersionCheckMode    BIT            = 0
+  @VersionCheckMode    BIT            = 0,
+  @SkipDisplayMessages BIT = 0 /* Will skip display messages */
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
@@ -36,50 +37,50 @@ BEGIN
   SET STATISTICS XML OFF;
 
   SELECT @Version = '8.10', @VersionDate = '20220718';
-  
+
   IF(@VersionCheckMode = 1)
   BEGIN
 	RETURN;
   END;
-  
+
   IF @Help = 1
 
 	BEGIN
-	
+
 		PRINT '
 		/*
 			sp_ineachdb from http://FirstResponderKit.org
-			
+
 			This script will execute a command against multiple databases.
-		
+
 			To learn more, visit http://FirstResponderKit.org where you can download new
 			versions for free, watch training videos on how it works, get more info on
 			the findings, contribute your own code, and more.
-		
+
 			Known limitations of this version:
 			 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 			 - Tastes awful with marmite.
-		
+
 			Unknown limitations of this version:
 			 - None.  (If we knew them, they would be known. Duh.)
-		
+
 		     Changes - for the full list of improvements and fixes in this version, see:
 		     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-		
+
 		    MIT License
-			
+
 			Copyright (c) 2021 Brent Ozar Unlimited
-		
+
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
 			in the Software without restriction, including without limitation the rights
 			to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 			copies of the Software, and to permit persons to whom the Software is
 			furnished to do so, subject to the following conditions:
-		
+
 			The above copyright notice and this permission notice shall be included in all
 			copies or substantial portions of the Software.
-		
+
 			THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 			IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 			FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -87,10 +88,10 @@ BEGIN
 			LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 			OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 			SOFTWARE.
-		
+
 		*/
 		';
-		
+
 		RETURN -1;
 	END
 
@@ -117,12 +118,12 @@ BEGIN
     ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@database_list)),
     names AS
     (
-      SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@database_list, n, 
+      SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@database_list, n,
         CHARINDEX(N',', @database_list + N',', n) - n), 1)))
-      FROM n 
+      FROM n
       WHERE SUBSTRING(N',' + @database_list, n, 1) = N','
-    ) 
-    INSERT #ineachdb(id,name,is_distributor) 
+    )
+    INSERT #ineachdb(id,name,is_distributor)
     SELECT d.database_id, d.name, d.is_distributor
       FROM sys.databases AS d
       WHERE EXISTS (SELECT 1 FROM names WHERE name = d.name)
@@ -134,18 +135,18 @@ BEGIN
   END
 
   -- now delete any that have been explicitly excluded - exclude trumps include
-  IF @exclude_list > N'' 
+  IF @exclude_list > N''
   -- comma-separated list of potentially valid/invalid/quoted/unquoted names
   BEGIN
     ;WITH n(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM n WHERE n <= LEN(@exclude_list)),
     names AS
     (
-      SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@exclude_list, n, 
+      SELECT name = LTRIM(RTRIM(PARSENAME(SUBSTRING(@exclude_list, n,
         CHARINDEX(N',', @exclude_list + N',', n) - n), 1)))
-      FROM n 
+      FROM n
       WHERE SUBSTRING(N',' + @exclude_list, n, 1) = N','
     )
-    DELETE d 
+    DELETE d
       FROM #ineachdb AS d
       INNER JOIN names
       ON names.name = d.name
@@ -168,7 +169,7 @@ AS (SELECT V.SrcList
          , 0 AS Quoted
     FROM (VALUES ('In', @database_list + ','), ('Out', @exclude_list + ',')) AS V (SrcList, DBList)
     UNION ALL
-	SELECT C.SrcList									
+	SELECT C.SrcList
 --       , IIF(V.Found = '[', '', SUBSTRING(C.DBList, 1, V.Place - 1))/*remove initial [*/
          , CASE WHEN V.Found = '[' THEN '' ELSE SUBSTRING(C.DBList, 1, V.Place - 1)  END  /*remove initial [*/
          , STUFF(C.DBList, 1, V.Place, '')
@@ -182,26 +183,26 @@ AS (SELECT V.SrcList
           AND C.InBracket = 0
     UNION ALL
     SELECT C.SrcList
---       , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/ 
-	     , ISNULL(C.Name,'') + ISNULL(SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1),'') /*Accumulates only one ] if escaped]] or none if end]*/ 
+--       , CONCAT(C.Name, SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1)) /*Accumulates only one ] if escaped]] or none if end]*/
+	     , ISNULL(C.Name,'') + ISNULL(SUBSTRING(C.DBList, 1, V.Place + W.DoubleBracket - 1),'') /*Accumulates only one ] if escaped]] or none if end]*/
          , STUFF(C.DBList, 1, V.Place + W.DoubleBracket, '')
          , W.DoubleBracket
          , 1
     FROM C
         CROSS APPLY (VALUES (CHARINDEX(']', C.DBList))) AS V (Place)
 	--  CROSS APPLY (VALUES (IIF(SUBSTRING(C.DBList, V.Place + 1, 1) = ']', 1, 0))) AS W (DoubleBracket)
-        CROSS APPLY (VALUES (CASE WHEN SUBSTRING(C.DBList, V.Place + 1, 1) = ']' THEN 1 ELSE 0 END)) AS W (DoubleBracket)							 				 
+        CROSS APPLY (VALUES (CASE WHEN SUBSTRING(C.DBList, V.Place + 1, 1) = ']' THEN 1 ELSE 0 END)) AS W (DoubleBracket)
     WHERE C.DBList > ''
           AND C.InBracket = 1)
    , F
 AS (SELECT C.SrcList
-         , CASE WHEN C.Quoted = 0 THEN 
+         , CASE WHEN C.Quoted = 0 THEN
                 SUBSTRING(C.Name, PATINDEX(@NoSpaces, Name), DATALENGTH (Name)/2 - PATINDEX(@NoSpaces, Name) - PATINDEX(@NoSpaces, REVERSE(Name))+2)
-             ELSE C.Name END						   
+             ELSE C.Name END
  AS name
     FROM C
     WHERE C.InBracket = 0
-          AND C.Name > '')																	 
+          AND C.Name > '')
 INSERT #ineachdb(id,name,is_distributor)
 SELECT d.database_id
      , d.name
@@ -220,7 +221,7 @@ OPTION (MAXRECURSION 0);
      OR name LIKE @exclude_pattern
      OR EXISTS
      (
-       SELECT 1 
+       SELECT 1
          FROM sys.databases AS d
          WHERE d.database_id = dbs.id
          AND NOT
@@ -237,9 +238,9 @@ OPTION (MAXRECURSION 0);
   -- if a user access is specified, remove any that are NOT in that state
   IF @user_access IN (N'SINGLE_USER', N'MULTI_USER', N'RESTRICTED_USER')
   BEGIN
-    DELETE #ineachdb WHERE 
+    DELETE #ineachdb WHERE
       CONVERT(nvarchar(128), DATABASEPROPERTYEX(name, 'UserAccess')) <> @user_access;
-  END  
+  END
 
   -- finally, remove any that are not *fully* online or we can't access
   DELETE dbs FROM #ineachdb AS dbs
@@ -248,7 +249,7 @@ OPTION (MAXRECURSION 0);
     SELECT 1 FROM sys.databases
       WHERE database_id = dbs.id
       AND
-      ( 
+      (
         @state_desc = N'ONLINE' AND
         (
           [state] & 992 <> 0         -- inaccessible
@@ -261,17 +262,17 @@ OPTION (MAXRECURSION 0);
       )
   );
 
-  -- from Andy Mallon / First Responders Kit. Make sure that if we're an 
+  -- from Andy Mallon / First Responders Kit. Make sure that if we're an
   -- AG secondary, we skip any database where allow connections is off
   IF @SQLVersion >= 11 AND 3 = (SELECT COUNT(*) FROM sys.all_objects WHERE name IN('availability_replicas','dm_hadr_availability_group_states','dm_hadr_database_replica_states'))
   BEGIN
     DELETE dbs FROM #ineachdb AS dbs
     WHERE EXISTS
           (
-            SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
+            SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs
               INNER JOIN sys.availability_replicas AS ar
               ON ar.replica_id = drs.replica_id
-              INNER JOIN sys.dm_hadr_availability_group_states ags 
+              INNER JOIN sys.dm_hadr_availability_group_states ags
               ON ags.group_id = ar.group_id
               WHERE drs.database_id = dbs.id
               AND ar.secondary_role_allow_connections = 0
@@ -282,7 +283,7 @@ OPTION (MAXRECURSION 0);
   -- Well, if we deleted them all...
   IF NOT EXISTS (SELECT 1 FROM #ineachdb)
   BEGIN
-    RAISERROR(N'No databases to process.', 1, 0);
+    IF(@SkipDisplayMessages = 0) RAISERROR (N'No databases to process.', 1, 0);
     RETURN;
   END
 
@@ -328,13 +329,13 @@ OPTION (MAXRECURSION 0);
 
     BEGIN CATCH
       SET @msg2 = ERROR_MESSAGE();
-      RAISERROR(@msg1, 1, 0, @db, @msg2);
+      IF(@SkipDisplayMessages = 0) RAISERROR (@msg1, 1, 0, @db, @msg2);
     END CATCH
 
     FETCH NEXT FROM dbs INTO @db, @dbq;
   END
 
-  CLOSE dbs; 
+  CLOSE dbs;
   DEALLOCATE dbs;
 END
 GO

@@ -2,7 +2,7 @@ IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_BlitzWho AS RETURN 0;')
 GO
 
-ALTER PROCEDURE dbo.sp_BlitzWho 
+ALTER PROCEDURE dbo.sp_BlitzWho
 	@Help TINYINT = 0 ,
 	@ShowSleepingSPIDs TINYINT = 0,
 	@ExpertMode BIT = 0,
@@ -26,15 +26,16 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
-	@SortOrder NVARCHAR(256) = N'elapsed time'
+	@SortOrder NVARCHAR(256) = N'elapsed time',
+    @SkipDisplayMessages BIT = 0 /* Will skip display messages */
 AS
 BEGIN
 	SET NOCOUNT ON;
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-	
+
 	SELECT @Version = '8.10', @VersionDate = '20220718';
-    
+
 	IF(@VersionCheckMode = 1)
 	BEGIN
 		RETURN;
@@ -58,7 +59,7 @@ Known limitations of this version:
  - Outputting to table is only supported with SQL Server 2012 and higher.
  - If @OutputDatabaseName and @OutputSchemaName are populated, the database and
    schema must already exist. We will not create them, only the table.
-   
+
 MIT License
 
 Copyright (c) 2021 Brent Ozar Unlimited
@@ -95,7 +96,7 @@ DECLARE  @ProductVersion NVARCHAR(128)
 		,@StringToExecute NVARCHAR(MAX)
 		,@OutputTableCleanupDate DATE
 		,@SessionWaits BIT = 0
-		,@SessionWaitsSQL NVARCHAR(MAX) = 
+		,@SessionWaitsSQL NVARCHAR(MAX) =
 						 N'LEFT JOIN ( SELECT DISTINCT
 												wait.session_id ,
 												( SELECT TOP  5 waitwait.wait_type + N'' (''
@@ -105,7 +106,7 @@ DECLARE  @ProductVersion NVARCHAR(128)
 												 WHERE  waitwait.session_id = wait.session_id
 												 GROUP BY  waitwait.wait_type
 												 HAVING SUM(waitwait.wait_time_ms) > 5
-												 ORDER BY 1												 
+												 ORDER BY 1
 												 FOR
 												 XML PATH('''') ) AS session_wait_info
 										FROM sys.dm_exec_session_wait_stats AS wait ) AS wt2
@@ -114,7 +115,7 @@ DECLARE  @ProductVersion NVARCHAR(128)
 						ON   r.sql_handle = session_stats.sql_handle
 								AND r.plan_handle = session_stats.plan_handle
 						  AND r.statement_start_offset = session_stats.statement_start_offset
-						  AND r.statement_end_offset = session_stats.statement_end_offset' 
+						  AND r.statement_end_offset = session_stats.statement_end_offset'
 		,@ObjectFullName NVARCHAR(2000)
 		,@OutputTableNameQueryStats_View NVARCHAR(256)
 		,@LineFeed NVARCHAR(MAX) /* Had to set as MAX up from 10 as it was truncating the view creation*/;
@@ -262,35 +263,35 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 
 	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
-	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
@@ -341,204 +342,204 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'    [ID], ' + @LineFeed
 				+ N'    [ServerName], ' + @LineFeed
 				+ N'    [CheckDate], ' + @LineFeed
-				+ N'    [elapsed_time], ' + @LineFeed 
-				+ N'    [session_id], ' + @LineFeed 
-				+ N'    [database_name], ' + @LineFeed 
-				+ N'    [query_text_snippet], ' + @LineFeed 
-				+ N'    [query_plan], ' + @LineFeed 
-				+ N'    [live_query_plan], ' + @LineFeed 
-				+ N'    [query_cost], ' + @LineFeed 
-				+ N'    [status], ' + @LineFeed 
-				+ N'    [wait_info], ' + @LineFeed 
-				+ N'    [wait_resource], ' + @LineFeed 
-				+ N'    [top_session_waits], ' + @LineFeed 
-				+ N'    [blocking_session_id], ' + @LineFeed 
-				+ N'    [open_transaction_count], ' + @LineFeed 
-				+ N'    [is_implicit_transaction], ' + @LineFeed 
-				+ N'    [nt_domain], ' + @LineFeed 
-				+ N'    [host_name], ' + @LineFeed 
-				+ N'    [login_name], ' + @LineFeed 
-				+ N'    [nt_user_name], ' + @LineFeed 
-				+ N'    [program_name], ' + @LineFeed 
-				+ N'    [fix_parameter_sniffing], ' + @LineFeed 
-				+ N'    [client_interface_name], ' + @LineFeed 
-				+ N'    [login_time], ' + @LineFeed 
-				+ N'    [start_time], ' + @LineFeed 
-				+ N'    [request_time], ' + @LineFeed 
-				+ N'    [request_cpu_time], ' + @LineFeed 
-				+ N'    [degree_of_parallelism], ' + @LineFeed 
-				+ N'    [request_logical_reads], ' + @LineFeed 
-				+ N'    [Logical_Reads_MB], ' + @LineFeed 
-				+ N'    [request_writes], ' + @LineFeed 
-				+ N'    [Logical_Writes_MB], ' + @LineFeed 
-				+ N'    [request_physical_reads], ' + @LineFeed 
-				+ N'    [Physical_reads_MB], ' + @LineFeed 
-				+ N'    [session_cpu], ' + @LineFeed 
-				+ N'    [session_logical_reads], ' + @LineFeed 
-				+ N'    [session_logical_reads_MB], ' + @LineFeed 
-				+ N'    [session_physical_reads], ' + @LineFeed 
-				+ N'    [session_physical_reads_MB], ' + @LineFeed 
-				+ N'    [session_writes], ' + @LineFeed 
-				+ N'    [session_writes_MB], ' + @LineFeed 
-				+ N'    [tempdb_allocations_mb], ' + @LineFeed 
-				+ N'    [memory_usage], ' + @LineFeed 
-				+ N'    [estimated_completion_time], ' + @LineFeed 
-				+ N'    [percent_complete], ' + @LineFeed 
-				+ N'    [deadlock_priority], ' + @LineFeed 
-				+ N'    [transaction_isolation_level], ' + @LineFeed 
-				+ N'    [last_dop], ' + @LineFeed 
-				+ N'    [min_dop], ' + @LineFeed 
-				+ N'    [max_dop], ' + @LineFeed 
-				+ N'    [last_grant_kb], ' + @LineFeed 
-				+ N'    [min_grant_kb], ' + @LineFeed 
-				+ N'    [max_grant_kb], ' + @LineFeed 
-				+ N'    [last_used_grant_kb], ' + @LineFeed 
-				+ N'    [min_used_grant_kb], ' + @LineFeed 
-				+ N'    [max_used_grant_kb], ' + @LineFeed 
-				+ N'    [last_ideal_grant_kb], ' + @LineFeed 
-				+ N'    [min_ideal_grant_kb], ' + @LineFeed 
-				+ N'    [max_ideal_grant_kb], ' + @LineFeed 
-				+ N'    [last_reserved_threads], ' + @LineFeed 
-				+ N'    [min_reserved_threads], ' + @LineFeed 
-				+ N'    [max_reserved_threads], ' + @LineFeed 
-				+ N'    [last_used_threads], ' + @LineFeed 
-				+ N'    [min_used_threads], ' + @LineFeed 
-				+ N'    [max_used_threads], ' + @LineFeed 
-				+ N'    [grant_time], ' + @LineFeed 
-				+ N'    [requested_memory_kb], ' + @LineFeed 
-				+ N'    [grant_memory_kb], ' + @LineFeed 
-				+ N'    [is_request_granted], ' + @LineFeed 
-				+ N'    [required_memory_kb], ' + @LineFeed 
-				+ N'    [query_memory_grant_used_memory_kb], ' + @LineFeed 
-				+ N'    [ideal_memory_kb], ' + @LineFeed 
-				+ N'    [is_small], ' + @LineFeed 
-				+ N'    [timeout_sec], ' + @LineFeed 
-				+ N'    [resource_semaphore_id], ' + @LineFeed 
-				+ N'    [wait_order], ' + @LineFeed 
-				+ N'    [wait_time_ms], ' + @LineFeed 
-				+ N'    [next_candidate_for_memory_grant], ' + @LineFeed 
-				+ N'    [target_memory_kb], ' + @LineFeed 
-				+ N'    [max_target_memory_kb], ' + @LineFeed 
-				+ N'    [total_memory_kb], ' + @LineFeed 
-				+ N'    [available_memory_kb], ' + @LineFeed 
-				+ N'    [granted_memory_kb], ' + @LineFeed 
-				+ N'    [query_resource_semaphore_used_memory_kb], ' + @LineFeed 
-				+ N'    [grantee_count], ' + @LineFeed 
-				+ N'    [waiter_count], ' + @LineFeed 
-				+ N'    [timeout_error_count], ' + @LineFeed 
-				+ N'    [forced_grant_count], ' + @LineFeed 
-				+ N'    [workload_group_name], ' + @LineFeed 
-				+ N'    [resource_pool_name], ' + @LineFeed 
-				+ N'    [context_info], ' + @LineFeed 
-				+ N'    [query_hash], ' + @LineFeed 
-				+ N'    [query_plan_hash], ' + @LineFeed 
-				+ N'    [sql_handle], ' + @LineFeed 
-				+ N'    [plan_handle], ' + @LineFeed 
-				+ N'    [statement_start_offset], ' + @LineFeed 
+				+ N'    [elapsed_time], ' + @LineFeed
+				+ N'    [session_id], ' + @LineFeed
+				+ N'    [database_name], ' + @LineFeed
+				+ N'    [query_text_snippet], ' + @LineFeed
+				+ N'    [query_plan], ' + @LineFeed
+				+ N'    [live_query_plan], ' + @LineFeed
+				+ N'    [query_cost], ' + @LineFeed
+				+ N'    [status], ' + @LineFeed
+				+ N'    [wait_info], ' + @LineFeed
+				+ N'    [wait_resource], ' + @LineFeed
+				+ N'    [top_session_waits], ' + @LineFeed
+				+ N'    [blocking_session_id], ' + @LineFeed
+				+ N'    [open_transaction_count], ' + @LineFeed
+				+ N'    [is_implicit_transaction], ' + @LineFeed
+				+ N'    [nt_domain], ' + @LineFeed
+				+ N'    [host_name], ' + @LineFeed
+				+ N'    [login_name], ' + @LineFeed
+				+ N'    [nt_user_name], ' + @LineFeed
+				+ N'    [program_name], ' + @LineFeed
+				+ N'    [fix_parameter_sniffing], ' + @LineFeed
+				+ N'    [client_interface_name], ' + @LineFeed
+				+ N'    [login_time], ' + @LineFeed
+				+ N'    [start_time], ' + @LineFeed
+				+ N'    [request_time], ' + @LineFeed
+				+ N'    [request_cpu_time], ' + @LineFeed
+				+ N'    [degree_of_parallelism], ' + @LineFeed
+				+ N'    [request_logical_reads], ' + @LineFeed
+				+ N'    [Logical_Reads_MB], ' + @LineFeed
+				+ N'    [request_writes], ' + @LineFeed
+				+ N'    [Logical_Writes_MB], ' + @LineFeed
+				+ N'    [request_physical_reads], ' + @LineFeed
+				+ N'    [Physical_reads_MB], ' + @LineFeed
+				+ N'    [session_cpu], ' + @LineFeed
+				+ N'    [session_logical_reads], ' + @LineFeed
+				+ N'    [session_logical_reads_MB], ' + @LineFeed
+				+ N'    [session_physical_reads], ' + @LineFeed
+				+ N'    [session_physical_reads_MB], ' + @LineFeed
+				+ N'    [session_writes], ' + @LineFeed
+				+ N'    [session_writes_MB], ' + @LineFeed
+				+ N'    [tempdb_allocations_mb], ' + @LineFeed
+				+ N'    [memory_usage], ' + @LineFeed
+				+ N'    [estimated_completion_time], ' + @LineFeed
+				+ N'    [percent_complete], ' + @LineFeed
+				+ N'    [deadlock_priority], ' + @LineFeed
+				+ N'    [transaction_isolation_level], ' + @LineFeed
+				+ N'    [last_dop], ' + @LineFeed
+				+ N'    [min_dop], ' + @LineFeed
+				+ N'    [max_dop], ' + @LineFeed
+				+ N'    [last_grant_kb], ' + @LineFeed
+				+ N'    [min_grant_kb], ' + @LineFeed
+				+ N'    [max_grant_kb], ' + @LineFeed
+				+ N'    [last_used_grant_kb], ' + @LineFeed
+				+ N'    [min_used_grant_kb], ' + @LineFeed
+				+ N'    [max_used_grant_kb], ' + @LineFeed
+				+ N'    [last_ideal_grant_kb], ' + @LineFeed
+				+ N'    [min_ideal_grant_kb], ' + @LineFeed
+				+ N'    [max_ideal_grant_kb], ' + @LineFeed
+				+ N'    [last_reserved_threads], ' + @LineFeed
+				+ N'    [min_reserved_threads], ' + @LineFeed
+				+ N'    [max_reserved_threads], ' + @LineFeed
+				+ N'    [last_used_threads], ' + @LineFeed
+				+ N'    [min_used_threads], ' + @LineFeed
+				+ N'    [max_used_threads], ' + @LineFeed
+				+ N'    [grant_time], ' + @LineFeed
+				+ N'    [requested_memory_kb], ' + @LineFeed
+				+ N'    [grant_memory_kb], ' + @LineFeed
+				+ N'    [is_request_granted], ' + @LineFeed
+				+ N'    [required_memory_kb], ' + @LineFeed
+				+ N'    [query_memory_grant_used_memory_kb], ' + @LineFeed
+				+ N'    [ideal_memory_kb], ' + @LineFeed
+				+ N'    [is_small], ' + @LineFeed
+				+ N'    [timeout_sec], ' + @LineFeed
+				+ N'    [resource_semaphore_id], ' + @LineFeed
+				+ N'    [wait_order], ' + @LineFeed
+				+ N'    [wait_time_ms], ' + @LineFeed
+				+ N'    [next_candidate_for_memory_grant], ' + @LineFeed
+				+ N'    [target_memory_kb], ' + @LineFeed
+				+ N'    [max_target_memory_kb], ' + @LineFeed
+				+ N'    [total_memory_kb], ' + @LineFeed
+				+ N'    [available_memory_kb], ' + @LineFeed
+				+ N'    [granted_memory_kb], ' + @LineFeed
+				+ N'    [query_resource_semaphore_used_memory_kb], ' + @LineFeed
+				+ N'    [grantee_count], ' + @LineFeed
+				+ N'    [waiter_count], ' + @LineFeed
+				+ N'    [timeout_error_count], ' + @LineFeed
+				+ N'    [forced_grant_count], ' + @LineFeed
+				+ N'    [workload_group_name], ' + @LineFeed
+				+ N'    [resource_pool_name], ' + @LineFeed
+				+ N'    [context_info], ' + @LineFeed
+				+ N'    [query_hash], ' + @LineFeed
+				+ N'    [query_plan_hash], ' + @LineFeed
+				+ N'    [sql_handle], ' + @LineFeed
+				+ N'    [plan_handle], ' + @LineFeed
+				+ N'    [statement_start_offset], ' + @LineFeed
 				+ N'    [statement_end_offset] ' + @LineFeed
 				+ N'    FROM ' + @LineFeed
 				+ N'        ( ' + @LineFeed
 				+ N'            SELECT ' + @LineFeed
 				+ N'                   [ID], ' + @LineFeed
-				+ N'			       [ServerName], ' + @LineFeed 
-				+ N'			       [CheckDate], ' + @LineFeed 
-				+ N'			       [elapsed_time], ' + @LineFeed 
-				+ N'			       [session_id], ' + @LineFeed 
-				+ N'			       [database_name], ' + @LineFeed 
+				+ N'			       [ServerName], ' + @LineFeed
+				+ N'			       [CheckDate], ' + @LineFeed
+				+ N'			       [elapsed_time], ' + @LineFeed
+				+ N'			       [session_id], ' + @LineFeed
+				+ N'			       [database_name], ' + @LineFeed
 				+ N'			       /* Truncate the query text to aid performance of painting the rows in SSMS */ ' + @LineFeed
-				+ N'			       CAST([query_text] AS NVARCHAR(1000)) AS [query_text_snippet], ' + @LineFeed 
-				+ N'			       [query_plan], ' + @LineFeed 
-				+ N'			       [live_query_plan], ' + @LineFeed 
-				+ N'			       [query_cost], ' + @LineFeed 
-				+ N'			       [status], ' + @LineFeed 
-				+ N'			       [wait_info], ' + @LineFeed 
-				+ N'			       [wait_resource], ' + @LineFeed 
-				+ N'			       [top_session_waits], ' + @LineFeed 
-				+ N'			       [blocking_session_id], ' + @LineFeed 
-				+ N'			       [open_transaction_count], ' + @LineFeed 
-				+ N'			       [is_implicit_transaction], ' + @LineFeed 
-				+ N'			       [nt_domain], ' + @LineFeed 
-				+ N'			       [host_name], ' + @LineFeed 
-				+ N'			       [login_name], ' + @LineFeed 
-				+ N'			       [nt_user_name], ' + @LineFeed 
-				+ N'			       [program_name], ' + @LineFeed 
-				+ N'			       [fix_parameter_sniffing], ' + @LineFeed 
-				+ N'			       [client_interface_name], ' + @LineFeed 
-				+ N'			       [login_time], ' + @LineFeed 
-				+ N'			       [start_time], ' + @LineFeed 
-				+ N'			       [request_time], ' + @LineFeed 
-				+ N'			       [request_cpu_time], ' + @LineFeed 
-				+ N'			       [degree_of_parallelism], ' + @LineFeed 
-				+ N'			       [request_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed 
-				+ N'			       [request_writes], ' + @LineFeed 
-				+ N'			       ((CAST([request_writes] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed 
-				+ N'			       [request_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([request_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed 
-				+ N'			       [session_cpu], ' + @LineFeed 
-				+ N'			       [session_logical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed 
-				+ N'			       [session_physical_reads], ' + @LineFeed 
-				+ N'			       ((CAST([session_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed 
-				+ N'			       [session_writes], ' + @LineFeed 
-				+ N'			       ((CAST([session_writes] AS DECIMAL(38,2))* 8)/ 1024) [session_writes_MB], ' + @LineFeed 
-				+ N'			       [tempdb_allocations_mb], ' + @LineFeed 
-				+ N'			       [memory_usage], ' + @LineFeed 
-				+ N'			       [estimated_completion_time], ' + @LineFeed 
-				+ N'			       [percent_complete], ' + @LineFeed 
-				+ N'			       [deadlock_priority], ' + @LineFeed 
-				+ N'			       [transaction_isolation_level], ' + @LineFeed 
-				+ N'			       [last_dop], ' + @LineFeed 
-				+ N'			       [min_dop], ' + @LineFeed 
-				+ N'			       [max_dop], ' + @LineFeed 
-				+ N'			       [last_grant_kb], ' + @LineFeed 
-				+ N'			       [min_grant_kb], ' + @LineFeed 
-				+ N'			       [max_grant_kb], ' + @LineFeed 
-				+ N'			       [last_used_grant_kb], ' + @LineFeed 
-				+ N'			       [min_used_grant_kb], ' + @LineFeed 
-				+ N'			       [max_used_grant_kb], ' + @LineFeed 
-				+ N'			       [last_ideal_grant_kb], ' + @LineFeed 
-				+ N'			       [min_ideal_grant_kb], ' + @LineFeed 
-				+ N'			       [max_ideal_grant_kb], ' + @LineFeed 
-				+ N'			       [last_reserved_threads], ' + @LineFeed 
-				+ N'			       [min_reserved_threads], ' + @LineFeed 
-				+ N'			       [max_reserved_threads], ' + @LineFeed 
-				+ N'			       [last_used_threads], ' + @LineFeed 
-				+ N'			       [min_used_threads], ' + @LineFeed 
-				+ N'			       [max_used_threads], ' + @LineFeed 
-				+ N'			       [grant_time], ' + @LineFeed 
-				+ N'			       [requested_memory_kb], ' + @LineFeed 
-				+ N'			       [grant_memory_kb], ' + @LineFeed 
-				+ N'			       [is_request_granted], ' + @LineFeed 
-				+ N'			       [required_memory_kb], ' + @LineFeed 
-				+ N'			       [query_memory_grant_used_memory_kb], ' + @LineFeed 
-				+ N'			       [ideal_memory_kb], ' + @LineFeed 
-				+ N'			       [is_small], ' + @LineFeed 
-				+ N'			       [timeout_sec], ' + @LineFeed 
-				+ N'			       [resource_semaphore_id], ' + @LineFeed 
-				+ N'			       [wait_order], ' + @LineFeed 
-				+ N'			       [wait_time_ms], ' + @LineFeed 
-				+ N'			       [next_candidate_for_memory_grant], ' + @LineFeed 
-				+ N'			       [target_memory_kb], ' + @LineFeed 
-				+ N'			       [max_target_memory_kb], ' + @LineFeed 
-				+ N'			       [total_memory_kb], ' + @LineFeed 
-				+ N'			       [available_memory_kb], ' + @LineFeed 
-				+ N'			       [granted_memory_kb], ' + @LineFeed 
-				+ N'			       [query_resource_semaphore_used_memory_kb], ' + @LineFeed 
-				+ N'			       [grantee_count], ' + @LineFeed 
-				+ N'			       [waiter_count], ' + @LineFeed 
-				+ N'			       [timeout_error_count], ' + @LineFeed 
-				+ N'			       [forced_grant_count], ' + @LineFeed 
-				+ N'			       [workload_group_name], ' + @LineFeed 
-				+ N'			       [resource_pool_name], ' + @LineFeed 
-				+ N'			       [context_info], ' + @LineFeed 
-				+ N'			       [query_hash], ' + @LineFeed 
-				+ N'			       [query_plan_hash], ' + @LineFeed 
-				+ N'			       [sql_handle], ' + @LineFeed 
-				+ N'			       [plan_handle], ' + @LineFeed 
-				+ N'			       [statement_start_offset], ' + @LineFeed 
+				+ N'			       CAST([query_text] AS NVARCHAR(1000)) AS [query_text_snippet], ' + @LineFeed
+				+ N'			       [query_plan], ' + @LineFeed
+				+ N'			       [live_query_plan], ' + @LineFeed
+				+ N'			       [query_cost], ' + @LineFeed
+				+ N'			       [status], ' + @LineFeed
+				+ N'			       [wait_info], ' + @LineFeed
+				+ N'			       [wait_resource], ' + @LineFeed
+				+ N'			       [top_session_waits], ' + @LineFeed
+				+ N'			       [blocking_session_id], ' + @LineFeed
+				+ N'			       [open_transaction_count], ' + @LineFeed
+				+ N'			       [is_implicit_transaction], ' + @LineFeed
+				+ N'			       [nt_domain], ' + @LineFeed
+				+ N'			       [host_name], ' + @LineFeed
+				+ N'			       [login_name], ' + @LineFeed
+				+ N'			       [nt_user_name], ' + @LineFeed
+				+ N'			       [program_name], ' + @LineFeed
+				+ N'			       [fix_parameter_sniffing], ' + @LineFeed
+				+ N'			       [client_interface_name], ' + @LineFeed
+				+ N'			       [login_time], ' + @LineFeed
+				+ N'			       [start_time], ' + @LineFeed
+				+ N'			       [request_time], ' + @LineFeed
+				+ N'			       [request_cpu_time], ' + @LineFeed
+				+ N'			       [degree_of_parallelism], ' + @LineFeed
+				+ N'			       [request_logical_reads], ' + @LineFeed
+				+ N'			       ((CAST([request_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Reads_MB], ' + @LineFeed
+				+ N'			       [request_writes], ' + @LineFeed
+				+ N'			       ((CAST([request_writes] AS DECIMAL(38,2))* 8)/ 1024) [Logical_Writes_MB], ' + @LineFeed
+				+ N'			       [request_physical_reads], ' + @LineFeed
+				+ N'			       ((CAST([request_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [Physical_reads_MB], ' + @LineFeed
+				+ N'			       [session_cpu], ' + @LineFeed
+				+ N'			       [session_logical_reads], ' + @LineFeed
+				+ N'			       ((CAST([session_logical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_logical_reads_MB], ' + @LineFeed
+				+ N'			       [session_physical_reads], ' + @LineFeed
+				+ N'			       ((CAST([session_physical_reads] AS DECIMAL(38,2))* 8)/ 1024) [session_physical_reads_MB], ' + @LineFeed
+				+ N'			       [session_writes], ' + @LineFeed
+				+ N'			       ((CAST([session_writes] AS DECIMAL(38,2))* 8)/ 1024) [session_writes_MB], ' + @LineFeed
+				+ N'			       [tempdb_allocations_mb], ' + @LineFeed
+				+ N'			       [memory_usage], ' + @LineFeed
+				+ N'			       [estimated_completion_time], ' + @LineFeed
+				+ N'			       [percent_complete], ' + @LineFeed
+				+ N'			       [deadlock_priority], ' + @LineFeed
+				+ N'			       [transaction_isolation_level], ' + @LineFeed
+				+ N'			       [last_dop], ' + @LineFeed
+				+ N'			       [min_dop], ' + @LineFeed
+				+ N'			       [max_dop], ' + @LineFeed
+				+ N'			       [last_grant_kb], ' + @LineFeed
+				+ N'			       [min_grant_kb], ' + @LineFeed
+				+ N'			       [max_grant_kb], ' + @LineFeed
+				+ N'			       [last_used_grant_kb], ' + @LineFeed
+				+ N'			       [min_used_grant_kb], ' + @LineFeed
+				+ N'			       [max_used_grant_kb], ' + @LineFeed
+				+ N'			       [last_ideal_grant_kb], ' + @LineFeed
+				+ N'			       [min_ideal_grant_kb], ' + @LineFeed
+				+ N'			       [max_ideal_grant_kb], ' + @LineFeed
+				+ N'			       [last_reserved_threads], ' + @LineFeed
+				+ N'			       [min_reserved_threads], ' + @LineFeed
+				+ N'			       [max_reserved_threads], ' + @LineFeed
+				+ N'			       [last_used_threads], ' + @LineFeed
+				+ N'			       [min_used_threads], ' + @LineFeed
+				+ N'			       [max_used_threads], ' + @LineFeed
+				+ N'			       [grant_time], ' + @LineFeed
+				+ N'			       [requested_memory_kb], ' + @LineFeed
+				+ N'			       [grant_memory_kb], ' + @LineFeed
+				+ N'			       [is_request_granted], ' + @LineFeed
+				+ N'			       [required_memory_kb], ' + @LineFeed
+				+ N'			       [query_memory_grant_used_memory_kb], ' + @LineFeed
+				+ N'			       [ideal_memory_kb], ' + @LineFeed
+				+ N'			       [is_small], ' + @LineFeed
+				+ N'			       [timeout_sec], ' + @LineFeed
+				+ N'			       [resource_semaphore_id], ' + @LineFeed
+				+ N'			       [wait_order], ' + @LineFeed
+				+ N'			       [wait_time_ms], ' + @LineFeed
+				+ N'			       [next_candidate_for_memory_grant], ' + @LineFeed
+				+ N'			       [target_memory_kb], ' + @LineFeed
+				+ N'			       [max_target_memory_kb], ' + @LineFeed
+				+ N'			       [total_memory_kb], ' + @LineFeed
+				+ N'			       [available_memory_kb], ' + @LineFeed
+				+ N'			       [granted_memory_kb], ' + @LineFeed
+				+ N'			       [query_resource_semaphore_used_memory_kb], ' + @LineFeed
+				+ N'			       [grantee_count], ' + @LineFeed
+				+ N'			       [waiter_count], ' + @LineFeed
+				+ N'			       [timeout_error_count], ' + @LineFeed
+				+ N'			       [forced_grant_count], ' + @LineFeed
+				+ N'			       [workload_group_name], ' + @LineFeed
+				+ N'			       [resource_pool_name], ' + @LineFeed
+				+ N'			       [context_info], ' + @LineFeed
+				+ N'			       [query_hash], ' + @LineFeed
+				+ N'			       [query_plan_hash], ' + @LineFeed
+				+ N'			       [sql_handle], ' + @LineFeed
+				+ N'			       [plan_handle], ' + @LineFeed
+				+ N'			       [statement_start_offset], ' + @LineFeed
 				+ N'			       [statement_end_offset] ' + @LineFeed
-				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed 
+				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed
 				+ N'        ) AS [BlitzWho] ' + @LineFeed
 				+ N'INNER JOIN [MaxQueryDuration] ON [BlitzWho].[ID] = [MaxQueryDuration].[MaxID]; ' + @LineFeed
 				+ N''');'
@@ -554,25 +555,25 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 
  END
 
- IF OBJECT_ID('tempdb..#WhoReadableDBs') IS NOT NULL 
+ IF OBJECT_ID('tempdb..#WhoReadableDBs') IS NOT NULL
 	DROP TABLE #WhoReadableDBs;
 
-CREATE TABLE #WhoReadableDBs 
+CREATE TABLE #WhoReadableDBs
 (
 database_id INT
 );
 
 IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
-	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
+	IF(@SkipDisplayMessages = 0) RAISERROR ('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
 	EXEC('INSERT INTO #WhoReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME;');
 END
 
 SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-   
+
 						SET LOCK_TIMEOUT 1000; /* To avoid blocking on live query plans. See Github issue #2907. */
-						DECLARE @blocked TABLE 
+						DECLARE @blocked TABLE
 								(
 								    dbid SMALLINT NOT NULL,
 								    last_batch DATETIME NOT NULL,
@@ -585,11 +586,11 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 								    cpu INT NOT NULL,
 								    physical_io BIGINT NOT NULL,
 								    memusage INT NOT NULL
-								); 
-						
+								);
+
 						INSERT @blocked ( dbid, last_batch, open_tran, sql_handle, session_id, blocking_session_id, lastwaittype, waittime, cpu, physical_io, memusage )
 						SELECT
-							sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle, 
+							sys1.dbid, sys1.last_batch, sys1.open_tran, sys1.sql_handle,
 							sys2.spid AS session_id, sys2.blocked AS blocking_session_id, sys2.lastwaittype, sys2.waittime, sys2.cpu, sys2.physical_io, sys2.memusage
 						FROM sys.sysprocesses AS sys1
 						JOIN sys.sysprocesses AS sys2
@@ -597,12 +598,12 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						'+CASE
 							WHEN (@GetOuterCommand = 1 AND (NOT EXISTS(SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_input_buffer'))) THEN N'
 						DECLARE @session_id SMALLINT;
-						DECLARE @Sessions TABLE 
+						DECLARE @Sessions TABLE
 						(
 							session_id INT
 						);
 
-						DECLARE @inputbuffer TABLE 
+						DECLARE @inputbuffer TABLE
 						(
 						ID INT IDENTITY(1,1),
 						session_id INT,
@@ -612,18 +613,18 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						);
 
 						DECLARE inputbuffer_cursor
-						
+
 						CURSOR LOCAL FAST_FORWARD
-						FOR 
+						FOR
 						SELECT session_id
 						FROM sys.dm_exec_sessions
 						WHERE session_id <> @@SPID
 						AND is_user_process = 1;
-						
+
 						OPEN inputbuffer_cursor;
-						
+
 						FETCH NEXT FROM inputbuffer_cursor INTO @session_id;
-						
+
 						WHILE (@@FETCH_STATUS = 0)
 						BEGIN;
 							BEGIN TRY;
@@ -633,25 +634,25 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 									N''DBCC INPUTBUFFER(@session_id) WITH NO_INFOMSGS;'',
 									N''@session_id SMALLINT'',
 									@session_id;
-						
-								UPDATE @inputbuffer 
-								SET session_id = @session_id 
+
+								UPDATE @inputbuffer
+								SET session_id = @session_id
 								WHERE ID = SCOPE_IDENTITY();
 
 							END TRY
 							BEGIN CATCH
-								RAISERROR(''DBCC inputbuffer failed for session %d'',0,0,@session_id) WITH NOWAIT;
+								IF(@SkipDisplayMessages = 0) RAISERROR (''DBCC inputbuffer failed for session %d'',0,0,@session_id) WITH NOWAIT;
 							END CATCH;
-						
+
 							FETCH NEXT FROM inputbuffer_cursor INTO @session_id
-						
+
 						END;
-						
+
 						CLOSE inputbuffer_cursor;
 						DEALLOCATE inputbuffer_cursor;'
 						ELSE N''
 						END+
-						N' 
+						N'
 
 						DECLARE @LiveQueryPlans TABLE
 						(
@@ -664,7 +665,7 @@ IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exe
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
 							INSERT INTO @LiveQueryPlans
-							SELECT	s.session_id, query_plan 
+							SELECT	s.session_id, query_plan
 							FROM	sys.dm_exec_sessions AS s
 							CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
 							WHERE	s.session_id <> @@SPID;';
@@ -691,32 +692,32 @@ BEGIN
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-						    qmg.query_cost ,										   		   
+						    qmg.query_cost ,
 						    s.status ,
 							CASE
-								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+								WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' )
 								ELSE NULL
-							END AS wait_info ,																					
+							END AS wait_info ,
 							r.wait_resource ,
-						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
+						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL
 							       THEN r.blocking_session_id
-							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id
 							       THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id
 								   THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id
 							       THEN r.blocking_session_id
-							       ELSE NULL 
+							       ELSE NULL
 						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
-						    CASE WHEN EXISTS (  SELECT 1 
+						    CASE WHEN EXISTS (  SELECT 1
                FROM sys.dm_tran_active_transactions AS tat
                JOIN sys.dm_tran_session_transactions AS tst
                ON tst.transaction_id = tat.transaction_id
                WHERE tat.name = ''implicit_transaction''
-               AND s.session_id = tst.session_id 
-               )  THEN 1 
-            ELSE 0 
+               AND s.session_id = tst.session_id
+               )  THEN 1
+            ELSE 0
           END AS is_implicit_transaction ,
 					     s.nt_domain ,
 			       s.host_name ,
@@ -726,7 +727,7 @@ BEGIN
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
-					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'')
 					FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
 					),s.program_name)'
 		END
@@ -734,12 +735,12 @@ BEGIN
 		BEGIN
 		SET @StringToExecute += N's.program_name'
 		END
-						
+
     IF @ExpertMode = 1
     BEGIN
-    SET @StringToExecute += 
+    SET @StringToExecute +=
 			   N',
-						''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,						      		
+						''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,
 			   s.client_interface_name ,
 			   s.login_time ,
 			   r.start_time ,
@@ -751,13 +752,13 @@ BEGIN
 			   s.cpu_time AS session_cpu,
 			   s.logical_reads AS session_logical_reads,
 			   s.reads AS session_physical_reads ,
-			   s.writes AS session_writes,					
+			   s.writes AS session_writes,
 						tempdb_allocations.tempdb_allocations_mb,
 			   s.memory_usage ,
-			   r.estimated_completion_time , 	
-						r.percent_complete , 
+			   r.estimated_completion_time ,
+						r.percent_complete ,
 			   r.deadlock_priority ,
-			   CASE 
+			   CASE
 			     WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
 			     WHEN s.transaction_isolation_level = 1 THEN ''Read Uncommitted''
 			     WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME(r.database_id) AND is_read_committed_snapshot_on = 1) THEN ''Read Committed Snapshot Isolation''
@@ -766,7 +767,7 @@ BEGIN
 			     WHEN s.transaction_isolation_level = 4 THEN ''Serializable''
 			     WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
 			     ELSE ''WHAT HAVE YOU DONE?''
-			   END AS transaction_isolation_level ,				
+			   END AS transaction_isolation_level ,
 						qmg.dop AS degree_of_parallelism ,
 			   COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''N/A'') AS grant_time ,
 			   qmg.requested_memory_kb ,
@@ -802,13 +803,13 @@ BEGIN
 			   qrs.timeout_error_count ,
 			   COALESCE(CAST(qrs.forced_grant_count AS VARCHAR(20)),
 			      ''Small Query Resource Semaphore'') AS forced_grant_count,
-						wg.name AS workload_group_name , 
+						wg.name AS workload_group_name ,
 						rp.name AS resource_pool_name,
  						CONVERT(VARCHAR(128), r.context_info)  AS context_info
 						'
 	END /* IF @ExpertMode = 1 */
-				
-    SET @StringToExecute += 			 
+
+    SET @StringToExecute +=
 	    N'FROM sys.dm_exec_sessions AS s
 			 '+
 			 CASE
@@ -844,18 +845,18 @@ BEGIN
 			 LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 			 ON   qmg.resource_semaphore_id = qrs.resource_semaphore_id
 					 AND qmg.pool_id = qrs.pool_id
-				LEFT JOIN sys.resource_governor_workload_groups wg 
+				LEFT JOIN sys.resource_governor_workload_groups wg
 				ON 		s.group_id = wg.group_id
-				LEFT JOIN sys.resource_governor_resource_pools rp 
+				LEFT JOIN sys.resource_governor_resource_pools rp
 				ON		wg.pool_id = rp.pool_id
 				OUTER APPLY (
 								SELECT TOP 1
-								b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
+								b.dbid, b.last_batch, b.open_tran, b.sql_handle,
 								b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
 								FROM @blocked b
 								WHERE (s.session_id = b.session_id
 										OR s.session_id = b.blocking_session_id)
-							) AS blocked				
+							) AS blocked
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			 OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 				OUTER APPLY (
@@ -865,7 +866,7 @@ BEGIN
 						AND tsu.session_id = r.session_id
 						AND tsu.session_id = s.session_id
 				) as tempdb_allocations
-			 WHERE s.session_id <> @@SPID 
+			 WHERE s.session_id <> @@SPID
 				AND s.host_name IS NOT NULL
 				'
 				+ CASE WHEN @ShowSleepingSPIDs = 0 THEN
@@ -875,14 +876,14 @@ BEGIN
 					 ELSE N'' END;
 END /* IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11 */
 
-IF @ProductVersionMajor >= 11 
+IF @ProductVersionMajor >= 11
     BEGIN
-    SELECT @EnhanceFlag = 
+    SELECT @EnhanceFlag =
 	     CASE WHEN @ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020 THEN 1
 		      WHEN @ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 THEN 1
 		      WHEN @ProductVersionMajor = 13 AND	@ProductVersionMinor >= 1601 THEN 1
 			     WHEN @ProductVersionMajor > 13 THEN 1
-		      ELSE 0 
+		      ELSE 0
 	     END
 
 
@@ -909,13 +910,13 @@ IF @ProductVersionMajor >= 11
 							ELSE N''
 							END+N'
 			       derp.query_plan ,
-				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
+				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1
 				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
 						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
 						END
 					+') AS XML
-				   
-				   
+
+
 				   ) AS live_query_plan ,
 					STUFF((SELECT DISTINCT N'', '' + Node.Data.value(''(@Column)[1]'', ''NVARCHAR(4000)'') + N'' {'' + Node.Data.value(''(@ParameterDataType)[1]'', ''NVARCHAR(4000)'') + N''}: '' + Node.Data.value(''(@ParameterCompiledValue)[1]'', ''NVARCHAR(4000)'')
 						FROM derp.query_plan.nodes(''/*:ShowPlanXML/*:BatchSequence/*:Batch/*:Statements/*:StmtSimple/*:QueryPlan/*:ParameterList/*:ColumnReference'') AS Node(Data)
@@ -931,7 +932,7 @@ IF @ProductVersionMajor >= 11
 			       qmg.query_cost ,
 			       s.status ,
 					CASE
-						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' ) 
+						WHEN s.status <> ''sleeping'' THEN COALESCE(wt.wait_info, RTRIM(blocked.lastwaittype) + '' ('' + CONVERT(VARCHAR(10), blocked.waittime) + '')'' )
 						ELSE NULL
 					END AS wait_info ,
 					r.wait_resource ,'
@@ -940,26 +941,26 @@ IF @ProductVersionMajor >= 11
 							     WHEN 1 THEN + N'SUBSTRING(wt2.session_wait_info, 0, LEN(wt2.session_wait_info) ) AS top_session_waits ,'
 							     ELSE N' NULL AS top_session_waits ,'
 						    END
-						    +																	
-						    N'CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
+						    +
+						    N'CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL
 							       THEN r.blocking_session_id
-							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id
 							       THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id
 								   THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id
 							       THEN r.blocking_session_id
-							       ELSE NULL 
+							       ELSE NULL
 						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
-						    CASE WHEN EXISTS (  SELECT 1 
+						    CASE WHEN EXISTS (  SELECT 1
                FROM sys.dm_tran_active_transactions AS tat
                JOIN sys.dm_tran_session_transactions AS tst
                ON tst.transaction_id = tat.transaction_id
                WHERE tat.name = ''implicit_transaction''
-               AND s.session_id = tst.session_id 
-               )  THEN 1 
-            ELSE 0 
+               AND s.session_id = tst.session_id
+               )  THEN 1
+            ELSE 0
           END AS is_implicit_transaction ,
 					     s.nt_domain ,
 			       s.host_name ,
@@ -969,7 +970,7 @@ IF @ProductVersionMajor >= 11
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
-					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'') 
+					SELECT REPLACE(program_name,Substring(program_name,30,34),''"''+j.name+''"'')
 					FROM msdb.dbo.sysjobs j WHERE Substring(program_name,32,32) = CONVERT(char(32),CAST(j.job_id AS binary(16)),2)
 					),s.program_name)'
 		END
@@ -980,12 +981,12 @@ IF @ProductVersionMajor >= 11
 
     IF @ExpertMode = 1 /* We show more columns in expert mode, so the SELECT gets longer */
     BEGIN
-        SET @StringToExecute += 						
-	        N', ''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,						      		
+        SET @StringToExecute +=
+	        N', ''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + '');'' AS fix_parameter_sniffing,
         s.client_interface_name ,
         s.login_time ,
-        r.start_time ,		
-        qmg.request_time ,										
+        r.start_time ,
+        qmg.request_time ,
 		        COALESCE(r.cpu_time, s.cpu_time) AS request_cpu_time,
         COALESCE(r.logical_reads, s.logical_reads) AS request_logical_reads,
         COALESCE(r.writes, s.writes) AS request_writes,
@@ -996,10 +997,10 @@ IF @ProductVersionMajor >= 11
         s.writes AS session_writes,
 		        tempdb_allocations.tempdb_allocations_mb,
         s.memory_usage ,
-        r.estimated_completion_time , 
-		        r.percent_complete , 
+        r.estimated_completion_time ,
+		        r.percent_complete ,
         r.deadlock_priority ,
-		        CASE 
+		        CASE
 	        WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
 	        WHEN s.transaction_isolation_level = 1 THEN ''Read Uncommitted''
 			WHEN s.transaction_isolation_level = 2 AND EXISTS (SELECT 1 FROM sys.databases WHERE name = DB_NAME(r.database_id) AND is_read_committed_snapshot_on = 1) THEN ''Read Committed Snapshot Isolation''
@@ -1010,7 +1011,7 @@ IF @ProductVersionMajor >= 11
 	        ELSE ''WHAT HAVE YOU DONE?''
         END AS transaction_isolation_level ,
 		        qmg.dop AS degree_of_parallelism ,						'
-		        + 
+		        +
 		        CASE @EnhanceFlag
 				        WHEN 1 THEN N'query_stats.last_dop,
         query_stats.min_dop,
@@ -1048,9 +1049,9 @@ IF @ProductVersionMajor >= 11
         NULL AS last_used_threads,
         NULL AS min_used_threads,
         NULL AS max_used_threads,'
-		        END 
+		        END
 
-        SET @StringToExecute += 						
+        SET @StringToExecute +=
 		        N'
         COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''Memory Not Granted'') AS grant_time ,
         qmg.requested_memory_kb ,
@@ -1086,13 +1087,13 @@ IF @ProductVersionMajor >= 11
         qrs.timeout_error_count ,
         COALESCE(CAST(qrs.forced_grant_count AS VARCHAR(20)),
         ''Small Query Resource Semaphore'') AS forced_grant_count,
-        wg.name AS workload_group_name, 
+        wg.name AS workload_group_name,
         rp.name AS resource_pool_name,
         CONVERT(VARCHAR(128), r.context_info)  AS context_info,
         r.query_hash, r.query_plan_hash, r.sql_handle, r.plan_handle, r.statement_start_offset, r.statement_end_offset '
     END /* IF @ExpertMode = 1 */
-					
-    SET @StringToExecute += 	
+
+    SET @StringToExecute +=
 	    N' FROM sys.dm_exec_sessions AS s'+
 			 CASE
 				WHEN @GetOuterCommand = 1 THEN CASE
@@ -1129,7 +1130,7 @@ IF @ProductVersionMajor >= 11
 			    WHEN 1 THEN @SessionWaitsSQL
 			    ELSE N''
 	    END
-	    + 
+	    +
 	    N'
 	    LEFT JOIN sys.dm_exec_query_memory_grants qmg
 	    ON   r.session_id = qmg.session_id
@@ -1137,13 +1138,13 @@ IF @ProductVersionMajor >= 11
 	    LEFT JOIN sys.dm_exec_query_resource_semaphores qrs
 	    ON   qmg.resource_semaphore_id = qrs.resource_semaphore_id
 			    AND qmg.pool_id = qrs.pool_id
-	    LEFT JOIN sys.resource_governor_workload_groups wg 
+	    LEFT JOIN sys.resource_governor_workload_groups wg
 	    ON 		s.group_id = wg.group_id
-	    LEFT JOIN sys.resource_governor_resource_pools rp 
+	    LEFT JOIN sys.resource_governor_resource_pools rp
 	    ON		wg.pool_id = rp.pool_id
 	    OUTER APPLY (
 			    SELECT TOP 1
-			    b.dbid, b.last_batch, b.open_tran, b.sql_handle, 
+			    b.dbid, b.last_batch, b.open_tran, b.sql_handle,
 			    b.session_id, b.blocking_session_id, b.lastwaittype, b.waittime
 			    FROM @blocked b
 			    WHERE (s.session_id = b.session_id
@@ -1170,7 +1171,7 @@ IF @ProductVersionMajor >= 11
 
 		) AS qs_live
 
-	    WHERE s.session_id <> @@SPID 
+	    WHERE s.session_id <> @@SPID
 	    AND s.host_name IS NOT NULL
 		AND r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs)
 	    '
@@ -1247,7 +1248,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	BEGIN
 	SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName + N'; '
-	  + @BlockingCheck + 
+	  + @BlockingCheck +
 	  + ' INSERT INTO '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
@@ -1259,7 +1260,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[query_text]'
 	+ CASE WHEN @GetOuterCommand = 1 THEN N',[outer_command]' ELSE N'' END + N'
 	,[query_plan]'
-    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END 
+    + CASE WHEN @ProductVersionMajor >= 11 THEN N',[live_query_plan]' ELSE N'' END
 	+ CASE WHEN @ProductVersionMajor >= 11 THEN N',[cached_parameter_info]'  ELSE N'' END
 	+ CASE WHEN @ProductVersionMajor >= 11 AND @ShowActualParameters = 1 THEN N',[Live_Parameter_Info]' ELSE N'' END + N'
 	,[query_cost]
@@ -1347,7 +1348,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[plan_handle]
 	,[statement_start_offset]
 	,[statement_end_offset]' ELSE N'' END + N'
-) 
+)
 	SELECT @@SERVERNAME, COALESCE(@CheckDateOverride, SYSDATETIMEOFFSET()) AS CheckDate , '
 	+ @StringToExecute;
 	END
@@ -1358,8 +1359,8 @@ ELSE
 IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
 	OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
 	OR (@ProductVersionMajor >= 13 )
-	AND 50000000 < (SELECT cntr_value 			
-						FROM sys.dm_os_performance_counters 
+	AND 50000000 < (SELECT cntr_value
+						FROM sys.dm_os_performance_counters
 						WHERE object_name LIKE '%:Memory Manager%'
 						AND counter_name LIKE 'Target Server Memory (KB)%')
 	BEGIN
@@ -1385,4 +1386,4 @@ EXEC sp_executesql @StringToExecute,
 	@CheckDateOverride;
 
 END
-GO 
+GO

@@ -41,7 +41,8 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+    @SkipDisplayMessages BIT = 0 /* Will skip display messages */
 WITH RECOMPILE
 AS
 SET NOCOUNT ON;
@@ -158,11 +159,11 @@ SELECT
 			ELSE 0
 		END;
 
-RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 																					
 IF(@OutputType NOT IN ('TABLE','NONE'))
 BEGIN
-    RAISERROR('Invalid value for parameter @OutputType. Expected: (TABLE;NONE)',12,1);
+    IF(@SkipDisplayMessages = 0) RAISERROR('Invalid value for parameter @OutputType. Expected: (TABLE;NONE)',12,1);
     RETURN;
 END;
                        
@@ -170,18 +171,18 @@ IF(@OutputType = 'NONE')
 BEGIN
     IF(@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL)
     BEGIN
-        RAISERROR('This procedure should be called with a value for @Output* parameters, as @OutputType is set to NONE',12,1);
+        IF(@SkipDisplayMessages = 0) RAISERROR('This procedure should be called with a value for @Output* parameters, as @OutputType is set to NONE',12,1);
         RETURN;
     END;
     IF(@BringThePain = 1)
     BEGIN
-        RAISERROR('Incompatible Parameters: @BringThePain set to 1 and @OutputType set to NONE',12,1);
+        IF(@SkipDisplayMessages = 0) RAISERROR('Incompatible Parameters: @BringThePain set to 1 and @OutputType set to NONE',12,1);
         RETURN;
     END;
 	/* Eventually limit by mode																			   
     IF(@Mode not in (0,4)) 
 	BEGIN
-        RAISERROR('Incompatible Parameters: @Mode set to %d and @OutputType set to NONE',12,1,@Mode);
+        IF(@SkipDisplayMessages = 0) RAISERROR('Incompatible Parameters: @Mode set to %d and @OutputType set to NONE',12,1,@Mode);
         RETURN;
 	END;
 	*/
@@ -241,7 +242,7 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
     DROP TABLE #Ignore_Databases
 
-        RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
             (
               blitz_result_id INT IDENTITY PRIMARY KEY,
@@ -377,7 +378,7 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
 					N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';'
 				END
 		);
-        RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
         IF NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE name='uq_database_id_object_id_index_id') 
             CREATE UNIQUE INDEX uq_database_id_object_id_index_id ON #IndexSanity (database_id, object_id, index_id);
 
@@ -834,7 +835,7 @@ IF @GetAllDatabases = 1
         IF @IgnoreDatabases IS NOT NULL
             AND LEN(@IgnoreDatabases) > 0
             BEGIN
-                RAISERROR(N'Setting up filter to ignore databases', 0, 1) WITH NOWAIT;
+                IF(@SkipDisplayMessages = 0) RAISERROR(N'Setting up filter to ignore databases', 0, 1) WITH NOWAIT;
                 SET @DatabaseToIgnore = '';
 
                 WHILE LEN(@IgnoreDatabases) > 0
@@ -875,7 +876,7 @@ ELSE
 
 SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL);
 SET @msg = N'Number of databases to examine: ' + CAST(@NumDatabases AS NVARCHAR(50));
-RAISERROR (@msg,0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (@msg,0,1) WITH NOWAIT;
 
 
 
@@ -930,7 +931,7 @@ BEGIN TRY
 					   bir.create_tsql,
 					   bir.more_info 
 					   FROM #BlitzIndexResults AS bir;
-				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server', 12, 1);
+				IF(@SkipDisplayMessages = 0) RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server', 12, 1);
 			END;
 
 		RETURN;
@@ -938,13 +939,13 @@ BEGIN TRY
 		END;
 END TRY
 BEGIN CATCH
-        RAISERROR (N'Failure to execute due to number of databases.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Failure to execute due to number of databases.', 0,1) WITH NOWAIT;
 
         SELECT  @msg = ERROR_MESSAGE(), 
 		          @ErrorSeverity = ERROR_SEVERITY(), 
 				  @ErrorState = ERROR_STATE();
 
-        RAISERROR (@msg, @ErrorSeverity, @ErrorState);
+        IF(@SkipDisplayMessages = 0) RAISERROR (@msg, @ErrorSeverity, @ErrorState);
         
         WHILE @@trancount > 0 
             ROLLBACK;
@@ -953,7 +954,7 @@ BEGIN CATCH
     END CATCH;
 
 
-RAISERROR (N'Checking partition counts to exclude databases with over 100 partitions',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Checking partition counts to exclude databases with over 100 partitions',0,1) WITH NOWAIT;
 IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
     BEGIN   
         DECLARE partition_cursor CURSOR FOR
@@ -974,7 +975,7 @@ IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
             EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
             IF @Rowcount > 100
                 BEGIN
-                   RAISERROR (N'Skipping database %s because > 100 partitions were found. To check this database, you must set @BringThePain = 1.',0,1,@DatabaseName) WITH NOWAIT;
+                   IF(@SkipDisplayMessages = 0) RAISERROR (N'Skipping database %s because > 100 partitions were found. To check this database, you must set @BringThePain = 1.',0,1,@DatabaseName) WITH NOWAIT;
 				INSERT INTO #Ignore_Databases (DatabaseName, Reason)
 				SELECT @DatabaseName, 'Over 100 partitions found - use @BringThePain = 1 to analyze'
                 END;
@@ -1016,7 +1017,7 @@ SELECT @DaysUptimeInsertValue = 'Server: ' + (CONVERT(VARCHAR(256), (SERVERPROPE
 
 /* Permission granted or unnecessary? Ok, let's go! */
 
-RAISERROR (N'Starting loop through databases',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Starting loop through databases',0,1) WITH NOWAIT;
 DECLARE c1 CURSOR 
 LOCAL FAST_FORWARD 
 FOR 
@@ -1033,9 +1034,9 @@ FETCH NEXT FROM c1 INTO @DatabaseName;
 
 BEGIN
     
-    RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
-    RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
-    RAISERROR (@DatabaseName, 0, 1) WITH NOWAIT;
+    IF(@SkipDisplayMessages = 0) RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
+    IF(@SkipDisplayMessages = 0) RAISERROR (@LineFeed, 0, 1) WITH NOWAIT;
+    IF(@SkipDisplayMessages = 0) RAISERROR (@DatabaseName, 0, 1) WITH NOWAIT;
 
 SELECT   @DatabaseID = [database_id]
 FROM     sys.databases
@@ -1057,39 +1058,39 @@ BEGIN TRY
               )) <= 9
         BEGIN
             SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2008 and higher. The version of this instance is: ' + @SQLServerProductVersion;
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;
 
         --Short circuit here if database name does not exist.
         IF @DatabaseName IS NULL OR @DatabaseID IS NULL
         BEGIN
             SET @msg='Database does not exist or is not online/multi-user: cannot proceed.';
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;    
 
         --Validate parameters.
         IF (@Mode NOT IN (0,1,2,3,4))
         BEGIN
             SET @msg=N'Invalid @Mode parameter. 0=diagnose, 1=summarize, 2=index detail, 3=missing index detail, 4=diagnose detail';
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;
 
         IF (@Mode <> 0 AND @TableName IS NOT NULL)
         BEGIN
             SET @msg=N'Setting the @Mode doesn''t change behavior if you supply @TableName. Use default @Mode=0 to see table detail.';
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;
 
         IF ((@Mode <> 0 OR @TableName IS NOT NULL) AND @Filter <> 0)
         BEGIN
             SET @msg=N'@Filter only applies when @Mode=0 and @TableName is not specified. Please try again.';
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;
 
         IF (@SchemaName IS NOT NULL AND @TableName IS NULL) 
         BEGIN
             SET @msg='We can''t run against a whole schema! Specify a @TableName, or leave both NULL for diagnosis.';
-            RAISERROR(@msg,16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,16,1);
         END;
 
 
@@ -1097,7 +1098,7 @@ BEGIN TRY
         BEGIN
             SET @SchemaName=N'dbo';
             SET @msg='@SchemaName wasn''t specified-- assuming schema=dbo.';
-            RAISERROR(@msg,1,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg,1,1) WITH NOWAIT;
         END;
 
         --If a table is specified, grab the object id.
@@ -1123,7 +1124,7 @@ BEGIN TRY
             SET @params='@ObjectID INT OUTPUT';                
 
             IF @dsql IS NULL 
-                RAISERROR('@dsql is null',16,1);
+                IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
             EXEC sp_executesql @dsql, @params, @ObjectID=@ObjectID OUTPUT;
             
@@ -1131,7 +1132,7 @@ BEGIN TRY
                     BEGIN
                         SET @msg=N'Oh, this is awkward. I can''t find the table or indexed view you''re looking for in that database.' + CHAR(10) +
                             N'Please check your parameters.';
-                        RAISERROR(@msg,1,1);
+                        IF(@SkipDisplayMessages = 0) RAISERROR(@msg,1,1);
                         RETURN;
                     END;
         END;
@@ -1193,9 +1194,9 @@ BEGIN TRY
                 + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #IndexColumns for clustered indexes and heaps',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #IndexColumns for clustered indexes and heaps',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1216,17 +1217,17 @@ BEGIN TRY
 					EXEC sp_executesql @dsql;
 		END TRY
 		BEGIN CATCH
-			RAISERROR (N'Failure inserting data into #IndexColumns for clustered indexes and heaps.', 0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Failure inserting data into #IndexColumns for clustered indexes and heaps.', 0,1) WITH NOWAIT;
 
 			IF @dsql IS NOT NULL
 			BEGIN
 				SET @msg= 'Last @dsql: ' + @dsql;
-				RAISERROR(@msg, 0, 1) WITH NOWAIT;
+				IF(@SkipDisplayMessages = 0) RAISERROR(@msg, 0, 1) WITH NOWAIT;
 			END;
 
 			SELECT  @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(),
 				@ErrorSeverity = 0, @ErrorState = ERROR_STATE();
-			RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
 
 			WHILE @@trancount > 0 
 				ROLLBACK;
@@ -1279,9 +1280,9 @@ BEGIN TRY
                 + N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #IndexColumns for nonclustered indexes',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #IndexColumns for nonclustered indexes',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1362,9 +1363,9 @@ BEGIN TRY
         + N'OPTION    ( RECOMPILE );
         ';
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #IndexSanity',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #IndexSanity',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1386,7 +1387,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
-        RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Checking partition count',0,1) WITH NOWAIT;
         IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
             BEGIN
                 /* Count the total number of partitions */
@@ -1395,7 +1396,7 @@ BEGIN TRY
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
-                        RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
+                        IF(@SkipDisplayMessages = 0) RAISERROR (N'Setting @SkipPartitions = 1 because > 100 partitions were found. To check them, you must set @BringThePain = 1.',0,1) WITH NOWAIT;
                         SET @SkipPartitions = 1;
                         INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                                         index_usage_summary, index_size_summary )
@@ -1415,7 +1416,7 @@ BEGIN TRY
 			      CHARINDEX('.',@SQLServerProductVersion,0)-1 )) <= 2147483647 --Make change here 			
 			BEGIN
             
-			RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
@@ -1495,7 +1496,7 @@ BEGIN TRY
         END;
         ELSE
         BEGIN
-        RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
 		--If you have a lot of paritions and this suddenly starts running for a long time, change it back.
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -1573,9 +1574,9 @@ BEGIN TRY
         END;       
 
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #IndexPartitionSanity',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #IndexPartitionSanity',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1629,7 +1630,7 @@ BEGIN TRY
 
 
 
-        RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 
 
@@ -1719,7 +1720,7 @@ BEGIN TRY
             IF @MissingIndexPlans > 1000
                 BEGIN
                 SELECT @dsql += N' , NULL AS sample_query_plan /* Over 1000 plans found, skipping */ ';
-                RAISERROR (N'Over 1000 plans found in sys.dm_db_missing_index_group_stats_query - your SQL Server is hitting a bug: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3085',0,1) WITH NOWAIT;
+                IF(@SkipDisplayMessages = 0) RAISERROR (N'Over 1000 plans found in sys.dm_db_missing_index_group_stats_query - your SQL Server is hitting a bug: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3085',0,1) WITH NOWAIT;
                 END
             ELSE
                 SELECT
@@ -1760,7 +1761,7 @@ BEGIN TRY
         N'OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1825,9 +1826,9 @@ BEGIN TRY
             ORDER BY parent_object_name, foreign_key_name
 			OPTION (RECOMPILE);';
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1883,9 +1884,9 @@ BEGIN TRY
                       )
 				OPTION (RECOMPILE);'
         IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1924,7 +1925,7 @@ BEGIN TRY
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
 		BEGIN
-		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
 		SET @dsql=N'USE ' + @DatabaseName + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			INSERT #Statistics ( database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
@@ -1978,9 +1979,9 @@ BEGIN TRY
 			OPTION (RECOMPILE);';
 			
 			IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
             IF @Debug = 1
                 BEGIN
                     PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1999,7 +2000,7 @@ BEGIN TRY
 			END;
 			ELSE 
 			BEGIN
-			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
 			SET @dsql=N'USE ' + @DatabaseName + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			INSERT #Statistics(database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
@@ -2056,9 +2057,9 @@ BEGIN TRY
 						OPTION (RECOMPILE);';
 
 			IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
-			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
             IF @Debug = 1
                 BEGIN
                     PRINT SUBSTRING(@dsql, 0, 4000);
@@ -2080,7 +2081,7 @@ BEGIN TRY
 
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
 			BEGIN
-			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 							   @i_DatabaseName AS database_name,
    					   		   t.name AS table_name,
@@ -2105,7 +2106,7 @@ BEGIN TRY
    					   ON      s.schema_id = t.schema_id
 					   OPTION (RECOMPILE);';
 
-			IF @dsql IS NULL RAISERROR('@dsql is null',16,1);
+			IF @dsql IS NULL IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 
 			INSERT #ComputedColumns
 			        ( database_id, [database_name], table_name, schema_name, column_name, is_nullable, definition, 
@@ -2114,13 +2115,13 @@ BEGIN TRY
 
 			END; 
 			
-			RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
 			INSERT #TraceStatus
 			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS');			
 
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 13)
 			BEGIN
-			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
 								   DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
 								   s.name AS schema_name,
@@ -2152,7 +2153,7 @@ BEGIN TRY
 							';
 			
 			IF @dsql IS NULL 
-			RAISERROR('@dsql is null',16,1);
+			IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 			
 			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
 									 history_table_name, start_column_name, end_column_name, period_name )
@@ -2220,16 +2221,16 @@ BEGIN TRY
 END;                    
 END TRY
 BEGIN CATCH
-        RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Failure populating temp tables.', 0,1) WITH NOWAIT;
 
         IF @dsql IS NOT NULL
         BEGIN
             SET @msg= 'Last @dsql: ' + @dsql;
-            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
         SELECT  @msg = @DatabaseName + N' database failed to process. ' + ERROR_MESSAGE(), @ErrorSeverity = ERROR_SEVERITY(), @ErrorState = ERROR_STATE();
-        RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (@msg,@ErrorSeverity, @ErrorState )WITH NOWAIT;
         
         
         WHILE @@trancount > 0 
@@ -2251,7 +2252,7 @@ DEALLOCATE c1;
 --EVERY QUERY AFTER THIS GOES AGAINST TEMP TABLES ONLY.
 ----------------------------------------
 
-RAISERROR (N'Updating #IndexSanity.key_column_names',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.key_column_names',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        key_column_names = D1.key_column_names
 FROM    #IndexSanity si
@@ -2277,7 +2278,7 @@ FROM    #IndexSanity si
                     FOR      XML PATH('') ,TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                                 ) D1 ( key_column_names );
 
-RAISERROR (N'Updating #IndexSanity.partition_key_column_name',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.partition_key_column_name',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        partition_key_column_name = D1.partition_key_column_name
 FROM    #IndexSanity si
@@ -2292,7 +2293,7 @@ FROM    #IndexSanity si
                     FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
                                 ( partition_key_column_name );
 
-RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        key_column_names_with_sort_order = D2.key_column_names_with_sort_order
 FROM    #IndexSanity si
@@ -2321,7 +2322,7 @@ FROM    #IndexSanity si
             FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order );
 
-RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        key_column_names_with_sort_order_no_types = D2.key_column_names_with_sort_order_no_types
 FROM    #IndexSanity si
@@ -2340,7 +2341,7 @@ FROM    #IndexSanity si
             FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order_no_types );
 
-RAISERROR (N'Updating #IndexSanity.include_column_names',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.include_column_names',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        include_column_names = D3.include_column_names
 FROM    #IndexSanity si
@@ -2365,7 +2366,7 @@ FROM    #IndexSanity si
                 FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names );
 
-RAISERROR (N'Updating #IndexSanity.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        include_column_names_no_types = D3.include_column_names_no_types
 FROM    #IndexSanity si
@@ -2381,7 +2382,7 @@ FROM    #IndexSanity si
                 FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names_no_types );
 
-RAISERROR (N'Updating #IndexSanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        count_included_columns = D4.count_included_columns,
         count_key_columns = D4.count_key_columns
@@ -2399,7 +2400,7 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
-RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 UPDATE    #IndexPartitionSanity
 SET        index_sanity_id = i.index_sanity_id
 FROM #IndexPartitionSanity ps
@@ -2409,7 +2410,7 @@ FROM #IndexPartitionSanity ps
 								AND i.schema_name = ps.schema_name;
 
 
-RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
 INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
                                 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_reserved_dictionary_MB, total_range_scan_count,
                                 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
@@ -2464,7 +2465,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [l
         ORDER BY index_sanity_id 
 OPTION    ( RECOMPILE );
 
-RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
 UPDATE #MissingIndexes 
 SET is_low = CASE WHEN (user_seeks + user_scans) < 5000 
 					    OR unique_compiles = 1
@@ -2472,7 +2473,7 @@ SET is_low = CASE WHEN (user_seeks + user_scans) < 5000
 				  ELSE 0 
 			  END;
 
-RAISERROR (N'Updating #IndexSanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Updating #IndexSanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
 UPDATE #IndexSanity
     SET is_referenced_by_foreign_key=1
 FROM #IndexSanity s
@@ -2481,7 +2482,7 @@ JOIN #ForeignKeys fk ON
     AND s.database_id=fk.database_id
     AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns;
 
-RAISERROR (N'Update index_secret on #IndexSanity for NC indexes.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Update index_secret on #IndexSanity for NC indexes.',0,1) WITH NOWAIT;
 UPDATE nc 
 SET secret_columns=
     N'[' + 
@@ -2504,7 +2505,7 @@ JOIN #IndexSanity AS tb ON nc.object_id=tb.object_id
     AND tb.index_id IN (0,1) 
 WHERE nc.index_id > 1;
 
-RAISERROR (N'Update index_secret on #IndexSanity for heaps and non-unique clustered.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Update index_secret on #IndexSanity for heaps and non-unique clustered.',0,1) WITH NOWAIT;
 UPDATE tb
 SET secret_columns=    CASE tb.index_id WHEN 0 THEN '[RID]' ELSE '[UNIQUIFIER]' END
     , count_secret_columns = 1
@@ -2513,7 +2514,7 @@ WHERE tb.index_id = 0 /*Heaps-- these have the RID */
     OR (tb.index_id=1 AND tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
 
-RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
 INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
 SELECT
     index_sanity_id,
@@ -2574,7 +2575,7 @@ SELECT
         AS create_tsql
 FROM #IndexSanity;
 	  
-RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 WITH maps
     AS
      (
@@ -2623,14 +2624,14 @@ SELECT DISTINCT
                      FOR XML PATH(''), TYPE ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')), 0, 8000) AS partition_compression_detail
 FROM   #grps AS grps;
 		
-RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 UPDATE sz
 SET sz.data_compression_desc = pci.partition_compression_detail
 FROM #IndexSanitySize sz
 JOIN #PartitionCompressionInfo AS pci
 ON pci.index_sanity_id = sz.index_sanity_id;
 
-RAISERROR (N'Update #IndexSanity for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
+IF(@SkipDisplayMessages = 0) RAISERROR (N'Update #IndexSanity for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
 UPDATE    #IndexSanity
 SET        filter_columns_not_in_index = D1.filter_columns_not_in_index
 FROM    #IndexSanity si
@@ -2679,7 +2680,7 @@ BEGIN TRY
 ----------------------------------------
 IF @TableName IS NOT NULL
 BEGIN
-    RAISERROR(N'@TableName specified, giving detail only on that table.', 0,1) WITH NOWAIT;
+    IF(@SkipDisplayMessages = 0) RAISERROR(N'@TableName specified, giving detail only on that table.', 0,1) WITH NOWAIT;
 
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
@@ -2886,7 +2887,7 @@ BEGIN
     /* Visualize columnstore index contents. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2584 */
     IF 2 = (SELECT SUM(1) FROM sys.all_objects WHERE name IN ('column_store_row_groups','column_store_segments'))
     BEGIN
-        RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
 		SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
 			IF EXISTS(SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = @ObjectID)
@@ -3000,7 +3001,7 @@ BEGIN
 				END;
 
 			IF @dsql IS NULL 
-				RAISERROR('@dsql is null',16,1);
+				IF(@SkipDisplayMessages = 0) RAISERROR('@dsql is null',16,1);
 			ELSE
 				EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
 		END
@@ -3010,7 +3011,7 @@ BEGIN
 			UNION ALL
 			SELECT N'SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = ' + CAST(@ObjectID AS NVARCHAR(100));
 		END
-        RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
     END
 
 END; /* IF @TableName IS NOT NULL */
@@ -3050,12 +3051,12 @@ ELSE IF @Mode IN (0, 4) /* DIAGNOSE*//* IF @TableName IS NOT NULL, so  @TableNam
 BEGIN;
 	IF @Mode IN (0, 4) /* DIAGNOSE priorities 1-100 */
 	BEGIN;
-        RAISERROR(N'@Mode=0 or 4, running rules for priorities 1-100.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'@Mode=0 or 4, running rules for priorities 1-100.', 0,1) WITH NOWAIT;
 
         ----------------------------------------
         --Multiple Index Personalities: Check_id 0-10
         ----------------------------------------
-        RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
                       AS ( SELECT  [object_id], key_column_names, database_id, [schema_name]
                            FROM        #IndexSanity AS ip
@@ -3105,7 +3106,7 @@ BEGIN;
                         ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names_with_sort_order    
                 OPTION    ( RECOMPILE );
 
-        RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR('check_id 2: Keys w/ identical leading columns.', 0,1) WITH NOWAIT;
             WITH    borderline_duplicate_indexes
                       AS ( SELECT DISTINCT database_id, [object_id], first_key_column_name, key_column_names,
                                     COUNT([object_id]) OVER ( PARTITION BY database_id, [object_id], first_key_column_name ) AS number_dupes
@@ -3147,7 +3148,7 @@ BEGIN;
         --Aggressive Indexes: Check_id 10-19
         ----------------------------------------
 
-        RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                 SELECT  11 AS check_id, 
@@ -3208,7 +3209,7 @@ BEGIN;
         ---------------------------------------- 
         --Index Hoarder: Check_id 20-29
         ----------------------------------------
-            RAISERROR(N'check_id 20: >= 10 NC indexes on any given table. Yes, 10 is an arbitrary number.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 20: >= 10 NC indexes on any given table. Yes, 10 is an arbitrary number.', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  20 AS check_id, 
@@ -3238,7 +3239,7 @@ BEGIN;
                         ORDER BY i.db_schema_object_name DESC  
 						OPTION    ( RECOMPILE );
 
-                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
+                IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  22 AS check_id, 
@@ -3270,7 +3271,7 @@ BEGIN;
                         OPTION    ( RECOMPILE );
 
 
-		RAISERROR(N'check_id 34: Filtered index definition columns not in index definition', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 34: Filtered index definition columns not in index definition', 0,1) WITH NOWAIT;
                  
                  INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -3305,7 +3306,7 @@ BEGIN;
         --Self Loathing Indexes : Check_id 40-49
         ----------------------------------------
         
-            RAISERROR(N'check_id 40: Fillfactor in nonclustered 80 percent or less', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 40: Fillfactor in nonclustered 80 percent or less', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  40 AS check_id, 
@@ -3332,7 +3333,7 @@ BEGIN;
                     WHERE    index_id > 1
                     AND    fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 40: Fillfactor in clustered 80 percent or less', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 40: Fillfactor in clustered 80 percent or less', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  40 AS check_id, 
@@ -3360,7 +3361,7 @@ BEGIN;
                     AND fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
 
-            RAISERROR(N'check_id 43: Heaps with forwarded records', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 43: Heaps with forwarded records', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -3402,7 +3403,7 @@ BEGIN;
                         AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 44: Large Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 44: Large Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -3440,7 +3441,7 @@ BEGIN;
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
                 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 45: Medium Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 45: Medium Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -3479,7 +3480,7 @@ BEGIN;
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
                 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 46: Small Heaps with reads or writes.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 46: Small Heaps with reads or writes.', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -3518,7 +3519,7 @@ BEGIN;
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
 						OPTION    ( RECOMPILE );
 
-				            RAISERROR(N'check_id 47: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
+				            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 47: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  47 AS check_id, 
@@ -3546,7 +3547,7 @@ BEGIN;
                             )
 						OPTION    ( RECOMPILE );
 
-	            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
+	            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  48 AS check_id, 
@@ -3582,7 +3583,7 @@ BEGIN;
         --Indexaphobia
         --Missing indexes with value >= 5 million: : Check_id 50-59
         ----------------------------------------
-            RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
             WITH    index_size_cte
                       AS ( SELECT   i.database_id,
 									i.schema_name,
@@ -3654,7 +3655,7 @@ BEGIN;
 
 
 
-            RAISERROR(N'check_id 68: Identity columns within 30 percent of the end of range', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 68: Identity columns within 30 percent of the end of range', 0,1) WITH NOWAIT;
             -- Allowed Ranges: 
                 --int -2,147,483,648 to 2,147,483,647
                 --smallint -32,768 to 32,768
@@ -3721,7 +3722,7 @@ BEGIN;
                         OPTION (RECOMPILE);
 
 
-		RAISERROR(N'check_id 72: Columnstore indexes with Trace Flag 834', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 72: Columnstore indexes with Trace Flag 834', 0,1) WITH NOWAIT;
             IF EXISTS (SELECT * FROM #IndexSanity WHERE index_type IN (5,6))
 			AND EXISTS (SELECT * FROM #TraceStatus WHERE TraceFlag = 834 AND status = 1)
 			BEGIN
@@ -3749,7 +3750,7 @@ BEGIN;
         --Statistics Info: Check_id 90-99
         ----------------------------------------
 
-        RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  90 AS check_id, 
@@ -3776,7 +3777,7 @@ BEGIN;
 		AND s.rows >= 10000
 		OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 91: Statistics with a low sample rate', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  91 AS check_id, 
@@ -3795,7 +3796,7 @@ BEGIN;
 		  OR (s.rows > 1000000 AND s.percent_sampled < 1)
 		OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  92 AS check_id, 
@@ -3814,7 +3815,7 @@ BEGIN;
 		OPTION    ( RECOMPILE );
 
 
-	     RAISERROR(N'check_id 94: Check Constraints That Reference Functions', 0,1) WITH NOWAIT;
+	     IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 94: Check Constraints That Reference Functions', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  94 AS check_id, 
@@ -3833,7 +3834,7 @@ BEGIN;
 		WHERE cc.is_function = 1
 		OPTION    ( RECOMPILE );
 
-		RAISERROR(N'check_id 99: Computed Columns That Reference Functions', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 99: Computed Columns That Reference Functions', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  99 AS check_id, 
@@ -3882,9 +3883,9 @@ BEGIN;
 
     IF @Mode = 4 /* DIAGNOSE*/
     BEGIN;
-        RAISERROR(N'@Mode=4, running rules for priorities 101+.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'@Mode=4, running rules for priorities 101+.', 0,1) WITH NOWAIT;
 
-            RAISERROR(N'check_id 21: More Than 5 Percent NC Indexes Are Unused', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 21: More Than 5 Percent NC Indexes Are Unused', 0,1) WITH NOWAIT;
             DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
             DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
 
@@ -3941,7 +3942,7 @@ BEGIN;
                         GROUP BY i.database_name 
                 OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  23 AS check_id, 
@@ -3961,7 +3962,7 @@ BEGIN;
                     WHERE    ( count_key_columns + count_included_columns ) >= 7
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 24: Wide clustered indexes (> 3 columns or > 16 bytes).', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 24: Wide clustered indexes (> 3 columns or > 16 bytes).', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT database_id, [object_id],
                                 SUM(CASE max_length WHEN -1 THEN 0 ELSE max_length END) AS sum_max_length
@@ -4007,7 +4008,7 @@ BEGIN;
 									AND i.is_CX_columnstore = 0
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   [database_id],
@@ -4047,7 +4048,7 @@ BEGIN;
                             AND cc.total_columns > 3
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   [database_id],
@@ -4093,7 +4094,7 @@ BEGIN;
                             cc.sum_max_length >= 2000)
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
                     
-            RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   [database_id],
@@ -4134,7 +4135,7 @@ BEGIN;
                             AND cc.total_columns > 3
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  28 AS check_id, 
@@ -4166,7 +4167,7 @@ BEGIN;
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                         secret_columns, index_usage_summary, index_size_summary )
                 SELECT  29 AS check_id, 
@@ -4198,7 +4199,7 @@ BEGIN;
         ----------------------------------------
         --Feature-Phobic Indexes: Check_id 30-39
         ---------------------------------------- 
-            RAISERROR(N'check_id 30: No indexes with includes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 30: No indexes with includes', 0,1) WITH NOWAIT;
             /* This does not work the way you'd expect with @GetAllDatabases = 1. For details:
                https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/825
             */
@@ -4230,7 +4231,7 @@ BEGIN;
 						WHERE number_indexes_with_includes = 0
 						OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  31 AS check_id,
@@ -4249,7 +4250,7 @@ BEGIN;
 					WHERE number_indexes_with_includes > 0 AND percent_indexes_with_includes <= 3
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -4277,7 +4278,7 @@ BEGIN;
 						   WHERE   is_indexed_view = 1 )
 					OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  33 AS check_id, 
@@ -4305,7 +4306,7 @@ BEGIN;
 					    OR column_name LIKE '%flag%')
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  41 AS check_id, 
@@ -4325,7 +4326,7 @@ BEGIN;
                     OPTION    ( RECOMPILE );
 
 
-            RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
             --Note: disabled NC indexes will have O rows in #IndexSanitySize!
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -4345,7 +4346,7 @@ BEGIN;
                     WHERE    is_disabled = 1
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 49: Heaps with deletes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 49: Heaps with deletes', 0,1) WITH NOWAIT;
             WITH    heaps_cte
                       AS ( SELECT   [object_id],
 								    [database_id],
@@ -4384,7 +4385,7 @@ BEGIN;
          ----------------------------------------
         --Abnormal Psychology : Check_id 60-79
         ----------------------------------------
-            RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  60 AS check_id, 
@@ -4404,7 +4405,7 @@ BEGIN;
                     WHERE i.is_XML = 1 
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  61 AS check_id, 
@@ -4428,7 +4429,7 @@ BEGIN;
                     OPTION    ( RECOMPILE );
 
 
-            RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  62 AS check_id, 
@@ -4448,7 +4449,7 @@ BEGIN;
                     WHERE i.is_spatial = 1 
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  63 AS check_id, 
@@ -4468,7 +4469,7 @@ BEGIN;
                     WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' 
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  64 AS check_id, 
@@ -4488,7 +4489,7 @@ BEGIN;
                     WHERE i.partition_key_column_name IS NOT NULL 
 					OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  65 AS check_id, 
@@ -4514,7 +4515,7 @@ BEGIN;
                     WHERE i.partition_key_column_name IS NULL 
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  66 AS check_id, 
@@ -4537,7 +4538,7 @@ BEGIN;
                     WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  67 AS check_id, 
@@ -4562,7 +4563,7 @@ BEGIN;
                     i.create_date < DATEADD(dd,-7,GETDATE()) 
                     OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   database_id,
@@ -4601,7 +4602,7 @@ BEGIN;
                         WHERE    i.index_id IN (1,0)
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 70: Replicated columns', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 70: Replicated columns', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   database_id,
@@ -4643,7 +4644,7 @@ BEGIN;
                         ORDER BY i.db_schema_object_name DESC 
 						OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary, more_info )
             SELECT  71 AS check_id, 
@@ -4671,7 +4672,7 @@ BEGIN;
             OR [update_referential_action_desc] <> N'NO_ACTION')
 			OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 72: Unindexed foreign keys.', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 72: Unindexed foreign keys.', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary, more_info )
             SELECT  72 AS check_id, 
@@ -4695,7 +4696,7 @@ BEGIN;
 			OPTION    ( RECOMPILE );
 
 
-            RAISERROR(N'check_id 73: In-Memory OLTP', 0,1) WITH NOWAIT;
+            IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 73: In-Memory OLTP', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  73 AS check_id, 
@@ -4715,7 +4716,7 @@ BEGIN;
                     WHERE i.is_in_memory_oltp = 1
 					OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 74: Identity column with unusual seed', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 74: Identity column with unusual seed', 0,1) WITH NOWAIT;
             INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
                     SELECT  74 AS check_id, 
@@ -4761,7 +4762,7 @@ BEGIN;
         --Workaholics: Check_id 80-89
         ----------------------------------------
 
-        RAISERROR(N'check_id 80: Most scanned indexes (index_usage_stats)', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 80: Most scanned indexes (index_usage_stats)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
@@ -4791,7 +4792,7 @@ BEGIN;
         ORDER BY  i.user_scans * iss.total_reserved_MB DESC
 		OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
         --Workaholics according to index_operational_stats
@@ -4824,7 +4825,7 @@ BEGIN;
 
 
 
-        RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 93: Statistics with filters', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  93 AS check_id, 
@@ -4843,7 +4844,7 @@ BEGIN;
 		OPTION    ( RECOMPILE );
 
 
-		RAISERROR(N'check_id 100: Computed Columns that are not Persisted.', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 100: Computed Columns that are not Persisted.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  100 AS check_id, 
@@ -4863,7 +4864,7 @@ BEGIN;
 		WHERE cc.is_persisted = 0
 		OPTION    ( RECOMPILE );
 
-		RAISERROR(N'check_id 110: Temporal Tables.', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 110: Temporal Tables.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
@@ -4883,7 +4884,7 @@ BEGIN;
 		FROM #TemporalTables AS t
 		OPTION    ( RECOMPILE );
 
-		RAISERROR(N'check_id 121: Optimized For Sequental Keys.', 0,1) WITH NOWAIT;
+		IF(@SkipDisplayMessages = 0) RAISERROR(N'check_id 121: Optimized For Sequental Keys.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
@@ -4933,7 +4934,7 @@ BEGIN;
 
 
  
-        RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
         IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
 		BEGIN
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
@@ -4999,7 +5000,7 @@ BEGIN;
 
         END;
 
-        RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             
         /*Return results.*/
         IF (@Mode = 0)
@@ -5061,7 +5062,7 @@ ELSE IF (@Mode=1) /*Summarize*/
     --This mode is to give some overall stats on the database.
 	 	IF(@OutputType <> 'NONE')
 	 	BEGIN
-			RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
+			IF(@SkipDisplayMessages = 0) RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
 			SELECT DB_NAME(i.database_id) AS [Database Name],
 				CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
@@ -5127,7 +5128,7 @@ ELSE IF (@Mode=1) /*Summarize*/
     BEGIN
         --This mode just spits out all the detail without filters.
         --This supports slicing AND dicing in Excel
-        RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
 		
 		/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
@@ -5141,7 +5142,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
+						IF(@SkipDisplayMessages = 0) RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
 					END;
 				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 					BEGIN
@@ -5154,11 +5155,11 @@ ELSE IF (@Mode=1) /*Summarize*/
 								SET @ValidOutputLocation = 1;
 							END;
 						ELSE
-							RAISERROR('The specified database was not found on the output server', 16, 0);
+							IF(@SkipDisplayMessages = 0) RAISERROR('The specified database was not found on the output server', 16, 0);
 					END;
 				ELSE
 					BEGIN
-						RAISERROR('The specified output server was not found', 16, 0);
+						IF(@SkipDisplayMessages = 0) RAISERROR('The specified output server was not found', 16, 0);
 					END;
 			END;
 		ELSE
@@ -5176,7 +5177,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						IF(@SkipDisplayMessages = 0) RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 				ELSE IF @OutputDatabaseName IS NOT NULL
 					AND @OutputSchemaName IS NOT NULL
@@ -5195,7 +5196,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 						 FROM   sys.databases
 						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
 					BEGIN
-						RAISERROR('The specified output database was not found on this server', 16, 0);
+						IF(@SkipDisplayMessages = 0) RAISERROR('The specified output database was not found on this server', 16, 0);
 					END;
 				ELSE
 					BEGIN
@@ -5205,7 +5206,7 @@ ELSE IF (@Mode=1) /*Summarize*/
 																										
         IF (@ValidOutputLocation = 0 AND @OutputType = 'NONE')
         BEGIN
-            RAISERROR('Invalid output location and no output asked',12,1);
+            IF(@SkipDisplayMessages = 0) RAISERROR('Invalid output location and no output asked',12,1);
             RETURN;
         END;
 																										
@@ -5537,10 +5538,10 @@ ELSE IF (@Mode=1) /*Summarize*/
 								EXEC(@StringToExecute);
 							END; /* @TableExists = 1 */
 						ELSE
-							RAISERROR('Creation of the output table failed.', 16, 0);
+							IF(@SkipDisplayMessages = 0) RAISERROR('Creation of the output table failed.', 16, 0);
 					END; /* @TableExists = 0 */
 				ELSE
-					RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0);
+					IF(@SkipDisplayMessages = 0) RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0);
 			END; /* @ValidOutputLocation = 1 */
 		ELSE
 	
@@ -5748,11 +5749,11 @@ ELSE IF (@Mode=1) /*Summarize*/
 END TRY
 
 BEGIN CATCH
-        RAISERROR (N'Failure analyzing temp tables.', 0,1) WITH NOWAIT;
+        IF(@SkipDisplayMessages = 0) RAISERROR (N'Failure analyzing temp tables.', 0,1) WITH NOWAIT;
 
         SELECT  @msg = ERROR_MESSAGE(), @ErrorSeverity = ERROR_SEVERITY(), @ErrorState = ERROR_STATE();
 
-        RAISERROR (@msg, 
+        IF(@SkipDisplayMessages = 0) RAISERROR (@msg, 
                @ErrorSeverity, 
                @ErrorState 
                );
