@@ -5479,7 +5479,8 @@ IF @ProductVersionMajor >= 10
 							OR UPPER(name) LIKE UPPER('%ScriptControl%.dll') OR UPPER(name) LIKE UPPER('%umppc%.dll') /* CrowdStrike */
 							OR UPPER(name) LIKE UPPER('%perfiCrcPerfMonMgr.DLL') /* Trend Micro OfficeScan */
 							OR UPPER(name) LIKE UPPER('%NLEMSQL.SYS') /* NetLib Encryptionizer-Software. */
-							OR UPPER(name) LIKE UPPER('%MFETDIK.SYS'); /* McAfee Anti-Virus Mini-Firewall */
+							OR UPPER(name) LIKE UPPER('%MFETDIK.SYS') /* McAfee Anti-Virus Mini-Firewall */
+							OR UPPER(name) LIKE UPPER('%ANTIVIRUS%'); /* To pick up sqlmaggieAntiVirus_64.dll (malware) or anything else labelled AntiVirus */
 							/* MS docs link for blacklisted modules: https://learn.microsoft.com/en-us/troubleshoot/sql/performance/performance-consistency-issues-filter-drivers-modules */
 					END;
 
