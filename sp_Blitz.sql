@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.07', @VersionDate = '20211106';
+	SELECT @Version = '8.10', @VersionDate = '20220718';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -768,6 +768,7 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_TRAN_LIST');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_SYNC');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK');
+		INSERT INTO #IgnorableWaits VALUES ('POPULATE_LOCK_ORDINALS');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
@@ -3028,22 +3029,148 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 53) WITH NOWAIT;
 
-						INSERT  INTO #BlitzResults
-								( CheckID ,
-								  Priority ,
-								  FindingsGroup ,
-								  Finding ,
-								  URL ,
-								  Details
-								)
-								SELECT TOP 1
-										53 AS CheckID ,
-										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Cluster Node' AS Finding ,
-										'https://www.brentozar.com/go/node' AS URL ,
-										'This is a node in a cluster.' AS Details
-								FROM    sys.dm_os_cluster_nodes;
+						--INSERT  INTO #BlitzResults
+                                         --            ( CheckID ,
+                                         --              Priority ,
+                                         --              FindingsGroup ,
+                                         --              Finding ,
+                                         --              URL ,
+                                         --              Details
+                                         --            )
+                                         --            SELECT TOP 1
+                                         --                         53 AS CheckID ,
+                                         --                         200 AS Priority ,
+                                         --                         'Informational' AS FindingsGroup ,
+                                         --                         'Cluster Node' AS Finding ,
+                                         --                         'https://BrentOzar.com/go/node' AS URL ,
+                                         --                         'This is a node in a cluster.' AS Details
+                                         --            FROM    sys.dm_os_cluster_nodes;
+
+                                         DECLARE @AOFCI AS INT, @AOAG AS INT, @HAType AS VARCHAR(10), @errmsg AS VARCHAR(200)
+
+                                         SELECT @AOAG = CAST(SERVERPROPERTY('IsHadrEnabled') AS INT)
+                                         SELECT @AOFCI = CAST(SERVERPROPERTY('IsClustered') AS INT)
+
+                                         IF (SELECT COUNT(DISTINCT join_state_desc) FROM sys.dm_hadr_availability_replica_cluster_states) = 2 
+                                         BEGIN --if count is 2 both JOINED_STANDALONE and JOINED_FCI is configured
+                                                       SET @AOFCI = 1
+                                         END
+
+                                         SELECT @HAType =
+                                         CASE
+                                                       WHEN @AOFCI = 1 AND @AOAG =1 THEN 'FCIAG'
+                                                       WHEN @AOFCI = 1 AND @AOAG =0 THEN 'FCI'
+                                                       WHEN @AOFCI = 0 AND @AOAG =1 THEN 'AG'
+                                                       ELSE 'STANDALONE'
+                                         END
+
+                                         IF (@HAType IN ('FCIAG','FCI','AG'))
+                                         BEGIN
+
+                                                   INSERT  INTO #BlitzResults
+                                                               ( CheckID ,
+                                                                      Priority ,
+                                                                      FindingsGroup ,
+                                                                      Finding ,
+                                                                      URL ,
+                                                                      Details
+                                                               )
+
+                                                   SELECT 53 AS CheckID ,
+                                                   200 AS Priority ,
+                                                   'Informational' AS FindingsGroup ,
+                                                   'Cluster Node' AS Finding ,
+                                                   'https://BrentOzar.com/go/node' AS URL ,
+                                                   'This is a node in a cluster.' AS Details
+
+                                                   IF @HAType = 'AG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                  FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(ar.replica_server_name) 
+                                                                FROM sys.availability_groups AS ag
+                                                                LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Availability Group (AG)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCI'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + CASE is_current_owner 
+                                                                            WHEN 1 THEN 'PRIMARY'
+                                                                           ELSE 'SECONDARY'
+                                                                END + '=' + UPPER(NodeName) 
+                                                                FROM sys.dm_os_cluster_nodes
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn Failover Cluster Instance (FCI)' As Details
+                                                   END
+
+                                                   IF @HAType = 'FCIAG'
+                                                   BEGIN
+                                                                INSERT  INTO #BlitzResults
+                                                                            ( CheckID ,
+                                                                                   Priority ,
+                                                                                   FindingsGroup ,
+                                                                                   Finding ,
+                                                                                   URL ,
+                                                                                   Details
+                                                                            )
+                                                                SELECT 53 AS CheckID ,
+                                                                200 AS Priority ,
+                                                                'Informational' AS FindingsGroup ,
+                                                                'Cluster Node Info' AS Finding ,
+                                                                'https://BrentOzar.com/go/node' AS URL,
+                                                                'The cluster nodes are: ' + STUFF((SELECT ', ' + HighAvailabilityRoleDesc + '=' + ServerName
+                                                                FROM (SELECT UPPER(ar.replica_server_name) AS ServerName
+                                                                                     ,CASE ar.replica_server_name WHEN dhags.primary_replica THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.availability_groups AS ag
+                                                                                     LEFT OUTER JOIN sys.availability_replicas AS ar ON ag.group_id = ar.group_id
+                                                                                     LEFT OUTER JOIN sys.dm_hadr_availability_group_states as dhags ON ag.group_id = dhags.group_id
+                                                                                     WHERE UPPER(CAST(SERVERPROPERTY('ServerName') AS VARCHAR)) <> ar.replica_server_name
+                                                                                     UNION ALL
+                                                                                     SELECT UPPER(NodeName) AS ServerName
+                                                                                     ,CASE is_current_owner 
+                                                                                     WHEN 1 THEN 'PRIMARY'
+                                                                                     ELSE 'SECONDARY'
+                                                                                     END AS HighAvailabilityRoleDesc
+                                                                                     FROM sys.dm_os_cluster_nodes) AS Z
+                                                                ORDER BY 1
+                                                                FOR XML PATH ('')
+                                                                ), 1, 1, '') + ' - High Availability solution used is AlwaysOn FCI with AG (Failover Cluster Instance with Availability Group).'As Details
+                                                   END
+                                         END
+
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3874,11 +4001,11 @@ AS
 			                        ''Performance'' AS FindingsGroup,
 			                        ''In-Memory OLTP (Hekaton) In Use'' AS Finding,
 			                        ''https://www.brentozar.com/go/hekaton'' AS URL,
-			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS INT) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
+			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS DECIMAL(6,1)) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
 			                        FROM sys.configurations c INNER JOIN sys.dm_os_memory_clerks mem ON mem.type = ''MEMORYCLERK_XTP''
                                     WHERE c.name = ''max server memory (MB)''
                                     GROUP BY c.value_in_use
-                                    HAVING SUM(mem.pages_kb / 1024.0) > 10 OPTION (RECOMPILE)';
+                                    HAVING SUM(mem.pages_kb / 1024.0) > 1000 OPTION (RECOMPILE)';
 		
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -5345,11 +5472,15 @@ IF @ProductVersionMajor >= 10
 							'https://support.microsoft.com/en-us/kb/2033238' AS [URL] ,
 							( COALESCE(company, '') + ' - ' + COALESCE(description, '') + ' - ' + COALESCE(name, '') + ' - suspected dangerous third party module is installed.') AS [Details]
 							FROM sys.dm_os_loaded_modules
-							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') /* McAfee VirusScan Enterprise */
+							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') OR UPPER(name) LIKE '%MFEBOPK.SYS' /* McAfee VirusScan Enterprise */
 							OR UPPER(name) LIKE UPPER('%\HIPI.DLL') OR UPPER(name) LIKE UPPER('%\HcSQL.dll') OR UPPER(name) LIKE UPPER('%\HcApi.dll') OR UPPER(name) LIKE UPPER('%\HcThe.dll') /* McAfee Host Intrusion */
 							OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED.DLL') OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED_x64.DLL') OR UPPER(name) LIKE UPPER('%\SWI_IFSLSP_64.dll') OR UPPER(name) LIKE UPPER('%\SOPHOS~%.dll') /* Sophos AV */
-							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL'); /* OSISoft PI data access */
-
+							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
+							OR UPPER(name) LIKE UPPER('%ScriptControl%.dll') OR UPPER(name) LIKE UPPER('%umppc%.dll') /* CrowdStrike */
+							OR UPPER(name) LIKE UPPER('%perfiCrcPerfMonMgr.DLL') /* Trend Micro OfficeScan */
+							OR UPPER(name) LIKE UPPER('%NLEMSQL.SYS') /* NetLib Encryptionizer-Software. */
+							OR UPPER(name) LIKE UPPER('%MFETDIK.SYS'); /* McAfee Anti-Virus Mini-Firewall */
+							/* MS docs link for blacklisted modules: https://learn.microsoft.com/en-us/troubleshoot/sql/performance/performance-consistency-issues-filter-drivers-modules */
 					END;
 
 			/*Find shrink database tasks*/
@@ -6251,7 +6382,8 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
 			                            AND N''?'' <> ''[tempdb]''
 		                              GROUP BY LEFT(physical_name, 1)
-		                              HAVING COUNT(*) > 1 OPTION (RECOMPILE);';
+		                              HAVING COUNT(*) > 1 
+									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
 					        END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -6334,8 +6466,8 @@ IF @ProductVersionMajor >= 10
 		                                ''File Configuration'' AS FindingsGroup,
 		                                ''File growth set to 1MB'',
 		                                ''https://www.brentozar.com/go/percentgrowth'' AS URL,
-		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' is using 1MB filegrowth settings, but it has grown to '' + CAST((f.size * 8 / 1000000) AS NVARCHAR(10)) + '' GB. Time to up the growth amount.''
-		                                FROM    [?].sys.database_files f
+										''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' is using 1MB filegrowth settings, but it has grown to '' + CAST((CAST(f.size AS BIGINT) * 8 / 1000000) AS NVARCHAR(10)) + '' GB. Time to up the growth amount.''
+										FROM    [?].sys.database_files f
                                         WHERE is_percent_growth = 0 and growth=128 and size > 128000  OPTION (RECOMPILE);';
 					            END;
 
@@ -6467,6 +6599,7 @@ IF @ProductVersionMajor >= 10
 								
 								EXEC dbo.sp_MSforeachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			SET QUOTED_IDENTIFIER ON;
             INSERT INTO #BlitzResults
 			(CheckID,
 			DatabaseName,
@@ -6690,7 +6823,9 @@ IF @ProductVersionMajor >= 10
                                     URL = 'https://www.brentozar.com/go/recompile',
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
-                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
+                                FROM #Recompile AS TR 
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%'
+								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
 
@@ -8565,7 +8700,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													+ '' GB free on '' + i.drive
 													+ '' drive '' + i.logical_volume_name
 													+ '' out of '' + CAST(CAST(i.total_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
-													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''%)'' END
+													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''% used)'' END
 												 AS Details
 										FROM    #driveInfo AS i;'
 
@@ -8690,7 +8825,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
 														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
 														   @value_name = 'ActivePowerScheme',
-														   @value = @outval OUTPUT;
+														   @value = @outval OUTPUT,
+														   @no_output = 'no_output';
 
 								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',

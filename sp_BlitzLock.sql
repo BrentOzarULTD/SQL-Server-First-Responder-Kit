@@ -33,7 +33,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.07', @VersionDate = '20211106';
+SELECT @Version = '8.10', @VersionDate = '20220718';
 
 
 IF(@VersionCheckMode = 1)
@@ -86,7 +86,6 @@ END;
 	   I took a long look at this one, and:
 		1) Trying to account for all the weird places these could crop up is a losing effort. 
 		2) Replace is slow af on lots of XML.
-	- Your mom.
 
 
 
@@ -121,9 +120,11 @@ END;
 	RETURN;
 	END;    /* @Help = 1 */
 	
-        DECLARE @ProductVersion NVARCHAR(128);
-        DECLARE @ProductVersionMajor FLOAT;
-        DECLARE @ProductVersionMinor INT;
+        DECLARE @ProductVersion NVARCHAR(128), 
+			@ProductVersionMajor FLOAT,
+			@ProductVersionMinor INT,
+			@ObjectFullName NVARCHAR(2000);
+
 
         SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 
@@ -215,13 +216,30 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 					@OutputTableName = QUOTENAME(@OutputTableName), 
 					@OutputSchemaName = QUOTENAME(@OutputSchemaName) 
-					if(@r is null) --if it is null there is no table, create it from above execution
+					if(@r is not null) --if it is not null, there is a table, so check for newly added columns
+					BEGIN
+						/* If the table doesn't have the new spid column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''spid'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD spid SMALLINT NULL;';
+						EXEC(@StringToExecute);
+
+						/* If the table doesn't have the new wait_resource column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''wait_resource'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
+						EXEC(@StringToExecute);
+					END
+					ELSE --if(@r is not null) --if it is null there is no table, create it from above execution
 					BEGIN
 						select @StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableName + ' (
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
 							database_name NVARCHAR(256),
+							spid SMALLINT,
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,
@@ -233,6 +251,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							host_name NVARCHAR(256),
 							client_app NVARCHAR(256),
 							wait_time BIGINT,
+							wait_resource NVARCHAR(max),
 							priority smallint,
 							log_used BIGINT,
 							last_tran_started datetime,
@@ -360,6 +379,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					CONVERT(BIT, q.is_parallel) AS is_parallel,
                     q.deadlock_graph,
                     q.id,
+                    q.spid,
                     q.database_id,
                     q.priority,
                     q.log_used,
@@ -384,6 +404,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 									CONVERT(tinyint, dd.is_parallel) + CONVERT(tinyint, dd.is_parallel_batch) AS is_parallel,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
+									ca.dp.value('@spid', 'SMALLINT') AS spid,
                                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
                                     ca.dp.value('@priority', 'SMALLINT') AS priority,
                                     ca.dp.value('@logused', 'BIGINT') AS log_used,
@@ -1286,6 +1307,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					dp.event_date,
 		            dp.id,
 					dp.victim_id,
+					dp.spid,
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
@@ -1343,6 +1365,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					dp.event_date,
 		            dp.id,
 					dp.victim_id,
+					dp.spid,
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
@@ -1399,6 +1422,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			deadlock_type,
 			event_date,
 			database_name,
+			spid,
 			deadlock_group,
 			query,
 			object_names,
@@ -1410,6 +1434,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			host_name,
 			client_app,
 			wait_time,
+			wait_resource,
 			priority,
 			log_used,
 			last_tran_started,
@@ -1434,6 +1459,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_type,
 			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
+			   d.spid,
 		       'Deadlock #' 
 			   + CONVERT(NVARCHAR(10), d.en)
 			   + ', Query #' 
@@ -1450,6 +1476,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		       d.host_name,
 		       d.client_app,
 		       d.wait_time,
+		       d.wait_resource,
 		       d.priority,
 			   d.log_used,
 		       d.last_tran_started,
@@ -1509,6 +1536,7 @@ ELSE  --Output to database is not set output to client app
 						dp.event_date,
 						dp.id,
 						dp.victim_id,
+						dp.spid,
 						dp.database_id,
 						dp.priority,
 						dp.log_used,
@@ -1566,6 +1594,7 @@ ELSE  --Output to database is not set output to client app
 						dp.event_date,
 						dp.id,
 						dp.victim_id,
+						dp.spid,
 						dp.database_id,
 						dp.priority,
 						dp.log_used,
@@ -1621,6 +1650,7 @@ ELSE  --Output to database is not set output to client app
 				SELECT d.deadlock_type,
 				d.event_date,
 				DB_NAME(d.database_id) AS database_name,
+				d.spid,
 				'Deadlock #' 
 				+ CONVERT(NVARCHAR(10), d.en)
 				+ ', Query #' 
@@ -1638,6 +1668,7 @@ ELSE  --Output to database is not set output to client app
 				d.host_name,
 				d.client_app,
 				d.wait_time,
+				d.wait_resource,
 				d.priority,
 				d.log_used,
 				d.last_tran_started,
@@ -1681,6 +1712,7 @@ ELSE  --Output to database is not set output to client app
 			   dr.deadlock_type,
                dr.event_date,
                dr.database_name,
+               dr.spid,
                dr.deadlock_group,
 			   '
 			   + CASE @ExportToExcel
@@ -1699,6 +1731,7 @@ ELSE  --Output to database is not set output to client app
                dr.host_name,
                dr.client_app,
                dr.wait_time,
+               dr.wait_resource,
                dr.priority,
                dr.log_used,
                dr.last_tran_started,

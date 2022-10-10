@@ -31,7 +31,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.07', @VersionDate = '20211106';
+SELECT @Version = '8.10', @VersionDate = '20220718';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -124,6 +124,7 @@ DECLARE @servercertificate NVARCHAR(MAX); --Config table: server certificate tha
 DECLARE @restore_path_base NVARCHAR(MAX); --Used to hold the base backup path in our configuration table
 DECLARE @restore_path_full NVARCHAR(MAX); --Used to hold the full backup path in our configuration table
 DECLARE @restore_path_log NVARCHAR(MAX); --Used to hold the log backup path in our configuration table
+DECLARE @restore_move_files INT; -- used to hold the move files bit in our configuration table
 DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
 DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
 DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
@@ -165,21 +166,28 @@ IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND v
 		END 
 
 /*
-Make sure Ola Hallengren's scripts are installed in master
+Make sure Ola Hallengren's scripts are installed in same database
 */
-IF 2 <> (SELECT COUNT(*) FROM master.sys.procedures WHERE name IN('CommandExecute', 'DatabaseBackup'))
+DECLARE @CurrentDatabaseContext nvarchar(128) = DB_NAME();
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'CommandExecute')
 		BEGIN 		
-			RAISERROR('Ola Hallengren''s CommandExecute and DatabaseBackup must be installed in the master database. More info: http://ola.hallengren.com', 0, 1) WITH NOWAIT
+			RAISERROR('Ola Hallengren''s CommandExecute must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s DatabaseBackup must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
 
 /*
-Make sure sp_DatabaseRestore is installed in master
+Make sure sp_DatabaseRestore is installed in same database
 */
-IF NOT EXISTS (SELECT * FROM master.sys.procedures WHERE name = 'sp_DatabaseRestore')
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_DatabaseRestore')
 		BEGIN 		
-			RAISERROR('sp_DatabaseRestore must be installed in master. To get it: http://FirstResponderKit.org', 0, 1) WITH NOWAIT
+			RAISERROR('sp_DatabaseRestore must be installed in the same database (%s) as SQL Server First Responder Kit. To get it: http://FirstResponderKit.org', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
 			
 			RETURN;
 		END 
@@ -236,7 +244,17 @@ IF (@PollDiskForNewDatabases = 1 OR @Restore = 1) AND OBJECT_ID('msdb.dbo.restor
                     END;
 
             END /* IF CHARINDEX('**', @restore_path_base) <> 0 */
-                    
+		
+		SELECT @restore_move_files = CONVERT(BIT, configuration_setting)
+		FROM msdb.dbo.restore_configuration c
+		WHERE configuration_name = N'move files';
+		
+		IF @restore_move_files is NULL
+		BEGIN
+			-- Set to default value of 1
+			SET @restore_move_files = 1
+		END
+
     END /* IF @PollDiskForNewDatabases = 1 OR @Restore = 1 */
 
 
@@ -912,7 +930,7 @@ LogShamer:
 										*/
 
 	                                    IF @encrypt = 'Y'
-										    EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+										    EXEC dbo.DatabaseBackup @Databases = @database, --Database we're working on
 																	       @BackupType = 'LOG', --Going for the LOGs
 																	       @Directory = @backup_path, --The path we need to back up to
 																	       @Verify = 'N', --We don't want to verify these, it eats into job time
@@ -925,7 +943,7 @@ LogShamer:
                                                                            @ServerCertificate = @servercertificate;
 
                                         ELSE
-									        EXEC master.dbo.DatabaseBackup @Databases = @database, --Database we're working on
+									        EXEC dbo.DatabaseBackup @Databases = @database, --Database we're working on
 																	        @BackupType = 'LOG', --Going for the LOGs
 																	        @Directory = @backup_path, --The path we need to back up to
 																	        @Verify = 'N', --We don't want to verify these, it eats into job time
@@ -1311,12 +1329,13 @@ IF @Restore = 1
 
 												IF @Debug = 1 RAISERROR('Starting Log only restores', 0, 1) WITH NOWAIT;
 
-												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
+												EXEC dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,
 																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 1,
 																				   @RunRecovery = 0,
 																				   @OnlyLogsAfter = @only_logs_after,
+																				   @MoveFiles = @restore_move_files,
 																				   @Debug = @Debug
 	
 											END
@@ -1328,11 +1347,12 @@ IF @Restore = 1
 												IF @Debug = 1 RAISERROR('Starting first Full restore from: ', 0, 1) WITH NOWAIT;
 												IF @Debug = 1 RAISERROR(@restore_path_full, 0, 1) WITH NOWAIT;
 
-												EXEC master.dbo.sp_DatabaseRestore @Database = @database, 
+												EXEC dbo.sp_DatabaseRestore @Database = @database, 
 																				   @BackupPathFull = @restore_path_full,
 																				   @BackupPathLog = @restore_path_log,
 																				   @ContinueLogs = 0,
 																				   @RunRecovery = 0,
+																				   @MoveFiles = @restore_move_files,
 																				   @Debug = @Debug
 	
 											END
