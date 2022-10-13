@@ -31,7 +31,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.10', @VersionDate = '20220718';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -578,7 +578,7 @@ DiskPollster:
 						SELECT fl.BackupFile
 						FROM @FileList AS fl
 						WHERE fl.BackupFile IS NOT NULL
-						AND fl.BackupFile NOT IN (SELECT name from sys.databases where database_id < 5)
+						AND fl.BackupFile COLLATE DATABASE_DEFAULT NOT IN (SELECT name from sys.databases where database_id < 5)
 						AND NOT EXISTS
 							(
 							SELECT 1

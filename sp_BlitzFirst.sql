@@ -46,7 +46,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.10', @VersionDate = '20220718';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -275,7 +275,7 @@ BEGIN
     END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
-    IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
         WITH WaitTimes AS (
             SELECT wait_type, wait_time_ms,
                 NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
@@ -286,7 +286,7 @@ BEGIN
         SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM WaitTimes
             WHERE grouper = 2;
-    ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
+    ELSE IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
         SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM sys.databases
             WHERE database_id = 2;
@@ -1039,7 +1039,7 @@ BEGIN
         DROP TABLE #MasterFiles;
     CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
     /* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-    IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
+    IF (SERVERPROPERTY('EngineEdition') = 5 /*(SERVERPROPERTY('Edition')) = 'SQL Azure' */
          AND (OBJECT_ID('sys.master_files') IS NULL))
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
     ELSE
@@ -1131,7 +1131,7 @@ BEGIN
            @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
-    IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
+    IF SERVERPROPERTY('EngineEdition') = 5 /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'*/
         SELECT TOP 1 @ServiceName = LEFT(object_name, (CHARINDEX(':', object_name) - 1))
         FROM sys.dm_os_performance_counters;
     ELSE
@@ -1400,7 +1400,7 @@ BEGIN
 				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
 				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks ';
 
-	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
 	ELSE
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
@@ -1551,7 +1551,7 @@ BEGIN
 	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
-    IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
+    IF @Seconds > 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'*/
     BEGIN
         SET @StringToExecute = 'UPDATE #BlitzFirstResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #BlitzFirstResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
         EXEC(@StringToExecute);
@@ -1679,7 +1679,7 @@ BEGIN
 	END
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-    IF SERVERPROPERTY('Edition') <> 'SQL Azure' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
+    IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/ AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -1939,7 +1939,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
 
     /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
-	IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -2387,7 +2387,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 23',10,1) WITH NOWAIT;
 		END
 
-        IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+        IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 			WITH y
 				AS
 				 (
@@ -2466,12 +2466,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 				SET @StringToExecute = N'USE [?];' + @LineFeed;
 			ELSE
 				SET @StringToExecute = N'';
 
-            SET @StringToExecute = @StringToExecute + 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
@@ -2515,7 +2515,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     'END CATCH'                          
                                     ;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 	            EXEC sp_MSforeachdb @StringToExecute;
 			ELSE
 				EXEC(@StringToExecute);
@@ -2595,7 +2595,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
 				   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks ';
 
-	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
 	ELSE
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
@@ -3222,7 +3222,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
     /* Azure Performance - Database is Maxed Out - CheckID 41 */
-    IF SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN

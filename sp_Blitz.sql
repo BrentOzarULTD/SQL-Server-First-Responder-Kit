@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.10', @VersionDate = '20220718';
+	SELECT @Version = '8.11', @VersionDate = '20221013';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -425,7 +425,6 @@ AS
 		/* If the server is Amazon RDS, skip checks that it doesn't allow */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NOT NULL
 		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
@@ -889,6 +888,40 @@ AS
 			BEGIN
 
 				/*
+				Extract DBCC DBINFO data from the server. This data is used for check 2 using
+				the dbi_LastLogBackupTime field and check 68 using the dbi_LastKnownGood field.
+				NB: DBCC DBINFO is not available on AWS RDS databases so if the server is RDS
+				(which will have previously triggered inserting a checkID 223 record) and at
+				least one of the relevant checks is not being skipped then we can extract the
+				dbinfo information.
+				*/
+				IF NOT EXISTS ( SELECT 1 
+							FROM #BlitzResults 
+							WHERE CheckID = 223 AND URL = 'https://aws.amazon.com/rds/sqlserver/')
+					AND (
+							NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 2 )
+							OR NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 68 )
+					)
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Extracting DBCC DBINFO data (used in checks 2 and 68).', 0, 1, 68) WITH NOWAIT;
+
+						EXEC sp_MSforeachdb N'USE [?];
+							SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+							INSERT #DBCCs
+								(ParentObject,
+								Object,
+								Field,
+								Value)
+							EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+							UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+					END
+
+				/*
 				Our very first check! We'll put more comments in this one just to
 				explain exactly how it works. First, we check to see if we're
 				supposed to skip CheckID 1 (that's the check we're working on.)
@@ -1033,6 +1066,7 @@ AS
 										'https://www.brentozar.com/go/biglogs' AS URL ,
 										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
+								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = 'dbi_LastLogBackupTime'
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
@@ -1043,12 +1077,23 @@ AS
 																  DatabaseName
 															FROM  #SkipChecks
 															WHERE CheckID IS NULL OR CheckID = 2)
-										AND NOT EXISTS ( SELECT *
-														 FROM   msdb.dbo.backupset b
-														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND b.type = 'L'
-																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE()) );
+										AND	(
+												(
+													/* We couldn't get a value from the DBCC DBINFO data so let's check the msdb backup history information */
+														[ll].[Value] Is Null
+													AND NOT EXISTS ( SELECT *
+																	 FROM   msdb.dbo.backupset b
+																	 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																				AND b.type = 'L'
+																				AND b.backup_finish_date >= DATEADD(dd,-7, GETDATE())
+																	)
+												)
+												OR
+												(
+													Convert(datetime,ll.Value) < DATEADD(dd,-7, GETDATE())
+												)
+
+											);
 					END;
 
 				/*
@@ -5472,11 +5517,16 @@ IF @ProductVersionMajor >= 10
 							'https://support.microsoft.com/en-us/kb/2033238' AS [URL] ,
 							( COALESCE(company, '') + ' - ' + COALESCE(description, '') + ' - ' + COALESCE(name, '') + ' - suspected dangerous third party module is installed.') AS [Details]
 							FROM sys.dm_os_loaded_modules
-							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') /* McAfee VirusScan Enterprise */
+							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') OR UPPER(name) LIKE '%MFEBOPK.SYS' /* McAfee VirusScan Enterprise */
 							OR UPPER(name) LIKE UPPER('%\HIPI.DLL') OR UPPER(name) LIKE UPPER('%\HcSQL.dll') OR UPPER(name) LIKE UPPER('%\HcApi.dll') OR UPPER(name) LIKE UPPER('%\HcThe.dll') /* McAfee Host Intrusion */
 							OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED.DLL') OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED_x64.DLL') OR UPPER(name) LIKE UPPER('%\SWI_IFSLSP_64.dll') OR UPPER(name) LIKE UPPER('%\SOPHOS~%.dll') /* Sophos AV */
-							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL'); /* OSISoft PI data access */
-
+							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
+							OR UPPER(name) LIKE UPPER('%ScriptControl%.dll') OR UPPER(name) LIKE UPPER('%umppc%.dll') /* CrowdStrike */
+							OR UPPER(name) LIKE UPPER('%perfiCrcPerfMonMgr.DLL') /* Trend Micro OfficeScan */
+							OR UPPER(name) LIKE UPPER('%NLEMSQL.SYS') /* NetLib Encryptionizer-Software. */
+							OR UPPER(name) LIKE UPPER('%MFETDIK.SYS') /* McAfee Anti-Virus Mini-Firewall */
+							OR UPPER(name) LIKE UPPER('%ANTIVIRUS%'); /* To pick up sqlmaggieAntiVirus_64.dll (malware) or anything else labelled AntiVirus */
+							/* MS docs link for blacklisted modules: https://learn.microsoft.com/en-us/troubleshoot/sql/performance/performance-consistency-issues-filter-drivers-modules */
 					END;
 
 			/*Find shrink database tasks*/
@@ -7286,15 +7336,16 @@ IF @ProductVersionMajor >= 10
 				
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
 				
-				EXEC sp_MSforeachdb N'USE [?];
-				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-				INSERT #DBCCs
-					(ParentObject,
-					Object,
-					Field,
-					Value)
-				EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
-				UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+				/* Removed as populating the #DBCCs table now done in advance as data is uses for multiple checks*/
+				--EXEC sp_MSforeachdb N'USE [?];
+				--SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				--INSERT #DBCCs
+				--	(ParentObject,
+				--	Object,
+				--	Field,
+				--	Value)
+				--EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+				--UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
 
 				WITH    DB2
 							AS ( SELECT DISTINCT
@@ -8345,7 +8396,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
 							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 							   AND db_id('rdsadmin') IS NOT NULL
 							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 								BEGIN

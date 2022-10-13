@@ -42,6 +42,8 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     (16, 600, 'CTP2', 'https://support.microsoft.com/en-us/help/5011644', '2022-05-24', '2022-05-24', '2022-05-24', 'SQL Server 2022', 'CTP 2.0'),
+    (15, 4261, 'CU18', 'https://support.microsoft.com/en-us/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
+    (15, 4249, 'CU17', 'https://support.microsoft.com/en-us/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
     (15, 4236, 'CU16 GDR', 'https://support.microsoft.com/en-us/help/5014353', '2022-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16 GDR'),
     (15, 4223, 'CU16', 'https://support.microsoft.com/en-us/help/5011644', '2022-04-18', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16'),
     (15, 4198, 'CU15', 'https://support.microsoft.com/en-us/help/5008996', '2022-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 15'),
@@ -62,6 +64,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
     (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
     (14, 3445, 'RTM CU29 GDR', 'https://support.microsoft.com/en-us/help/5014553', '2022-06-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29 GDR'),
     (14, 3436, 'RTM CU29', 'https://support.microsoft.com/en-us/help/5010786', '2022-03-31', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29'),
