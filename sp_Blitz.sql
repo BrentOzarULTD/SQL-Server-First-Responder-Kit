@@ -1090,7 +1090,7 @@ AS
 												)
 												OR
 												(
-													Convert(datetime,ll.Value) < DATEADD(dd,-7, GETDATE())
+													Convert(datetime2, ll.Value) < DATEADD(dd,-7, GETDATE())
 												)
 
 											);
