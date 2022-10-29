@@ -680,11 +680,11 @@ BEGIN
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
@@ -898,11 +898,11 @@ IF @ProductVersionMajor >= 11
 			       s.session_id ,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
