@@ -31,7 +31,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -578,7 +578,7 @@ DiskPollster:
 						SELECT fl.BackupFile
 						FROM @FileList AS fl
 						WHERE fl.BackupFile IS NOT NULL
-						AND fl.BackupFile NOT IN (SELECT name from sys.databases where database_id < 5)
+						AND fl.BackupFile COLLATE DATABASE_DEFAULT NOT IN (SELECT name from sys.databases where database_id < 5)
 						AND NOT EXISTS
 							(
 							SELECT 1
@@ -1547,7 +1547,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2891,7 +2891,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.09', @VersionDate = '20220408';
+	SELECT @Version = '8.11', @VersionDate = '20221013';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3278,7 +3278,6 @@ AS
 		/* If the server is Amazon RDS, skip checks that it doesn't allow */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NOT NULL
 		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 			BEGIN
@@ -3621,6 +3620,7 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_TRAN_LIST');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_SYNC');
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK');
+		INSERT INTO #IgnorableWaits VALUES ('POPULATE_LOCK_ORDINALS');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
@@ -3739,6 +3739,40 @@ AS
 			 OR ( @SkipChecksTable IS NULL )
 		   )
 			BEGIN
+
+				/*
+				Extract DBCC DBINFO data from the server. This data is used for check 2 using
+				the dbi_LastLogBackupTime field and check 68 using the dbi_LastKnownGood field.
+				NB: DBCC DBINFO is not available on AWS RDS databases so if the server is RDS
+				(which will have previously triggered inserting a checkID 223 record) and at
+				least one of the relevant checks is not being skipped then we can extract the
+				dbinfo information.
+				*/
+				IF NOT EXISTS ( SELECT 1 
+							FROM #BlitzResults 
+							WHERE CheckID = 223 AND URL = 'https://aws.amazon.com/rds/sqlserver/')
+					AND (
+							NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 2 )
+							OR NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 68 )
+					)
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Extracting DBCC DBINFO data (used in checks 2 and 68).', 0, 1, 68) WITH NOWAIT;
+
+						EXEC sp_MSforeachdb N'USE [?];
+							SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+							INSERT #DBCCs
+								(ParentObject,
+								Object,
+								Field,
+								Value)
+							EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+							UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+					END
 
 				/*
 				Our very first check! We'll put more comments in this one just to
@@ -3885,6 +3919,7 @@ AS
 										'https://www.brentozar.com/go/biglogs' AS URL ,
 										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
 								FROM    master.sys.databases d
+								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = 'dbi_LastLogBackupTime'
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
@@ -3895,12 +3930,23 @@ AS
 																  DatabaseName
 															FROM  #SkipChecks
 															WHERE CheckID IS NULL OR CheckID = 2)
-										AND NOT EXISTS ( SELECT *
-														 FROM   msdb.dbo.backupset b
-														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND b.type = 'L'
-																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE()) );
+										AND	(
+												(
+													/* We couldn't get a value from the DBCC DBINFO data so let's check the msdb backup history information */
+														[ll].[Value] Is Null
+													AND NOT EXISTS ( SELECT *
+																	 FROM   msdb.dbo.backupset b
+																	 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+																				AND b.type = 'L'
+																				AND b.backup_finish_date >= DATEADD(dd,-7, GETDATE())
+																	)
+												)
+												OR
+												(
+													Convert(datetime,ll.Value) < DATEADD(dd,-7, GETDATE())
+												)
+
+											);
 					END;
 
 				/*
@@ -6853,11 +6899,11 @@ AS
 			                        ''Performance'' AS FindingsGroup,
 			                        ''In-Memory OLTP (Hekaton) In Use'' AS Finding,
 			                        ''https://www.brentozar.com/go/hekaton'' AS URL,
-			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS INT) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
+			                        CAST(CAST((SUM(mem.pages_kb / 1024.0) / CAST(value_in_use AS INT) * 100) AS DECIMAL(6,1)) AS NVARCHAR(100)) + ''% of your '' + CAST(CAST((CAST(value_in_use AS DECIMAL(38,1)) / 1024) AS MONEY) AS NVARCHAR(100)) + ''GB of your max server memory is being used for in-memory OLTP tables (Hekaton).'' AS Details
 			                        FROM sys.configurations c INNER JOIN sys.dm_os_memory_clerks mem ON mem.type = ''MEMORYCLERK_XTP''
                                     WHERE c.name = ''max server memory (MB)''
                                     GROUP BY c.value_in_use
-                                    HAVING SUM(mem.pages_kb / 1024.0) > 10 OPTION (RECOMPILE)';
+                                    HAVING SUM(mem.pages_kb / 1024.0) > 1000 OPTION (RECOMPILE)';
 		
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -8324,11 +8370,16 @@ IF @ProductVersionMajor >= 10
 							'https://support.microsoft.com/en-us/kb/2033238' AS [URL] ,
 							( COALESCE(company, '') + ' - ' + COALESCE(description, '') + ' - ' + COALESCE(name, '') + ' - suspected dangerous third party module is installed.') AS [Details]
 							FROM sys.dm_os_loaded_modules
-							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') /* McAfee VirusScan Enterprise */
+							WHERE UPPER(name) LIKE UPPER('%\ENTAPI.DLL') OR UPPER(name) LIKE '%MFEBOPK.SYS' /* McAfee VirusScan Enterprise */
 							OR UPPER(name) LIKE UPPER('%\HIPI.DLL') OR UPPER(name) LIKE UPPER('%\HcSQL.dll') OR UPPER(name) LIKE UPPER('%\HcApi.dll') OR UPPER(name) LIKE UPPER('%\HcThe.dll') /* McAfee Host Intrusion */
 							OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED.DLL') OR UPPER(name) LIKE UPPER('%\SOPHOS_DETOURED_x64.DLL') OR UPPER(name) LIKE UPPER('%\SWI_IFSLSP_64.dll') OR UPPER(name) LIKE UPPER('%\SOPHOS~%.dll') /* Sophos AV */
-							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL'); /* OSISoft PI data access */
-
+							OR UPPER(name) LIKE UPPER('%\PIOLEDB.DLL') OR UPPER(name) LIKE UPPER('%\PISDK.DLL') /* OSISoft PI data access */
+							OR UPPER(name) LIKE UPPER('%ScriptControl%.dll') OR UPPER(name) LIKE UPPER('%umppc%.dll') /* CrowdStrike */
+							OR UPPER(name) LIKE UPPER('%perfiCrcPerfMonMgr.DLL') /* Trend Micro OfficeScan */
+							OR UPPER(name) LIKE UPPER('%NLEMSQL.SYS') /* NetLib Encryptionizer-Software. */
+							OR UPPER(name) LIKE UPPER('%MFETDIK.SYS') /* McAfee Anti-Virus Mini-Firewall */
+							OR UPPER(name) LIKE UPPER('%ANTIVIRUS%'); /* To pick up sqlmaggieAntiVirus_64.dll (malware) or anything else labelled AntiVirus */
+							/* MS docs link for blacklisted modules: https://learn.microsoft.com/en-us/troubleshoot/sql/performance/performance-consistency-issues-filter-drivers-modules */
 					END;
 
 			/*Find shrink database tasks*/
@@ -9671,7 +9722,9 @@ IF @ProductVersionMajor >= 10
                                     URL = 'https://www.brentozar.com/go/recompile',
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
-                                FROM #Recompile AS TR WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%';
+                                FROM #Recompile AS TR 
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%'
+								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
 
@@ -10136,15 +10189,16 @@ IF @ProductVersionMajor >= 10
 				
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
 				
-				EXEC sp_MSforeachdb N'USE [?];
-				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-				INSERT #DBCCs
-					(ParentObject,
-					Object,
-					Field,
-					Value)
-				EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
-				UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
+				/* Removed as populating the #DBCCs table now done in advance as data is uses for multiple checks*/
+				--EXEC sp_MSforeachdb N'USE [?];
+				--SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				--INSERT #DBCCs
+				--	(ParentObject,
+				--	Object,
+				--	Field,
+				--	Value)
+				--EXEC (''DBCC DBInfo() With TableResults, NO_INFOMSGS'');
+				--UPDATE #DBCCs SET DbName = N''?'' WHERE DbName IS NULL OPTION (RECOMPILE);';
 
 				WITH    DB2
 							AS ( SELECT DISTINCT
@@ -11195,7 +11249,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
 							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 							   AND db_id('rdsadmin') IS NOT NULL
 							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 								BEGIN
@@ -11546,7 +11599,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													+ '' GB free on '' + i.drive
 													+ '' drive '' + i.logical_volume_name
 													+ '' out of '' + CAST(CAST(i.total_MB/1024 AS NUMERIC(18,2)) AS VARCHAR(30))
-													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''%)'' END
+													+ '' GB total ('' + CAST(i.used_percent AS VARCHAR(30)) + ''% used)'' END
 												 AS Details
 										FROM    #driveInfo AS i;'
 
@@ -12537,7 +12590,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13415,7 +13468,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.09', @VersionDate = '20220408';
+	SELECT @Version = '8.11', @VersionDate = '20221013';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -15040,9 +15093,9 @@ CREATE TABLE ##BlitzCacheProcs (
             */
         TotalWorkerTimeForType BIGINT,
         TotalElapsedTimeForType BIGINT,
-        TotalReadsForType BIGINT,
+        TotalReadsForType DECIMAL(30),
         TotalExecutionCountForType BIGINT,
-        TotalWritesForType BIGINT,
+        TotalWritesForType DECIMAL(30),
         NumberOfPlans INT,
         NumberOfDistinctPlans INT,
         SerialDesiredMemory FLOAT,
@@ -15196,7 +15249,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -17026,8 +17079,8 @@ SET @body += N') AS qs
 	   CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(CAST(total_elapsed_time AS BIGINT) / 1000.0) AS t_TotalElapsed,
                          SUM(CAST(total_worker_time AS BIGINT) / 1000.0) AS t_TotalWorker,
-                         SUM(CAST(total_logical_reads AS BIGINT)) AS t_TotalReads,
-                         SUM(CAST(total_logical_writes AS BIGINT)) AS t_TotalWrites
+                         SUM(CAST(total_logical_reads AS DECIMAL(30))) AS t_TotalReads,
+                         SUM(CAST(total_logical_writes AS DECIMAL(30))) AS t_TotalWrites
                   FROM   sys.#view#) AS t
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
@@ -17238,7 +17291,7 @@ BEGIN
            min_used_grant_kb AS MinUsedGrantKB,
            max_used_grant_kb AS MaxUsedGrantKB,
            CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
-		   CAST(ISNULL(NULLIF(( max_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
+		   CAST(ISNULL(NULLIF(( total_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
     END;
     ELSE
     BEGIN
@@ -19665,8 +19718,8 @@ SELECT  DISTINCT
 				  CASE WHEN is_remote_query_expensive = 1 THEN ', Expensive Remote Query' ELSE '' END + 
 				  CASE WHEN trace_flags_session IS NOT NULL THEN ', Session Level Trace Flag(s) Enabled: ' + trace_flags_session ELSE '' END +
 				  CASE WHEN is_unused_grant = 1 THEN ', Unused Memory Grant' ELSE '' END +
-				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' function(s)' ELSE '' END + 
-				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' CLR function(s)' ELSE '' END + 
+				  CASE WHEN function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' Function(s)' ELSE '' END + 
+				  CASE WHEN clr_function_count > 0 THEN ', Calls ' + CONVERT(VARCHAR(10), (SELECT SUM(b2.clr_function_count) FROM ##BlitzCacheProcs AS b2 WHERE b2.SqlHandle = b.SqlHandle AND b2.QueryHash IS NOT NULL AND SPID = @@SPID) ) + ' CLR Function(s)' ELSE '' END + 
 				  CASE WHEN PlanCreationTimeHours <= 4 THEN ', Plan created last 4hrs' ELSE '' END +
 				  CASE WHEN is_table_variable = 1 THEN ', Table Variables' ELSE '' END +
 				  CASE WHEN no_stats_warning = 1 THEN ', Columns With No Statistics' ELSE '' END +
@@ -19693,7 +19746,7 @@ SELECT  DISTINCT
 				  CASE WHEN is_spool_more_rows = 1 THEN + ', Large Index Row Spool' ELSE '' END +
 				  CASE WHEN is_table_spool_expensive = 1 THEN + ', Expensive Table Spool' ELSE '' END +
 				  CASE WHEN is_table_spool_more_rows = 1 THEN + ', Many Rows Table Spool' ELSE '' END +
-				  CASE WHEN is_bad_estimate = 1 THEN + ', Row estimate mismatch' ELSE '' END  +
+				  CASE WHEN is_bad_estimate = 1 THEN + ', Row Estimate Mismatch' ELSE '' END  +
 				  CASE WHEN is_paul_white_electric = 1 THEN ', SWITCH!' ELSE '' END + 
 				  CASE WHEN is_row_goal = 1 THEN ', Row Goals' ELSE '' END + 
                   CASE WHEN is_big_spills = 1 THEN ', >500mb spills' ELSE '' END + 
@@ -22459,7 +22512,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22541,6 +22594,8 @@ DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
+DECLARE @StringToExecute NVARCHAR(MAX);
+
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -22667,7 +22722,8 @@ IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL
               index_usage_summary NVARCHAR(MAX) NULL,
               index_size_summary NVARCHAR(MAX) NULL,
               create_tsql NVARCHAR(MAX) NULL,
-              more_info NVARCHAR(MAX)NULL
+              more_info NVARCHAR(MAX) NULL,
+              sample_query_plan XML NULL
             );
 
         CREATE TABLE #IndexSanity
@@ -24106,7 +24162,7 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type '
 
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
+		/* Get the sample query plan if it's available, and if there are less than 1,000 rows in the DMV: */
         IF NOT EXISTS
 		(
 		    SELECT
@@ -24114,31 +24170,42 @@ BEGIN TRY
 			FROM sys.all_objects AS o
 			WHERE o.name = 'dm_db_missing_index_group_stats_query'
 	    )
-        SELECT
-		    @dsql += N' , NULL AS sample_query_plan '
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
+            SELECT
+                @dsql += N' , NULL AS sample_query_plan '
         ELSE
 		BEGIN
-			SELECT
-			    @dsql += N'
-			, sample_query_plan =
-			  (
-			      SELECT TOP (1)
-				      p.query_plan
-				  FROM sys.dm_db_missing_index_group_stats gs 
-				  CROSS APPLY
-				  (
-				      SELECT TOP (1)
-					      s.plan_handle
-				  	  FROM sys.dm_db_missing_index_group_stats_query q 
-				  	  INNER JOIN sys.dm_exec_query_stats s
-					      ON q.query_plan_hash = s.query_plan_hash
-				  	  WHERE gs.group_handle = q.group_handle 
-				  	  ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
-			      ) q2
-				  CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
-                  WHERE ig.index_group_handle = gs.group_handle
-			  ) '
+            /* The DMV is only supposed to have 600 rows in it. If it's got more,
+            they could see performance slowdowns - see Github #3085. */
+            DECLARE @MissingIndexPlans BIGINT;
+            SET @StringToExecute = N'SELECT @MissingIndexPlans = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query;'
+            EXEC sp_executesql @StringToExecute, N'@MissingIndexPlans BIGINT OUT', @MissingIndexPlans OUT;
+
+            IF @MissingIndexPlans > 1000
+                BEGIN
+                SELECT @dsql += N' , NULL AS sample_query_plan /* Over 1000 plans found, skipping */ ';
+                RAISERROR (N'Over 1000 plans found in sys.dm_db_missing_index_group_stats_query - your SQL Server is hitting a bug: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3085',0,1) WITH NOWAIT;
+                END
+            ELSE
+                SELECT
+                    @dsql += N'
+                , sample_query_plan =
+                (
+                    SELECT TOP (1)
+                        p.query_plan
+                    FROM sys.dm_db_missing_index_group_stats gs 
+                    CROSS APPLY
+                    (
+                        SELECT TOP (1)
+                            s.plan_handle
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query q 
+                        INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_exec_query_stats s
+                            ON q.query_plan_hash = s.query_plan_hash
+                        WHERE gs.group_handle = q.group_handle 
+                        ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
+                    ) q2
+                    CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+                    WHERE ig.index_group_handle = gs.group_handle
+                ) '
 		END
         
         
@@ -26007,10 +26074,10 @@ BEGIN;
                                   AND i.is_disabled = 0
                            GROUP BY    i.database_id, i.schema_name, i.[object_id])
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               index_usage_summary, index_size_summary, create_tsql, more_info )
+                                               index_usage_summary, index_size_summary, create_tsql, more_info, sample_query_plan )
                         
                         SELECT check_id, t.index_sanity_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
-                                index_estimated_impact, t.index_size_summary, create_tsql, more_info
+                                index_estimated_impact, t.index_size_summary, create_tsql, more_info, sample_query_plan
                         FROM
                         (
                             SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
@@ -26034,7 +26101,8 @@ BEGIN;
                                 mi.create_tsql,
                                 mi.more_info,
                                 magic_benefit_number,
-								mi.is_low
+								mi.is_low,
+                                mi.sample_query_plan
                         FROM    #MissingIndexes mi
                                 LEFT JOIN index_size_cte sz ON mi.[object_id] = sz.object_id 
 										  AND mi.database_id = sz.database_id
@@ -27413,7 +27481,8 @@ BEGIN;
 					br.index_size_summary AS [Size],
 					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
 					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
+                    br.sample_query_plan AS [Sample Query Plan]
 				FROM #BlitzIndexResults br
 				LEFT JOIN #IndexSanity sn ON 
 					br.index_sanity_id=sn.index_sanity_id
@@ -27438,7 +27507,8 @@ BEGIN;
 					br.index_size_summary AS [Size],
 					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
 					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
+					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
+                    br.sample_query_plan AS [Sample Query Plan]
 				FROM #BlitzIndexResults br
 				LEFT JOIN #IndexSanity sn ON 
 					br.index_sanity_id=sn.index_sanity_id
@@ -27530,7 +27600,6 @@ ELSE IF (@Mode=1) /*Summarize*/
 		DECLARE @LinkedServerDBCheck NVARCHAR(2000);
 		DECLARE @ValidLinkedServerDB INT;
 		DECLARE @tmpdbchk TABLE (cnt INT);
-		DECLARE @StringToExecute NVARCHAR(MAX);
 		
 		IF @OutputServerName IS NOT NULL
 			BEGIN
@@ -28193,7 +28262,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 
 IF(@VersionCheckMode = 1)
@@ -28280,9 +28349,11 @@ END;
 	RETURN;
 	END;    /* @Help = 1 */
 	
-        DECLARE @ProductVersion NVARCHAR(128);
-        DECLARE @ProductVersionMajor FLOAT;
-        DECLARE @ProductVersionMinor INT;
+        DECLARE @ProductVersion NVARCHAR(128), 
+			@ProductVersionMajor FLOAT,
+			@ProductVersionMinor INT,
+			@ObjectFullName NVARCHAR(2000);
+
 
         SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 
@@ -28374,13 +28445,30 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					SELECT @OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 					@OutputTableName = QUOTENAME(@OutputTableName), 
 					@OutputSchemaName = QUOTENAME(@OutputSchemaName) 
-					if(@r is null) --if it is null there is no table, create it from above execution
+					if(@r is not null) --if it is not null, there is a table, so check for newly added columns
+					BEGIN
+						/* If the table doesn't have the new spid column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''spid'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD spid SMALLINT NULL;';
+						EXEC(@StringToExecute);
+
+						/* If the table doesn't have the new wait_resource column, add it. See Github #3101. */
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+						SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+							WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''wait_resource'')
+							ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
+						EXEC(@StringToExecute);
+					END
+					ELSE --if(@r is not null) --if it is null there is no table, create it from above execution
 					BEGIN
 						select @StringToExecute = N'use ' + @OutputDatabaseName + ';create table ' + @OutputSchemaName + '.' + @OutputTableName + ' (
 							ServerName NVARCHAR(256),
 							deadlock_type NVARCHAR(256),
 							event_date datetime,
 							database_name NVARCHAR(256),
+							spid SMALLINT,
 							deadlock_group NVARCHAR(256),
 							query XML,
 							object_names XML,
@@ -28392,6 +28480,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 							host_name NVARCHAR(256),
 							client_app NVARCHAR(256),
 							wait_time BIGINT,
+							wait_resource NVARCHAR(max),
 							priority smallint,
 							log_used BIGINT,
 							last_tran_started datetime,
@@ -28460,7 +28549,6 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		/* WITH ROWCOUNT doesn't work on Amazon RDS - see: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2037 */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
-		   AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) <> 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NULL
 		   BEGIN;
 				BEGIN TRY;
@@ -28519,6 +28607,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					CONVERT(BIT, q.is_parallel) AS is_parallel,
                     q.deadlock_graph,
                     q.id,
+                    q.spid,
                     q.database_id,
                     q.priority,
                     q.log_used,
@@ -28543,6 +28632,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 									CONVERT(tinyint, dd.is_parallel) + CONVERT(tinyint, dd.is_parallel_batch) AS is_parallel,
                                     dd.deadlock_graph,
                                     ca.dp.value('@id', 'NVARCHAR(256)') AS id,
+									ca.dp.value('@spid', 'SMALLINT') AS spid,
                                     ca.dp.value('@currentdb', 'BIGINT') AS database_id,
                                     ca.dp.value('@priority', 'SMALLINT') AS priority,
                                     ca.dp.value('@logused', 'BIGINT') AS log_used,
@@ -28906,7 +28996,6 @@ You need to use an Azure storage account, and the path has to look like this: ht
         IF SERVERPROPERTY('EngineEdition') NOT IN (5, 6) /* Azure SQL DB doesn't support querying jobs */
 		  AND NOT (LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'   /* Neither does Amazon RDS Express Edition */
 					AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-					AND LEFT(CAST(SERVERPROPERTY('ServerName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 					AND db_id('rdsadmin') IS NOT NULL
 					AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
 		   		)
@@ -29445,6 +29534,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					dp.event_date,
 		            dp.id,
 					dp.victim_id,
+					dp.spid,
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
@@ -29502,6 +29592,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 					dp.event_date,
 		            dp.id,
 					dp.victim_id,
+					dp.spid,
 		            dp.database_id,
 		            dp.priority,
 		            dp.log_used,
@@ -29558,6 +29649,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			deadlock_type,
 			event_date,
 			database_name,
+			spid,
 			deadlock_group,
 			query,
 			object_names,
@@ -29569,6 +29661,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			host_name,
 			client_app,
 			wait_time,
+			wait_resource,
 			priority,
 			log_used,
 			last_tran_started,
@@ -29593,6 +29686,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 			   d.deadlock_type,
 			   d.event_date,
 			   DB_NAME(d.database_id) AS database_name,
+			   d.spid,
 		       'Deadlock #' 
 			   + CONVERT(NVARCHAR(10), d.en)
 			   + ', Query #' 
@@ -29609,6 +29703,7 @@ You need to use an Azure storage account, and the path has to look like this: ht
 		       d.host_name,
 		       d.client_app,
 		       d.wait_time,
+		       d.wait_resource,
 		       d.priority,
 			   d.log_used,
 		       d.last_tran_started,
@@ -29668,6 +29763,7 @@ ELSE  --Output to database is not set output to client app
 						dp.event_date,
 						dp.id,
 						dp.victim_id,
+						dp.spid,
 						dp.database_id,
 						dp.priority,
 						dp.log_used,
@@ -29725,6 +29821,7 @@ ELSE  --Output to database is not set output to client app
 						dp.event_date,
 						dp.id,
 						dp.victim_id,
+						dp.spid,
 						dp.database_id,
 						dp.priority,
 						dp.log_used,
@@ -29780,6 +29877,7 @@ ELSE  --Output to database is not set output to client app
 				SELECT d.deadlock_type,
 				d.event_date,
 				DB_NAME(d.database_id) AS database_name,
+				d.spid,
 				'Deadlock #' 
 				+ CONVERT(NVARCHAR(10), d.en)
 				+ ', Query #' 
@@ -29797,6 +29895,7 @@ ELSE  --Output to database is not set output to client app
 				d.host_name,
 				d.client_app,
 				d.wait_time,
+				d.wait_resource,
 				d.priority,
 				d.log_used,
 				d.last_tran_started,
@@ -29840,6 +29939,7 @@ ELSE  --Output to database is not set output to client app
 			   dr.deadlock_type,
                dr.event_date,
                dr.database_name,
+               dr.spid,
                dr.deadlock_group,
 			   '
 			   + CASE @ExportToExcel
@@ -29858,6 +29958,7 @@ ELSE  --Output to database is not set output to client app
                dr.host_name,
                dr.client_app,
                dr.wait_time,
+               dr.wait_resource,
                dr.priority,
                dr.log_used,
                dr.last_tran_started,
@@ -29999,7 +30100,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -30147,12 +30248,12 @@ IF  (	SELECT COUNT(*)
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
-IF (@is_azure_db = 1)
+IF (@is_azure_db = 1 AND SERVERPROPERTY ('ENGINEEDITION') <> 8)
 	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
 
-	/*If we're on Azure we don't need to check all this @DatabaseName stuff...*/
+	/*If we're on Azure SQL DB we don't need to check all this @DatabaseName stuff...*/
 
 	SET @DatabaseName = LTRIM(RTRIM(@DatabaseName));
 
@@ -35730,7 +35831,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.09', @VersionDate = '20220408';
+	SELECT @Version = '8.11', @VersionDate = '20221013';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -37127,7 +37228,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37265,7 +37366,7 @@ BEGIN
 		@StopAt = ''20170508201501'',
 		@Debug = 1;
 
-	--This example NOT execute the restore.  Commands will be printed in a copy/paste ready format only
+	--This example will NOT execute the restore.  Commands will be printed in a copy/paste ready format only
 	EXEC dbo.sp_DatabaseRestore 
 		@Database = ''DBA'', 
 		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
@@ -37297,6 +37398,20 @@ BEGIN
     RETURN;
 END;
 
+BEGIN TRY 
+DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
+DECLARE @CommandExecuteCheck VARCHAR(315)
+
+SET @CommandExecuteCheck = 'IF NOT EXISTS (SELECT name FROM ' +@CurrentDatabaseContext+'.sys.objects WHERE type = ''P'' AND name = ''CommandExecute'')
+BEGIN
+	RAISERROR (''DatabaseRestore requires the CommandExecute stored procedure from the OLA Hallengren Maintenance solution, are you using the correct database?'', 15, 1);
+	RETURN;
+END;'
+EXEC (@CommandExecuteCheck)
+END TRY
+BEGIN CATCH
+THROW;
+END CATCH
 
 DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
         @sql NVARCHAR(MAX) = N'', --Holds executable SQL commands
@@ -38112,7 +38227,7 @@ BEGIN
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
 	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
-	ORDER BY BackUpFile DESC;
+	ORDER BY BackupFile DESC;
 
 	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
 	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
@@ -38679,7 +38794,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.09', @VersionDate = '20220408';
+  SELECT @Version = '8.11', @VersionDate = '20221013';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -39025,6 +39140,11 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 600, 'CTP2', 'https://support.microsoft.com/en-us/help/5011644', '2022-05-24', '2022-05-24', '2022-05-24', 'SQL Server 2022', 'CTP 2.0'),
+    (15, 4261, 'CU18', 'https://support.microsoft.com/en-us/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
+    (15, 4249, 'CU17', 'https://support.microsoft.com/en-us/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
+    (15, 4236, 'CU16 GDR', 'https://support.microsoft.com/en-us/help/5014353', '2022-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16 GDR'),
+    (15, 4223, 'CU16', 'https://support.microsoft.com/en-us/help/5011644', '2022-04-18', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16'),
     (15, 4198, 'CU15', 'https://support.microsoft.com/en-us/help/5008996', '2022-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 15'),
     (15, 4188, 'CU14', 'https://support.microsoft.com/en-us/help/5007182', '2021-11-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 14'),
     (15, 4178, 'CU13', 'https://support.microsoft.com/en-us/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
@@ -39043,6 +39163,9 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
+    (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
+    (14, 3445, 'RTM CU29 GDR', 'https://support.microsoft.com/en-us/help/5014553', '2022-06-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29 GDR'),
     (14, 3436, 'RTM CU29', 'https://support.microsoft.com/en-us/help/5010786', '2022-03-31', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29'),
     (14, 3430, 'RTM CU28', 'https://support.microsoft.com/en-us/help/5006944', '2022-01-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 28'),
     (14, 3421, 'RTM CU27', 'https://support.microsoft.com/en-us/help/5006944', '2021-10-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 27'),
@@ -39074,6 +39197,9 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7000, 'SP3 Azure Feature Pack', 'https://support.microsoft.com/en-us/help/5014242', '2022-05-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack'),
+    (13, 6419, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5014355', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6300, 'SP3 ', 'https://support.microsoft.com/en-us/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
     (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
@@ -39124,6 +39250,7 @@ VALUES
     (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
     (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    (12, 6439, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/5014164', '2022-06-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6433, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4583462', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6372, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4535288', '2020-02-11', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6329, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/4500181', '2019-07-29', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4'),
@@ -39429,7 +39556,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -39658,7 +39785,7 @@ BEGIN
     END; /* IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'   -   What's running right now? This is the first and last result set. */
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
-    IF @Seconds = 0 AND SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
         WITH WaitTimes AS (
             SELECT wait_type, wait_time_ms,
                 NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
@@ -39669,7 +39796,7 @@ BEGIN
         SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM WaitTimes
             WHERE grouper = 2;
-    ELSE IF @Seconds = 0 AND SERVERPROPERTY('Edition') <> 'SQL Azure'
+    ELSE IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
         SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM sys.databases
             WHERE database_id = 2;
@@ -39861,17 +39988,6 @@ BEGIN
         DROP TABLE #FilterPlansByDatabase;
     CREATE TABLE #FilterPlansByDatabase (DatabaseID INT PRIMARY KEY CLUSTERED);
 
-    IF OBJECT_ID('tempdb..##WaitCategories') IS NULL
-		BEGIN
-			/* We reuse this one by default rather than recreate it every time. */
-			CREATE TABLE ##WaitCategories
-			(
-				WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED,
-				WaitCategory NVARCHAR(128) NOT NULL,
-				Ignorable BIT DEFAULT 0
-			);
-		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
-
 	IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
 		DROP TABLE #checkversion;
 	CREATE TABLE #checkversion (
@@ -39883,7 +39999,18 @@ BEGIN
 		revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
 	);
 
-	IF 527 <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
+    IF OBJECT_ID('tempdb..##WaitCategories') IS NULL
+		BEGIN
+			/* We reuse this one by default rather than recreate it every time. */
+			CREATE TABLE ##WaitCategories
+			(
+				WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED,
+				WaitCategory NVARCHAR(128) NOT NULL,
+				Ignorable BIT DEFAULT 0
+			);
+		END; /* IF OBJECT_ID('tempdb..##WaitCategories') IS NULL */
+
+	IF 527 > (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)
 		BEGIN
 		    TRUNCATE TABLE ##WaitCategories;
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('ASYNC_IO_COMPLETION','Other Disk IO',0);
@@ -40134,6 +40261,7 @@ BEGIN
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_WORKER_SYNC','Replication',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK','Replication',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('POOL_LOG_RATE_GOVERNOR','Log Rate Governor',0);
+			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('POPULATE_LOCK_ORDINALS','Idle',1);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_ABR','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPMEDIA','Preemptive',0);
 			INSERT INTO ##WaitCategories(WaitType, WaitCategory, Ignorable) VALUES ('PREEMPTIVE_CLOSEBACKUPTAPE','Preemptive',0);
@@ -40421,7 +40549,7 @@ BEGIN
         DROP TABLE #MasterFiles;
     CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
     /* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-    IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
+    IF (SERVERPROPERTY('EngineEdition') = 5 /*(SERVERPROPERTY('Edition')) = 'SQL Azure' */
          AND (OBJECT_ID('sys.master_files') IS NULL))
         SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
     ELSE
@@ -40513,7 +40641,7 @@ BEGIN
            @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
-    IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'
+    IF SERVERPROPERTY('EngineEdition') = 5 /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'*/
         SELECT TOP 1 @ServiceName = LEFT(object_name, (CHARINDEX(':', object_name) - 1))
         FROM sys.dm_os_performance_counters;
     ELSE
@@ -40782,7 +40910,7 @@ BEGIN
 				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) END AS sum_signal_wait_time_ms,
 				   CASE @Seconds WHEN 0 THEN 0 ELSE SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) END AS sum_waiting_tasks ';
 
-	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
 	ELSE
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
@@ -40933,7 +41061,7 @@ BEGIN
 	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
-    IF @Seconds > 0 AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'
+    IF @Seconds > 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) <> 'SQL Azure'*/
     BEGIN
         SET @StringToExecute = 'UPDATE #BlitzFirstResults SET Details = Details + '' Over the last 60 days, the full backup usually takes '' + CAST((SELECT AVG(DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date)) FROM msdb.dbo.backupset bs WHERE abr.DatabaseName = bs.database_name AND bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL) AS NVARCHAR(100)) + '' minutes.'' FROM #BlitzFirstResults abr WHERE abr.CheckID = 1 AND EXISTS (SELECT * FROM msdb.dbo.backupset bs WHERE bs.type = ''D'' AND bs.backup_start_date > DATEADD(dd, -60, SYSDATETIMEOFFSET()) AND bs.backup_finish_date IS NOT NULL AND abr.DatabaseName = bs.database_name AND DATEDIFF(mi, bs.backup_start_date, bs.backup_finish_date) > 1)';
         EXEC(@StringToExecute);
@@ -41061,7 +41189,7 @@ BEGIN
 	END
 
     /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
-    IF SERVERPROPERTY('Edition') <> 'SQL Azure' AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
+    IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/ AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -41321,7 +41449,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             AND CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) NOT LIKE '%Standard%';
 
     /* Server Performance - Target Memory Lower Than Max - CheckID 35 */
-	IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -41769,7 +41897,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 23',10,1) WITH NOWAIT;
 		END
 
-        IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+        IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 			WITH y
 				AS
 				 (
@@ -41848,12 +41976,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			/* We don't want to hang around to obtain locks */
 			SET LOCK_TIMEOUT 0;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 				SET @StringToExecute = N'USE [?];' + @LineFeed;
 			ELSE
 				SET @StringToExecute = N'';
 
-            SET @StringToExecute = @StringToExecute + 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
                                     'BEGIN TRY' + @LineFeed +
                                     '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
                                     '    SELECT HowToStopIt = ' + @LineFeed +
@@ -41897,7 +42025,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     'END CATCH'                          
                                     ;
 
-			IF SERVERPROPERTY('Edition') <> 'SQL Azure'
+			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 	            EXEC sp_MSforeachdb @StringToExecute;
 			ELSE
 				EXEC(@StringToExecute);
@@ -41977,7 +42105,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				   SUM(os.signal_wait_time_ms) OVER (PARTITION BY os.wait_type ) AS sum_signal_wait_time_ms,
 				   SUM(os.waiting_tasks_count) OVER (PARTITION BY os.wait_type) AS sum_waiting_tasks ';
 
-	IF SERVERPROPERTY('Edition') = 'SQL Azure'
+	IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_db_wait_stats os ';
 	ELSE
 		SET @StringToExecute = @StringToExecute + N' FROM sys.dm_os_wait_stats os ';
@@ -42604,7 +42732,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
     /* Azure Performance - Database is Maxed Out - CheckID 41 */
-    IF SERVERPROPERTY('Edition') = 'SQL Azure'
+    IF SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -44228,11 +44356,11 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                   AND wd1.FileID = wd2.FileID
             )
             SELECT
-                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
+                Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [DatabaseName], [StallRank]
             FROM readstats
             WHERE StallRank <=20 AND [MB Read/Written] > 0
             UNION ALL
-            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [StallRank]
+            SELECT Pattern, [Sample Time], [Sample (seconds)], [File Name], [Drive],  [# Reads/Writes],[MB Read/Written],[Avg Stall (ms)], [file physical name], [DatabaseName], [StallRank]
             FROM writestats
             WHERE StallRank <=20 AND [MB Read/Written] > 0
             ORDER BY Pattern, StallRank;

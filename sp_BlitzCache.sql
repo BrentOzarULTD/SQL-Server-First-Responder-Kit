@@ -124,9 +124,9 @@ CREATE TABLE ##BlitzCacheProcs (
             */
         TotalWorkerTimeForType BIGINT,
         TotalElapsedTimeForType BIGINT,
-        TotalReadsForType BIGINT,
+        TotalReadsForType DECIMAL(30),
         TotalExecutionCountForType BIGINT,
-        TotalWritesForType BIGINT,
+        TotalWritesForType DECIMAL(30),
         NumberOfPlans INT,
         NumberOfDistinctPlans INT,
         SerialDesiredMemory FLOAT,
@@ -280,7 +280,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -2110,8 +2110,8 @@ SET @body += N') AS qs
 	   CROSS JOIN(SELECT SUM(execution_count) AS t_TotalExecs,
                          SUM(CAST(total_elapsed_time AS BIGINT) / 1000.0) AS t_TotalElapsed,
                          SUM(CAST(total_worker_time AS BIGINT) / 1000.0) AS t_TotalWorker,
-                         SUM(CAST(total_logical_reads AS BIGINT)) AS t_TotalReads,
-                         SUM(CAST(total_logical_writes AS BIGINT)) AS t_TotalWrites
+                         SUM(CAST(total_logical_reads AS DECIMAL(30))) AS t_TotalReads,
+                         SUM(CAST(total_logical_writes AS DECIMAL(30))) AS t_TotalWrites
                   FROM   sys.#view#) AS t
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st

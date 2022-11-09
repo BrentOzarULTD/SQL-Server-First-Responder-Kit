@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.09', @VersionDate = '20220408';
+SELECT @Version = '8.11', @VersionDate = '20221013';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1714,7 +1714,7 @@ BEGIN TRY
             they could see performance slowdowns - see Github #3085. */
             DECLARE @MissingIndexPlans BIGINT;
             SET @StringToExecute = N'SELECT @MissingIndexPlans = COUNT(*) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query;'
-            EXEC sp_executesql @StringToExecute, N'@MissingIndexPlans BIGINT OUT', @MissingIndexPlans;
+            EXEC sp_executesql @StringToExecute, N'@MissingIndexPlans BIGINT OUT', @MissingIndexPlans OUT;
 
             IF @MissingIndexPlans > 1000
                 BEGIN
