@@ -192,15 +192,14 @@ BEGIN
     CREATE TABLE
         #x
     (
-        x xml
+        x xml NOT NULL DEFAULT '<x> </x>'
     );
 
 
     CREATE TABLE
         #deadlock_data
     (
-        deadlock_xml xml,
-        event_date datetime
+        deadlock_xml xml NOT NULL DEFAULT '<x> </x>'
     );
 
     CREATE TABLE
@@ -251,7 +250,7 @@ BEGIN
         RAISERROR('@OutputDatabaseName set to %s, checking validity', 0, 1, @OutputDatabaseName) WITH NOWAIT;
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
 
-		IF NOT EXISTS
+        IF NOT EXISTS
         (
             SELECT
                 1/0
@@ -496,8 +495,8 @@ BEGIN
             UPDATE STATISTICS
                 #t
             WITH
-                ROWCOUNT  = 100000000,
-                PAGECOUNT = 100000000;
+                ROWCOUNT  = 9223372036854775807,
+                PAGECOUNT = 9223372036854775807;
         END TRY
         BEGIN CATCH;
             /* Misleading error returned, if run without permissions to update statistics the error returned is "Cannot find object".
@@ -691,7 +690,7 @@ BEGIN
         RAISERROR('Inserting to #deadlock_data for ring buffer data', 0, 1) WITH NOWAIT;
 
         INSERT
-            #deadlock_data WITH(TABLOCK)
+            #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
         )
@@ -703,7 +702,7 @@ BEGIN
         CROSS APPLY x.x.nodes('/RingBufferTarget/event') AS e(x)
         WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.value('/event/@timestamp[. >= sql:variable("@EndDate")]') = 1;
+        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1;
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
@@ -719,7 +718,7 @@ BEGIN
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT
 
         INSERT
-            #deadlock_data WITH(TABLOCK)
+            #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
         )
@@ -731,7 +730,7 @@ BEGIN
         CROSS APPLY x.x.nodes('/event') AS e(x)
         WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.value('/event/@timestamp[. >= sql:variable("@EndDate")]') = 1;
+        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1;
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
@@ -751,12 +750,24 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Grab the initial set of xml to parse at %s', 0, 1, @d) WITH NOWAIT;
 
+        SET STATISTICS XML ON;
+
+        SELECT
+            deadlock_xml = TRY_CAST(event_data AS xml)
+        INTO #xml
+        FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
+        LEFT JOIN #t AS t
+		    ON 1 = 1;
+
         WITH
             xml AS
         (
             SELECT
-                deadlock_xml = TRY_CAST(event_data AS xml)
-            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
+                x.*
+            FROM #xml AS x
+            LEFT JOIN #t AS t
+			    ON 1 = 1
+            WHERE x.deadlock_xml IS NOT NULL
         )
         INSERT
             #deadlock_data WITH(TABLOCKX)
@@ -766,10 +777,12 @@ BEGIN
         LEFT JOIN #t AS t
             ON 1 = 1
         CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS e(x)
-        WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
+        WHERE e.x.exist('/event/@name[ . = "xml_deadlock_report"]') = 1
         AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.value('/event/@timestamp[. >= sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
+
+        SET STATISTICS XML OFF;
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
@@ -814,7 +827,7 @@ BEGIN
                     (
                         MINUTE,
                         DATEDIFF(MINUTE, GETUTCDATE(), SYSDATETIME()),
-                        c.value('@timestamp', 'datetime')
+                        dd.event_date
                     ),
                 dd.victim_id,
                 is_parallel =
@@ -853,7 +866,7 @@ BEGIN
             CROSS APPLY dd.deadlock_xml.nodes('//deadlock/process-list/process') AS ca(dp)
             WHERE (ca.dp.value('@currentdb', 'bigint') = DB_ID(@DatabaseName) OR @DatabaseName IS NULL)
             AND   (ca.dp.value('@clientapp', 'nvarchar(256)') = @AppName OR @AppName IS NULL)
-            AND   (ca.dp.value('@hostname', 'nvarchar(256)') = @HostName OR @HostName IS NULL)
+            AND   (ca.dp.value('@hostname',  'nvarchar(256)') = @HostName OR @HostName IS NULL)
             AND   (ca.dp.value('@loginname', 'nvarchar(256)') = @LoginName OR @LoginName IS NULL)
         ) AS q
         CROSS APPLY q.deadlock_xml.nodes('//deadlock/process-list/process/inputbuf') AS ca2(ib)
@@ -886,7 +899,7 @@ BEGIN
             (
                 MINUTE,
                 DATEDIFF(MINUTE, GETUTCDATE(), SYSDATETIME()),
-                c.value('@timestamp', 'datetime')
+                dr.event_date
             ),
             dr.victim_id,
             dr.resource_xml
@@ -1498,9 +1511,9 @@ BEGIN
                       + ' instances of serializable deadlocks.'
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE 'serializable%'
-        AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
-        AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
-        AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+        AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+        AND (dp.event_date < @EndDate OR @EndDate IS NULL)
         AND (dp.client_app = @AppName OR @AppName IS NULL)
         AND (dp.host_name = @HostName OR @HostName IS NULL)
         AND (dp.login_name = @LoginName OR @LoginName IS NULL)
@@ -1530,9 +1543,9 @@ BEGIN
                       + ' instances of repeatable read deadlocks.'
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE 'repeatable read%'
-        AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
-        AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
-        AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+        AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+        AND (dp.event_date < @EndDate OR @EndDate IS NULL)
         AND (dp.client_app = @AppName OR @AppName IS NULL)
         AND (dp.host_name = @HostName OR @HostName IS NULL)
         AND (dp.login_name = @LoginName OR @LoginName IS NULL)
@@ -1567,9 +1580,9 @@ BEGIN
                       + ISNULL(dp.host_name, 'UNKNOWN')
         FROM #deadlock_process AS dp
         WHERE 1 = 1
-        AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
-        AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
-        AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+        AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+        AND (dp.event_date < @EndDate OR @EndDate IS NULL)
         AND (dp.client_app = @AppName OR @AppName IS NULL)
         AND (dp.host_name = @HostName OR @HostName IS NULL)
         AND (dp.login_name = @LoginName OR @LoginName IS NULL)
@@ -1599,9 +1612,9 @@ BEGIN
                 ON dp.id = dow.owner_id
                 AND dp.event_date = dow.event_date
             WHERE 1 = 1
-            AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
-            AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
-            AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+            AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+            AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+            AND (dp.event_date < @EndDate OR @EndDate IS NULL)
             AND (dp.client_app = @AppName OR @AppName IS NULL)
             AND (dp.host_name = @HostName OR @HostName IS NULL)
             AND (dp.login_name = @LoginName OR @LoginName IS NULL)
@@ -1649,11 +1662,9 @@ BEGIN
         FROM lock_types AS lt
         OPTION (RECOMPILE);
 
-
         /*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Check 7 part 1 %s', 0, 1, @d) WITH NOWAIT;
-
 
         WITH
             deadlock_stack AS
@@ -1830,9 +1841,9 @@ BEGIN
                     ON  a.database_id = dow.database_id
                     AND a.partition_id = dow.associatedObjectId
                 WHERE 1 = 1
-                AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
-                AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
-                AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+                AND (DB_NAME(dow.database_id) = @DatabaseName OR @DatabaseName IS NULL)
+                AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+                AND (dow.event_date < @EndDate OR @EndDate IS NULL)
                 AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
                 AND dow.object_name IS NOT NULL
             )
@@ -1868,16 +1879,21 @@ BEGIN
 
 
          SELECT DISTINCT
-                database_name = PARSENAME(dow.object_name, 3),
-                dow.object_name,
-                wait_days = CONVERT(varchar(10), (SUM(DISTINCT CONVERT(bigint, dp.wait_time)) / 1000) / 86400),
-                wait_time_hms =
-           CONVERT
-        (
-                        varchar(20),
-                        DATEADD(SECOND, (SUM(DISTINCT CONVERT(bigint, dp.wait_time)) / 1000), 0),
-                        108
-                    )
+             database_name = PARSENAME(dow.object_name, 3),
+             dow.object_name,
+             wait_days =
+                 CONVERT
+                 (
+                     varchar(10),
+                     (SUM(DISTINCT CONVERT(bigint, dp.wait_time)) / 1000) / 86400
+                 ),
+             wait_time_hms =
+                 CONVERT
+                 (
+                     varchar(20),
+                     DATEADD(SECOND, (SUM(DISTINCT CONVERT(bigint, dp.wait_time)) / 1000), 0),
+                     108
+                 )
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
                 ON (dp.id = dow.owner_id
@@ -1932,7 +1948,6 @@ BEGIN
             AND (DB_NAME(dp.database_id) = @DatabaseName OR @DatabaseName IS NULL)
             AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
             AND (dp.event_date < @EndDate OR @EndDate IS NULL)
-            AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
             AND (dp.client_app = @AppName OR @AppName IS NULL)
             AND (dp.host_name = @HostName OR @HostName IS NULL)
             AND (dp.login_name = @LoginName OR @LoginName IS NULL)
@@ -2012,7 +2027,6 @@ BEGIN
             finding_group = 'Total parallel deadlocks',
             'There have been ' + CONVERT(nvarchar(20), COUNT_BIG(DISTINCT drp.event_date)) + ' parallel deadlocks.'
         FROM #deadlock_resource_parallel AS drp
-        WHERE 1 = 1
         HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
         OPTION (RECOMPILE);
 
@@ -2685,32 +2699,22 @@ BEGIN
             SELECT table_name = '#deadlock_data', * FROM #deadlock_data AS dd
             OPTION (RECOMPILE);
 
-
             SELECT table_name = '#deadlock_resource', * FROM #deadlock_resource AS dr
             OPTION (RECOMPILE);
 
-
-            SELECT
-                table_name = '#deadlock_resource_parallel',
-                *
+            SELECT table_name = '#deadlock_resource_parallel', *
             FROM #deadlock_resource_parallel AS drp
             OPTION (RECOMPILE);
 
-
-            SELECT
-                table_name = '#deadlock_owner_waiter',
-                *
+            SELECT table_name = '#deadlock_owner_waiter', *
             FROM #deadlock_owner_waiter AS dow
             OPTION (RECOMPILE);
-
 
             SELECT table_name = '#deadlock_process', * FROM #deadlock_process AS dp
             OPTION (RECOMPILE);
 
-
             SELECT table_name = '#deadlock_stack', * FROM #deadlock_stack AS ds
             OPTION (RECOMPILE);
-
 
             SELECT table_name = '#deadlock_results', * FROM #deadlock_results AS dr
             OPTION (RECOMPILE);
