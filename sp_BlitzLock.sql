@@ -1448,30 +1448,39 @@ BEGIN
 
         INSERT INTO
             @sysAssObjId
+        (
+            database_id,
+            partition_id,
+            schema_name,
+            table_name
+        )
         EXECUTE sys.sp_MSforeachdb
             N'
                 USE [?];
 
-                SELECT
-                    database_id =
-                        DB_ID(),
-                    p.partition_id,
-                    s.name as schema_name,
-                    t.name as table_name
-                FROM sys.partitions p
-                JOIN sys.tables t
-                  ON t.object_id = p.object_id 
-                JOIN sys.schemas s
-                  ON s.schema_id = t.schema_id 
-                WHERE s.name is not NULL
-                AND   t.name is not NULL
-                AND   EXISTS
-                      (
-                          SELECT
-                              1/0
-                          FROM #deadlock_process AS dp
-                          WHERE dp.database_id = DB_ID()
-                      );';
+                IF EXISTS
+                (
+                    SELECT
+                        1/0
+                    FROM #deadlock_process AS dp
+                    WHERE dp.database_id = DB_ID()
+                )
+				BEGIN
+                    SELECT
+                        database_id =
+                            DB_ID(),
+                        p.partition_id,
+                        s.name as schema_name,
+                        t.name as table_name
+                    FROM sys.partitions p
+                    JOIN sys.tables t
+                      ON t.object_id = p.object_id 
+                    JOIN sys.schemas s
+                      ON s.schema_id = t.schema_id 
+                    WHERE s.name is not NULL
+                    AND   t.name is not NULL
+					OPTION(RECOMPILE);
+				END;';
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
