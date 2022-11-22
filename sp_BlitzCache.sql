@@ -3774,7 +3774,7 @@ FROM    ##BlitzCacheProcs p
 				SELECT PATINDEX('%[^0-9]%', c.OptionSubstring) AS ObjectLength
 				) d
 		OUTER APPLY (
-				SELECT	CONVERT(INT, SUBSTRING(OptionSubstring, 1, d.ObjectLength - 1)) AS ObjectId
+				SELECT	TRY_CONVERT(INT, SUBSTRING(OptionSubstring, 1, d.ObjectLength - 1)) AS ObjectId
 				) e
 		JOIN sys.dm_exec_procedure_stats s ON DB_ID(p.DatabaseName) = s.database_id AND e.ObjectId = s.object_id
 WHERE   p.QueryType = 'Statement'
