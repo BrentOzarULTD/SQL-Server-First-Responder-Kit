@@ -3753,6 +3753,35 @@ WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
+/* Update to grab stored procedure name for individual statements when PSPO is detected */
+UPDATE  p
+SET     QueryType = QueryType + ' (parent ' +
+                    + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
+                    + '.'
+                    + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + ')'
+FROM    ##BlitzCacheProcs p
+		OUTER APPLY (
+				SELECT	REPLACE(REPLACE(REPLACE(REPLACE(p.QueryText, ' (', '('), '( ', '('), ' =', '='), '= ', '=') AS NormalizedQueryText
+				) a
+		OUTER APPLY (
+				SELECT	CHARINDEX('option(PLAN PER VALUE(ObjectID=', a.NormalizedQueryText) AS OptionStart
+				) b
+		OUTER APPLY (
+				SELECT	SUBSTRING(a.NormalizedQueryText, b.OptionStart + 31, LEN(a.NormalizedQueryText) - b.OptionStart - 30) AS OptionSubstring
+				WHERE	b.OptionStart > 0
+				) c
+		OUTER APPLY (
+				SELECT PATINDEX('%[^0-9]%', c.OptionSubstring) AS ObjectLength
+				) d
+		OUTER APPLY (
+				SELECT	CONVERT(INT, SUBSTRING(OptionSubstring, 1, d.ObjectLength - 1)) AS ObjectId
+				) e
+		JOIN sys.dm_exec_procedure_stats s ON DB_ID(p.DatabaseName) = s.database_id AND e.ObjectId = s.object_id
+WHERE   p.QueryType = 'Statement'
+AND		p.SPID = @@SPID
+AND		s.object_id IS NOT NULL
+OPTION (RECOMPILE);
+
 RAISERROR(N'Attempting to get function name for individual statements', 0, 1) WITH NOWAIT;
 DECLARE @function_update_sql NVARCHAR(MAX) = N''
 IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function_stats')
