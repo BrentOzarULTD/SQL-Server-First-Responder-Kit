@@ -1435,18 +1435,18 @@ BEGIN
         BEGIN
             SET @StringToExecute =
                 N'
-                  UPDATE
-                      aj
-                  SET
-                      aj.job_name = j.name, 
-                      aj.step_name = s.step_name
-                  FROM msdb.dbo.sysjobs AS j
-                  JOIN msdb.dbo.sysjobsteps AS s 
-                    ON j.job_id = s.job_id
-                  JOIN #agent_job AS aj
-                    ON  aj.job_id_guid = j.job_id
-                    AND aj.step_id = s.step_id
-                  OPTION(RECOMPILE);
+    UPDATE
+        aj
+    SET
+        aj.job_name = j.name, 
+        aj.step_name = s.step_name
+    FROM msdb.dbo.sysjobs AS j
+    JOIN msdb.dbo.sysjobsteps AS s 
+      ON j.job_id = s.job_id
+    JOIN #agent_job AS aj
+      ON  aj.job_id_guid = j.job_id
+      AND aj.step_id = s.step_id
+    OPTION(RECOMPILE);
                  ';
 
             IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
@@ -1492,6 +1492,8 @@ BEGIN
         )
         EXECUTE sys.sp_MSforeachdb
             N'
+			    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
                 USE [?];
 
                 IF EXISTS
