@@ -49,7 +49,7 @@ BEGIN
         PRINT N'
     /*
     sp_BlitzLock from http://FirstResponderKit.org
-    
+
     This script checks for and analyzes deadlocks from the system health session or a custom extended event path
 
     Variables you can use:
@@ -60,28 +60,28 @@ BEGIN
 
         @EndDate: The date you want to stop searching on, defaults to current date
 
-        @ObjectName: If you want to filter to a specific able. 
+        @ObjectName: If you want to filter to a specific able.
                      The object name has to be fully qualified ''Database.Schema.Table''
 
         @StoredProcName: If you want to search for a single stored proc
                      The proc name has to be fully qualified ''Database.Schema.Sproc''
-        
+
         @AppName: If you want to filter to a specific application
-        
+
         @HostName: If you want to filter to a specific host
-        
+
         @LoginName: If you want to filter to a specific login
 
         @EventSessionName: If you want to point this at an XE session rather than the system health session.
 
         @TargetSessionType: Can be ''ring_buffer'' or ''event_file''. Leave NULL to auto-detect.
-    
+
         @OutputDatabaseName: If you want to output information to a specific database
 
         @OutputSchemaName: Specify a schema name to output information to a specific Schema
 
         @OutputTableName: Specify table name to to output information to a specific table
-    
+
     To learn more, visit http://FirstResponderKit.org where you can download new
     versions for free, watch training videos on how it works, get more info on
     the findings, contribute your own code, and more.
@@ -90,14 +90,14 @@ BEGIN
      - Only SQL Server 2012 and newer is supported
      - If your tables have weird characters in them (https://en.wikipedia.org/wiki/List_of_xml_and_HTML_character_entity_references) you may get errors trying to parse the xml.
        I took a long look at this one, and:
-        1) Trying to account for all the weird places these could crop up is a losing effort. 
+        1) Trying to account for all the weird places these could crop up is a losing effort.
         2) Replace is slow af on lots of xml.
 
     Unknown limitations of this version:
      - None.  (If we knew them, they would be known. Duh.)
 
     MIT License
-       
+
     Copyright (c) 2022 Brent Ozar Unlimited
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -223,16 +223,16 @@ BEGIN
     /*Set these to some sane defaults if NULLs are passed in*/
     /*Normally I'd hate this, but we RECOMPILE everything*/
     SELECT
-        @StartDate = 
+        @StartDate =
             DATEADD
             (
-                MINUTE, 
+                MINUTE,
                 DATEDIFF
                 (
-                    MINUTE, 
-                    SYSDATETIME(), 
+                    MINUTE,
+                    SYSDATETIME(),
                     GETUTCDATE()
-                ), 
+                ),
                 ISNULL
                 (
                     @StartDate,
@@ -247,13 +247,13 @@ BEGIN
         @EndDate =
             DATEADD
             (
-                MINUTE, 
+                MINUTE,
                 DATEDIFF
                 (
-                    MINUTE, 
-                    SYSDATETIME(), 
+                    MINUTE,
+                    SYSDATETIME(),
                     GETUTCDATE()
-                ), 
+                ),
                 ISNULL
                 (
                     @EndDate,
@@ -290,13 +290,13 @@ BEGIN
                     (
                         @OutputTableName,
                         N''''
-                    ) + 
+                    ) +
                     N' AND o.schema_id = SCHEMA_ID(' +
                     QUOTENAME
                     (
                         @OutputSchemaName,
                         N''''
-                    ) + 
+                    ) +
                     N');',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';
@@ -311,11 +311,11 @@ BEGIN
 
             /*put covers around all before.*/
             SELECT
-                @ObjectFullName = 
+                @ObjectFullName =
                     QUOTENAME(@OutputDatabaseName) +
-                    N'.' + 
+                    N'.' +
                     QUOTENAME(@OutputTableName) +
-                    N'.' + 
+                    N'.' +
                     QUOTENAME(@OutputSchemaName),
                 @OutputDatabaseName =
                     QUOTENAME(@OutputDatabaseName),
@@ -442,10 +442,10 @@ BEGIN
                             @OutputTableFindings +
                             N' (
                                    ServerName nvarchar(256),
-                                   check_id INT, 
-                                   database_name nvarchar(256), 
-                                   object_name nvarchar(1000), 
-                                   finding_group nvarchar(100), 
+                                   check_id INT,
+                                   database_name nvarchar(256),
+                                   object_name nvarchar(1000),
+                                   finding_group nvarchar(100),
                                    finding nvarchar(4000)
                                );';
 
@@ -541,10 +541,10 @@ BEGIN
     /*Azure has differently named views, so  we need to separate. Thanks, Azure.*/
 
         IF
-		(
-		        @Azure = 0
-			AND @TargetSessionType IS NULL
-		)
+        (
+                @Azure = 0
+            AND @TargetSessionType IS NULL
+        )
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
             SELECT TOP (1)
@@ -555,16 +555,16 @@ BEGIN
             WHERE s.name = @EventSessionName
             AND   t.target_name IN (N'event_file', N'ring_buffer')
             ORDER BY t.target_name
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
         RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
         END;
 
         IF
-		(
-		        @Azure = 1
-			AND @TargetSessionType IS NULL
-		)
+        (
+                @Azure = 1
+            AND @TargetSessionType IS NULL
+        )
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
             SELECT TOP (1)
@@ -575,7 +575,7 @@ BEGIN
             WHERE s.name = @EventSessionName
             AND   t.target_name IN (N'event_file', N'ring_buffer')
             ORDER BY t.target_name
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
         RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
         END;
@@ -608,7 +608,7 @@ BEGIN
                 ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name = N'ring_buffer'
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
@@ -631,7 +631,7 @@ BEGIN
                 ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name = N'ring_buffer'
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
@@ -658,7 +658,7 @@ BEGIN
                 ON s.event_session_id = t.event_session_id
             WHERE t.name = @TargetSessionType
             AND   s.name = @EventSessionName
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
             /*We get the file name automatically, here*/
             RAISERROR('Assigning @FileName...', 0, 1) WITH NOWAIT;
@@ -683,7 +683,7 @@ BEGIN
                 AND   f.object_id = @TargetSessionId
                 AND   f.name = N'filename'
             ) AS f
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
         END;
 
         IF @Azure = 1
@@ -697,7 +697,7 @@ BEGIN
                 ON s.event_session_id = t.event_session_id
             WHERE t.name = @TargetSessionType
             AND   s.name = @EventSessionName
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
 
             /*We get the file name automatically, here*/
             RAISERROR('Assigning @FileName...', 0, 1) WITH NOWAIT;
@@ -717,7 +717,7 @@ BEGIN
                 AND   f.object_id = @TargetSessionId
                 AND   f.name = N'filename'
             ) AS f
-			OPTION(RECOMPILE);
+            OPTION(RECOMPILE);
         END;
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -733,7 +733,7 @@ BEGIN
         FROM sys.fn_xe_file_target_read_file(@FileName, NULL, NULL, NULL) AS f
         LEFT JOIN #t AS t
             ON 1 = 1
-		OPTION(RECOMPILE);
+        OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
@@ -1438,10 +1438,10 @@ BEGIN
     UPDATE
         aj
     SET
-        aj.job_name = j.name, 
+        aj.job_name = j.name,
         aj.step_name = s.step_name
     FROM msdb.dbo.sysjobs AS j
-    JOIN msdb.dbo.sysjobsteps AS s 
+    JOIN msdb.dbo.sysjobsteps AS s
       ON j.job_id = s.job_id
     JOIN #agent_job AS aj
       ON  aj.job_id_guid = j.job_id
@@ -1492,7 +1492,7 @@ BEGIN
         )
         EXECUTE sys.sp_MSforeachdb
             N'
-			    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
                 USE [?];
 
@@ -1512,9 +1512,9 @@ BEGIN
                         t.name as table_name
                     FROM sys.partitions p
                     JOIN sys.tables t
-                      ON t.object_id = p.object_id 
+                      ON t.object_id = p.object_id
                     JOIN sys.schemas s
-                      ON s.schema_id = t.schema_id 
+                      ON s.schema_id = t.schema_id
                     WHERE s.name is not NULL
                     AND   t.name is not NULL
                     OPTION(RECOMPILE);
@@ -1722,7 +1722,7 @@ BEGIN
                 (
                     nvarchar(20),
                     COUNT_BIG(*)
-                ) + 
+                ) +
                 N' instances of Serializable deadlocks.'
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'serializable%'
@@ -1757,7 +1757,7 @@ BEGIN
             finding_group = N'Repeatable Read Deadlocking',
             finding =
                 N'This database has had ' +
-                CONVERT(nvarchar(20), COUNT_BIG(*)) + 
+                CONVERT(nvarchar(20), COUNT_BIG(*)) +
                 N' instances of Repeatable Read deadlocks.'
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'repeatable read%'
@@ -1797,18 +1797,18 @@ BEGIN
                 (
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
-                ) + 
+                ) +
                 N' instances of deadlocks involving the login ' +
                 ISNULL
                 (
                     dp.login_name, N'UNKNOWN'
-                ) + 
+                ) +
                 N' from the application ' +
                 ISNULL
                 (
                     dp.client_app, N'UNKNOWN'
                 ) +
-                N' on host ' + 
+                N' on host ' +
                 ISNULL
                 (
                     dp.host_name, N'UNKNOWN'
@@ -2083,7 +2083,7 @@ BEGIN
                 N'The stored procedure ' +
                 PARSENAME(ds.proc_name, 2) +
                 N'.' +
-                PARSENAME(ds.proc_name, 1) + 
+                PARSENAME(ds.proc_name, 1) +
                 N' has been involved in ' +
                 CONVERT
                 (
@@ -2149,10 +2149,10 @@ BEGIN
             finding =
                 N'EXEC sp_BlitzIndex ' +
                 N'@DatabaseName = ' +
-                QUOTENAME(bi.database_name, N'''') + 
+                QUOTENAME(bi.database_name, N'''') +
                 N', @SchemaName = ' +
-                QUOTENAME(bi.schema_name, N'''') + 
-                N', @TableName = ' + 
+                QUOTENAME(bi.schema_name, N'''') +
+                N', @TableName = ' +
                 QUOTENAME(bi.table_name, N'''') +
                 N';'
         FROM bi
@@ -2185,7 +2185,7 @@ BEGIN
                                  dp.wait_time
                              )
                           ) / 1000 / 86400
-                     ) 
+                     )
                  ),
              wait_time_hms =
                  CONVERT
@@ -2299,22 +2299,22 @@ BEGIN
             wt.database_name,
             object_name = N'-',
             finding_group = N'Total database deadlock wait time',
-            N'This database has had ' + 
+            N'This database has had ' +
             CONVERT
             (
                 nvarchar(10),
                 (
                     SUM
-                    (                      
+                    (
                         CONVERT
                         (
                             bigint,
                             wt.total_wait_time_ms
                         )
                     ) / 1000 / 86400
-                ) 
+                )
             ) +
-            N':' + 
+            N':' +
             CONVERT
               (
                   nvarchar(20),
@@ -2464,7 +2464,7 @@ BEGIN
                                         object_name =
                                             NCHAR(10) +
                                             N' <object>' +
-                                            ISNULL(c.object_name, N'') + 
+                                            ISNULL(c.object_name, N'') +
                                             N'</object> ' COLLATE DATABASE_DEFAULT
                                     FROM #deadlock_owner_waiter AS c
                                     WHERE (dp.id = c.owner_id
@@ -2537,7 +2537,7 @@ BEGIN
                                         object_name =
                                             NCHAR(10) +
                                             N' <object>' +
-                                            ISNULL(c.object_name, N'') + 
+                                            ISNULL(c.object_name, N'') +
                                             N'</object> ' COLLATE DATABASE_DEFAULT
                                     FROM #deadlock_owner_waiter AS c
                                     WHERE (dp.id = c.owner_id
