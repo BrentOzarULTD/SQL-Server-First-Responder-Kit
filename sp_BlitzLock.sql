@@ -1060,7 +1060,7 @@ BEGIN
                 REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
                 REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
                 REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    ca.object_name COLLATE Latin1_General_BIN2,,
+                    ca.object_name COLLATE Latin1_General_BIN2,
                 NCHAR(31), N'?'), NCHAR(30), N'?'), NCHAR(29), N'?'), NCHAR(28), N'?'), NCHAR(27), N'?'),
                 NCHAR(26), N'?'), NCHAR(25), N'?'), NCHAR(24), N'?'), NCHAR(23), N'?'), NCHAR(22), N'?'),
                 NCHAR(21), N'?'), NCHAR(20), N'?'), NCHAR(19), N'?'), NCHAR(18), N'?'), NCHAR(17), N'?'),
