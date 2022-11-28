@@ -895,6 +895,7 @@ BEGIN
                     DB_NAME(q.database_id),
                     N'UNKNOWN'
                 ),
+			q.current_database_name,
             q.priority,
             q.log_used,
             q.wait_resource,
@@ -904,6 +905,7 @@ BEGIN
             q.last_batch_started,
             q.last_batch_completed,
             q.lock_mode,
+			q.status,
             q.transaction_count,
             q.client_app,
             q.host_name,
@@ -973,6 +975,7 @@ BEGIN
                 id = ca.dp.value('@id', 'nvarchar(256)'),
                 spid = ca.dp.value('@spid', 'smallint'),
                 database_id = ca.dp.value('@currentdb', 'bigint'),
+				current_database_name = ca.dp.value('@currentdbname', 'nvarchar(256)'),
                 priority = ca.dp.value('@priority', 'smallint'),
                 log_used = ca.dp.value('@logused', 'bigint'),
                 wait_resource = ca.dp.value('@waitresource', 'nvarchar(256)'),
@@ -982,6 +985,7 @@ BEGIN
                 last_batch_started = ca.dp.value('@lastbatchstarted', 'datetime'),
                 last_batch_completed = ca.dp.value('@lastbatchcompleted', 'datetime'),
                 lock_mode = ca.dp.value('@lockMode', 'nvarchar(256)'),
+				status = ca.dp.value('@status', 'nvarchar(256)'),
                 transaction_count = ca.dp.value('@trancount', 'bigint'),
                 client_app = ca.dp.value('@clientapp', 'nvarchar(1024)'),
                 host_name = ca.dp.value('@hostname', 'nvarchar(256)'),
@@ -2575,6 +2579,68 @@ BEGIN
         HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
         OPTION(RECOMPILE);
 
+        /*Check 15 is total deadlocks involving sleeping sessions*/
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Check 15 parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
+
+        INSERT
+            #deadlock_findings WITH(TABLOCKX)
+        (
+            check_id,
+            database_name,
+            object_name,
+            finding_group,
+            finding
+        )
+        SELECT
+            check_id = 15,
+            database_name = N'-',
+            object_name = N'-',
+            finding_group = N'Total deadlocks involving sleeping sessions',
+            finding =
+                N'There have been ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    COUNT_BIG(DISTINCT dp.event_date)
+                ) +
+                N' sleepy deadlocks.'
+        FROM #deadlock_process AS dp
+		WHERE dp.status = N'sleeping'
+        HAVING COUNT_BIG(DISTINCT dp.event_date) > 0
+        OPTION(RECOMPILE);
+
+        /*Check 16 is total deadlocks involving implicit transactions*/
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Check 16 implicit transaction deadlocks %s', 0, 1, @d) WITH NOWAIT;
+
+        INSERT
+            #deadlock_findings WITH(TABLOCKX)
+        (
+            check_id,
+            database_name,
+            object_name,
+            finding_group,
+            finding
+        )
+        SELECT
+            check_id = 14,
+            database_name = N'-',
+            object_name = N'-',
+            finding_group = N'Total implicit transaction deadlocks',
+            finding =
+                N'There have been ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    COUNT_BIG(DISTINCT dp.event_date)
+                ) +
+                N' implicit transaction deadlocks.'
+        FROM #deadlock_process AS dp
+		WHERE dp.transaction_name = N'implicit_transaction'
+        HAVING COUNT_BIG(DISTINCT dp.event_date) > 0
+        OPTION(RECOMPILE);
+
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
         /*Thank you goodnight*/
@@ -2619,6 +2685,7 @@ BEGIN
                     dp.spid,
                     dp.database_id,
                     dp.database_name,
+					dp.current_database_name,
                     dp.priority,
                     dp.log_used,
                     wait_resource =
@@ -2651,6 +2718,7 @@ BEGIN
                         ),
                     dp.wait_time,
                     dp.transaction_name,
+					dp.status,
                     dp.last_tran_started,
                     dp.last_batch_started,
                     dp.last_batch_completed,
@@ -2703,6 +2771,7 @@ BEGIN
                     dp.spid,
                     dp.database_id,
                     dp.database_name,
+					dp.current_database_name,
                     dp.priority,
                     dp.log_used,
                     dp.wait_resource COLLATE DATABASE_DEFAULT,
@@ -2734,6 +2803,7 @@ BEGIN
                         ),
                     dp.wait_time,
                     dp.transaction_name,
+					dp.status,
                     dp.last_tran_started,
                     dp.last_batch_started,
                     dp.last_batch_completed,
@@ -2823,12 +2893,14 @@ BEGIN
                             END,
                 d.database_id,
                 d.database_name,
+				d.current_database_name,
                 d.priority,
                 d.log_used,
                 d.wait_resource,
                 d.object_names,
                 d.wait_time,
                 d.transaction_name,
+				d.status,
                 d.last_tran_started,
                 d.last_batch_started,
                 d.last_batch_completed,
@@ -2935,6 +3007,9 @@ BEGIN
                 d.event_date,
                 database_name =
                     DB_NAME(d.database_id),
+				database_name_x =
+				    d.database_name,
+				d.current_database_name,
                 d.spid,
                 d.deadlock_group,
                 d.client_option_1,
@@ -2959,6 +3034,7 @@ BEGIN
                 d.last_batch_started,
                 d.last_batch_completed,
                 d.transaction_name,
+				d.status,
                 /*These columns will be NULL for regular (non-parallel) deadlocks*/
                 d.owner_waiter_type,
                 d.owner_activity,
@@ -2991,7 +3067,13 @@ BEGIN
                     @@SERVERNAME,
                 dr.deadlock_type,
                 dr.event_date,
-                dr.database_name,
+                database_name =
+				    COALESCE
+					(
+					    dr.database_name,
+				        dr.database_name_x,
+				        dr.current_database_name
+					),
                 dr.spid,
                 dr.deadlock_group,
                 ' + CASE @ExportToExcel
@@ -3018,6 +3100,7 @@ BEGIN
                 dr.last_batch_started,
                 dr.last_batch_completed,
                 dr.transaction_name,
+				dr.status,
                 dr.owner_waiter_type,
                 dr.owner_activity,
                 dr.owner_waiter_activity,
