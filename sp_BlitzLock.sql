@@ -2534,7 +2534,7 @@ BEGIN
             finding_group = N'Agent Job Deadlocks',
             finding =
                 N'There have been ' +
-                RTRIM(COUNT_BIG(*)) +
+                RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
                 N' deadlocks from this Agent Job and Step.'
         FROM #agent_job AS aj
         GROUP BY
