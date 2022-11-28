@@ -224,47 +224,57 @@ BEGIN
     /*Normally I'd hate this, but we RECOMPILE everything*/
     SELECT
         @StartDate =
-            DATEADD
-            (
-                MINUTE,
-                DATEDIFF
-                (
-                    MINUTE,
-                    SYSDATETIME(),
-                    GETUTCDATE()
-                ),
-                ISNULL
-                (
-                    @StartDate,
+        CASE
+            WHEN @StartDate IS NULL
+                THEN
                     DATEADD
                     (
-                        DAY,
-                        -7,
-                        SYSDATETIME()
+                        MINUTE,
+                        DATEDIFF
+                        (
+                            MINUTE,
+                            SYSDATETIME(),
+                            GETUTCDATE()
+                        ),
+                        ISNULL
+                        (
+                            @StartDate,
+                            DATEADD
+                            (
+                                DAY,
+                                -7,
+                                SYSDATETIME()
+                            )
+                        )
                     )
-                )
-            ),
+                ELSE @StartDate
+            END,
         @EndDate =
-            DATEADD
-            (
-                MINUTE,
-                DATEDIFF
-                (
-                    MINUTE,
-                    SYSDATETIME(),
-                    GETUTCDATE()
-                ),
-                ISNULL
-                (
-                    @EndDate,
-                    SYSDATETIME()
-                )
-            );
+            CASE
+                WHEN @EndDate IS NULL
+                THEN
+                    DATEADD
+                    (
+                        MINUTE,
+                        DATEDIFF
+                        (
+                            MINUTE,
+                            SYSDATETIME(),
+                            GETUTCDATE()
+                        ),
+                        ISNULL
+                        (
+                            @EndDate,
+                            SYSDATETIME()
+                        )
+                    )
+                ELSE @EndDate
+            END;
 
     IF @OutputDatabaseName IS NOT NULL
     BEGIN /*IF databaseName is set, do some sanity checks and put [] around def.*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('@OutputDatabaseName set to %s, checking validity', 0, 1, @OutputDatabaseName) WITH NOWAIT;
+        RAISERROR('@OutputDatabaseName set to %s, checking validity at %s', 0, 1, @OutputDatabaseName, @d) WITH NOWAIT;
 
         IF NOT EXISTS
         (
@@ -551,7 +561,7 @@ BEGIN
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_sessions AS s
             JOIN sys.dm_xe_session_targets AS t
-                ON s.address = t.event_session_address
+              ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name IN (N'event_file', N'ring_buffer')
             ORDER BY t.target_name
@@ -571,7 +581,7 @@ BEGIN
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_database_sessions AS s
             JOIN sys.dm_xe_database_session_targets AS t
-                ON s.address = t.event_session_address
+              ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name IN (N'event_file', N'ring_buffer')
             ORDER BY t.target_name
@@ -605,7 +615,7 @@ BEGIN
                 x = TRY_CAST(t.target_data AS xml)
             FROM sys.dm_xe_session_targets AS t
             JOIN sys.dm_xe_sessions AS s
-                ON s.address = t.event_session_address
+              ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name = N'ring_buffer'
             OPTION(RECOMPILE);
@@ -628,7 +638,7 @@ BEGIN
                 x = TRY_CAST(t.target_data AS xml)
             FROM sys.dm_xe_database_session_targets AS t
             JOIN sys.dm_xe_database_sessions AS s
-                ON s.address = t.event_session_address
+              ON s.address = t.event_session_address
             WHERE s.name = @EventSessionName
             AND   t.target_name = N'ring_buffer'
             OPTION(RECOMPILE);
@@ -655,7 +665,7 @@ BEGIN
                 @TargetSessionId = t.target_id
             FROM sys.server_event_session_targets AS t
             JOIN sys.server_event_sessions AS s
-                ON s.event_session_id = t.event_session_id
+              ON s.event_session_id = t.event_session_id
             WHERE t.name = @TargetSessionType
             AND   s.name = @EventSessionName
             OPTION(RECOMPILE);
@@ -694,7 +704,7 @@ BEGIN
                 @TargetSessionId = t.target_id
             FROM sys.dm_xe_database_session_targets AS t
             JOIN sys.dm_xe_database_sessions AS s
-                ON s.event_session_id = t.event_session_id
+              ON s.event_session_id = t.event_session_id
             WHERE t.name = @TargetSessionType
             AND   s.name = @EventSessionName
             OPTION(RECOMPILE);
@@ -732,7 +742,7 @@ BEGIN
             x = TRY_CAST(f.event_data AS xml)
         FROM sys.fn_xe_file_target_read_file(@FileName, NULL, NULL, NULL) AS f
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -760,7 +770,7 @@ BEGIN
             deadlock_xml = e.x.query(N'.')
         FROM #x AS x
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         CROSS APPLY x.x.nodes('/RingBufferTarget/event') AS e(x)
         WHERE e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
@@ -790,7 +800,7 @@ BEGIN
             deadlock_xml = e.x.query('.')
         FROM #x AS x
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         CROSS APPLY x.x.nodes('/event') AS e(x)
         WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
         AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
@@ -819,7 +829,7 @@ BEGIN
         INTO #xml
         FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         OPTION(RECOMPILE);
 
         INSERT
@@ -828,7 +838,7 @@ BEGIN
             deadlock_xml = xml.deadlock_xml
         FROM #xml AS xml
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS e(x)
         WHERE e.x.exist('/event/@name[ . = "xml_deadlock_report"]') = 1
         AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
@@ -855,7 +865,7 @@ BEGIN
         INTO #dd
         FROM #deadlock_data AS d1
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -893,49 +903,49 @@ BEGIN
             q.host_name,
             q.login_name,
             q.isolation_level,
-        client_option_1 = 
-              SUBSTRING
-              (    
-                  CASE WHEN q.clientoption1 & 1 = 1 THEN ', DISABLE_DEF_CNST_CHECK' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 2 = 2 THEN ', IMPLICIT_TRANSACTIONS' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 4 = 4 THEN ', CURSOR_CLOSE_ON_COMMIT' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 8 = 8 THEN ', ANSI_WARNINGS' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 16 = 16 THEN ', ANSI_PADDING' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 32 = 32 THEN ', ANSI_NULLS' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 64 = 64 THEN ', ARITHABORT' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 128 = 128 THEN ', ARITHIGNORE' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 256 = 256 THEN ', QUOTED_IDENTIFIER' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 512 = 512 THEN ', NOCOUNT' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 1024 = 1024 THEN ', ANSI_NULL_DFLT_ON' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 2048 = 2048 THEN ', ANSI_NULL_DFLT_OFF' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 4096 = 4096 THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 8192 = 8192 THEN ', NUMERIC_ROUNDABORT' ELSE '' END + 
-                  CASE WHEN q.clientoption1 & 16384 = 16384 THEN ', XACT_ABORT' ELSE '' END,
-                  3,
-                  8000
-              ),
-          client_option_2 = 
-              SUBSTRING
-              (
-                  CASE WHEN q.clientoption2 & 1024 = 1024 THEN ', DB CHAINING' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 2048 = 2048 THEN ', NUMERIC ROUNDABORT' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 4096 = 4096 THEN ', ARITHABORT' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 8192 = 8192 THEN ', ANSI PADDING' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 16384 = 16384 THEN ', ANSI NULL DEFAULT' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 65536 = 65536 THEN ', CONCAT NULL YIELDS NULL' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 131072 = 131072 THEN ', RECURSIVE TRIGGERS' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 1048576 = 1048576 THEN ', DEFAULT TO LOCAL CURSOR' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 8388608 = 8388608 THEN ', QUOTED IDENTIFIER' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 16777216 = 16777216 THEN ', AUTO CREATE STATISTICS' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 33554432 = 33554432 THEN ', CURSOR CLOSE ON COMMIT' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 67108864 = 67108864 THEN ', ANSI NULLS' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 268435456 = 268435456 THEN ', ANSI WARNINGS' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 536870912 = 536870912 THEN ', FULL TEXT ENABLED' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 1073741824 = 1073741824 THEN ', AUTO UPDATE STATISTICS' ELSE '' END + 
-                  CASE WHEN q.clientoption2 & 1469283328 = 1469283328 THEN ', ALL SETTABLE OPTIONS' ELSE '' END,
-                  3,
-                  8000
-              ),
+            client_option_1 =
+                SUBSTRING
+                (
+                    CASE WHEN q.clientoption1 & 1 = 1 THEN ', DISABLE_DEF_CNST_CHECK' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 2 = 2 THEN ', IMPLICIT_TRANSACTIONS' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 4 = 4 THEN ', CURSOR_CLOSE_ON_COMMIT' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 8 = 8 THEN ', ANSI_WARNINGS' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 16 = 16 THEN ', ANSI_PADDING' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 32 = 32 THEN ', ANSI_NULLS' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 64 = 64 THEN ', ARITHABORT' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 128 = 128 THEN ', ARITHIGNORE' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 256 = 256 THEN ', QUOTED_IDENTIFIER' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 512 = 512 THEN ', NOCOUNT' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 1024 = 1024 THEN ', ANSI_NULL_DFLT_ON' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 2048 = 2048 THEN ', ANSI_NULL_DFLT_OFF' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 4096 = 4096 THEN ', CONCAT_NULL_YIELDS_NULL' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 8192 = 8192 THEN ', NUMERIC_ROUNDABORT' ELSE '' END +
+                    CASE WHEN q.clientoption1 & 16384 = 16384 THEN ', XACT_ABORT' ELSE '' END,
+                    3,
+                    8000
+                ),
+            client_option_2 =
+                SUBSTRING
+                (
+                    CASE WHEN q.clientoption2 & 1024 = 1024 THEN ', DB CHAINING' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 2048 = 2048 THEN ', NUMERIC ROUNDABORT' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 4096 = 4096 THEN ', ARITHABORT' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 8192 = 8192 THEN ', ANSI PADDING' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 16384 = 16384 THEN ', ANSI NULL DEFAULT' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 65536 = 65536 THEN ', CONCAT NULL YIELDS NULL' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 131072 = 131072 THEN ', RECURSIVE TRIGGERS' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 1048576 = 1048576 THEN ', DEFAULT TO LOCAL CURSOR' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 8388608 = 8388608 THEN ', QUOTED IDENTIFIER' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 16777216 = 16777216 THEN ', AUTO CREATE STATISTICS' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 33554432 = 33554432 THEN ', CURSOR CLOSE ON COMMIT' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 67108864 = 67108864 THEN ', ANSI NULLS' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 268435456 = 268435456 THEN ', ANSI WARNINGS' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 536870912 = 536870912 THEN ', FULL TEXT ENABLED' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 1073741824 = 1073741824 THEN ', AUTO UPDATE STATISTICS' ELSE '' END +
+                    CASE WHEN q.clientoption2 & 1469283328 = 1469283328 THEN ', ALL SETTABLE OPTIONS' ELSE '' END,
+                    3,
+                    8000
+                ),
             q.process_xml
         INTO #deadlock_process
         FROM
@@ -982,7 +992,7 @@ BEGIN
             AND   (ca.dp.exist('@loginname[. = sql:variable("@LoginName")]') = 1 OR @LoginName IS NULL)
         ) AS q
         LEFT JOIN #t AS t
-            ON 1 = 1
+          ON 1 = 1
         OPTION(RECOMPILE);
 
 
@@ -1066,7 +1076,7 @@ BEGIN
                 NCHAR(21), N'?'), NCHAR(20), N'?'), NCHAR(19), N'?'), NCHAR(18), N'?'), NCHAR(17), N'?'),
                 NCHAR(16), N'?'), NCHAR(15), N'?'), NCHAR(14), N'?'), NCHAR(12), N'?'), NCHAR(11), N'?'),
                 NCHAR(8),  N'?'),  NCHAR(7), N'?'),  NCHAR(6), N'?'),  NCHAR(5), N'?'),  NCHAR(4), N'?'),
-                NCHAR(3),  N'?'),  NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?'),        
+                NCHAR(3),  N'?'),  NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?'),
             ca.lock_mode,
             ca.index_name,
             ca.associatedObjectId,
@@ -1556,9 +1566,9 @@ BEGIN
         EXECUTE sys.sp_MSforeachdb
             N'
             SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-            
+
             USE [?];
-            
+
             IF EXISTS
             (
                 SELECT
@@ -1571,15 +1581,17 @@ BEGIN
                     database_id =
                         DB_ID(),
                     p.partition_id,
-                    s.name as schema_name,
-                    t.name as table_name
+                    schema_name =
+                        s.name,
+                    table_name =
+                        t.name
                 FROM sys.partitions p
                 JOIN sys.tables t
                   ON t.object_id = p.object_id
                 JOIN sys.schemas s
                   ON s.schema_id = t.schema_id
-                WHERE s.name is not NULL
-                AND   t.name is not NULL
+                WHERE s.name IS NOT NULL
+                AND   t.name IS NOT NULL
                 OPTION(RECOMPILE);
             END;
             ';
@@ -1605,15 +1617,17 @@ BEGIN
                 database_id =
                     DB_ID(),
                 p.partition_id,
-                s.name as schema_name,
-                t.name as table_name
+                schema_name =
+                    s.name,
+                table_name =
+                    t.name
             FROM sys.partitions p
             JOIN sys.tables t
               ON t.object_id = p.object_id
             JOIN sys.schemas s
               ON s.schema_id = t.schema_id
-            WHERE s.name is not NULL
-            AND   t.name is not NULL
+            WHERE s.name IS NOT NULL
+            AND   t.name IS NOT NULL
             OPTION(RECOMPILE);
 
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -1898,17 +1912,20 @@ BEGIN
                 N' instances of deadlocks involving the login ' +
                 ISNULL
                 (
-                    dp.login_name, N'UNKNOWN'
+                    dp.login_name,
+                    N'UNKNOWN'
                 ) +
                 N' from the application ' +
                 ISNULL
                 (
-                    dp.client_app, N'UNKNOWN'
+                    dp.client_app,
+                    N'UNKNOWN'
                 ) +
                 N' on host ' +
                 ISNULL
                 (
-                    dp.host_name, N'UNKNOWN'
+                    dp.host_name,
+                    N'UNKNOWN'
                 ) +
                 N'.'
         FROM #deadlock_process AS dp
@@ -2089,8 +2106,8 @@ BEGIN
                 END + N';'
         FROM deadlock_stack AS ds
         JOIN #deadlock_owner_waiter AS dow
-            ON dow.owner_id = ds.id
-            AND dow.event_date = ds.event_date
+          ON dow.owner_id = ds.id
+          AND dow.event_date = ds.event_date
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
@@ -2220,8 +2237,8 @@ BEGIN
                     table_name = a.table_name
                 FROM #deadlock_owner_waiter AS dow
                 LEFT JOIN @sysAssObjId AS a
-                    ON  a.database_id = dow.database_id
-                    AND a.partition_id = dow.associatedObjectId
+                  ON  a.database_id = dow.database_id
+                  AND a.partition_id = dow.associatedObjectId
                 WHERE 1 = 1
                 AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
                 AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
@@ -2771,7 +2788,7 @@ BEGIN
                 d.client_option_1,
                 d.client_option_2,
                 inputbuf =
-                    CASE 
+                    CASE
                         WHEN d.inputbuf
                              LIKE @inputbuf_bom + N'Proc |[Database Id = %' ESCAPE N'|'
                         THEN
@@ -2786,12 +2803,12 @@ BEGIN
                                 ,
                                 SUBSTRING
                                 (
-                                    d.inputbuf, 
-                                    CHARINDEX(N'Database Id = ', d.inputbuf) + 14, 
+                                    d.inputbuf,
+                                    CHARINDEX(N'Database Id = ', d.inputbuf) + 14,
                                     CHARINDEX(N'Object Id', d.inputbuf) - (CHARINDEX(N'Database Id = ', d.inputbuf) + 14)
                                 )
-                        ) + 
-                        N'.' + 
+                        ) +
+                        N'.' +
                         OBJECT_NAME
                         (
                              SUBSTRING
@@ -2803,8 +2820,8 @@ BEGIN
                              ,
                              SUBSTRING
                              (
-                                 d.inputbuf, 
-                                 CHARINDEX(N'Database Id = ', d.inputbuf) + 14, 
+                                 d.inputbuf,
+                                 CHARINDEX(N'Database Id = ', d.inputbuf) + 14,
                                  CHARINDEX(N'Object Id', d.inputbuf) - (CHARINDEX(N'Database Id = ', d.inputbuf) + 14)
                              )
                         )
@@ -2843,7 +2860,7 @@ BEGIN
             AND (d.client_app = @AppName OR @AppName IS NULL)
             AND (d.host_name = @HostName OR @HostName IS NULL)
             AND (d.login_name = @LoginName OR @LoginName IS NULL)
-            OPTION (RECOMPILE, LOOP JOIN, HASH JOIN)
+            OPTION (RECOMPILE, LOOP JOIN, HASH JOIN);
 
             UPDATE d
                 SET d.inputbuf =
@@ -2856,7 +2873,7 @@ BEGIN
                         NCHAR(21), N'?'), NCHAR(20), N'?'), NCHAR(19), N'?'), NCHAR(18), N'?'), NCHAR(17), N'?'),
                         NCHAR(16), N'?'), NCHAR(15), N'?'), NCHAR(14), N'?'), NCHAR(12), N'?'), NCHAR(11), N'?'),
                         NCHAR(8),  N'?'),  NCHAR(7), N'?'),  NCHAR(6), N'?'),  NCHAR(5), N'?'),  NCHAR(4), N'?'),
-                        NCHAR(3),  N'?'),  NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?')                 
+                        NCHAR(3),  N'?'),  NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?')
             FROM #deadlocks AS d
             OPTION(RECOMPILE);
 
@@ -2959,17 +2976,27 @@ BEGIN
                 dr.waiter_waiter_activity,
                 dr.waiter_merging,
                 dr.waiter_spilling,
-                dr.waiter_waiting_to_close' +
+                dr.waiter_waiting_to_close,' +
                     CASE
                         @ExportToExcel
                         WHEN 1
-                        THEN N''
-                        ELSE N',
+                        THEN N'
+                REPLACE(REPLACE(REPLACE(REPLACE(
+                    CONVERT
+                    (
+                        nvarchar(MAX),
+                        dr.deadlock_graph COLLATE Latin1_General_BIN2
+                    ),
+                ''NCHAR(10)'', ''''), ''NCHAR(13)'', ''''),
+                ''CHAR(10)'', ''''), ''CHAR(13)'', '''')'
+                        ELSE N'
                 dr.deadlock_graph'
                    END
                                      + N'
             FROM #deadlock_results AS dr
-            ORDER BY dr.event_date, dr.is_victim DESC
+            ORDER BY
+                dr.event_date,
+                dr.is_victim DESC
             OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
             ';
 
