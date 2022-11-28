@@ -823,13 +823,22 @@ BEGIN
 
         IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
 
-        SELECT
-            deadlock_xml =
-                TRY_CAST(event_data AS xml)
-        INTO #xml
-        FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
-        LEFT JOIN #t AS t
-          ON 1 = 1
+		SELECT
+		    xml.deadlock_xml
+		INTO #xml
+		FROM
+		(
+		    SELECT
+                deadlock_xml =
+                    TRY_CAST(event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
+            LEFT JOIN #t AS t
+              ON 1 = 1
+		) AS xml
+        CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
+        WHERE e.x.exist('@name[ . = "xml_deadlock_report"]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
+        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         INSERT
@@ -839,10 +848,7 @@ BEGIN
         FROM #xml AS xml
         LEFT JOIN #t AS t
           ON 1 = 1
-        CROSS APPLY xml.deadlock_xml.nodes('/event/@name') AS e(x)
-        WHERE e.x.exist('/event/@name[ . = "xml_deadlock_report"]') = 1
-        AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1
+		WHERE xml.deadlock_xml IS NOT NULL
         OPTION(RECOMPILE);
 
         IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
