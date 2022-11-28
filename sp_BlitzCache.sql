@@ -3771,12 +3771,12 @@ FROM    ##BlitzCacheProcs p
 				WHERE	b.OptionStart > 0
 				) c
 		OUTER APPLY (
-				SELECT PATINDEX('%[^0-9]%', c.OptionSubstring) AS ObjectLength
+				SELECT  PATINDEX('%[^0-9]%', c.OptionSubstring) AS ObjectLength
 				) d
 		OUTER APPLY (
 				SELECT	TRY_CAST(SUBSTRING(OptionSubstring, 1, d.ObjectLength - 1) AS INT) AS ObjectId
 				) e
-		JOIN sys.dm_exec_procedure_stats s ON DB_ID(p.DatabaseName) = s.database_id AND e.ObjectId = s.object_id
+		JOIN    sys.dm_exec_procedure_stats s ON DB_ID(p.DatabaseName) = s.database_id AND e.ObjectId = s.object_id
 WHERE   p.QueryType = 'Statement'
 AND		p.SPID = @@SPID
 AND		s.object_id IS NOT NULL
