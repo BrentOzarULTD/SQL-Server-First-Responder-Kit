@@ -1609,7 +1609,7 @@ BEGIN
         IF @Azure = 1
         BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Inserting to @sysAssObjId %s', 0, 1, @d) WITH NOWAIT;
+            RAISERROR('Inserting to @sysAssObjId at %s', 0, 1, @d) WITH NOWAIT;
 
             INSERT INTO
                 @sysAssObjId
@@ -1644,7 +1644,7 @@ BEGIN
 
         /*Check 1 is deadlocks by database*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 1 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 1  databases %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1681,9 +1681,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 2 is deadlocks by object*/
+        /*Check 2 is deadlocks with selects*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 2 objects %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 2 selects %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1696,6 +1696,48 @@ BEGIN
         )
         SELECT
             check_id = 2,
+            dow.database_name,
+            object_name =
+                N'You Might Need RCSI',
+            finding_group = N'Total Deadlocks Involving Selects',
+            finding =
+                N'There have been ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    COUNT_BIG(DISTINCT dow.event_date)
+                ) +
+                N' deadlock(s) between read queries and modification queries.'
+        FROM #deadlock_owner_waiter AS dow
+        WHERE 1 = 1
+		AND dow.lock_mode IN
+		    (
+			    N'S',
+				N'IS'
+			)
+        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
+        AND (dow.event_date < @EndDate OR @EndDate IS NULL)
+        AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+        GROUP BY
+            dow.database_name
+        OPTION(RECOMPILE);
+
+        /*Check 3 is deadlocks by object*/
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Check 3 objects %s', 0, 1, @d) WITH NOWAIT;
+
+        INSERT
+            #deadlock_findings WITH(TABLOCKX)
+        (
+            check_id,
+            database_name,
+            object_name,
+            finding_group,
+            finding
+        )
+        SELECT
+            check_id = 3,
             dow.database_name,
             object_name =
                 ISNULL
@@ -1725,9 +1767,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 2 continuation, number of locks per index*/
+        /*Check 3 continuation, number of locks per index*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 2 indexes %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 indexes %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1739,7 +1781,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 2,
+            check_id = 3,
             dow.database_name,
             index_name = dow.index_name,
             finding_group = N'Total Index Deadlocks',
@@ -1770,9 +1812,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 2 continuation, number of locks per heap*/
+        /*Check 3 continuation, number of locks per heap*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 2 heaps %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 heaps %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1784,7 +1826,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 2,
+            check_id = 3,
             dow.database_name,
             index_name = dow.index_name,
             finding_group = N'Total Heap Deadlocks',
@@ -1814,9 +1856,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 3 looks for Serializable locking*/
+        /*Check 4 looks for Serializable locking*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1828,7 +1870,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 3,
+            check_id = 4,
             database_name =
                 dp.database_name,
             object_name = N'-',
@@ -1838,7 +1880,7 @@ BEGIN
                 CONVERT
                 (
                     nvarchar(20),
-                    COUNT_BIG(*)
+                    COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' instances of Serializable deadlocks.'
         FROM #deadlock_process AS dp
@@ -1854,42 +1896,7 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 4 looks for Repeatable Read locking*/
-        SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
-
-        INSERT
-            #deadlock_findings WITH(TABLOCKX)
-        (
-            check_id,
-            database_name,
-            object_name,
-            finding_group,
-            finding
-        )
-        SELECT
-            check_id = 4,
-            dp.database_name,
-            object_name = N'-',
-            finding_group = N'Repeatable Read Deadlocking',
-            finding =
-                N'This database has had ' +
-                CONVERT(nvarchar(20), COUNT_BIG(*)) +
-                N' instances of Repeatable Read deadlocks.'
-        FROM #deadlock_process AS dp
-        WHERE dp.isolation_level LIKE N'repeatable read%'
-        AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
-        AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
-        AND (dp.event_date < @EndDate OR @EndDate IS NULL)
-        AND (dp.client_app = @AppName OR @AppName IS NULL)
-        AND (dp.host_name = @HostName OR @HostName IS NULL)
-        AND (dp.login_name = @LoginName OR @LoginName IS NULL)
-        GROUP BY dp.database_name
-        OPTION(RECOMPILE);
-
-        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-
-        /*Check 5 breaks down app, host, and login information*/
+        /*Check 5 looks for Repeatable Read locking*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
 
@@ -1904,6 +1911,45 @@ BEGIN
         )
         SELECT
             check_id = 5,
+            dp.database_name,
+            object_name = N'-',
+            finding_group = N'Repeatable Read Deadlocking',
+            finding =
+                N'This database has had ' +
+                CONVERT
+				(
+				    nvarchar(20),
+					COUNT_BIG(DISTINCT dp.event_date)
+				) +
+                N' instances of Repeatable Read deadlocks.'
+        FROM #deadlock_process AS dp
+        WHERE dp.isolation_level LIKE N'repeatable read%'
+        AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+        AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+        AND (dp.client_app = @AppName OR @AppName IS NULL)
+        AND (dp.host_name = @HostName OR @HostName IS NULL)
+        AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+        GROUP BY dp.database_name
+        OPTION(RECOMPILE);
+
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+
+        /*Check 6 breaks down app, host, and login information*/
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
+
+        INSERT
+            #deadlock_findings WITH(TABLOCKX)
+        (
+            check_id,
+            database_name,
+            object_name,
+            finding_group,
+            finding
+        )
+        SELECT
+            check_id = 6,
             database_name =
                 dp.database_name,
             object_name = N'-',
@@ -1951,9 +1997,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 6 breaks down the types of locks (object, page, key, etc.)*/
+        /*Check 7 breaks down the types of locks (object, page, key, etc.)*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 7 %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             lock_types AS
@@ -2012,7 +2058,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 6,
+            check_id = 7,
             lt.database_name,
             lt.object_name,
             finding_group = N'Types of locks by object',
@@ -2042,9 +2088,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 7 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
+        /*Check 8 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 7 part 1 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 8 part 1 %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             deadlock_stack AS
@@ -2100,7 +2146,7 @@ BEGIN
             finding
         )
         SELECT DISTINCT
-            check_id = 7,
+            check_id = 8,
             dow.database_name,
             object_name = ds.proc_name,
             finding_group = N'More Info - Query',
@@ -2126,7 +2172,7 @@ BEGIN
         IF (@ProductVersionMajor >= 13 OR @Azure = 1)
         BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Check 7 part 2 %s', 0, 1, @d) WITH NOWAIT;
+            RAISERROR('Check 8 part 2 %s', 0, 1, @d) WITH NOWAIT;
 
             WITH
                 deadlock_stack AS
@@ -2154,7 +2200,7 @@ BEGIN
                 finding
             )
             SELECT DISTINCT
-                check_id = 7,
+                check_id = 8,
                 dow.database_name,
                 object_name = ds.proc_name,
                 finding_group = N'More Info - Query',
@@ -2180,9 +2226,9 @@ BEGIN
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
         END;
 
-        /*Check 8 gives you stored proc deadlock counts*/
+        /*Check 9 gives you stored procedure deadlock counts*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 8 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 9 procedure deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2194,7 +2240,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 8,
+            check_id = 9,
             database_name =
                 dp.database_name,
             object_name = ds.proc_name,
@@ -2229,9 +2275,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 9 gives you more info queries for sp_BlitzIndex */
+        /*Check 10 gives you more info queries for sp_BlitzIndex */
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 9 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 10 more info, blitzindex  %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             bi AS
@@ -2262,7 +2308,7 @@ BEGIN
             finding
         )
         SELECT DISTINCT
-            check_id = 9,
+            check_id = 10,
             bi.database_name,
             bi.object_name,
             finding_group = N'More Info - Table',
@@ -2280,9 +2326,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 10 gets total deadlock wait time per object*/
+        /*Check 11 gets total deadlock wait time per object*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 10 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 11 deadlock wait time per object %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             chopsuey AS
@@ -2355,7 +2401,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 10,
+            check_id = 11,
             cs.database_name,
             cs.object_name,
             finding_group = N'Total object deadlock wait time',
@@ -2371,9 +2417,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 11 gets total deadlock wait time per database*/
+        /*Check 12 gets total deadlock wait time per database*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 11 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 12 deadlock wait time per database %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             wait_time AS
@@ -2415,7 +2461,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 11,
+            check_id = 12,
             wt.database_name,
             object_name = N'-',
             finding_group = N'Total database deadlock wait time',
@@ -2463,9 +2509,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 12 gets total deadlock wait time for SQL Agent*/
+        /*Check 13 gets total deadlock wait time for SQL Agent*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 12 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 13 deadlock wait time for SQL Agent %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2477,7 +2523,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 12,
+            check_id = 13,
             database_name =
                 DB_NAME(aj.database_id),
             object_name =
@@ -2499,9 +2545,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 13 is total parallel deadlocks*/
+        /*Check 14 is total parallel deadlocks*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 13 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 14 parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2513,7 +2559,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 13,
+            check_id = 14,
             database_name = N'-',
             object_name = N'-',
             finding_group = N'Total parallel deadlocks',
@@ -2545,7 +2591,8 @@ BEGIN
         (
             -1,
             N'sp_BlitzLock ' + CAST(CONVERT(datetime, @VersionDate, 102) AS nvarchar(100)),
-            N'SQL Server First Responder Kit', N'http://FirstResponderKit.org/',
+            N'SQL Server First Responder Kit',
+			N'http://FirstResponderKit.org/',
             N'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
         );
 
