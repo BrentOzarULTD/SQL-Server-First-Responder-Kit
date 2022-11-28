@@ -830,8 +830,8 @@ BEGIN
 		(
 		    SELECT
                 deadlock_xml =
-                    TRY_CAST(event_data AS xml)
-            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL)
+                    TRY_CAST(fx.event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
 		) AS xml
