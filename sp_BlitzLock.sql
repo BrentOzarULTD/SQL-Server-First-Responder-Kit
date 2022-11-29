@@ -1927,7 +1927,7 @@ BEGIN
 				) +
                 N' instances of Repeatable Read deadlocks.'
         FROM #deadlock_process AS dp
-        WHERE dp.isolation_level LIKE N'repeatable read%'
+        WHERE dp.isolation_level LIKE N'repeatable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
         AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dp.event_date < @EndDate OR @EndDate IS NULL)
