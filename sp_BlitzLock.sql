@@ -1648,7 +1648,7 @@ BEGIN
 
         /*Check 1 is deadlocks by database*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 1  databases %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 1  database deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1687,7 +1687,7 @@ BEGIN
 
         /*Check 2 is deadlocks with selects*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 2 selects %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 2 select deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1729,7 +1729,7 @@ BEGIN
 
         /*Check 3 is deadlocks by object*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 objects %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 object deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1771,9 +1771,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 3 continuation, number of locks per index*/
+        /*Check 3 continuation, number of deadlocks per index*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 indexes %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 index deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1816,9 +1816,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 3 continuation, number of locks per heap*/
+        /*Check 3 continuation, number of deadlocks per heap*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 heaps %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 heap deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1860,9 +1860,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 4 looks for Serializable locking*/
+        /*Check 4 looks for Serializable deadlocks*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 4 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 4 serializable deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1900,9 +1900,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 5 looks for Repeatable Read locking*/
+        /*Check 5 looks for Repeatable Read deadlocks*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 5 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 5 repeatable read deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1957,7 +1957,7 @@ BEGIN
             database_name =
                 dp.database_name,
             object_name = N'-',
-            finding_group = N'Login, App, and Host locking',
+            finding_group = N'Login, App, and Host deadlocks',
             finding =
                 N'This database has had ' +
                 CONVERT
@@ -2001,9 +2001,9 @@ BEGIN
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-        /*Check 7 breaks down the types of locks (object, page, key, etc.)*/
+        /*Check 7 breaks down the types of deadlocks (object, page, key, etc.)*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 7 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 7 types of deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             lock_types AS
@@ -2023,7 +2023,8 @@ BEGIN
                              )
                         ELSE dp.wait_resource
                     END,
-                lock_count = CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.id))
+                lock_count =
+				    CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.event_date))
             FROM #deadlock_process AS dp
             JOIN #deadlock_owner_waiter AS dow
               ON (dp.id = dow.owner_id
@@ -2094,7 +2095,7 @@ BEGIN
 
         /*Check 8 gives you more info queries for sp_BlitzCache & BlitzQueryStore*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 8 part 1 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 8 more info part 1 BlitzCache %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             deadlock_stack AS
@@ -2176,7 +2177,7 @@ BEGIN
         IF (@ProductVersionMajor >= 13 OR @Azure = 1)
         BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Check 8 part 2 %s', 0, 1, @d) WITH NOWAIT;
+            RAISERROR('Check 8 more info part 2 BlitzQueryStore %s', 0, 1, @d) WITH NOWAIT;
 
             WITH
                 deadlock_stack AS
@@ -2232,7 +2233,7 @@ BEGIN
 
         /*Check 9 gives you stored procedure deadlock counts*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 9 procedure deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 9 stored procedure deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2281,7 +2282,7 @@ BEGIN
 
         /*Check 10 gives you more info queries for sp_BlitzIndex */
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 10 more info, blitzindex  %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 10 more info, BlitzIndex  %s', 0, 1, @d) WITH NOWAIT;
 
         WITH
             bi AS
@@ -2345,7 +2346,7 @@ BEGIN
              wait_days =
                  CONVERT
                  (
-                     nvarchar(10),
+                     nvarchar(30),
                      (
                          SUM
                          (
@@ -2360,10 +2361,10 @@ BEGIN
              wait_time_hms =
                  CONVERT
                  (
-                     nvarchar(20),
+                     nvarchar(30),
                      DATEADD
                      (
-                         SECOND,
+                         MILLISECOND,
                          (
                              SUM
                              (
@@ -2372,11 +2373,11 @@ BEGIN
                                      bigint,
                                      dp.wait_time
                                   )
-                             ) / 1000
+                             )
                          ),
                          0
                     ),
-                    108
+                    14
                  )
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
@@ -2411,10 +2412,19 @@ BEGIN
             finding_group = N'Total object deadlock wait time',
             finding =
                 N'This object has had ' +
-                CONVERT(nvarchar(20), cs.wait_days) +
-                N':' +
-                CONVERT(nvarchar(20), cs.wait_time_hms, 108) +
-                N' [d/h/m/s] of deadlock wait time.'
+                CONVERT
+				(
+				    nvarchar(30),
+					cs.wait_days
+				) +
+                N' ' +
+                CONVERT
+				(
+				    nvarchar(30),
+					cs.wait_time_hms,
+					14
+				) +
+                N' [dd hh:mm:ss:ms] of deadlock wait time.'
         FROM chopsuey AS cs
         WHERE cs.object_name IS NOT NULL
         OPTION(RECOMPILE);
@@ -2472,7 +2482,7 @@ BEGIN
             N'This database has had ' +
             CONVERT
             (
-                nvarchar(10),
+                nvarchar(30),
                 (
                     SUM
                     (
@@ -2484,13 +2494,13 @@ BEGIN
                     ) / 1000 / 86400
                 )
             ) +
-            N':' +
+            N' ' +
             CONVERT
               (
-                  nvarchar(20),
+                  nvarchar(30),
                   DATEADD
                   (
-                      SECOND,
+                      MILLISECOND,
                       (
                           SUM
                           (
@@ -2499,13 +2509,13 @@ BEGIN
                                   bigint,
                                   wt.total_wait_time_ms
                               )
-                          ) / 1000
+                          )
                       ),
                       0
                   ),
-                  108
+                  14
               ) +
-            N' [d/h/m/s] of deadlock wait time.'
+            N' [dd hh:mm:ss:ms] of deadlock wait time.'
         FROM wait_time AS wt
         GROUP BY
             wt.database_name
@@ -2515,7 +2525,7 @@ BEGIN
 
         /*Check 13 gets total deadlock wait time for SQL Agent*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 13 deadlock wait time for SQL Agent %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 13 deadlock counte for SQL Agent %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2581,7 +2591,7 @@ BEGIN
 
         /*Check 15 is total deadlocks involving sleeping sessions*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 15 parallel deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 15 sleeping deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
