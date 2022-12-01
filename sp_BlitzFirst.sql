@@ -2521,9 +2521,16 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					EXEC sp_MSforeachdb @StringToExecute;
 				END TRY
 				BEGIN CATCH
-					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
-										 N' this is likely due to an Index operation in Progress', -1;
+					IF (ERROR_NUMBER() = 1222)
+					BEGIN
+						INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+						SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
+											 N' this is likely due to an Index operation in Progress', -1;
+					END
+					ELSE
+					BEGIN
+						THROW;
+					END
 				END CATCH
 			END
 			ELSE
