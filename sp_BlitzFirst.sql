@@ -2516,7 +2516,16 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     ;
 
 			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
-	            EXEC sp_MSforeachdb @StringToExecute;
+			BEGIN
+				BEGIN TRY
+					EXEC sp_MSforeachdb @StringToExecute;
+				END TRY
+				BEGIN CATCH
+					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+					SELECT HowToStopIt = N' No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
+										 N'  this is likely due to an Index operation in Progress', -1;
+				END CATCH
+				END
 			ELSE
 				EXEC(@StringToExecute);
 
