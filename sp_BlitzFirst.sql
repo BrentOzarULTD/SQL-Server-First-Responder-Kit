@@ -2522,8 +2522,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				END TRY
 				BEGIN CATCH
 					INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-					SELECT HowToStopIt = N' No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
-										 N'  this is likely due to an Index operation in Progress', -1;
+					SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
+										 N' this is likely due to an Index operation in Progress', -1;
 				END CATCH
 			END
 			ELSE
