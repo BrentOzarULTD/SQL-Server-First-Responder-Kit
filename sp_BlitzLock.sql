@@ -557,7 +557,8 @@ BEGIN
         )
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
-            SELECT TOP (1)
+
+		    SELECT TOP (1)
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_sessions AS s
             JOIN sys.dm_xe_session_targets AS t
@@ -577,7 +578,8 @@ BEGIN
         )
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
-            SELECT TOP (1)
+
+		    SELECT TOP (1)
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_database_sessions AS s
             JOIN sys.dm_xe_database_session_targets AS t
@@ -683,11 +685,7 @@ BEGIN
             (
                 SELECT
                     file_name =
-                        CONVERT
-                        (
-                            nvarchar(4000),
-                            f.value
-                        )
+                        CONVERT(nvarchar(4000), f.value)
                 FROM sys.server_event_session_fields AS f
                 WHERE f.event_session_id = @SessionId
                 AND   f.object_id = @TargetSessionId
@@ -721,7 +719,8 @@ BEGIN
             FROM
             (
                 SELECT
-                    file_name = CONVERT(nvarchar(4000), f.value)
+                    file_name =
+					    CONVERT(nvarchar(4000), f.value)
                 FROM sys.server_event_session_fields AS f
                 WHERE f.event_session_id = @SessionId
                 AND   f.object_id = @TargetSessionId
@@ -767,7 +766,8 @@ BEGIN
             deadlock_xml
         )
         SELECT
-            deadlock_xml = e.x.query(N'.')
+            deadlock_xml =
+			    e.x.query(N'.')
         FROM #x AS x
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -797,7 +797,8 @@ BEGIN
             deadlock_xml
         )
         SELECT
-            deadlock_xml = e.x.query('.')
+            deadlock_xml =
+			    e.x.query('.')
         FROM #x AS x
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -844,7 +845,8 @@ BEGIN
         INSERT
             #deadlock_data WITH(TABLOCKX)
         SELECT
-            deadlock_xml = xml.deadlock_xml
+            deadlock_xml =
+			    xml.deadlock_xml
         FROM #xml AS xml
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -1085,8 +1087,8 @@ BEGIN
                 NCHAR(26), N'?'), NCHAR(25), N'?'), NCHAR(24), N'?'), NCHAR(23), N'?'), NCHAR(22), N'?'),
                 NCHAR(21), N'?'), NCHAR(20), N'?'), NCHAR(19), N'?'), NCHAR(18), N'?'), NCHAR(17), N'?'),
                 NCHAR(16), N'?'), NCHAR(15), N'?'), NCHAR(14), N'?'), NCHAR(12), N'?'), NCHAR(11), N'?'),
-                NCHAR(8),  N'?'),  NCHAR(7), N'?'),  NCHAR(6), N'?'),  NCHAR(5), N'?'),  NCHAR(4), N'?'),
-                NCHAR(3),  N'?'),  NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?'),
+                NCHAR(8),  N'?'), NCHAR(7), N'?'),  NCHAR(6), N'?'),  NCHAR(5), N'?'),  NCHAR(4), N'?'),
+                NCHAR(3),  N'?'), NCHAR(2), N'?'),  NCHAR(1), N'?'),  NCHAR(0), N'?'),
             ca.lock_mode,
             ca.index_name,
             ca.associatedObjectId,
@@ -2158,7 +2160,7 @@ BEGIN
             finding = N'EXEC sp_BlitzCache ' +
                 CASE
                     WHEN ds.proc_name = N'adhoc'
-                    THEN N' @OnlySqlHandles = ' + ds.sql_handle_csv
+                    THEN N'@OnlySqlHandles = ' + ds.sql_handle_csv
                     ELSE N'@StoredProcName = ' + QUOTENAME(ds.proc_only_name, N'''')
                 END + N';'
         FROM deadlock_stack AS ds
@@ -2666,10 +2668,10 @@ BEGIN
         VALUES
         (
             -1,
-            N'sp_BlitzLock ' + CAST(CONVERT(datetime, @VersionDate, 102) AS nvarchar(100)),
-            N'SQL Server First Responder Kit',
+            N'sp_BlitzLock version ' + CONVERT(nvarchar(10), @Version),
+            N'Results for ' + CONVERT(nvarchar(10), @StartDate, 23) + N' through ' + CONVERT(nvarchar(10), @EndDate, 23),
             N'http://FirstResponderKit.org/',
-            N'To get help or add your own contributions, join us at http://FirstResponderKit.org.'
+            N'To get help or add your own contributions to the SQL Server First Responder Kit, join us at http://FirstResponderKit.org.'
         );
 
         /*Results*/
