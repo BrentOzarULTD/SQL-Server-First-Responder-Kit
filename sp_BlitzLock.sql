@@ -698,12 +698,14 @@ BEGIN
         BEGIN
             RAISERROR('@TargetSessionType is event_file, assigning XML for Azure', 0, 1) WITH NOWAIT;
             SELECT
-                @SessionId = t.event_session_id,
-                @TargetSessionId = t.target_id
-            FROM sys.dm_xe_database_session_targets AS t
-            JOIN sys.dm_xe_database_sessions AS s
-              ON s.event_session_id = t.event_session_id
-            WHERE t.name = @TargetSessionType
+                @SessionId = 
+                    t.event_session_address,
+                @TargetSessionId = 
+                    t.target_name
+            FROM sys.dm_xe_database_session_targets t
+            JOIN sys.dm_xe_database_sessions s 
+              ON s.address = t.event_session_address
+            WHERE t.target_name = @TargetSessionType 
             AND   s.name = @EventSessionName
             OPTION(RECOMPILE);
 
