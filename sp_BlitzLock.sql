@@ -168,7 +168,7 @@ BEGIN
         @d varchar(40) = '',
         @StringToExecute nvarchar(4000) = N'',
         @StringToExecuteParams nvarchar(500) = N'',
-        @r sysname = N'',
+        @r sysname = NULL,
         @OutputTableFindings nvarchar(100) = N'[BlitzLockFindings]',
         @DeadlockCount int = 0,
         @ServerName sysname = @@SERVERNAME,
@@ -315,18 +315,18 @@ BEGIN
             EXEC sys.sp_executesql
                 @StringToExecute,
                 @StringToExecuteParams,
-                @OutputDatabaseName,
-                @OutputTableName,
                 @r OUTPUT;
+
+			RAISERROR('@r is: %s', 0, 1, @r) WITH NOWAIT;
 
             /*put covers around all before.*/
             SELECT
                 @ObjectFullName =
                     QUOTENAME(@OutputDatabaseName) +
                     N'.' +
-                    QUOTENAME(@OutputTableName) +
+                    QUOTENAME(@OutputSchemaName) +
                     N'.' +
-                    QUOTENAME(@OutputSchemaName),
+                    QUOTENAME(@OutputTableName),
                 @OutputDatabaseName =
                     QUOTENAME(@OutputDatabaseName),
                 @OutputTableName =
@@ -367,6 +367,70 @@ BEGIN
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
                     @StringToExecute;
+
+                /* If the table doesn't have the new client option column, add it. See Github #3101. */
+                SET @StringToExecute =
+                        N'IF NOT EXISTS (SELECT 1/0 FROM ' +
+                        @OutputDatabaseName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
+                        @ObjectFullName +
+                        N''')) AND o.name = N''client_option_1'')
+                        /*Add wait_resource column*/
+                        ALTER TABLE ' +
+                        @ObjectFullName +
+                        N' ADD client_option_1 nvarchar(8000) NULL;';
+
+                IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
+                EXEC sys.sp_executesql
+                    @StringToExecute;
+
+                /* If the table doesn't have the new client option column, add it. See Github #3101. */
+                SET @StringToExecute =
+                        N'IF NOT EXISTS (SELECT 1/0 FROM ' +
+                        @OutputDatabaseName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
+                        @ObjectFullName +
+                        N''')) AND o.name = N''client_option_2'')
+                        /*Add wait_resource column*/
+                        ALTER TABLE ' +
+                        @ObjectFullName +
+                        N' ADD client_option_2 nvarchar(8000) NULL;';
+
+                IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
+                EXEC sys.sp_executesql
+                    @StringToExecute;
+
+                /* If the table doesn't have the new lock mode column, add it. See Github #3101. */
+                SET @StringToExecute =
+                        N'IF NOT EXISTS (SELECT 1/0 FROM ' +
+                        @OutputDatabaseName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
+                        @ObjectFullName +
+                        N''')) AND o.name = N''lock_mode'')
+                        /*Add wait_resource column*/
+                        ALTER TABLE ' +
+                        @ObjectFullName +
+                        N' ADD lock_mode nvarchar(256) NULL;';
+
+                IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
+                EXEC sys.sp_executesql
+                    @StringToExecute;
+
+                /* If the table doesn't have the new status column, add it. See Github #3101. */
+                SET @StringToExecute =
+                        N'IF NOT EXISTS (SELECT 1/0 FROM ' +
+                        @OutputDatabaseName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
+                        @ObjectFullName +
+                        N''')) AND o.name = N''status'')
+                        /*Add wait_resource column*/
+                        ALTER TABLE ' +
+                        @ObjectFullName +
+                        N' ADD status nvarchar(256) NULL;';
+
+                IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
+                EXEC sys.sp_executesql
+                    @StringToExecute;
             END;
             ELSE /* end if @r is not null. if it is null there is no table, create it from above execution */
             BEGIN
@@ -391,7 +455,10 @@ BEGIN
                                 isolation_level nvarchar(256),
                                 owner_mode nvarchar(256),
                                 waiter_mode nvarchar(256),
+								lock_mode nvarchar(256),
                                 transaction_count bigint,
+								client_option_1 varchar(2000),
+								client_option_2 varchar(2000),
                                 login_name nvarchar(256),
                                 host_name nvarchar(256),
                                 client_app nvarchar(1024),
@@ -403,6 +470,7 @@ BEGIN
                                 last_batch_started datetime,
                                 last_batch_completed datetime,
                                 transaction_name nvarchar(256),
+								status nvarchar(256),
                                 owner_waiter_type nvarchar(256),
                                 owner_activity nvarchar(256),
                                 owner_waiter_activity nvarchar(256),
@@ -427,7 +495,9 @@ BEGIN
                     @StringToExecute =
                         N'SELECT @r = o.name FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.objects AS o WHERE o.type_desc = N''USER_TABLE'' AND o.name = N''BlitzLockFindings''',
+                        N'.sys.objects AS o
+						  WHERE o.type_desc = N''USER_TABLE''
+						  AND o.name = N''BlitzLockFindings''',
                     @StringToExecuteParams =
                         N'@r sysname OUTPUT';
 
@@ -1731,6 +1801,8 @@ BEGIN
             dow.database_name
         OPTION(RECOMPILE);
 
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+
         /*Check 3 is deadlocks by object*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Check 3 object deadlocks %s', 0, 1, @d) WITH NOWAIT;
@@ -1777,7 +1849,7 @@ BEGIN
 
         /*Check 3 continuation, number of deadlocks per index*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 index deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 (continued) index deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1822,7 +1894,7 @@ BEGIN
 
         /*Check 3 continuation, number of deadlocks per heap*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 3 heap deadlocks %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 3 (continued) heap deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -1945,7 +2017,7 @@ BEGIN
 
         /*Check 6 breaks down app, host, and login information*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 6 %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 6 app/host/login deadlocks %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2529,7 +2601,7 @@ BEGIN
 
         /*Check 13 gets total deadlock wait time for SQL Agent*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
-        RAISERROR('Check 13 deadlock counte for SQL Agent %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Check 13 deadlock count for SQL Agent %s', 0, 1, @d) WITH NOWAIT;
 
         INSERT
             #deadlock_findings WITH(TABLOCKX)
@@ -2593,6 +2665,8 @@ BEGIN
         HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
         OPTION(RECOMPILE);
 
+		RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+
         /*Check 15 is total deadlocks involving sleeping sessions*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Check 15 sleeping deadlocks %s', 0, 1, @d) WITH NOWAIT;
@@ -2623,6 +2697,8 @@ BEGIN
         WHERE dp.status = N'sleeping'
         HAVING COUNT_BIG(DISTINCT dp.event_date) > 0
         OPTION(RECOMPILE);
+
+		RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
         /*Check 16 is total deadlocks involving implicit transactions*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -2676,14 +2752,16 @@ BEGIN
             N'To get help or add your own contributions to the SQL Server First Responder Kit, join us at http://FirstResponderKit.org.'
         );
 
-        /*Results*/
-        CREATE CLUSTERED INDEX cx_whatever_dp  ON #deadlock_process (event_date, id);
-        CREATE CLUSTERED INDEX cx_whatever_drp ON #deadlock_resource_parallel (event_date, owner_id);
-        CREATE CLUSTERED INDEX cx_whatever_dow ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
+		RAISERROR('Finished rollup at %s', 0, 1, @d) WITH NOWAIT;
 
+        /*Results*/
         BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Results 1 %s', 0, 1, @d) WITH NOWAIT;
+
+            CREATE CLUSTERED INDEX cx_whatever_dp  ON #deadlock_process (event_date, id);
+            CREATE CLUSTERED INDEX cx_whatever_drp ON #deadlock_resource_parallel (event_date, owner_id);
+            CREATE CLUSTERED INDEX cx_whatever_dow ON #deadlock_owner_waiter (event_date, owner_id, waiter_id);
 
             IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
 
@@ -3028,7 +3106,8 @@ BEGIN
                 d.deadlock_group,
                 d.client_option_1,
                 d.client_option_2,
-                query_xml =
+				d.lock_mode,
+				query_xml =
                     TRY_CAST(N'<inputbuf>' + d.inputbuf + N'</inputbuf>' AS xml),
                 query_string =
                     d.inputbuf,
@@ -3050,6 +3129,25 @@ BEGIN
                 d.transaction_name,
                 d.status,
                 /*These columns will be NULL for regular (non-parallel) deadlocks*/
+                parallel_deadlock_details =
+				    (
+					    SELECT
+                            d.owner_waiter_type,
+                            d.owner_activity,
+                            d.owner_waiter_activity,
+                            d.owner_merging,
+                            d.owner_spilling,
+                            d.owner_waiting_to_close,
+                            d.waiter_waiter_type,
+                            d.waiter_owner_activity,
+                            d.waiter_waiter_activity,
+                            d.waiter_merging,
+                            d.waiter_spilling,
+                            d.waiter_waiting_to_close
+						FOR XML
+						    PATH('parallel_deadlock_details'),
+							TYPE
+					),
                 d.owner_waiter_type,
                 d.owner_activity,
                 d.owner_waiter_activity,
@@ -3070,11 +3168,6 @@ BEGIN
             IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-            IF (@OutputDatabaseCheck = 0)
-            BEGIN
-                SET @ExportToExcel = 1;
-            END;
-
             SET @deadlock_result += N'
             SELECT
                 server_name =
@@ -3093,13 +3186,23 @@ BEGIN
                 ' + CASE @ExportToExcel
                          WHEN 1
                          THEN N'query = dr.query_string,
-                          object_names = REPLACE(REPLACE(CONVERT(nvarchar(MAX), dr.object_names), ''<object>'', ''''), ''</object>'', ''''),'
+                          object_names =
+						      REPLACE(
+							  REPLACE(
+							  CONVERT
+							  (
+							      nvarchar(MAX),
+								  dr.object_names
+							  ),
+							  ''<object>'', ''''),
+							  ''</object>'', ''''),'
                          ELSE N'query = dr.query_xml,
-                          dr.object_names,'
+                dr.object_names,'
                     END + N'
                 dr.isolation_level,
                 dr.owner_mode,
                 dr.waiter_mode,
+				dr.lock_mode,
                 dr.transaction_count,
                 dr.client_option_1,
                 dr.client_option_2,
@@ -3114,7 +3217,11 @@ BEGIN
                 dr.last_batch_started,
                 dr.last_batch_completed,
                 dr.transaction_name,
-                dr.status,
+                dr.status,' +
+				    CASE
+					    WHEN (@ExportToExcel = 1
+						      OR @OutputDatabaseCheck = 0)
+						THEN N'
                 dr.owner_waiter_type,
                 dr.owner_activity,
                 dr.owner_waiter_activity,
@@ -3126,23 +3233,27 @@ BEGIN
                 dr.waiter_waiter_activity,
                 dr.waiter_merging,
                 dr.waiter_spilling,
-                dr.waiter_waiting_to_close,' +
+                dr.waiter_waiting_to_close,'
+				        ELSE N'
+				dr.parallel_deadlock_details,'
+				        END +
                     CASE
                         @ExportToExcel
                         WHEN 1
                         THEN N'
-                REPLACE(REPLACE(REPLACE(REPLACE(
+                deadlock_graph =
+				    REPLACE(REPLACE(
+					REPLACE(REPLACE(
                     CONVERT
                     (
                         nvarchar(MAX),
                         dr.deadlock_graph COLLATE Latin1_General_BIN2
                     ),
-                ''NCHAR(10)'', ''''), ''NCHAR(13)'', ''''),
-                ''CHAR(10)'', ''''), ''CHAR(13)'', '''')'
+                    ''NCHAR(10)'', ''''), ''NCHAR(13)'', ''''),
+                    ''CHAR(10)'', ''''), ''CHAR(13)'', '''')'
                         ELSE N'
                 dr.deadlock_graph'
-                   END
-                                     + N'
+                   END + N'
             FROM #deadlock_results AS dr
             ORDER BY
                 dr.event_date,
@@ -3175,7 +3286,10 @@ BEGIN
                 isolation_level,
                 owner_mode,
                 waiter_mode,
+				lock_mode,
                 transaction_count,
+				client_option_1,
+				client_option_2,
                 login_name,
                 host_name,
                 client_app,
@@ -3187,6 +3301,7 @@ BEGIN
                 last_batch_started,
                 last_batch_completed,
                 transaction_name,
+				status,
                 owner_waiter_type,
                 owner_activity,
                 owner_waiter_activity,
@@ -3227,7 +3342,7 @@ BEGIN
                 finding
             )
             SELECT
-                @ServerName,
+                @@SERVERNAME,
                 df.check_id,
                 df.database_name,
                 df.object_name,
