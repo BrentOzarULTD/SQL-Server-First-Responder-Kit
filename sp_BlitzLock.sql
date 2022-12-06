@@ -317,7 +317,7 @@ BEGIN
                 @StringToExecuteParams,
                 @r OUTPUT;
 
-			RAISERROR('@r is: %s', 0, 1, @r) WITH NOWAIT;
+            RAISERROR('@r is: %s', 0, 1, @r) WITH NOWAIT;
 
             /*put covers around all before.*/
             SELECT
@@ -455,10 +455,10 @@ BEGIN
                                 isolation_level nvarchar(256),
                                 owner_mode nvarchar(256),
                                 waiter_mode nvarchar(256),
-								lock_mode nvarchar(256),
+                                lock_mode nvarchar(256),
                                 transaction_count bigint,
-								client_option_1 varchar(2000),
-								client_option_2 varchar(2000),
+                                client_option_1 varchar(2000),
+                                client_option_2 varchar(2000),
                                 login_name nvarchar(256),
                                 host_name nvarchar(256),
                                 client_app nvarchar(1024),
@@ -470,7 +470,7 @@ BEGIN
                                 last_batch_started datetime,
                                 last_batch_completed datetime,
                                 transaction_name nvarchar(256),
-								status nvarchar(256),
+                                status nvarchar(256),
                                 owner_waiter_type nvarchar(256),
                                 owner_activity nvarchar(256),
                                 owner_waiter_activity nvarchar(256),
@@ -496,8 +496,8 @@ BEGIN
                         N'SELECT @r = o.name FROM ' +
                         @OutputDatabaseName +
                         N'.sys.objects AS o
-						  WHERE o.type_desc = N''USER_TABLE''
-						  AND o.name = N''BlitzLockFindings''',
+                          WHERE o.type_desc = N''USER_TABLE''
+                          AND o.name = N''BlitzLockFindings''',
                     @StringToExecuteParams =
                         N'@r sysname OUTPUT';
 
@@ -628,7 +628,7 @@ BEGIN
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
 
-		    SELECT TOP (1)
+            SELECT TOP (1)
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_sessions AS s
             JOIN sys.dm_xe_session_targets AS t
@@ -649,7 +649,7 @@ BEGIN
         BEGIN
         RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
 
-		    SELECT TOP (1)
+            SELECT TOP (1)
                 @TargetSessionType = t.target_name
             FROM sys.dm_xe_database_sessions AS s
             JOIN sys.dm_xe_database_session_targets AS t
@@ -768,14 +768,14 @@ BEGIN
         BEGIN
             RAISERROR('@TargetSessionType is event_file, assigning XML for Azure', 0, 1) WITH NOWAIT;
             SELECT
-                @SessionId = 
+                @SessionId =
                     t.event_session_address,
-                @TargetSessionId = 
+                @TargetSessionId =
                     t.target_name
             FROM sys.dm_xe_database_session_targets t
-            JOIN sys.dm_xe_database_sessions s 
+            JOIN sys.dm_xe_database_sessions s
               ON s.address = t.event_session_address
-            WHERE t.target_name = @TargetSessionType 
+            WHERE t.target_name = @TargetSessionType
             AND   s.name = @EventSessionName
             OPTION(RECOMPILE);
 
@@ -792,7 +792,7 @@ BEGIN
             (
                 SELECT
                     file_name =
-					    CONVERT(nvarchar(4000), f.value)
+                        CONVERT(nvarchar(4000), f.value)
                 FROM sys.server_event_session_fields AS f
                 WHERE f.event_session_id = @SessionId
                 AND   f.object_id = @TargetSessionId
@@ -839,7 +839,7 @@ BEGIN
         )
         SELECT
             deadlock_xml =
-			    e.x.query(N'.')
+                e.x.query(N'.')
         FROM #x AS x
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -870,7 +870,7 @@ BEGIN
         )
         SELECT
             deadlock_xml =
-			    e.x.query('.')
+                e.x.query('.')
         FROM #x AS x
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -918,7 +918,7 @@ BEGIN
             #deadlock_data WITH(TABLOCKX)
         SELECT
             deadlock_xml =
-			    xml.deadlock_xml
+                xml.deadlock_xml
         FROM #xml AS xml
         LEFT JOIN #t AS t
           ON 1 = 1
@@ -2665,7 +2665,7 @@ BEGIN
         HAVING COUNT_BIG(DISTINCT drp.event_date) > 0
         OPTION(RECOMPILE);
 
-		RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
         /*Check 15 is total deadlocks involving sleeping sessions*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -2698,7 +2698,7 @@ BEGIN
         HAVING COUNT_BIG(DISTINCT dp.event_date) > 0
         OPTION(RECOMPILE);
 
-		RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
         /*Check 16 is total deadlocks involving implicit transactions*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -2752,7 +2752,7 @@ BEGIN
             N'To get help or add your own contributions to the SQL Server First Responder Kit, join us at http://FirstResponderKit.org.'
         );
 
-		RAISERROR('Finished rollup at %s', 0, 1, @d) WITH NOWAIT;
+        RAISERROR('Finished rollup at %s', 0, 1, @d) WITH NOWAIT;
 
         /*Results*/
         BEGIN
@@ -3106,8 +3106,8 @@ BEGIN
                 d.deadlock_group,
                 d.client_option_1,
                 d.client_option_2,
-				d.lock_mode,
-				query_xml =
+                d.lock_mode,
+                query_xml =
                     TRY_CAST(N'<inputbuf>' + d.inputbuf + N'</inputbuf>' AS xml),
                 query_string =
                     d.inputbuf,
@@ -3130,8 +3130,8 @@ BEGIN
                 d.status,
                 /*These columns will be NULL for regular (non-parallel) deadlocks*/
                 parallel_deadlock_details =
-				    (
-					    SELECT
+                    (
+                        SELECT
                             d.owner_waiter_type,
                             d.owner_activity,
                             d.owner_waiter_activity,
@@ -3144,10 +3144,10 @@ BEGIN
                             d.waiter_merging,
                             d.waiter_spilling,
                             d.waiter_waiting_to_close
-						FOR XML
-						    PATH('parallel_deadlock_details'),
-							TYPE
-					),
+                        FOR XML
+                            PATH('parallel_deadlock_details'),
+                            TYPE
+                    ),
                 d.owner_waiter_type,
                 d.owner_activity,
                 d.owner_waiter_activity,
@@ -3187,22 +3187,22 @@ BEGIN
                          WHEN 1
                          THEN N'query = dr.query_string,
                           object_names =
-						      REPLACE(
-							  REPLACE(
-							  CONVERT
-							  (
-							      nvarchar(MAX),
-								  dr.object_names
-							  ),
-							  ''<object>'', ''''),
-							  ''</object>'', ''''),'
+                              REPLACE(
+                              REPLACE(
+                              CONVERT
+                              (
+                                  nvarchar(MAX),
+                                  dr.object_names
+                              ),
+                              ''<object>'', ''''),
+                              ''</object>'', ''''),'
                          ELSE N'query = dr.query_xml,
                 dr.object_names,'
                     END + N'
                 dr.isolation_level,
                 dr.owner_mode,
                 dr.waiter_mode,
-				dr.lock_mode,
+                dr.lock_mode,
                 dr.transaction_count,
                 dr.client_option_1,
                 dr.client_option_2,
@@ -3218,10 +3218,10 @@ BEGIN
                 dr.last_batch_completed,
                 dr.transaction_name,
                 dr.status,' +
-				    CASE
-					    WHEN (@ExportToExcel = 1
-						      OR @OutputDatabaseCheck = 0)
-						THEN N'
+                    CASE
+                        WHEN (@ExportToExcel = 1
+                              OR @OutputDatabaseCheck = 0)
+                        THEN N'
                 dr.owner_waiter_type,
                 dr.owner_activity,
                 dr.owner_waiter_activity,
@@ -3234,16 +3234,16 @@ BEGIN
                 dr.waiter_merging,
                 dr.waiter_spilling,
                 dr.waiter_waiting_to_close,'
-				        ELSE N'
-				dr.parallel_deadlock_details,'
-				        END +
+                        ELSE N'
+                dr.parallel_deadlock_details,'
+                        END +
                     CASE
                         @ExportToExcel
                         WHEN 1
                         THEN N'
                 deadlock_graph =
-				    REPLACE(REPLACE(
-					REPLACE(REPLACE(
+                    REPLACE(REPLACE(
+                    REPLACE(REPLACE(
                     CONVERT
                     (
                         nvarchar(MAX),
@@ -3286,10 +3286,10 @@ BEGIN
                 isolation_level,
                 owner_mode,
                 waiter_mode,
-				lock_mode,
+                lock_mode,
                 transaction_count,
-				client_option_1,
-				client_option_2,
+                client_option_1,
+                client_option_2,
                 login_name,
                 host_name,
                 client_app,
@@ -3301,7 +3301,7 @@ BEGIN
                 last_batch_started,
                 last_batch_completed,
                 transaction_name,
-				status,
+                status,
                 owner_waiter_type,
                 owner_activity,
                 owner_waiter_activity,
