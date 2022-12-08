@@ -319,7 +319,7 @@ BEGIN
 
             IF @Debug = 1
             BEGIN
-                RAISERROR('@r is set to: %s for schema name %  and table name %s', 0, 1, @r, @OutputSchemaName, @OutputTableName) WITH NOWAIT;
+                RAISERROR('@r is set to: %s for schema name %s  and table name %s', 0, 1, @r, @OutputSchemaName, @OutputTableName) WITH NOWAIT;
             END;
 
             /*protection spells*/
@@ -2103,7 +2103,11 @@ BEGIN
                         ELSE dp.wait_resource
                     END,
                 lock_count =
-                    CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.event_date))
+                    CONVERT
+                    (
+                        nvarchar(20),
+                        COUNT_BIG(DISTINCT dp.event_date)
+                    )
             FROM #deadlock_process AS dp
             JOIN #deadlock_owner_waiter AS dow
               ON (dp.id = dow.owner_id
@@ -2337,7 +2341,8 @@ BEGIN
                 N' has been involved in ' +
                 CONVERT
                 (
-                    nvarchar(10), COUNT_BIG(DISTINCT ds.id)
+                    nvarchar(10),
+                    COUNT_BIG(DISTINCT ds.id)
                 ) +
                 N' deadlocks.'
         FROM #deadlock_stack AS ds
@@ -3076,7 +3081,7 @@ BEGIN
             AND (DB_NAME(d.database_id) = @DatabaseName OR @DatabaseName IS NULL)
             AND (d.event_date >= @StartDate OR @StartDate IS NULL)
             AND (d.event_date < @EndDate OR @EndDate IS NULL)
-            AND (CONVERT(nvarchar(MAX), d.object_names) LIKE N'%' + @ObjectName + N'%' OR @ObjectName IS NULL)
+            AND (CONVERT(nvarchar(MAX), d.object_names) COLLATE Latin1_General_BIN2 LIKE N'%' + @ObjectName + N'%' OR @ObjectName IS NULL)
             AND (d.client_app = @AppName OR @AppName IS NULL)
             AND (d.host_name = @HostName OR @HostName IS NULL)
             AND (d.login_name = @LoginName OR @LoginName IS NULL)
@@ -3170,7 +3175,7 @@ BEGIN
                 d.waiter_merging,
                 d.waiter_spilling,
                 d.waiter_waiting_to_close,
-				/*end parallel deadlock columns*/
+                /*end parallel deadlock columns*/
                 d.deadlock_graph,
                 d.is_victim
             INTO #deadlock_results
@@ -3178,6 +3183,12 @@ BEGIN
 
             IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+
+            /*There's too much risk of errors sending the*/
+            IF @OutputDatabaseCheck = 0
+            BEGIN
+                SET @ExportToExcel = 0;
+            END;
 
             SET @deadlock_result += N'
             SELECT
@@ -3196,17 +3207,18 @@ BEGIN
                 dr.deadlock_group,
                 ' + CASE @ExportToExcel
                          WHEN 1
-                         THEN N'query = dr.query_string,
-                          object_names =
-                              REPLACE(
-                              REPLACE(
-                              CONVERT
-                              (
-                                  nvarchar(MAX),
-                                  dr.object_names
-                              ),
-                              ''<object>'', ''''),
-                              ''</object>'', ''''),'
+                         THEN N'
+                query = dr.query_string,
+                object_names =
+                    REPLACE(
+                    REPLACE(
+                        CONVERT
+                        (
+                            nvarchar(MAX),
+                            dr.object_names
+                        ) COLLATE Latin1_General_BIN2,
+                    ''<object>'', ''''),
+                    ''</object>'', ''''),'
                          ELSE N'query = dr.query_xml,
                 dr.object_names,'
                     END + N'
@@ -3255,11 +3267,11 @@ BEGIN
                 deadlock_graph =
                     REPLACE(REPLACE(
                     REPLACE(REPLACE(
-                    CONVERT
-                    (
-                        nvarchar(MAX),
-                        dr.deadlock_graph
-                    ) COLLATE Latin1_General_BIN2,
+                        CONVERT
+                        (
+                            nvarchar(MAX),
+                            dr.deadlock_graph
+                        ) COLLATE Latin1_General_BIN2,
                     ''NCHAR(10)'', ''''), ''NCHAR(13)'', ''''),
                     ''CHAR(10)'', ''''), ''CHAR(13)'', '''')'
                         ELSE N'
