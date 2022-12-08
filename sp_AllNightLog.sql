@@ -1186,22 +1186,31 @@ IF @Restore = 1
 																	ELSE 0
 																END
 										FROM msdb.dbo.restore_worker rw WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-										WHERE 
-											  (		/*This section works on databases already part of the backup cycle*/
-												    rw.is_started = 0
-												AND rw.is_completed = 1
-												AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
-                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
-											  )
-										OR    
-											  (		/*This section picks up newly added databases by DiskPollster*/
-											  	    rw.is_started = 0
-											  	AND rw.is_completed = 0
-											  	AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
-											  	AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
-                                                AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
-											  )
-										AND rw.ignore_database = 0
+										WHERE (
+													(		/*This section works on databases already part of the backup cycle*/
+															rw.is_started = 0
+														AND rw.is_completed = 1
+														AND rw.last_log_restore_start_time < DATEADD(SECOND, (@rto * -1), GETDATE()) 
+														AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
+													)
+												OR    
+													(		/*This section picks up newly added databases by DiskPollster*/
+															rw.is_started = 0
+														AND rw.is_completed = 0
+														AND rw.last_log_restore_start_time = '1900-01-01 00:00:00.000'
+														AND rw.last_log_restore_finish_time = '9999-12-31 00:00:00.000'
+														AND (rw.error_number IS NULL OR rw.error_number > 0) /* negative numbers indicate human attention required */
+													)
+											)
+										AND rw.ignore_database = 0										
+										AND NOT EXISTS	(
+															/* Validation check to ensure the database either doesn't exist or is in a restoring/standby state */
+															SELECT 1 
+															FROM sys.databases d
+															WHERE d.name = rw.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+															AND state <> 1 /* Restoring */
+															AND NOT (state=0 AND d.is_in_standby=1) /* standby mode */
+														)
 										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
 	
 								
