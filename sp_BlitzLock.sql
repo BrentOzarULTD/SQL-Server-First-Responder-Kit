@@ -7,7 +7,7 @@ GO
 ALTER PROCEDURE
     dbo.sp_BlitzLock
 (
-    @DatabaseName nvarchar(256) = NULL,
+    @DatabaseName sysname = NULL,
     @StartDate datetime = NULL,
     @EndDate datetime = NULL,
     @ObjectName nvarchar(1024) = NULL,
@@ -317,9 +317,12 @@ BEGIN
                 @StringToExecuteParams,
                 @r OUTPUT;
 
-            RAISERROR('@r is: %s', 0, 1, @r) WITH NOWAIT;
+            IF @Debug = 1
+            BEGIN
+                RAISERROR('@r is set to: %s for schema name %  and table name %s', 0, 1, @r, @OutputSchemaName, @OutputTableName) WITH NOWAIT;
+            END;
 
-            /*put covers around all before.*/
+            /*protection spells*/
             SELECT
                 @ObjectFullName =
                     QUOTENAME(@OutputDatabaseName) +
@@ -608,7 +611,7 @@ BEGIN
             IF (ERROR_NUMBER() = 1088)
             BEGIN;
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
-                RAISERROR('Cannot run UPDATE STATISTICS on a #temp table without db_owner or sysadmin permissions %s', 0, 1, @d) WITH NOWAIT;
+                RAISERROR('Cannot run UPDATE STATISTICS on a #temp table without db_owner or sysadmin permissions', 0, 1) WITH NOWAIT;
             END;
             ELSE
             BEGIN;
@@ -2366,12 +2369,12 @@ BEGIN
                 SELECT DISTINCT
                     dow.object_name,
                     dow.database_name,
-                    schema_name = a.schema_name,
-                    table_name = a.table_name
+                    schema_name = s.schema_name,
+                    table_name = s.table_name
                 FROM #deadlock_owner_waiter AS dow
-                LEFT JOIN @sysAssObjId AS a
-                  ON  a.database_id = dow.database_id
-                  AND a.partition_id = dow.associatedObjectId
+                JOIN @sysAssObjId AS s
+                  ON  s.database_id = dow.database_id
+                  AND s.partition_id = dow.associatedObjectId
                 WHERE 1 = 1
                 AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
                 AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
@@ -3108,7 +3111,14 @@ BEGIN
                 d.client_option_2,
                 d.lock_mode,
                 query_xml =
-                    TRY_CAST(N'<inputbuf>' + d.inputbuf + N'</inputbuf>' AS xml),
+                    (
+                        SELECT
+                            [processing-instruction(query)] =
+                                d.inputbuf
+                        FOR XML
+                            PATH(N''),
+                            TYPE
+                    ),
                 query_string =
                     d.inputbuf,
                 d.object_names,
@@ -3160,6 +3170,7 @@ BEGIN
                 d.waiter_merging,
                 d.waiter_spilling,
                 d.waiter_waiting_to_close,
+				/*end parallel deadlock columns*/
                 d.deadlock_graph,
                 d.is_victim
             INTO #deadlock_results
@@ -3247,8 +3258,8 @@ BEGIN
                     CONVERT
                     (
                         nvarchar(MAX),
-                        dr.deadlock_graph COLLATE Latin1_General_BIN2
-                    ),
+                        dr.deadlock_graph
+                    ) COLLATE Latin1_General_BIN2,
                     ''NCHAR(10)'', ''''), ''NCHAR(13)'', ''''),
                     ''CHAR(10)'', ''''), ''CHAR(13)'', '''')'
                         ELSE N'
@@ -3432,6 +3443,12 @@ BEGIN
                 table_name = N'#deadlock_stack',
                 *
             FROM #deadlock_stack AS ds
+            OPTION(RECOMPILE);
+
+            SELECT
+                table_name = N'#deadlocks',
+                *
+            FROM #deadlocks AS d
             OPTION(RECOMPILE);
 
             SELECT
