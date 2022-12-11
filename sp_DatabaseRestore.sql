@@ -352,6 +352,9 @@ CREATE TABLE #Headers
     KeyAlgorithm NVARCHAR(32),
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
+	LastValidRestoreTime DATETIME, 
+	TimeZone NVARCHAR(256), 
+	CompressionAlgorithm NVARCHAR(256),
     --
     -- Seq added to retain order by
     --
@@ -520,6 +523,9 @@ IF @MajorVersion >= 11
 
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
   SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
+
+IF @MajorVersion >= 16
+  SET @HeadersSQL += N', LastValidRestoreTime, TimeZone, CompressionAlgorithm';
 
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
