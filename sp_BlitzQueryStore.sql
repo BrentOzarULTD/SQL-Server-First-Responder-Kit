@@ -2306,7 +2306,7 @@ RAISERROR(N'Gathering working plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 SELECT ' + QUOTENAME(@DatabaseName, '''') + N' AS database_name,  wp.plan_id, wp.query_id,
-	   qsp.plan_group_id, qsp.engine_version, qsp.compatibility_level, qsp.query_plan_hash, TRY_CONVERT(XML, qsp.query_plan), qsp.is_online_index_plan, qsp.is_trivial_plan, 
+	   qsp.plan_group_id, qsp.engine_version, qsp.compatibility_level, qsp.query_plan_hash, TRY_CAST(qsp.query_plan AS XML), qsp.is_online_index_plan, qsp.is_trivial_plan, 
 	   qsp.is_parallel_plan, qsp.is_forced_plan, qsp.is_natively_compiled, qsp.force_failure_count, qsp.last_force_failure_reason_desc, qsp.count_compiles, 
 	   qsp.initial_compile_start_time, qsp.last_compile_start_time, qsp.last_execution_time, 
 	   (qsp.avg_compile_duration / 1000.), 
