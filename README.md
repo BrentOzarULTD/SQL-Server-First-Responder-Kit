@@ -43,10 +43,9 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 
 The First Responder Kit runs on:
 
-* SQL Server 2012, 2014, 2016, 2017, 2019 on Windows - fully supported.
-* SQL Server 2017, 2019 on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux.
-* SQL Server 2008, 2008R2 - not officially supported since it's out of Microsoft support, but we try not to make changes that would break functionality here.
-* SQL Server 2000, 2005 - not supported at all.
+* SQL Server 2012, 2014, 2016, 2017, 2019, 2022 on Windows - fully supported.
+* SQL Server on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux.
+* SQL Server 2008 R2 and earlier - not supported since it's out of Microsoft support, but check the Deprecated folder for older versions of the scripts which may work, depending on your versions and compatibility levels.
 * Amazon RDS SQL Server - fully supported.
 * Azure SQL DB - not supported. Some of the procedures work, but some don't, and Microsoft has a tendency to change DMVs in Azure without warning, so we don't put any effort into supporting it. If it works, great! If not, any changes to make it work would be on you. [See the contributing.md file](CONTRIBUTING.md) for how to do that.
 
