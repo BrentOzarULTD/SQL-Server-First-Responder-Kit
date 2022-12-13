@@ -33,7 +33,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.11', @VersionDate = '20221013';
+	SELECT @Version = '8.12', @VersionDate = '20221213';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -678,6 +678,16 @@ BEGIN
     */
     SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
+					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
+							THEN r.blocking_session_id
+							WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+							THEN blocked.blocking_session_id
+							WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+							THEN blocked.blocking_session_id
+							WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+							THEN r.blocking_session_id
+							ELSE NULL 
+						END AS blocking_session_id,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
 			            ( query_stats.statement_start_offset / 2 ) + 1,
@@ -698,16 +708,6 @@ BEGIN
 								ELSE NULL
 							END AS wait_info ,																					
 							r.wait_resource ,
-						    CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
-							       THEN r.blocking_session_id
-							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
-							       THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
-								   THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
-							       THEN r.blocking_session_id
-							       ELSE NULL 
-						      END AS blocking_session_id,
 			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 						    CASE WHEN EXISTS (  SELECT 1 
                FROM sys.dm_tran_active_transactions AS tat
@@ -896,8 +896,18 @@ IF @ProductVersionMajor >= 11
     */
     SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
 			       s.session_id ,
-						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
-			       ISNULL(SUBSTRING(dest.text,
+					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
+					THEN r.blocking_session_id
+					WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
+					THEN blocked.blocking_session_id
+					WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
+					THEN blocked.blocking_session_id
+					WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
+					THEN r.blocking_session_id
+					ELSE NULL 
+					END AS blocking_session_id,
+					COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
+					ISNULL(SUBSTRING(dest.text,
 			            ( query_stats.statement_start_offset / 2 ) + 1,
 			            ( ( CASE query_stats.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
@@ -941,17 +951,7 @@ IF @ProductVersionMajor >= 11
 							     ELSE N' NULL AS top_session_waits ,'
 						    END
 						    +																	
-						    N'CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
-							       THEN r.blocking_session_id
-							       WHEN r.blocking_session_id <> 0 AND s.session_id <> blocked.blocking_session_id 
-							       THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id = 0 AND s.session_id = blocked.session_id 
-								   THEN blocked.blocking_session_id
-								   WHEN r.blocking_session_id <> 0 AND s.session_id = blocked.blocking_session_id 
-							       THEN r.blocking_session_id
-							       ELSE NULL 
-						      END AS blocking_session_id,
-			       COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
+						    N'COALESCE(r.open_transaction_count, blocked.open_tran) AS open_transaction_count ,
 						    CASE WHEN EXISTS (  SELECT 1 
                FROM sys.dm_tran_active_transactions AS tat
                JOIN sys.dm_tran_session_transactions AS tst
@@ -1255,6 +1255,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,CheckDate
 	,[elapsed_time]
 	,[session_id]
+	,[blocking_session_id]
 	,[database_name]
 	,[query_text]'
 	+ CASE WHEN @GetOuterCommand = 1 THEN N',[outer_command]' ELSE N'' END + N'
@@ -1267,7 +1268,6 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	,[wait_info]
 	,[wait_resource]'
     + CASE WHEN @ProductVersionMajor >= 11 THEN N',[top_session_waits]' ELSE N'' END + N'
-	,[blocking_session_id]
 	,[open_transaction_count]
 	,[is_implicit_transaction]
 	,[nt_domain]

@@ -46,7 +46,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.11', @VersionDate = '20221013';
+SELECT @Version = '8.12', @VersionDate = '20221213';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1131,7 +1131,7 @@ BEGIN
            @StockDetailsFooter = @StockDetailsFooter + @LineFeed + ' -- ?>';
 
     /* Get the instance name to use as a Perfmon counter prefix. */
-    IF SERVERPROPERTY('EngineEdition') = 5 /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'*/
+    IF SERVERPROPERTY('EngineEdition') IN (5, 8) /*CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) = 'SQL Azure'*/
         SELECT TOP 1 @ServiceName = LEFT(object_name, (CHARINDEX(':', object_name) - 1))
         FROM sys.dm_os_performance_counters;
     ELSE
@@ -2516,7 +2516,23 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     ;
 
 			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
-	            EXEC sp_MSforeachdb @StringToExecute;
+			BEGIN
+				BEGIN TRY
+					EXEC sp_MSforeachdb @StringToExecute;
+				END TRY
+				BEGIN CATCH
+					IF (ERROR_NUMBER() = 1222)
+					BEGIN
+						INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+						SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
+											 N' this is likely due to an Index operation in Progress', -1;
+					END
+					ELSE
+					BEGIN
+						THROW;
+					END
+				END CATCH
+			END
 			ELSE
 				EXEC(@StringToExecute);
 

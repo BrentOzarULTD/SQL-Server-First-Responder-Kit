@@ -280,7 +280,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.11', @VersionDate = '20221013';
+SELECT @Version = '8.12', @VersionDate = '20221213';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -3751,6 +3751,35 @@ FROM    ##BlitzCacheProcs p
         JOIN sys.dm_exec_procedure_stats s ON p.SqlHandle = s.sql_handle
 WHERE   QueryType = 'Statement'
 AND SPID = @@SPID
+OPTION (RECOMPILE);
+
+/* Update to grab stored procedure name for individual statements when PSPO is detected */
+UPDATE  p
+SET     QueryType = QueryType + ' (parent ' +
+                    + QUOTENAME(OBJECT_SCHEMA_NAME(s.object_id, s.database_id))
+                    + '.'
+                    + QUOTENAME(OBJECT_NAME(s.object_id, s.database_id)) + ')'
+FROM    ##BlitzCacheProcs p
+		OUTER APPLY (
+				SELECT	REPLACE(REPLACE(REPLACE(REPLACE(p.QueryText, ' (', '('), '( ', '('), ' =', '='), '= ', '=') AS NormalizedQueryText
+				) a
+		OUTER APPLY (
+				SELECT	CHARINDEX('option(PLAN PER VALUE(ObjectID=', a.NormalizedQueryText) AS OptionStart
+				) b
+		OUTER APPLY (
+				SELECT	SUBSTRING(a.NormalizedQueryText, b.OptionStart + 31, LEN(a.NormalizedQueryText) - b.OptionStart - 30) AS OptionSubstring
+				WHERE	b.OptionStart > 0
+				) c
+		OUTER APPLY (
+				SELECT  PATINDEX('%[^0-9]%', c.OptionSubstring) AS ObjectLength
+				) d
+		OUTER APPLY (
+				SELECT	TRY_CAST(SUBSTRING(OptionSubstring, 1, d.ObjectLength - 1) AS INT) AS ObjectId
+				) e
+		JOIN    sys.dm_exec_procedure_stats s ON DB_ID(p.DatabaseName) = s.database_id AND e.ObjectId = s.object_id
+WHERE   p.QueryType = 'Statement'
+AND		p.SPID = @@SPID
+AND		s.object_id IS NOT NULL
 OPTION (RECOMPILE);
 
 RAISERROR(N'Attempting to get function name for individual statements', 0, 1) WITH NOWAIT;
@@ -7240,7 +7269,9 @@ END ';
                                                                     WHEN N'avg duration' THEN N' AverageDuration'
                                                                     WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                     WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																	ELSE N' TotalCPU '
                                                                     END + N' DESC ';
                     SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
                     
@@ -7306,7 +7337,9 @@ END ';
                                                                     WHEN N'avg duration' THEN N' AverageDuration'
                                                                     WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                     WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																	ELSE N' TotalCPU '
                                                                     END + N' DESC ';
                     SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
                     
@@ -7463,7 +7496,9 @@ END ';
                                                                         WHEN N'avg duration' THEN N' AverageDuration'
                                                                         WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                         WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                        WHEN 'avg spills' THEN N' AvgSpills'
+																		WHEN N'avg spills' THEN N' AvgSpills'
+																		WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																		ELSE N' TotalCPU '
                                                                         END + N' DESC ';
 
                         SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
