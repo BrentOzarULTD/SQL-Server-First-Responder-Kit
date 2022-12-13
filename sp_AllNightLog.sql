@@ -1207,7 +1207,7 @@ IF @Restore = 1
 															/* Validation check to ensure the database either doesn't exist or is in a restoring/standby state */
 															SELECT 1 
 															FROM sys.databases d
-															WHERE d.name = rw.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
+															WHERE d.name = rw.database_name
 															AND state <> 1 /* Restoring */
 															AND NOT (state=0 AND d.is_in_standby=1) /* standby mode */
 														)
