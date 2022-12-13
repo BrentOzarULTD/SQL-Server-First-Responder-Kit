@@ -7269,7 +7269,9 @@ END ';
                                                                     WHEN N'avg duration' THEN N' AverageDuration'
                                                                     WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                     WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																	ELSE N' TotalCPU '
                                                                     END + N' DESC ';
                     SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
                     
@@ -7335,7 +7337,9 @@ END ';
                                                                     WHEN N'avg duration' THEN N' AverageDuration'
                                                                     WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                     WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                    WHEN 'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'avg spills' THEN N' AvgSpills'
+                                                                    WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																	ELSE N' TotalCPU '
                                                                     END + N' DESC ';
                     SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
                     
@@ -7492,7 +7496,9 @@ END ';
                                                                         WHEN N'avg duration' THEN N' AverageDuration'
                                                                         WHEN N'avg executions' THEN N' ExecutionsPerMinute'
                                                                         WHEN N'avg memory grant' THEN N' AvgMaxMemoryGrant'
-                                                                        WHEN 'avg spills' THEN N' AvgSpills'
+																		WHEN N'avg spills' THEN N' AvgSpills'
+																		WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
+																		ELSE N' TotalCPU '
                                                                         END + N' DESC ';
 
                         SET @StringToExecute += N' OPTION (RECOMPILE) ; ';    
