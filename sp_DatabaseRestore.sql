@@ -42,7 +42,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.11', @VersionDate = '20221013';
+SELECT @Version = '8.12', @VersionDate = '20221213';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -352,6 +352,9 @@ CREATE TABLE #Headers
     KeyAlgorithm NVARCHAR(32),
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
+	LastValidRestoreTime DATETIME, 
+	TimeZone NVARCHAR(256), 
+	CompressionAlgorithm NVARCHAR(256),
     --
     -- Seq added to retain order by
     --
@@ -521,6 +524,9 @@ IF @MajorVersion >= 11
 IF @MajorVersion >= 13 OR (@MajorVersion = 12 AND @BuildVersion >= 2342)
   SET @HeadersSQL += N', KeyAlgorithm, EncryptorThumbprint, EncryptorType';
 
+IF @MajorVersion >= 16
+  SET @HeadersSQL += N', LastValidRestoreTime, TimeZone, CompressionAlgorithm';
+
 SET @HeadersSQL += N')' + NCHAR(13) + NCHAR(10);
 SET @HeadersSQL += N'EXEC (''RESTORE HEADERONLY FROM DISK=''''{Path}'''''')';
 
@@ -636,15 +642,19 @@ BEGIN
 	/*End folder sanity check*/
 
 	IF @StopAt IS NOT NULL
-	BEGIN
-		DELETE
-		FROM @FileList
-		WHERE BackupFile LIKE N'%.bak'
-			AND
-			BackupFile LIKE N'%' + @Database + N'%'
-			AND
-			(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
-	END
+		BEGIN
+			DELETE
+			FROM @FileList
+			WHERE BackupFile LIKE N'%[_][0-9].bak'
+			AND	BackupFile LIKE N'%' + @Database + N'%'
+			AND	(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
+
+			DELETE
+			FROM @FileList
+			WHERE BackupFile LIKE N'%[_][0-9][0-9].bak'
+			AND	BackupFile LIKE N'%' + @Database + N'%'
+			AND	(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 18 ), '_', '' ) > @StopAt);
+		END;
 	
     -- Find latest full backup 
     SELECT @LastFullBackup = MAX(BackupFile)

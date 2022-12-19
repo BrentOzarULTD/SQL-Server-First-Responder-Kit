@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.11', @VersionDate = '20221013';
+SELECT @Version = '8.12', @VersionDate = '20221213';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -159,25 +159,41 @@ SELECT
 		END;
 
 RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
-																					
+
+																				
 IF(@OutputType NOT IN ('TABLE','NONE'))
 BEGIN
     RAISERROR('Invalid value for parameter @OutputType. Expected: (TABLE;NONE)',12,1);
     RETURN;
 END;
+
+IF(@OutputType = 'TABLE' AND NOT (@OutputTableName IS NULL AND @OutputSchemaName IS NULL AND @OutputDatabaseName IS NULL AND @OutputServerName IS NULL))
+BEGIN
+	RAISERROR(N'One or more output parameters specified in combination with TABLE output, changing to NONE output mode', 0,1) WITH NOWAIT;
+	SET @OutputType = 'NONE'
+END;
                        
 IF(@OutputType = 'NONE')
 BEGIN
+
+	IF ((@OutputServerName IS NOT NULL) AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
+	BEGIN
+        RAISERROR('Parameter @OutputServerName is specified, rest of @Output* parameters needs to also be specified',12,1);
+        RETURN;
+	END;
+
     IF(@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL)
     BEGIN
-        RAISERROR('This procedure should be called with a value for @Output* parameters, as @OutputType is set to NONE',12,1);
+        RAISERROR('This procedure should be called with a value for @OutputTableName, @OutputSchemaName and @OutputDatabaseName parameters, as @OutputType is set to NONE',12,1);
         RETURN;
     END;
+	/* Output is supported for all modes, no reason to not bring pain and output
     IF(@BringThePain = 1)
     BEGIN
         RAISERROR('Incompatible Parameters: @BringThePain set to 1 and @OutputType set to NONE',12,1);
         RETURN;
     END;
+	*/
 	/* Eventually limit by mode																			   
     IF(@Mode not in (0,4)) 
 	BEGIN
@@ -1925,7 +1941,7 @@ BEGIN TRY
 		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
 		BEGIN
 		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
-		SET @dsql=N'USE ' + @DatabaseName + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+		SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			INSERT #Statistics ( database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
@@ -2000,7 +2016,7 @@ BEGIN TRY
 			ELSE 
 			BEGIN
 			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
-			SET @dsql=N'USE ' + @DatabaseName + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			INSERT #Statistics(database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
@@ -2978,6 +2994,7 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
 						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
 						WHERE rg.object_id = @ObjectID
+						AND rg.state IN (1, 2, 3)
 						AND c.name IN ( ' + @ColumnListWithApostrophes + N')' 
 						+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
 					) AS y ' ELSE N' ' END + N'
@@ -3022,32 +3039,142 @@ END; /* IF @TableName IS NOT NULL */
 
 
 
+ELSE /* @TableName IS NULL, so we operate in normal mode 0/1/2/3/4 */
+BEGIN
+
+/* Validate and check table output params */
+
+
+		/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
+		DECLARE @ValidOutputServer BIT;
+		DECLARE @ValidOutputLocation BIT;
+		DECLARE @LinkedServerDBCheck NVARCHAR(2000);
+		DECLARE @ValidLinkedServerDB INT;
+		DECLARE @tmpdbchk TABLE (cnt INT);
+		
+		IF @OutputServerName IS NOT NULL
+			BEGIN
+				IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+					BEGIN
+						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
+					END;
+				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
+					BEGIN
+						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
+						SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
+						IF (@ValidLinkedServerDB > 0)
+							BEGIN
+								SET @ValidOutputServer = 1;
+								SET @ValidOutputLocation = 1;
+							END;
+						ELSE
+							RAISERROR('The specified database was not found on the output server', 16, 0);
+					END;
+				ELSE
+					BEGIN
+						RAISERROR('The specified output server was not found', 16, 0);
+					END;
+			END;
+		ELSE
+			BEGIN
+				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
+					BEGIN
+						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+						EXEC(@StringToExecute);
+						
+						SET @OutputServerName = QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
+						SET @OutputDatabaseName = '[tempdb]';
+						SET @OutputSchemaName = '[dbo]';
+						SET @ValidOutputLocation = 1;
+					END;
+				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
+					BEGIN
+						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+					END;
+				ELSE IF @OutputDatabaseName IS NOT NULL
+					AND @OutputSchemaName IS NOT NULL
+					AND @OutputTableName IS NOT NULL
+					AND EXISTS ( SELECT *
+						 FROM   sys.databases
+						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+					BEGIN
+						SET @ValidOutputLocation = 1;
+						SET @OutputServerName = QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
+					END;
+				ELSE IF @OutputDatabaseName IS NOT NULL
+					AND @OutputSchemaName IS NOT NULL
+					AND @OutputTableName IS NOT NULL
+					AND NOT EXISTS ( SELECT *
+						 FROM   sys.databases
+						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
+					BEGIN
+						RAISERROR('The specified output database was not found on this server', 16, 0);
+					END;
+				ELSE
+					BEGIN
+						SET @ValidOutputLocation = 0; 
+					END;
+			END;
+																										
+        IF (@ValidOutputLocation = 0 AND @OutputType = 'NONE')
+        BEGIN
+            RAISERROR('Invalid output location and no output asked',12,1);
+            RETURN;
+        END;
+																										
+		/* @OutputTableName lets us export the results to a permanent table */
+		DECLARE @RunID UNIQUEIDENTIFIER;
+		SET @RunID = NEWID();
+
+		DECLARE @TableExists BIT;
+		DECLARE @SchemaExists BIT;
+
+		DECLARE @TableExistsSql NVARCHAR(MAX);
+
+		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
+			BEGIN
+				SET @StringToExecute = 
+					N'SET @SchemaExists = 0;
+					SET @TableExists = 0;
+					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+						SET @SchemaExists = 1
+					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					BEGIN
+						SET @TableExists = 1
+						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
+										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
+							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
+					END';
+	
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
+	
+				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT;
+
+
+				SET @TableExistsSql = 
+					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+						SET @TableExists = 0
+					ELSE
+						SET @TableExists = 1';
+				
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@', @OutputServerName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
+
+			END
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-ELSE IF @Mode IN (0, 4) /* DIAGNOSE*//* IF @TableName IS NOT NULL, so  @TableName must not be null */
-BEGIN;
+	IF @Mode IN (0, 4) /* DIAGNOSE */
+	BEGIN;
 	IF @Mode IN (0, 4) /* DIAGNOSE priorities 1-100 */
 	BEGIN;
         RAISERROR(N'@Mode=0 or 4, running rules for priorities 1-100.', 0,1) WITH NOWAIT;
@@ -3855,23 +3982,6 @@ BEGIN;
 
 
 	END /* IF @Mode IN (0, 4) DIAGNOSE priorities 1-100 */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -4912,27 +5022,7 @@ BEGIN;
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
+	   	   
         RAISERROR(N'Insert a row to help people find help', 0,1) WITH NOWAIT;
         IF DATEDIFF(MM, @VersionDate, GETDATE()) > 6
 		BEGIN
@@ -5002,65 +5092,345 @@ BEGIN;
         RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             
         /*Return results.*/
-        IF (@Mode = 0)
-        BEGIN
-			IF(@OutputType <> 'NONE')
+		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
 			BEGIN
-				SELECT Priority, ISNULL(br.findings_group,N'') + 
-						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-						+ br.finding AS [Finding], 
-					br.[database_name] AS [Database Name],
-					br.details AS [Details: schema.table.index(indexid)], 
-					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-					ISNULL(br.secret_columns,'') AS [Secret Columns],          
-					br.index_usage_summary AS [Usage], 
-					br.index_size_summary AS [Size],
-					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-                    br.sample_query_plan AS [Sample Query Plan]
-				FROM #BlitzIndexResults br
-				LEFT JOIN #IndexSanity sn ON 
-					br.index_sanity_id=sn.index_sanity_id
-				LEFT JOIN #IndexCreateTsql ts ON 
-					br.index_sanity_id=ts.index_sanity_id
-				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
-				OPTION (RECOMPILE);
-			 END;
+				IF NOT @SchemaExists = 1
+					BEGIN
+						RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0);
+						RETURN;
+					END
 
-        END;
-        ELSE IF (@Mode = 4)
-			IF(@OutputType <> 'NONE')
-		 	BEGIN	
-				SELECT Priority, ISNULL(br.findings_group,N'') + 
-						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
-						+ br.finding AS [Finding], 
-					br.[database_name] AS [Database Name],
-					br.details AS [Details: schema.table.index(indexid)], 
-					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
-					ISNULL(br.secret_columns,'') AS [Secret Columns],          
-					br.index_usage_summary AS [Usage], 
-					br.index_size_summary AS [Size],
-					COALESCE(br.more_info,sn.more_info,'') AS [More Info],
-					br.URL, 
-					COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
-                    br.sample_query_plan AS [Sample Query Plan]
-				FROM #BlitzIndexResults br
-				LEFT JOIN #IndexSanity sn ON 
-					br.index_sanity_id=sn.index_sanity_id
-				LEFT JOIN #IndexCreateTsql ts ON 
-					br.index_sanity_id=ts.index_sanity_id
-				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
-				OPTION (RECOMPILE);
-			 END;
+				IF @TableExists = 0
+					BEGIN
+						SET @StringToExecute = 
+							N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@ 
+								(
+									[id] INT IDENTITY(1,1) NOT NULL, 
+									[run_id] UNIQUEIDENTIFIER,
+									[run_datetime] DATETIME, 
+									[server_name] NVARCHAR(128), 
+									[priority] INT,
+									[finding] NVARCHAR(4000),
+									[database_name] NVARCHAR(128),
+									[details] NVARCHAR(MAX),
+									[index_definition] NVARCHAR(MAX),
+									[secret_columns] NVARCHAR(MAX),
+									[index_usage_summary] NVARCHAR(MAX),
+									[index_size_summary] NVARCHAR(MAX),
+									[more_info] NVARCHAR(MAX),
+									[url] NVARCHAR(MAX),
+									[create_tsql] NVARCHAR(MAX),
+									[sample_query_plan] XML,
+									CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED ([id] ASC)
+								);';
+		
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID); 
+								
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END;   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END;
+					END; /* @TableExists = 0 */
 
-END /* End @Mode=0 or 4 (diagnose)*/
+				-- Re-check that table now exists (if not we failed creating it)	
+				SET @TableExists = NULL;
+				EXEC sp_executesql @TableExistsSql, N'@TableExists BIT OUTPUT', @TableExists OUTPUT;
+						
+				IF NOT @TableExists = 1
+					BEGIN
+						RAISERROR('Creation of the output table failed.', 16, 0);
+						RETURN;
+					END;
 
-ELSE IF (@Mode=1) /*Summarize*/
+				SET @StringToExecute = 
+					N'INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
+						(
+							[run_id], 
+							[run_datetime], 
+							[server_name],
+							[priority],
+							[finding],
+							[database_name],
+							[details],
+							[index_definition],
+							[secret_columns],
+							[index_usage_summary],
+							[index_size_summary],
+							[more_info],
+							[url],
+							[create_tsql],
+							[sample_query_plan]
+						)
+					SELECT
+						''@@@RunID@@@'',
+						''@@@GETDATE@@@'',
+						''@@@LocalServerName@@@'',
+						-- Below should be a copy/paste of the real query
+						-- Make sure all quotes are escaped
+						Priority, ISNULL(br.findings_group,N'''') + 
+							CASE WHEN ISNULL(br.finding,N'''') <> N'''' THEN N'': '' ELSE N'''' END
+							+ br.finding AS [Finding], 
+						br.[database_name] AS [Database Name],
+						br.details AS [Details: schema.table.index(indexid)], 
+						br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+						ISNULL(br.secret_columns,'''') AS [Secret Columns],          
+						br.index_usage_summary AS [Usage], 
+						br.index_size_summary AS [Size],
+						COALESCE(br.more_info,sn.more_info,'''') AS [More Info],
+						br.URL, 
+						COALESCE(br.create_tsql,ts.create_tsql,'''') AS [Create TSQL],
+						br.sample_query_plan AS [Sample Query Plan]
+					FROM #BlitzIndexResults br
+					LEFT JOIN #IndexSanity sn ON 
+						br.index_sanity_id=sn.index_sanity_id
+					LEFT JOIN #IndexCreateTsql ts ON 
+						br.index_sanity_id=ts.index_sanity_id
+					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+					OPTION (RECOMPILE);';
+	
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@GETDATE@@@', GETDATE());
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@LocalServerName@@@', CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
+				EXEC(@StringToExecute);
+
+			END
+        ELSE
+			BEGIN
+				IF(@OutputType <> 'NONE')
+				BEGIN
+					SELECT Priority, ISNULL(br.findings_group,N'') + 
+							CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
+							+ br.finding AS [Finding], 
+						br.[database_name] AS [Database Name],
+						br.details AS [Details: schema.table.index(indexid)], 
+						br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+						ISNULL(br.secret_columns,'') AS [Secret Columns],          
+						br.index_usage_summary AS [Usage], 
+						br.index_size_summary AS [Size],
+						COALESCE(br.more_info,sn.more_info,'') AS [More Info],
+						br.URL, 
+						COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
+						br.sample_query_plan AS [Sample Query Plan]
+					FROM #BlitzIndexResults br
+					LEFT JOIN #IndexSanity sn ON 
+						br.index_sanity_id=sn.index_sanity_id
+					LEFT JOIN #IndexCreateTsql ts ON 
+						br.index_sanity_id=ts.index_sanity_id
+					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+					OPTION (RECOMPILE);
+				 END;
+
+			END;
+
+	END /* End @Mode=0 or 4 (diagnose)*/
+
+
+
+
+
+
+
+
+	ELSE IF (@Mode=1) /*Summarize*/
     BEGIN
     --This mode is to give some overall stats on the database.
-	 	IF(@OutputType <> 'NONE')
-	 	BEGIN
+		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
+			BEGIN
+
+				IF NOT @SchemaExists = 1
+					BEGIN
+						RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0);
+						RETURN;
+					END
+
+				IF @TableExists = 0
+					BEGIN
+						SET @StringToExecute = 
+							N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@ 
+								(
+									[id] INT IDENTITY(1,1) NOT NULL, 
+									[run_id] UNIQUEIDENTIFIER,
+									[run_datetime] DATETIME, 
+									[server_name] NVARCHAR(128), 
+									[database_name] NVARCHAR(128),
+									[object_count] INT,
+									[reserved_gb] NUMERIC(29,1),
+									[reserved_lob_gb] NUMERIC(29,1),
+									[reserved_row_overflow_gb] NUMERIC(29,1),
+									[clustered_table_count] INT,
+									[clustered_table_gb] NUMERIC(29,1),
+									[nc_index_count] INT,
+									[nc_index_gb] NUMERIC(29,1),
+									[table_nc_index_ratio] NUMERIC(29,1),
+									[heap_count] INT,
+									[heap_gb] NUMERIC(29,1),
+									[partioned_table_count] INT,
+									[partioned_nc_count] INT,
+									[partioned_gb] NUMERIC(29,1),
+									[filtered_index_count] INT,
+									[indexed_view_count] INT,
+									[max_table_row_count] INT,
+									[max_table_gb] NUMERIC(29,1),
+									[max_nc_index_gb] NUMERIC(29,1),
+									[table_count_over_1gb] INT,
+									[table_count_over_10gb] INT,
+									[table_count_over_100gb] INT,    
+									[nc_index_count_over_1gb] INT,
+									[nc_index_count_over_10gb] INT,
+									[nc_index_count_over_100gb] INT,
+									[min_create_date] DATETIME,
+									[max_create_date] DATETIME,
+									[max_modify_date] DATETIME,
+									[display_order] INT,
+									CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED ([id] ASC)
+								);';
+		
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID); 
+								
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END;   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END;
+					END; /* @TableExists = 0 */
+
+					-- Re-check that table now exists (if not we failed creating it)	
+					SET @TableExists = NULL;
+					EXEC sp_executesql @TableExistsSql, N'@TableExists BIT OUTPUT', @TableExists OUTPUT;
+						
+					IF NOT @TableExists = 1
+						BEGIN
+							RAISERROR('Creation of the output table failed.', 16, 0);
+							RETURN;
+						END;
+
+					SET @StringToExecute = 
+						N'INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
+							(
+								[run_id], 
+								[run_datetime], 
+								[server_name], 
+								[database_name],
+								[object_count],
+								[reserved_gb],
+								[reserved_lob_gb],
+								[reserved_row_overflow_gb],
+								[clustered_table_count],
+								[clustered_table_gb],
+								[nc_index_count],
+								[nc_index_gb],
+								[table_nc_index_ratio],
+								[heap_count],
+								[heap_gb],
+								[partioned_table_count],
+								[partioned_nc_count],
+								[partioned_gb],
+								[filtered_index_count],
+								[indexed_view_count],
+								[max_table_row_count],
+								[max_table_gb],
+								[max_nc_index_gb],
+								[table_count_over_1gb],
+								[table_count_over_10gb],
+								[table_count_over_100gb],    
+								[nc_index_count_over_1gb],
+								[nc_index_count_over_10gb],
+								[nc_index_count_over_100gb],
+								[min_create_date],
+								[max_create_date],
+								[max_modify_date],
+								[display_order]
+							)
+						SELECT ''@@@RunID@@@'',
+							''@@@GETDATE@@@'',
+							''@@@LocalServerName@@@'',
+							-- Below should be a copy/paste of the real query
+							-- Make sure all quotes are escaped
+							-- NOTE! information line is skipped from output and the query below
+							-- NOTE! initial columns are not casted to nvarchar due to not outputing informational line
+							DB_NAME(i.database_id) AS [Database Name],
+								COUNT(*) AS [Number Objects],
+								CAST(SUM(sz.total_reserved_MB)/
+									1024. AS NUMERIC(29,1)) AS [All GB],
+								CAST(SUM(sz.total_reserved_LOB_MB)/
+									1024. AS NUMERIC(29,1)) AS [LOB GB],
+								CAST(SUM(sz.total_reserved_row_overflow_MB)/
+									1024. AS NUMERIC(29,1)) AS [Row Overflow GB],
+								SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END) AS [Clustered Tables],
+								CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
+									/1024. AS NUMERIC(29,1)) AS [Clustered Tables GB],
+								SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
+								CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+									/1024. AS NUMERIC(29,1)) AS [NC Indexes GB],
+								CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)  > 0 THEN
+									CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+										/ SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) 
+									ELSE 0 END AS [ratio table: NC Indexes],
+								SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
+								CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)
+									/1024. AS NUMERIC(29,1)) AS [Heaps GB],
+								SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
+								SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
+								CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS NUMERIC(29,1)) AS [Partitioned GB],
+								SUM(CASE WHEN filter_definition <> '''' THEN 1 ELSE 0 END) AS [Filtered Indexes],
+								SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
+								MAX(total_rows) AS [Max Row Count],
+								CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+									/1024. AS NUMERIC(29,1)) AS [Max Table GB],
+								CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+									/1024. AS NUMERIC(29,1)) AS [Max NC Index GB],
+								SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
+								SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
+								SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],    
+								SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
+								SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
+								SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
+								MIN(create_date) AS [Oldest Create Date],
+								MAX(create_date) AS [Most Recent Create Date],
+								MAX(modify_date) AS [Most Recent Modify Date],
+								1 AS [Display Order]
+							FROM #IndexSanity AS i
+							--left join here so we don''t lose disabled nc indexes
+							LEFT JOIN #IndexSanitySize AS sz 
+								ON i.index_sanity_id=sz.index_sanity_id
+							GROUP BY DB_NAME(i.database_id)
+							ORDER BY [Display Order] ASC
+							OPTION (RECOMPILE);';
+	
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@GETDATE@@@', GETDATE());
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@LocalServerName@@@', CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
+					EXEC(@StringToExecute);
+
+			END; /* @ValidOutputLocation = 1 */
+		ELSE
+			BEGIN
+				IF(@OutputType <> 'NONE')
+				BEGIN
+
 			RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
 			SELECT DB_NAME(i.database_id) AS [Database Name],
@@ -5120,123 +5490,26 @@ ELSE IF (@Mode=1) /*Summarize*/
 					NULL,NULL,0 AS display_order
 			ORDER BY [Display Order] ASC
 			OPTION (RECOMPILE);
-	  	END;
-           
+  			END;
+		END;
+
     END; /* End @Mode=1 (summarize)*/
-    ELSE IF (@Mode=2) /*Index Detail*/
+
+
+
+
+
+
+
+
+	ELSE IF (@Mode=2) /*Index Detail*/
     BEGIN
         --This mode just spits out all the detail without filters.
         --This supports slicing AND dicing in Excel
         RAISERROR(N'@Mode=2, here''s the details on existing indexes.', 0,1) WITH NOWAIT;
 
-		
-		/* Checks if @OutputServerName is populated with a valid linked server, and that the database name specified is valid */
-		DECLARE @ValidOutputServer BIT;
-		DECLARE @ValidOutputLocation BIT;
-		DECLARE @LinkedServerDBCheck NVARCHAR(2000);
-		DECLARE @ValidLinkedServerDB INT;
-		DECLARE @tmpdbchk TABLE (cnt INT);
-		
-		IF @OutputServerName IS NOT NULL
-			BEGIN
-				IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
-					BEGIN
-						RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
-					END;
-				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
-					BEGIN
-						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
-						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
-						SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
-						IF (@ValidLinkedServerDB > 0)
-							BEGIN
-								SET @ValidOutputServer = 1;
-								SET @ValidOutputLocation = 1;
-							END;
-						ELSE
-							RAISERROR('The specified database was not found on the output server', 16, 0);
-					END;
-				ELSE
-					BEGIN
-						RAISERROR('The specified output server was not found', 16, 0);
-					END;
-			END;
-		ELSE
-			BEGIN
-				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
-					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
-						EXEC(@StringToExecute);
-						
-						SET @OutputServerName = QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
-						SET @OutputDatabaseName = '[tempdb]';
-						SET @OutputSchemaName = '[dbo]';
-						SET @ValidOutputLocation = 1;
-					END;
-				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
-					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
-					END;
-				ELSE IF @OutputDatabaseName IS NOT NULL
-					AND @OutputSchemaName IS NOT NULL
-					AND @OutputTableName IS NOT NULL
-					AND EXISTS ( SELECT *
-						 FROM   sys.databases
-						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
-					BEGIN
-						SET @ValidOutputLocation = 1;
-						SET @OutputServerName = QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
-					END;
-				ELSE IF @OutputDatabaseName IS NOT NULL
-					AND @OutputSchemaName IS NOT NULL
-					AND @OutputTableName IS NOT NULL
-					AND NOT EXISTS ( SELECT *
-						 FROM   sys.databases
-						 WHERE  QUOTENAME([name]) = @OutputDatabaseName)
-					BEGIN
-						RAISERROR('The specified output database was not found on this server', 16, 0);
-					END;
-				ELSE
-					BEGIN
-						SET @ValidOutputLocation = 0; 
-					END;
-			END;
-																										
-        IF (@ValidOutputLocation = 0 AND @OutputType = 'NONE')
-        BEGIN
-            RAISERROR('Invalid output location and no output asked',12,1);
-            RETURN;
-        END;
-																										
-		/* @OutputTableName lets us export the results to a permanent table */
-		DECLARE @RunID UNIQUEIDENTIFIER;
-		SET @RunID = NEWID();
-		
 		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
 			BEGIN
-				DECLARE @TableExists BIT;
-				DECLARE @SchemaExists BIT;
-				SET @StringToExecute = 
-					N'SET @SchemaExists = 0;
-					SET @TableExists = 0;
-					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-						SET @SchemaExists = 1
-					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
-					BEGIN
-						SET @TableExists = 1
-						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
-										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
-							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
-					END';
-	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
-	
-				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT;
-				
 				IF @SchemaExists = 1
 					BEGIN
 						IF @TableExists = 0
@@ -5337,20 +5610,10 @@ ELSE IF (@Mode=1) /*Summarize*/
 									END;
 							END; /* @TableExists = 0 */
 					
-						SET @StringToExecute = 
-							N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-								AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
-								SET @TableExists = 0
-							ELSE
-								SET @TableExists = 1';
-				
+
+						-- Re-check that table now exists (if not we failed creating it)	
 						SET @TableExists = NULL;
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
-			
-						EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT', @TableExists OUTPUT;
+						EXEC sp_executesql @TableExistsSql, N'@TableExists BIT OUTPUT', @TableExists OUTPUT;
 						
 						IF @TableExists = 1
 							BEGIN
@@ -5678,10 +5941,167 @@ ELSE IF (@Mode=1) /*Summarize*/
   		END;
 
     END; /* End @Mode=2 (index detail)*/
+
+
+
+
+
+
+
+
     ELSE IF (@Mode=3) /*Missing index Detail*/
     BEGIN
-		IF(@OutputType <> 'NONE')
-		BEGIN;
+		IF (@ValidOutputLocation = 1 AND COALESCE(@OutputServerName, @OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL)
+			BEGIN
+
+				IF NOT @SchemaExists = 1
+					BEGIN
+						RAISERROR (N'Invalid schema name, data could not be saved.', 16, 0);
+						RETURN;
+					END
+
+				IF @TableExists = 0
+					BEGIN
+						SET @StringToExecute = 
+							N'CREATE TABLE @@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@ 
+								(
+									[id] INT IDENTITY(1,1) NOT NULL, 
+									[run_id] UNIQUEIDENTIFIER,
+									[run_datetime] DATETIME, 
+									[server_name] NVARCHAR(128),  
+									[database_name] NVARCHAR(128), 
+									[schema_name] NVARCHAR(128),
+									[table_name] NVARCHAR(128),
+									[magic_benefit_number] BIGINT,
+									[missing_index_details] NVARCHAR(MAX),
+									[avg_total_user_cost] NUMERIC(29,4),
+									[avg_user_impact] NUMERIC(29,1),
+									[user_seeks] BIGINT,
+									[user_scans] BIGINT,
+									[unique_compiles] BIGINT,
+									[equality_columns_with_data_type] NVARCHAR(MAX),
+									[inequality_columns_with_data_type] NVARCHAR(MAX),
+									[included_columns_with_data_type] NVARCHAR(MAX),
+									[index_estimated_impact] NVARCHAR(256),
+									[create_tsql] NVARCHAR(MAX),
+									[more_info] NVARCHAR(600),
+									[display_order] INT,
+									[is_low] BIT,
+									[sample_query_plan] XML,
+									CONSTRAINT [PK_ID_@@@RunID@@@] PRIMARY KEY CLUSTERED ([id] ASC)
+								);';
+		
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID); 
+								
+						IF @ValidOutputServer = 1
+							BEGIN
+								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
+								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+							END;   
+						ELSE
+							BEGIN
+								EXEC(@StringToExecute);
+							END;
+					END; /* @TableExists = 0 */
+
+					-- Re-check that table now exists (if not we failed creating it)	
+					SET @TableExists = NULL;
+					EXEC sp_executesql @TableExistsSql, N'@TableExists BIT OUTPUT', @TableExists OUTPUT;
+						
+					IF NOT @TableExists = 1
+						BEGIN
+							RAISERROR('Creation of the output table failed.', 16, 0);
+							RETURN;
+						END;
+					SET @StringToExecute = 
+						N'WITH create_date AS (
+									SELECT i.database_id,
+										   i.schema_name,
+										   i.[object_id], 
+										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+									FROM #IndexSanity AS i
+									GROUP BY i.database_id, i.schema_name, i.object_id
+									)
+						INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
+							(
+								[run_id], 
+								[run_datetime], 
+								[server_name], 
+								[database_name], 
+								[schema_name],
+								[table_name],
+								[magic_benefit_number],
+								[missing_index_details],
+								[avg_total_user_cost],
+								[avg_user_impact],
+								[user_seeks],
+								[user_scans],
+								[unique_compiles],
+								[equality_columns_with_data_type],
+								[inequality_columns_with_data_type],
+								[included_columns_with_data_type],
+								[index_estimated_impact],
+								[create_tsql],
+								[more_info],
+								[display_order],
+								[is_low],
+								[sample_query_plan]
+							)
+						SELECT ''@@@RunID@@@'',
+							''@@@GETDATE@@@'',
+							''@@@LocalServerName@@@'',
+							-- Below should be a copy/paste of the real query
+							-- Make sure all quotes are escaped
+							-- NOTE! information line is skipped from output and the query below
+							-- NOTE! CTE block is above insert in the copied SQL
+							mi.database_name AS [Database Name], 
+							mi.[schema_name] AS [Schema], 
+							mi.table_name AS [Table], 
+							CAST((mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) AS BIGINT)
+								AS [Magic Benefit Number], 
+							mi.missing_index_details AS [Missing Index Details], 
+							mi.avg_total_user_cost AS [Avg Query Cost], 
+							mi.avg_user_impact AS [Est Index Improvement], 
+							mi.user_seeks AS [Seeks], 
+							mi.user_scans AS [Scans],
+							mi.unique_compiles AS [Compiles],
+							mi.equality_columns_with_data_type AS [Equality Columns],
+							mi.inequality_columns_with_data_type AS [Inequality Columns],
+							mi.included_columns_with_data_type AS [Included Columns], 
+							mi.index_estimated_impact AS [Estimated Impact], 
+							mi.create_tsql AS [Create TSQL], 
+							mi.more_info AS [More Info],
+							1 AS [Display Order],
+							mi.is_low,
+							mi.sample_query_plan AS [Sample Query Plan]
+						FROM #MissingIndexes AS mi
+						LEFT JOIN create_date AS cd
+						ON mi.[object_id] =  cd.object_id 
+						AND mi.database_id = cd.database_id
+						AND mi.schema_name = cd.schema_name
+						/* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+						WHERE @ShowAllMissingIndexRequests=1 
+						OR (mi.magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000
+						ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
+						OPTION (RECOMPILE);';
+	
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@RunID@@@', @RunID);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@GETDATE@@@', GETDATE());
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@LocalServerName@@@', CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)));
+					EXEC sp_executesql @StringToExecute, N'@DaysUptime NUMERIC(23,2), @ShowAllMissingIndexRequests BIT', @DaysUptime = @DaysUptime, @ShowAllMissingIndexRequests = @ShowAllMissingIndexRequests;
+
+			END; /* @ValidOutputLocation = 1 */
+		ELSE
+			BEGIN
+				IF(@OutputType <> 'NONE')
+				BEGIN
 			WITH create_date AS (
 						SELECT i.database_id,
 							   i.schema_name,
@@ -5730,21 +6150,26 @@ ELSE IF (@Mode=1) /*Summarize*/
 				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low, NULL
 			ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
-	  	END;
+  				END;
 
-	IF  (@BringThePain = 1
-	AND @DatabaseName IS NOT NULL
-	AND @GetAllDatabases = 0)
 
-	BEGIN
+				IF  (@BringThePain = 1
+				AND @DatabaseName IS NOT NULL
+				AND @GetAllDatabases = 0)
 
-		EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @DatabaseName = @DatabaseName, @BringThePain = 1, @QueryFilter = 'statement', @HideSummary = 1;
-	                              
-	END;
+				BEGIN
+					EXEC sp_BlitzCache @SortOrder = 'sp_BlitzIndex', @DatabaseName = @DatabaseName, @BringThePain = 1, @QueryFilter = 'statement', @HideSummary = 1;        
+				END;
+
+			END;
+
+
+
 
 
     END; /* End @Mode=3 (index detail)*/
 
+END /* End @TableName IS NULL (mode 0/1/2/3/4) */
 END TRY
 
 BEGIN CATCH
