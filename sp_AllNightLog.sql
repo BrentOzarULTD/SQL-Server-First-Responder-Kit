@@ -181,6 +181,12 @@ IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
 			
 			RETURN;
 		END 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'CommandLog')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s CommandLog table must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END
 
 /*
 Make sure sp_DatabaseRestore is installed in same database
@@ -797,7 +803,10 @@ LogShamer:
 
 			
 				BEGIN
-	
+					/* Reset error at start of loop*/
+					SELECT 	@error_number = NULL, 
+							@error_severity = NULL, 
+							@error_state = NULL;
 					BEGIN TRY
 							
 							BEGIN TRAN;
@@ -834,7 +843,14 @@ LogShamer:
                                                 AND (bw.error_number IS NULL OR bw.error_number > 0) /* negative numbers indicate human attention required */
 												AND bw.ignore_database = 0
 											  )
-										ORDER BY bw.last_log_backup_start_time ASC, bw.last_log_backup_finish_time ASC, bw.database_name ASC;
+										/* 
+											Process DBs with oldest log backup or the oldest error date if this is more recent than last backup time.
+											If an error occurs the DB is back in the queue but priority is given to DBs with the oldest 'attempted' date.
+											This will prevent a single DB with an error condition from monopolizing the queue
+										*/
+										ORDER BY CASE WHEN bw.last_error_date> bw.last_log_backup_start_time THEN bw.last_error_date ELSE bw.last_log_backup_start_time END ASC, 
+												 bw.last_log_backup_finish_time ASC, 
+												 bw.database_name ASC;
 	
 								
 									IF @database IS NOT NULL
@@ -889,19 +905,6 @@ LogShamer:
 							IF @Debug = 1 RAISERROR('No databases to back up right now, starting 3 second throttle', 0, 1) WITH NOWAIT;
 							WAITFOR DELAY '00:00:03.000';
 
-                            /* Check to make sure job is still enabled */
-		                    IF NOT EXISTS (
-						                    SELECT *
-						                    FROM msdb.dbo.sysjobs 
-						                    WHERE name LIKE 'sp_AllNightLog_Backup%'
-                                            AND enabled = 1
-						                    )
-                                BEGIN
-				                    RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				                    RETURN;
-                                END        
-
-
 						END
 	
 	
@@ -952,74 +955,75 @@ LogShamer:
 																	        @Compress = 'Y', --This is usually a good idea
 																	        @LogToTable = 'Y'; --We should do this for posterity
 	
-										
-										/*
-										
-										Catch any erroneous zones
-										
-										*/
-										
-										SELECT @error_number = ERROR_NUMBER(), 
-											   @error_severity = ERROR_SEVERITY(), 
-											   @error_state = ERROR_STATE();
+																				
+
 	
 								END; --End call to dbo.DatabaseBackup
 	
 						END; --End successful check of @database (not NULL)
 					
 					END TRY
-	
+					/*
+					
+					Catch any erroneous zones
+					
+					*/
 					BEGIN CATCH
-	
-						IF  @error_number IS NOT NULL
+						SELECT @error_number = ERROR_NUMBER(), 
+											   @error_severity = ERROR_SEVERITY(), 
+											   @error_state = ERROR_STATE();
+											   
 
+						/* 
+							Re-throw the error, preserving as much of the original error details as possible to assist  withtroubleshooting.
+						*/
+						SET @msg = N'Error number: ' + ISNULL(CONVERT(NVARCHAR(10), ERROR_NUMBER()),N'') 
+													+ N', Line: ' + ISNULL(CAST(ERROR_LINE() AS NVARCHAR(10)),N'') 
+													+ N', Severity: ' + ISNULL(CAST(ERROR_SEVERITY() AS NVARCHAR(10)),N'') 	
+													+ N', State: ' + ISNULL(CAST(ERROR_STATE() AS NVARCHAR(10)),N'')  
+													+ N', Procedure: ' + ISNULL(ERROR_PROCEDURE(),N'')
+													+ N', Message: ' + ISNULL(ERROR_MESSAGE(),N''); 
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+						
 						/*
 						
-						If the ERROR() function returns a number, update the table with it and the last error date.
+						Update the table with last error number and the last error date.
 
 						Also update the last start time to 1900-01-01 so it gets picked back up immediately -- the query to find a log backup to take sorts by start time
 
 						*/
-	
-							BEGIN
-	
-								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
-								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
-								
-								SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
-								RAISERROR(@msg, 0, 1) WITH NOWAIT;
-	
-								
-									UPDATE bw
-											SET bw.is_started = 0,
-												bw.is_completed = 1,
-												bw.last_log_backup_start_time = '19000101',
-												bw.error_number = @error_number,
-												bw.last_error_date = GETDATE()
-									FROM msdbCentral.dbo.backup_worker bw 
-									WHERE bw.database_name = @database;
+						SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
+						RAISERROR(@msg, 0, 1) WITH NOWAIT;
+						
+						UPDATE bw
+								SET bw.is_started = 0,
+									bw.is_completed = 1,
+									bw.last_log_backup_start_time = '19000101',
+									bw.error_number = @error_number,
+									bw.last_error_date = GETDATE()
+						FROM msdbCentral.dbo.backup_worker bw 
+						WHERE bw.database_name = @database;
 
 
-								/*
-								
-								Set @database back to NULL to avoid variable assignment weirdness
-								
-								*/
+						/*
+						
+						Set @database back to NULL to avoid variable assignment weirdness
+						
+						*/
 
-								SET @database = NULL;
+						SET @database = NULL;
+									
+						/*
+						
+						Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
 
-										
-										/*
-										
-										Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
+						*/
+						
+						IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
+						
+						WAITFOR DELAY '00:00:01.000';
 
-										*/
-										
-										IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
-										
-										WAITFOR DELAY '00:00:01.000';
-
-							END; -- End update of unsuccessful backup
+						-- End update of unsuccessful backup
 	
 					END CATCH;
 	
@@ -1059,7 +1063,17 @@ LogShamer:
 
 						END; -- End update for successful backup	
 
-										
+					/* Check to make sure job is still enabled */
+					IF NOT EXISTS (
+									SELECT *
+									FROM msdb.dbo.sysjobs 
+									WHERE name LIKE 'sp_AllNightLog_Backup%'
+									AND enabled = 1
+									)
+						BEGIN
+							RAISERROR('sp_AllNightLog_Backup jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+							RETURN;
+						END       					
 				END; -- End @Backup WHILE loop
 
 				
@@ -1158,7 +1172,10 @@ IF @Restore = 1
 
 			
 				BEGIN
-	
+					/* Reset error at start of loop*/
+					SELECT 	@error_number = NULL, 
+							@error_severity = NULL, 
+							@error_state = NULL;
 					BEGIN TRY
 							
 							BEGIN TRAN;
@@ -1211,7 +1228,14 @@ IF @Restore = 1
 															AND state <> 1 /* Restoring */
 															AND NOT (state=0 AND d.is_in_standby=1) /* standby mode */
 														)
-										ORDER BY rw.last_log_restore_start_time ASC, rw.last_log_restore_finish_time ASC, rw.database_name ASC;
+										/* 
+											Process DBs with oldest log restore or the oldest error date if this is more recent than last restore time.
+											If an error occurs the DB is back in the queue but priority is given to DBs with the oldest 'attempted' date.
+											This will prevent a single DB with an error condition from monopolizing the queue
+										*/
+										ORDER BY 	CASE WHEN rw.last_error_date > rw.last_log_restore_start_time THEN rw.last_error_date ELSE rw.last_log_restore_start_time END ASC, 
+													rw.last_log_restore_finish_time ASC, 
+													rw.database_name ASC;
 	
 								
 									IF @database IS NOT NULL
@@ -1277,19 +1301,6 @@ IF @Restore = 1
 			                        RAISERROR('sp_AllNightLog_Backup jobs are enabled, so gracefully exiting. You do not want to accidentally do restores over top of the databases you are backing up.', 0, 1) WITH NOWAIT;
 			                        RETURN;
                                 END        
-
-                            /* Check to make sure job is still enabled */
-		                    IF NOT EXISTS (
-						                    SELECT *
-						                    FROM msdb.dbo.sysjobs 
-						                    WHERE name LIKE 'sp_AllNightLog_Restore%'
-                                            AND enabled = 1
-						                    )
-                                BEGIN
-				                    RAISERROR('sp_AllNightLog_Restore jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
-				                    RETURN;
-                                END        
-
 						END
 	
 	
@@ -1365,76 +1376,74 @@ IF @Restore = 1
 																				   @Debug = @Debug
 	
 											END
-
-
-										
-										/*
-										
-										Catch any erroneous zones
-										
-										*/
-										
-										SELECT @error_number = ERROR_NUMBER(), 
-											   @error_severity = ERROR_SEVERITY(), 
-											   @error_state = ERROR_STATE();
 	
 								END; --End call to dbo.sp_DatabaseRestore
 	
 						END; --End successful check of @database (not NULL)
-					
-					END TRY
-	
-					BEGIN CATCH
-	
-						IF  @error_number IS NOT NULL
 
+					END TRY
+					/*
+					
+					Catch any erroneous zones
+					
+					*/
+					BEGIN CATCH
+
+						SELECT @error_number = ERROR_NUMBER(), 
+								@error_severity = ERROR_SEVERITY(), 
+								@error_state = ERROR_STATE();
+	
+						
+						/* 
+							Re-throw the error, preserving as much of the original error details as possible to assist  withtroubleshooting.
+						*/
+						SET @msg = N'Error number: ' + ISNULL(CONVERT(NVARCHAR(10), ERROR_NUMBER()),N'') 
+													+ N', Line: ' + ISNULL(CAST(ERROR_LINE() AS NVARCHAR(10)),N'') 
+													+ N', Severity: ' + ISNULL(CAST(ERROR_SEVERITY() AS NVARCHAR(10)),N'') 	
+													+ N', State: ' + ISNULL(CAST(ERROR_STATE() AS NVARCHAR(10)),N'')  
+													+ N', Procedure: ' + ISNULL(ERROR_PROCEDURE(),N'')
+													+ N', Message: ' + ISNULL(ERROR_MESSAGE(),N''); 
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+						
 						/*
 						
-						If the ERROR() function returns a number, update the table with it and the last error date.
+						Update the table with last error number and the last error date.
 
 						Also update the last start time to 1900-01-01 so it gets picked back up immediately -- the query to find a log restore to take sorts by start time
 
 						*/
-	
-							BEGIN
-	
-								SET @msg = N'Error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()); 
-								RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+						SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful restore';
+						RAISERROR(@msg, 0, 1) WITH NOWAIT;
+						
+						UPDATE rw
+								SET rw.is_started = 0,
+									rw.is_completed = 1,
+									rw.last_log_restore_start_time = '19000101',
+									rw.error_number = @error_number,
+									rw.last_error_date = GETDATE()
+						FROM msdb.dbo.restore_worker rw 
+						WHERE rw.database_name = @database;
+
+
+						/*
+						
+						Set @database back to NULL to avoid variable assignment weirdness
+						
+						*/
+
+						SET @database = NULL;
 								
-								SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for unsuccessful backup';
-								RAISERROR(@msg, 0, 1) WITH NOWAIT;
-	
-								
-									UPDATE rw
-											SET rw.is_started = 0,
-												rw.is_completed = 1,
-												rw.last_log_restore_start_time = '19000101',
-												rw.error_number = @error_number,
-												rw.last_error_date = GETDATE()
-									FROM msdb.dbo.restore_worker rw 
-									WHERE rw.database_name = @database;
+						/*
+						
+						Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
 
+						*/
+						
+						IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
+						
+						WAITFOR DELAY '00:00:01.000';
 
-								/*
-								
-								Set @database back to NULL to avoid variable assignment weirdness
-								
-								*/
-
-								SET @database = NULL;
-
-										
-										/*
-										
-										Wait around for a second so we're not just spinning wheels -- this only runs if the BEGIN CATCH is triggered by an error
-
-										*/
-										
-										IF @Debug = 1 RAISERROR('Starting 1 second throttle', 0, 1) WITH NOWAIT;
-										
-										WAITFOR DELAY '00:00:01.000';
-
-							END; -- End update of unsuccessful restore
+					-- End update of unsuccessful restore
 	
 					END CATCH;
 
@@ -1455,7 +1464,7 @@ IF @Restore = 1
                             /* Make sure database actually exists and is in the restoring state */
                             IF EXISTS (SELECT * FROM sys.databases WHERE name = @database AND state = 1) /* Restoring */
 								BEGIN
-							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful backup';
+							        SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for successful restore';
 							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
 								    UPDATE rw
@@ -1468,7 +1477,7 @@ IF @Restore = 1
                                 END
                             ELSE /* The database doesn't exist, or it's not in the restoring state */
                                 BEGIN
-							        SET @msg = N'Updating backup_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful backup';
+							        SET @msg = N'Updating restore_worker for database ' + ISNULL(@database, 'UH OH NULL @database') + ' for UNsuccessful restore';
 							        IF @Debug = 1 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 								
 								    UPDATE rw
@@ -1492,7 +1501,19 @@ IF @Restore = 1
 							SET @database = NULL;
 
 
-						END; -- End update for successful backup	
+						END; -- End update for successful restore
+
+						/* Check to make sure job is still enabled */
+						IF NOT EXISTS (
+										SELECT *
+										FROM msdb.dbo.sysjobs 
+										WHERE name LIKE 'sp_AllNightLog_Restore%'
+										AND enabled = 1
+										)
+							BEGIN
+								RAISERROR('sp_AllNightLog_Restore jobs are disabled, so gracefully exiting. It feels graceful to me, anyway.', 0, 1) WITH NOWAIT;
+								RETURN;
+							END        	
 										
 				END; -- End @Restore WHILE loop
 
